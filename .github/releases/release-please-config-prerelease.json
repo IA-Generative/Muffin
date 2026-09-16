@@ -12,6 +12,11 @@
           "type": "json",
           "path": "frontend/package.json",
           "jsonpath": "$.version"
+        },
+        {
+          "type": "toml",
+          "path": "backend/pyproject.toml",
+          "jsonpath": "project.version"
         }
       ],
       "changelog-sections": [
