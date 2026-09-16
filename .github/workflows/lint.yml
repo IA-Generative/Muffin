@@ -1,0 +1,49 @@
+name: Lint
+
+# Kept local rather than delegated to fabnum-cicd: the shared catalogue has no
+# frontend linter, and this one is a thin wrapper around the frontend's own
+# typecheck. A Python step for `backend/` lands here once that folder exists.
+
+on:
+  workflow_call:
+    inputs:
+      NODE_VERSION:
+        description: Node version used to run the frontend linter
+        required: false
+        type: string
+        default: "22"
+  workflow_dispatch:
+    inputs:
+      NODE_VERSION:
+        description: Node version used to run the frontend linter
+        required: false
+        type: string
+        default: "22"
+
+jobs:
+  lint:
+    name: Lint code
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6.1.0
+
+    - name: Set up pnpm
+      uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda  # v4.1.0
+
+    - name: Set up Node
+      uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903  # v6.0.0
+      with:
+        node-version: ${{ inputs.NODE_VERSION }}
+        cache: pnpm
+        cache-dependency-path: frontend/pnpm-lock.yaml
+
+    - name: Install frontend dependencies
+      working-directory: frontend
+      run: pnpm install --frozen-lockfile
+
+    - name: Typecheck frontend
+      working-directory: frontend
+      run: pnpm run typecheck

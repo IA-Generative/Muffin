@@ -1,0 +1,102 @@
+name: Clean GitHub Cache and GHCR Images
+
+# Reconciles Actions caches and ghcr.io images against what actually exists,
+# once a day, rather than reacting to a pull request closing (see ocr-api's
+# copy of this file for why: reacting to `closed` races ci.yml's own push).
+
+on:
+  schedule:
+  # 01:00 UTC daily, comfortably after the day's builds have settled.
+  - cron: '0 1 * * *'
+  workflow_dispatch:
+    inputs:
+      LOOKBACK_DAYS:
+        description: How far back to reconcile closed pull requests (raise it once to absorb a backlog)
+        required: false
+        type: number
+        default: 3
+
+jobs:
+  list-closed-prs:
+    name: List recently closed pull requests
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      prs: ${{ steps.list.outputs.prs }}
+      image-base: ${{ steps.image-base.outputs.IMAGE_BASE }}
+    steps:
+    - name: Compute image base
+      id: image-base
+      shell: bash
+      run: echo "IMAGE_BASE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+    - name: Collect closed pull requests within the lookback window
+      id: list
+      env:
+        GH_TOKEN: ${{ github.token }}
+        REPO: ${{ github.repository }}
+        LOOKBACK_DAYS: ${{ inputs.LOOKBACK_DAYS || 3 }}
+      run: |
+        set -euo pipefail
+
+        CUTOFF=$(date -u -d "$LOOKBACK_DAYS days ago" +%Y-%m-%dT%H:%M:%SZ)
+        echo "Reconciling pull requests closed since $CUTOFF"
+
+        PRS=$(gh pr list -R "$REPO" --state closed --limit 100 \
+          --json number,headRefName,closedAt \
+          | jq -c --arg c "$CUTOFF" \
+            '[.[] | select(.closedAt >= $c) | {number, headRefName}]')
+
+        echo "Found $(printf '%s' "$PRS" | jq 'length') pull request(s) to reconcile"
+        printf '%s\n' "$PRS" | jq -r '.[] | "  #\(.number) (\(.headRefName))"'
+        echo "prs=$PRS" >> "$GITHUB_OUTPUT"
+
+  sweep-caches:
+    name: Sweep caches
+    needs: list-closed-prs
+    if: ${{ needs.list-closed-prs.outputs.prs != '[]' }}
+    uses: dnum-mi/fabnum-cicd/.github/workflows/clean-cache.yml@v0
+    permissions:
+      actions: write
+    strategy:
+      fail-fast: false
+      matrix:
+        pr: ${{ fromJSON(needs.list-closed-prs.outputs.prs) }}
+    with:
+      PR_NUMBER: ${{ matrix.pr.number }}
+      BRANCH_NAME: ${{ matrix.pr.headRefName }}
+
+  sweep-images:
+    name: Sweep images
+    needs: list-closed-prs
+    if: ${{ needs.list-closed-prs.outputs.prs != '[]' }}
+    uses: dnum-mi/fabnum-cicd/.github/workflows/clean-images.yml@v0
+    permissions:
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        pr: ${{ fromJSON(needs.list-closed-prs.outputs.prs) }}
+        # Add "backend" here once backend/Dockerfile exists.
+        service:
+        - frontend
+    with:
+      IMAGE: ${{ needs.list-closed-prs.outputs.image-base }}/${{ matrix.service }}:pr-${{ matrix.pr.number }}
+
+  sweep-orphans:
+    name: Sweep orphaned build artifacts
+    needs: list-closed-prs
+    uses: dnum-mi/fabnum-cicd/.github/workflows/clean-images.yml@v0
+    permissions:
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+        - frontend
+    with:
+      IMAGE: ${{ needs.list-closed-prs.outputs.image-base }}/${{ matrix.service }}
+      CLEAN_TAGGED: false
+      CLEAN_ORPHANED: true
+      PROTECTED_TAGS: latest,main,dev
