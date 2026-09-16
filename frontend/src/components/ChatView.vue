@@ -1,10 +1,29 @@
 <script setup lang="ts">
+import { watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useChat } from '../composables/useChat'
 import ChatWindow from './ChatWindow.vue'
 import SourcesPanel from './SourcesPanel.vue'
 
-const { messages, activeSources, sendMessage, regenerateMessage, sendFeedback, showSources, closeSources } =
+const route = useRoute()
+const router = useRouter()
+
+const { activeId, messages, activeSources, selectConversation, sendMessage, regenerateMessage, sendFeedback, showSources, closeSources } =
   useChat()
+
+// "/" has no conversation id: normalize it to the active one so the URL
+// always reflects which conversation is open, without adding a history entry.
+watch(
+  () => route.params.id,
+  (id) => {
+    if (typeof id === 'string') {
+      if (id !== activeId.value) selectConversation(id, { navigate: false })
+    } else {
+      router.replace(`/c/${activeId.value}`)
+    }
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
