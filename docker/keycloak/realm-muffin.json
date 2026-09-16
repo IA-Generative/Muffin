@@ -1,0 +1,44 @@
+{
+  "realm": "muffin",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "loginTheme": "keycloak",
+  "accessTokenLifespan": 300,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+  "roles": {
+    "realm": [
+      { "name": "admin", "description": "Full administrative access to Muffin" },
+      { "name": "user", "description": "Standard Muffin user" }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "muffin-backend",
+      "name": "Muffin BFF",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "secret": "dev-only-secret-not-for-prod",
+      "redirectUris": ["http://localhost:8000/api/auth/callback"],
+      "webOrigins": ["http://localhost:5173"],
+      "defaultClientScopes": ["openid", "profile", "email", "roles"]
+    }
+  ],
+  "users": [
+    {
+      "username": "michou",
+      "email": "michou@example.com",
+      "firstName": "Michou",
+      "lastName": "Dev",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [{ "type": "password", "value": "muffin-dev", "temporary": false }],
+      "realmRoles": ["admin", "user"]
+    }
+  ]
+}
