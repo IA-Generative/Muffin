@@ -1,27 +1,19 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import ChatSidebar from './components/ChatSidebar.vue'
-import ChatView from './components/ChatView.vue'
-import CollectionsView from './components/CollectionsView.vue'
 import SettingsModal from './components/SettingsModal.vue'
 import { useChat } from './composables/useChat'
 import { useCurrentUser } from './composables/useCurrentUser'
 
-const view = ref<'chat' | 'collections'>('chat')
+const route = useRoute()
+const router = useRouter()
 const showSettings = ref(false)
 
 const { user, login, logout } = useCurrentUser()
 const { conversations, activeId, selectConversation, newConversation } = useChat()
 
-function selectConversationAndShowChat(id: string) {
-  view.value = 'chat'
-  selectConversation(id)
-}
-
-function newConversationAndShowChat() {
-  newConversation()
-  view.value = 'chat'
-}
+const activeView = computed(() => (route.path.startsWith('/collections') ? 'collections' : 'chat'))
 </script>
 
 <template>
@@ -29,17 +21,16 @@ function newConversationAndShowChat() {
     <ChatSidebar
       :conversations="conversations"
       :active-id="activeId"
-      :active-view="view"
+      :active-view="activeView"
       :user="user"
-      @select="selectConversationAndShowChat"
-      @new="newConversationAndShowChat"
-      @open-collections="view = 'collections'"
+      @select="selectConversation"
+      @new="newConversation"
+      @open-collections="router.push('/collections')"
       @open-settings="showSettings = true"
       @login="login()"
       @logout="logout"
     />
-    <ChatView v-if="view === 'chat'" />
-    <CollectionsView v-else />
+    <router-view />
 
     <SettingsModal v-if="showSettings" @close="showSettings = false" />
   </div>

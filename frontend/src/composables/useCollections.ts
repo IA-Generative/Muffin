@@ -1,4 +1,5 @@
 import { computed, ref } from 'vue'
+import { router } from '../router'
 import type {
   ChunkingSettings,
   Chunk,
@@ -248,12 +249,21 @@ const activeCollection = computed(() =>
   collections.value.find((collection) => collection.id === activeCollectionId.value),
 )
 
-function openCollection(id: string) {
+// `navigate: false` is used when a route change already triggered this (see
+// CollectionsView's route watcher) - pushing again there would just double the entry.
+function openCollection(id: string, options: { navigate?: boolean } = {}) {
   activeCollectionId.value = id
+  const target = `/collections/${id}`
+  if (options.navigate !== false && router.currentRoute.value.fullPath !== target) {
+    router.push(target)
+  }
 }
 
-function closeCollection() {
+function closeCollection(options: { navigate?: boolean } = {}) {
   activeCollectionId.value = undefined
+  if (options.navigate !== false && router.currentRoute.value.path !== '/collections') {
+    router.push('/collections')
+  }
 }
 
 function createCollection() {
