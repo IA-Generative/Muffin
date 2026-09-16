@@ -21,15 +21,3 @@ export interface Conversation {
   id: string
   title: string
 }
-
-export interface Collection {
-  id: string
-  name: string
-  description: string
-  documentCount: number
-}
-
-export interface User {
-  name: string
-  email: string
-}
