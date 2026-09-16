@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app import __version__
 from app.config import KeycloakSettings
 from app.routers.auth import router as auth_router
+from app.routers.collections import router as collections_router
 from app.routers.health import router as health_router
 from app.routers.models import router as models_router
 
@@ -19,6 +20,7 @@ app = FastAPI(
         {"name": "Auth", "description": "Login/logout via Keycloak, session management."},
         {"name": "Health", "description": "Liveness/readiness of the API and its dependencies."},
         {"name": "Models", "description": "LLM models available for chat, as served by the LLM hub."},
+        {"name": "Collections", "description": "Collections owned by the current user."},
     ],
 )
 
@@ -35,3 +37,4 @@ app.add_middleware(
 app.include_router(auth_router, prefix="/api/auth")
 app.include_router(health_router, prefix="/api")
 app.include_router(models_router, prefix="/api")
+app.include_router(collections_router, prefix="/api")
