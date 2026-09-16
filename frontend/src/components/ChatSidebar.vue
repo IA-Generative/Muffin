@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue'
-import type { Conversation, User } from '../types/chat'
+import type { Conversation } from '../types/chat'
+import type { User } from '../types/user'
 
 defineProps<{
   conversations: Conversation[]

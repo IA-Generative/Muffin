@@ -5,12 +5,12 @@ import ChatView from './components/ChatView.vue'
 import CollectionsView from './components/CollectionsView.vue'
 import SettingsModal from './components/SettingsModal.vue'
 import { useChat } from './composables/useChat'
-import type { User } from './types/chat'
+import { useCurrentUser } from './composables/useCurrentUser'
 
 const view = ref<'chat' | 'collections'>('chat')
 const showSettings = ref(false)
-const user = ref<User>({ name: 'Michou', email: 'helal.michou.junk@gmail.com' })
 
+const { user } = useCurrentUser()
 const { conversations, activeId, selectConversation, newConversation } = useChat()
 
 function selectConversationAndShowChat(id: string) {
