@@ -1,9 +1,9 @@
 from pydantic import BaseModel
 
 
-class ChatModel(BaseModel):
+class LlmModel(BaseModel):
     id: str
 
 
-class ChatModelsResponse(BaseModel):
-    models: list[ChatModel]
+class LlmModelsResponse(BaseModel):
+    models: list[LlmModel]
