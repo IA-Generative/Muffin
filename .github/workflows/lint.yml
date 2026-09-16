@@ -32,6 +32,10 @@ jobs:
 
     - name: Set up pnpm
       uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda  # v4.1.0
+      with:
+        # packageManager lives in frontend/package.json, not a root one (there
+        # isn't one) - without this, the action has nothing to read a version from.
+        package_json_file: frontend/package.json
 
     - name: Set up Node
       uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903  # v6.0.0
