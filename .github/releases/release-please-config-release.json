@@ -7,6 +7,13 @@
       "versioning": "prerelease",
       "prerelease": false,
       "prerelease-type": "",
+      "extra-files": [
+        {
+          "type": "json",
+          "path": "frontend/package.json",
+          "jsonpath": "$.version"
+        }
+      ],
       "changelog-sections": [
         {
           "type": "feat",
