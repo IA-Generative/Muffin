@@ -23,7 +23,11 @@ services:
       KEYCLOAK_CLIENT_ID: muffin-backend
       KEYCLOAK_CLIENT_SECRET: dev-only-secret-not-for-prod
       BACKEND_PUBLIC_URL: http://localhost:8000
-      FRONTEND_URL: http://localhost:8081
+      # :8081 by default (the dockerized frontend service below). Override to
+      # http://localhost:5173 in a local .env when running `make front`
+      # instead - the redirect after login and CORS both key off this single
+      # origin, so it must match whichever frontend you're actually using.
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:8081}
       SESSION_COOKIE_SECURE: "false"
     depends_on:
       postgres:
