@@ -10,7 +10,7 @@ import { useCurrentUser } from './composables/useCurrentUser'
 const view = ref<'chat' | 'collections'>('chat')
 const showSettings = ref(false)
 
-const { user } = useCurrentUser()
+const { user, login, logout } = useCurrentUser()
 const { conversations, activeId, selectConversation, newConversation } = useChat()
 
 function selectConversationAndShowChat(id: string) {
@@ -35,6 +35,8 @@ function newConversationAndShowChat() {
       @new="newConversationAndShowChat"
       @open-collections="view = 'collections'"
       @open-settings="showSettings = true"
+      @login="login()"
+      @logout="logout"
     />
     <ChatView v-if="view === 'chat'" />
     <CollectionsView v-else />

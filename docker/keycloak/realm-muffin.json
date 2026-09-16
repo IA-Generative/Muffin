@@ -25,8 +25,11 @@
       "serviceAccountsEnabled": false,
       "secret": "dev-only-secret-not-for-prod",
       "redirectUris": ["http://localhost:8000/api/auth/callback"],
-      "webOrigins": ["http://localhost:5173"],
-      "defaultClientScopes": ["openid", "profile", "email", "roles"]
+      "webOrigins": ["http://localhost:5173", "http://localhost:8081"],
+      "defaultClientScopes": ["openid", "profile", "email", "roles"],
+      "attributes": {
+        "post.logout.redirect.uris": "http://localhost:5173##http://localhost:8081"
+      }
     }
   ],
   "users": [

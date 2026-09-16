@@ -134,9 +134,11 @@ async def refresh(refresh_token: str) -> dict:
 @router.post("/logout", summary="End the BFF session and the Keycloak SSO session")
 async def logout(request: Request, response: Response) -> dict:
     session_id = request.cookies.get(_keycloak_settings.SESSION_COOKIE_NAME)
+    id_token: str | None = None
     if session_id:
         session = _session_store.get_session(session_id)
         if session:
+            id_token = session.id_token
             try:
                 _keycloak_openid.logout(session.refresh_token)
             except Exception:
@@ -144,9 +146,19 @@ async def logout(request: Request, response: Response) -> dict:
         _session_store.delete_session(session_id)
 
     _clear_session_cookie(response)
+    # id_token_hint proves this /logout call isn't a forged cross-site request,
+    # which is what lets Keycloak redirect straight back instead of stopping
+    # on its own "do you want to log out?" confirmation page.
+    query = urlencode(
+        {
+            "client_id": _keycloak_settings.KEYCLOAK_CLIENT_ID,
+            "post_logout_redirect_uri": _keycloak_settings.FRONTEND_URL,
+            **({"id_token_hint": id_token} if id_token else {}),
+        }
+    )
     end_session_url = (
         f"{_keycloak_settings.public_url}/realms/{_keycloak_settings.KEYCLOAK_REALM}"
-        f"/protocol/openid-connect/logout?client_id={_keycloak_settings.KEYCLOAK_CLIENT_ID}"
+        f"/protocol/openid-connect/logout?{query}"
     )
     return {"redirectUrl": end_session_url}
 

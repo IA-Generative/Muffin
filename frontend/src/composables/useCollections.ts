@@ -264,9 +264,9 @@ function createCollection() {
     id,
     name: 'Nouvelle collection',
     description: '',
-    descriptionMeta: stamp(user.value.name, now),
+    descriptionMeta: stamp(user.value?.name ?? 'Anonyme', now),
     tags: [],
-    tagsMeta: stamp(user.value.name, now),
+    tagsMeta: stamp(user.value?.name ?? 'Anonyme', now),
     updatedAt: now,
     documents: [],
     qaPairs: [],
@@ -295,7 +295,7 @@ function updateDescription(id: string, description: string) {
   if (!collection) return
   const now = new Date().toISOString()
   collection.description = description
-  collection.descriptionMeta = stamp(user.value.name, now)
+  collection.descriptionMeta = stamp(user.value?.name ?? 'Anonyme', now)
   collection.updatedAt = now
 }
 
@@ -305,7 +305,7 @@ function updateTags(id: string, tags: string[]) {
   if (!collection) return
   const now = new Date().toISOString()
   collection.tags = tags
-  collection.tagsMeta = stamp(user.value.name, now)
+  collection.tagsMeta = stamp(user.value?.name ?? 'Anonyme', now)
   collection.updatedAt = now
 }
 
