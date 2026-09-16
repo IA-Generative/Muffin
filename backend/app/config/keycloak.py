@@ -22,7 +22,7 @@ class KeycloakSettings(BaseSettings):
     SESSION_COOKIE_SAMESITE: Literal["lax", "strict", "none"] = "lax"
     SESSION_TTL_SECONDS: int = 7 * 24 * 60 * 60
 
-    model_config = SettingsConfigDict(case_sensitive=True, env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(case_sensitive=True, env_file=(".env", ".env.local"), extra="ignore")
 
     @property
     def public_url(self) -> str:

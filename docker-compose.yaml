@@ -29,6 +29,10 @@ services:
       # origin, so it must match whichever frontend you're actually using.
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:8081}
       SESSION_COOKIE_SECURE: "false"
+      # LLM hub (OpenAI-compatible). Unset in .env by default -
+      # GET /api/models responds 503 instead of crashing the app.
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_API_BASE_URL: ${OPENAI_API_BASE_URL:-}
     depends_on:
       postgres:
         condition: service_healthy
