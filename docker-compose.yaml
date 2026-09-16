@@ -4,7 +4,8 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     ports:
-      - "8080:8080"
+      # Host 8081, not 8080: Keycloak already claims host 8080 below.
+      - "8081:8080"
     restart: unless-stopped
 
   backend:
@@ -14,6 +15,7 @@ services:
     ports:
       - "8000:8000"
     environment:
+      DATABASE_URL: postgresql+asyncpg://muffin:muffin@postgres:5432/muffin
       REDIS_URL: redis://redis:6379/0
       KEYCLOAK_URL: http://keycloak:8080
       KEYCLOAK_PUBLIC_URL: http://localhost:8080
@@ -21,14 +23,30 @@ services:
       KEYCLOAK_CLIENT_ID: muffin-backend
       KEYCLOAK_CLIENT_SECRET: dev-only-secret-not-for-prod
       BACKEND_PUBLIC_URL: http://localhost:8000
-      FRONTEND_URL: http://localhost:5173
+      FRONTEND_URL: http://localhost:8081
       SESSION_COOKIE_SECURE: "false"
     depends_on:
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
       keycloak:
         condition: service_healthy
     restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: muffin
+      POSTGRES_PASSWORD: muffin
+      POSTGRES_DB: muffin
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U muffin"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   redis:
     image: redis:7-alpine
@@ -58,3 +76,6 @@ services:
       timeout: 5s
       retries: 15
       start_period: 30s
+
+volumes:
+  postgres-data:

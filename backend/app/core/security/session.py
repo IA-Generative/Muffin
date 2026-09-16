@@ -27,6 +27,11 @@ class Session:
     access_token: str
     refresh_token: str
     expires_at: float
+    # Needed for a silent RP-initiated logout (id_token_hint): without it,
+    # Keycloak can't tell the /logout request apart from a CSRF attempt and
+    # falls back to showing its own "do you want to log out?" confirmation
+    # page instead of redirecting straight back to the app.
+    id_token: str | None = None
 
 
 class SessionStore:
@@ -52,6 +57,7 @@ class SessionStore:
             access_token=token_response["access_token"],
             refresh_token=token_response["refresh_token"],
             expires_at=time.time() + token_response["expires_in"],
+            id_token=token_response.get("id_token"),
         )
         self._redis.set(f"{SESSION_PREFIX}{session_id}", json.dumps(asdict(session)), ex=self._ttl_seconds)
         return session_id
@@ -77,6 +83,7 @@ class SessionStore:
         session.access_token = token_response["access_token"]
         session.refresh_token = token_response["refresh_token"]
         session.expires_at = time.time() + token_response["expires_in"]
+        session.id_token = token_response.get("id_token", session.id_token)
         self._redis.set(f"{SESSION_PREFIX}{session_id}", json.dumps(asdict(session)), ex=self._ttl_seconds)
         return session
 

@@ -7,7 +7,7 @@ defineProps<{
   conversations: Conversation[]
   activeId: string
   activeView: 'chat' | 'collections'
-  user: User
+  user: User | null
 }>()
 
 const emit = defineEmits<{
@@ -15,6 +15,8 @@ const emit = defineEmits<{
   new: []
   openCollections: []
   openSettings: []
+  login: []
+  logout: []
 }>()
 
 const showUserMenu = ref(false)
@@ -23,6 +25,11 @@ const userWrapper = ref<HTMLElement>()
 function openSettings() {
   showUserMenu.value = false
   emit('openSettings')
+}
+
+function logout() {
+  showUserMenu.value = false
+  emit('logout')
 }
 
 function handleOutsideClick(event: MouseEvent) {
@@ -93,7 +100,7 @@ function initials(name: string) {
       </nav>
     </div>
 
-    <div ref="userWrapper" class="chat-sidebar__user-wrapper">
+    <div v-if="user" ref="userWrapper" class="chat-sidebar__user-wrapper">
       <div v-if="showUserMenu" class="user-menu" role="menu">
         <button type="button" class="user-menu__item" role="menuitem" @click="openSettings">
           <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
@@ -103,6 +110,16 @@ function initials(name: string) {
             />
           </svg>
           Paramètres
+        </button>
+        <button type="button" class="user-menu__item" role="menuitem" @click="logout">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M8.25 9V5.25A2.25 2.25 0 0 1 10.5 3h6a2.25 2.25 0 0 1 2.25 2.25v13.5A2.25 2.25 0 0 1 16.5 21h-6a2.25 2.25 0 0 1-2.25-2.25V15M3 12h13.5m0 0-3-3m3 3-3 3"
+            />
+          </svg>
+          Se déconnecter
         </button>
       </div>
 
@@ -114,6 +131,17 @@ function initials(name: string) {
         </div>
       </button>
     </div>
+
+    <button v-else type="button" class="chat-sidebar__user chat-sidebar__login" @click="emit('login')">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15M21 12H8.25m0 0 3 3m-3-3 3-3"
+        />
+      </svg>
+      Se connecter
+    </button>
   </aside>
 </template>
 

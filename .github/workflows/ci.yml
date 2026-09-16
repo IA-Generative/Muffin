@@ -54,10 +54,9 @@ jobs:
 
     - name: Select images to build
       id: services
-      # `backend` has no Dockerfile yet - it joins this matrix the day one
-      # lands, the same way `frontend` did.
       env:
         FRONTEND: ${{ steps.filter.outputs.frontend }}
+        BACKEND: ${{ steps.filter.outputs.backend }}
         CI: ${{ steps.filter.outputs.ci }}
       run: |
         set -euo pipefail
@@ -67,6 +66,9 @@ jobs:
 
         if [ "$FRONTEND" = "true" ] || [ "$CI" = "true" ]; then
           add '{"name":"frontend","context":"frontend","dockerfile":"frontend/Dockerfile","target":"runtime"}'
+        fi
+        if [ "$BACKEND" = "true" ] || [ "$CI" = "true" ]; then
+          add '{"name":"backend","context":"backend","dockerfile":"backend/Dockerfile","target":"runtime"}'
         fi
 
         echo "Images to build: $SERVICES"
@@ -113,11 +115,19 @@ jobs:
       pull-requests: read
       contents: read
 
-  lint-frontend:
+  lint:
     uses: ./.github/workflows/lint.yml
     needs:
     - path-filter
-    if: ${{ needs.path-filter.outputs.frontend == 'true' || needs.path-filter.outputs.ci == 'true' }}
+    if: ${{ needs.path-filter.outputs.frontend == 'true' || needs.path-filter.outputs.backend == 'true' || needs.path-filter.outputs.ci == 'true' }}
+    permissions:
+      contents: read
+
+  unit-tests:
+    uses: ./.github/workflows/unit-tests.yml
+    needs:
+    - path-filter
+    if: ${{ needs.path-filter.outputs.backend == 'true' || needs.path-filter.outputs.ci == 'true' }}
     permissions:
       contents: read
 
@@ -213,7 +223,8 @@ jobs:
     - path-filter
     - expose-vars
     - lint-commits
-    - lint-frontend
+    - lint
+    - unit-tests
     - scan-gitleaks
     - scan-trivy-conf
     - build-docker

@@ -1,6 +1,9 @@
 import redis
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.config import RedisSettings
+from app.db import engine as db_engine
 from app.schemas.health import Health
 
 
@@ -16,5 +19,19 @@ class RedisConnector:
             return Health(name="redis", status="unhealthy", extras={"error": str(error)})
 
 
+class DatabaseConnector:
+    def __init__(self, engine: AsyncEngine) -> None:
+        self.engine = engine
+
+    async def get_health(self) -> Health:
+        try:
+            async with self.engine.connect() as connection:
+                await connection.execute(text("SELECT 1"))
+            return Health(name="database", status="healthy")
+        except Exception as error:
+            return Health(name="database", status="unhealthy", extras={"error": str(error)})
+
+
 redis_settings = RedisSettings()
 redis_connector = RedisConnector(redis_settings.REDIS_URL)
+db_connector = DatabaseConnector(db_engine)
