@@ -1,0 +1,235 @@
+name: CI
+
+on:
+  pull_request:
+    types:
+    - opened
+    - reopened
+    - synchronize
+    - ready_for_review
+    branches:
+    - "**"
+  workflow_dispatch:
+
+# Only the newest push to a pull request is worth building; cancel superseded
+# runs rather than paying for images nobody will look at.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BUILD_AMD64: true
+  BUILD_ARM64: false
+  LATEST_TAG: false
+  USE_QEMU: false
+  TAG_SHORT_SHA: false
+
+jobs:
+  path-filter:
+    runs-on: ubuntu-latest
+    if: ${{ !github.event.pull_request.draft }}
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      frontend: ${{ steps.filter.outputs.frontend }}
+      backend: ${{ steps.filter.outputs.backend }}
+      ci: ${{ steps.filter.outputs.ci }}
+      services: ${{ steps.services.outputs.services }}
+    steps:
+    - name: Checks-out repository
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6.1.0
+
+    - name: Check updated files paths
+      uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad  # v3.0.4
+      id: filter
+      with:
+        filters: |
+          frontend:
+            - 'frontend/**'
+          backend:
+            - 'backend/**'
+          ci:
+            - '.github/workflows/**'
+
+    - name: Select images to build
+      id: services
+      # `backend` has no Dockerfile yet - it joins this matrix the day one
+      # lands, the same way `frontend` did.
+      env:
+        FRONTEND: ${{ steps.filter.outputs.frontend }}
+        CI: ${{ steps.filter.outputs.ci }}
+      run: |
+        set -euo pipefail
+
+        SERVICES='[]'
+        add() { SERVICES=$(jq -c --argjson s "$1" '. + [$s]' <<<"$SERVICES"); }
+
+        if [ "$FRONTEND" = "true" ] || [ "$CI" = "true" ]; then
+          add '{"name":"frontend","context":"frontend","dockerfile":"frontend/Dockerfile","target":"runtime"}'
+        fi
+
+        echo "Images to build: $SERVICES"
+        echo "services=$SERVICES" >> "$GITHUB_OUTPUT"
+
+  expose-vars:
+    runs-on: ubuntu-latest
+    if: ${{ !github.event.pull_request.draft }}
+    permissions: {}
+    outputs:
+      BUILD_AMD64: ${{ env.BUILD_AMD64 }}
+      BUILD_ARM64: ${{ env.BUILD_ARM64 }}
+      LATEST_TAG: ${{ env.LATEST_TAG }}
+      USE_QEMU: ${{ env.USE_QEMU }}
+      TAG_SHORT_SHA: ${{ env.TAG_SHORT_SHA }}
+      IMAGE_BASE: ${{ steps.image.outputs.IMAGE_BASE }}
+      IMAGE_TAG: ${{ steps.image.outputs.IMAGE_TAG }}
+    steps:
+    - name: Exposing env vars
+      run: echo "Exposing env vars"
+
+    - name: Compute image base and tag
+      id: image
+      shell: bash
+      env:
+        PR_NUMBER: ${{ github.event.pull_request.number || github.event.number || '' }}
+      run: |
+        set -euo pipefail
+
+        echo "IMAGE_BASE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+        if [ -n "$PR_NUMBER" ]; then
+          IMAGE_TAG="pr-$PR_NUMBER"
+        else
+          IMAGE_TAG=$(printf '%s' "${GITHUB_REF_NAME,,}" | tr -c 'a-z0-9._-' '-')
+        fi
+        echo "Image tag: $IMAGE_TAG"
+        echo "IMAGE_TAG=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+
+  lint-commits:
+    uses: dnum-mi/fabnum-cicd/.github/workflows/lint-commits.yml@v0
+    if: ${{ !github.event.pull_request.draft }}
+    permissions:
+      pull-requests: read
+      contents: read
+
+  lint-frontend:
+    uses: ./.github/workflows/lint.yml
+    needs:
+    - path-filter
+    if: ${{ needs.path-filter.outputs.frontend == 'true' || needs.path-filter.outputs.ci == 'true' }}
+    permissions:
+      contents: read
+
+  scan-gitleaks:
+    uses: dnum-mi/fabnum-cicd/.github/workflows/scan-gitleaks.yml@v0
+    if: ${{ !github.event.pull_request.draft }}
+    permissions:
+      contents: read
+      security-events: write
+      pull-requests: write
+    with:
+      PR_NUMBER: ${{ github.event.pull_request.number || github.event.number || '' }}
+      GITHUB_SECURITY_TAB: true
+
+  scan-trivy-conf:
+    uses: dnum-mi/fabnum-cicd/.github/workflows/scan-trivy.yml@v0
+    needs:
+    - expose-vars
+    permissions:
+      contents: read
+      security-events: write
+      pull-requests: write
+      packages: read
+    with:
+      PATH: ./
+      PR_NUMBER: ${{ github.event.pull_request.number || github.event.number || '' }}
+      FORMAT: sarif
+      GITHUB_SECURITY_TAB: true
+      CATEGORY: trivy-config
+      TRIVYIGNORES: .trivyignore.yaml
+
+  build-docker:
+    uses: dnum-mi/fabnum-cicd/.github/workflows/build-docker.yml@v0
+    needs:
+    - path-filter
+    - expose-vars
+    if: ${{ needs.path-filter.outputs.services != '[]' }}
+    permissions:
+      packages: write
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJSON(needs.path-filter.outputs.services) }}
+    with:
+      IMAGE_NAME: ${{ needs.expose-vars.outputs.IMAGE_BASE }}/${{ matrix.service.name }}
+      IMAGE_TAG: ${{ needs.expose-vars.outputs.IMAGE_TAG }}
+      IMAGE_CONTEXT: ${{ matrix.service.context }}
+      IMAGE_DOCKERFILE: ${{ matrix.service.dockerfile }}
+      IMAGE_TARGET: ${{ matrix.service.target }}
+      BUILD_AMD64: ${{ needs.expose-vars.outputs.BUILD_AMD64 == 'true' }}
+      BUILD_ARM64: ${{ needs.expose-vars.outputs.BUILD_ARM64 == 'true' }}
+      LATEST_TAG: ${{ needs.expose-vars.outputs.LATEST_TAG == 'true' }}
+      USE_QEMU: ${{ needs.expose-vars.outputs.USE_QEMU == 'true' }}
+      TAG_SHORT_SHA: ${{ needs.expose-vars.outputs.TAG_SHORT_SHA == 'true' }}
+      CACHE: true
+      CACHE_MODE: min
+      BUILD_ARGS: |
+        APP_VERSION=${{ needs.expose-vars.outputs.IMAGE_TAG }}
+
+  scan-trivy-images:
+    uses: dnum-mi/fabnum-cicd/.github/workflows/scan-trivy.yml@v0
+    needs:
+    - path-filter
+    - expose-vars
+    - build-docker
+    if: ${{ needs.path-filter.outputs.services != '[]' }}
+    permissions:
+      contents: read
+      security-events: write
+      pull-requests: write
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJSON(needs.path-filter.outputs.services) }}
+    with:
+      IMAGE: ${{ needs.expose-vars.outputs.IMAGE_BASE }}/${{ matrix.service.name }}:${{ needs.expose-vars.outputs.IMAGE_TAG }}
+      PR_NUMBER: ${{ github.event.pull_request.number || github.event.number || '' }}
+      FORMAT: sarif
+      GITHUB_SECURITY_TAB: true
+      CATEGORY: trivy-image-${{ matrix.service.name }}
+
+  # Workaround for required status check in protection branches (see. https://github.com/orgs/community/discussions/13690)
+  all-jobs-passed:
+    name: Check jobs status
+    runs-on: ubuntu-latest
+    if: ${{ always() }}
+    permissions: {}
+    # Every job in this workflow must be listed here, or a failure in the
+    # missing one leaves the gate green and the branch mergeable.
+    needs:
+    - path-filter
+    - expose-vars
+    - lint-commits
+    - lint-frontend
+    - scan-gitleaks
+    - scan-trivy-conf
+    - build-docker
+    - scan-trivy-images
+    steps:
+    - name: Check status of all required jobs
+      run: |-
+        NEEDS_CONTEXT='${{ toJson(needs) }}'
+        JOB_IDS=$(echo "$NEEDS_CONTEXT" | jq -r 'keys[]')
+        for JOB_ID in $JOB_IDS; do
+          RESULT=$(echo "$NEEDS_CONTEXT" | jq -r ".[\"$JOB_ID\"].result")
+          echo "$JOB_ID job result: $RESULT"
+          if [[ $RESULT != "success" && $RESULT != "skipped" ]]; then
+            echo "***"
+            echo "Error: The $JOB_ID job did not pass."
+            exit 1
+          fi
+        done
+        echo "All jobs passed or were skipped."

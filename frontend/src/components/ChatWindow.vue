@@ -1,0 +1,178 @@
+<script setup lang="ts">
+import { nextTick, ref, watch } from 'vue'
+import type { ChatMessage, FeedbackDetails } from '../types/chat'
+import ChatMessageItem from './ChatMessage.vue'
+
+const props = defineProps<{
+  messages: ChatMessage[]
+}>()
+
+const emit = defineEmits<{
+  send: [content: string]
+  regenerate: [id: string]
+  feedback: [id: string, value: 'up' | 'down', details?: FeedbackDetails]
+  showSources: [id: string]
+}>()
+
+const draft = ref('')
+const textarea = ref<HTMLTextAreaElement>()
+const scrollAnchor = ref<HTMLElement>()
+
+function submit() {
+  const content = draft.value.trim()
+  if (!content) return
+  emit('send', content)
+  draft.value = ''
+  resizeTextarea()
+}
+
+function resizeTextarea() {
+  const el = textarea.value
+  if (!el) return
+  el.style.height = 'auto'
+  el.style.height = `${Math.min(el.scrollHeight, 200)}px`
+}
+
+watch(
+  () => props.messages.length,
+  async () => {
+    await nextTick()
+    scrollAnchor.value?.scrollIntoView({ behavior: 'smooth' })
+  },
+)
+</script>
+
+<template>
+  <section class="chat-window">
+    <div v-if="messages.length === 0" class="chat-window__intro">
+      <h1>Qu'est-ce qu'on fait aujourd'hui ?</h1>
+    </div>
+
+    <div v-else class="chat-window__messages">
+      <div class="chat-window__inner">
+        <ChatMessageItem
+          v-for="message in messages"
+          :key="message.id"
+          :message="message"
+          @regenerate="emit('regenerate', $event)"
+          @feedback="(id, value, details) => emit('feedback', id, value, details)"
+          @show-sources="emit('showSources', $event)"
+        />
+        <div ref="scrollAnchor" />
+      </div>
+    </div>
+
+    <form class="chat-window__form" @submit.prevent="submit">
+      <div class="chat-window__inner">
+        <div class="chat-window__composer">
+          <textarea
+            ref="textarea"
+            v-model="draft"
+            class="chat-window__textarea"
+            placeholder="Écrivez votre message…"
+            rows="1"
+            @input="resizeTextarea"
+            @keydown.enter.exact.prevent="submit"
+          />
+          <button
+            type="submit"
+            class="chat-window__send"
+            :disabled="!draft.trim()"
+            aria-label="Envoyer"
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+              <path fill="currentColor" d="M12 4l7 7h-4v9h-6v-9H5l7-7z" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    </form>
+  </section>
+</template>
+
+<style scoped>
+.chat-window {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+}
+
+.chat-window__inner {
+  max-width: 48rem;
+  margin: 0 auto;
+  padding: 0 1.5rem;
+}
+
+.chat-window__intro {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 0 1.5rem;
+}
+
+.chat-window__intro h1 {
+  font-size: 1.75rem;
+  font-weight: 600;
+}
+
+.chat-window__messages {
+  flex: 1;
+  overflow-y: auto;
+  padding-top: 1.5rem;
+}
+
+.chat-window__form {
+  padding: 0 0 1.5rem;
+}
+
+.chat-window__composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+  padding: 0.625rem 0.625rem 0.625rem 1.125rem;
+  border-radius: 1.5rem;
+  border: 1px solid var(--border-default-grey);
+  background: var(--background-default-grey);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+}
+
+.chat-window__textarea {
+  flex: 1;
+  resize: none;
+  border: none;
+  background: transparent;
+  color: var(--text-default-grey);
+  font: inherit;
+  line-height: 1.5;
+  max-height: 200px;
+  padding: 0.375rem 0;
+}
+
+.chat-window__textarea:focus {
+  outline: none;
+}
+
+.chat-window__send {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border: none;
+  border-radius: 50%;
+  background: var(--background-action-high-blue-france);
+  color: var(--text-inverted-blue-france);
+  cursor: pointer;
+}
+
+.chat-window__send:disabled {
+  background: var(--background-disabled-grey);
+  color: var(--text-disabled-grey);
+  cursor: not-allowed;
+}
+</style>

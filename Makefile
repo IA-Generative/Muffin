@@ -19,7 +19,9 @@ COLOR_BLUE    := \033[34m
 COLOR_CYAN    := \033[36m
 
 # Runtime
-UV := uv
+UV      := uv
+PNPM    := pnpm
+FRONTEND_DIR := frontend
 
 .DEFAULT_GOAL := help
 
@@ -88,6 +90,19 @@ doctor: ## Report which required tools are present on this machine
 		fi; \
 	done
 	@echo ""
+
+# -----------------------------------------------------------------------------
+## ▸ Development
+# -----------------------------------------------------------------------------
+
+.PHONY: front
+front: ## Start the frontend dev server with hot reload (http://localhost:5173)
+	$(call _require,$(PNPM),See https://pnpm.io/installation)
+	@if [ ! -d $(FRONTEND_DIR)/node_modules ]; then \
+		echo "$(COLOR_BLUE)→$(COLOR_RESET) Installing frontend dependencies..."; \
+		$(PNPM) --dir $(FRONTEND_DIR) install; \
+	fi
+	@$(PNPM) --dir $(FRONTEND_DIR) dev
 
 # -----------------------------------------------------------------------------
 ## ▸ Checks

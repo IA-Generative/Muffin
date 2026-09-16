@@ -1,0 +1,130 @@
+name: CD
+
+on:
+  push:
+    branches:
+    - dev
+    - main
+  workflow_dispatch:
+
+# Releases must never overlap: two pushes landing close together would run two
+# release jobs against the same branch, and the loser fails on the tag the
+# winner already created ("Duplicate release tag"). Queue instead of cancel -
+# aborting a release midway is worse than making it wait.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  BUILD_AMD64: true
+  BUILD_ARM64: false
+  LATEST_TAG: ${{ github.ref_name == 'main' }}
+  USE_QEMU: false
+  TAG_MAJOR_AND_MINOR: false
+  TAG_SHORT_SHA: false
+  # No GitHub App configured yet: releases merge by hand and the release PR
+  # does not retrigger checks. Add APP_CLIENT_ID/APP_PRIVATE_KEY secrets and
+  # flip these on later.
+  AUTOMERGE_PRERELEASE: false
+  AUTOMERGE_RELEASE: false
+  PRERELEASE_BRANCH: dev
+  RELEASE_BRANCH: main
+  RELEASE_CONFIG_FILE: .github/releases/release-please-config-release.json
+  RELEASE_MANIFEST_FILE: .github/releases/.release-please-manifest.json
+  PRERELEASE_CONFIG_FILE: .github/releases/release-please-config-prerelease.json
+  PRERELEASE_MANIFEST_FILE: .github/releases/.release-please-manifest-prerelease.json
+  ENABLE_PRERELEASE: true
+
+jobs:
+  expose-vars:
+    runs-on: ubuntu-latest
+    permissions: {}
+    outputs:
+      BUILD_AMD64: ${{ env.BUILD_AMD64 }}
+      BUILD_ARM64: ${{ env.BUILD_ARM64 }}
+      LATEST_TAG: ${{ env.LATEST_TAG }}
+      USE_QEMU: ${{ env.USE_QEMU }}
+      TAG_MAJOR_AND_MINOR: ${{ env.TAG_MAJOR_AND_MINOR }}
+      TAG_SHORT_SHA: ${{ env.TAG_SHORT_SHA }}
+      AUTOMERGE_PRERELEASE: ${{ env.AUTOMERGE_PRERELEASE }}
+      AUTOMERGE_RELEASE: ${{ env.AUTOMERGE_RELEASE }}
+      PRERELEASE_BRANCH: ${{ env.PRERELEASE_BRANCH }}
+      RELEASE_BRANCH: ${{ env.RELEASE_BRANCH }}
+      RELEASE_CONFIG_FILE: ${{ env.RELEASE_CONFIG_FILE }}
+      RELEASE_MANIFEST_FILE: ${{ env.RELEASE_MANIFEST_FILE }}
+      PRERELEASE_CONFIG_FILE: ${{ env.PRERELEASE_CONFIG_FILE }}
+      PRERELEASE_MANIFEST_FILE: ${{ env.PRERELEASE_MANIFEST_FILE }}
+      ENABLE_PRERELEASE: ${{ env.ENABLE_PRERELEASE }}
+      IMAGE_BASE: ${{ steps.image-base.outputs.IMAGE_BASE }}
+    steps:
+    - name: Exposing env vars
+      run: echo "Exposing env vars"
+
+    - name: Compute image base
+      id: image-base
+      shell: bash
+      run: echo "IMAGE_BASE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+  release:
+    uses: dnum-mi/fabnum-cicd/.github/workflows/release-app.yml@v0
+    needs:
+    - expose-vars
+    permissions:
+      issues: write
+      pull-requests: write
+      contents: write
+    with:
+      TAG_MAJOR_AND_MINOR: ${{ needs.expose-vars.outputs.TAG_MAJOR_AND_MINOR == 'true' }}
+      AUTOMERGE_PRERELEASE: ${{ needs.expose-vars.outputs.AUTOMERGE_PRERELEASE == 'true' }}
+      AUTOMERGE_RELEASE: ${{ needs.expose-vars.outputs.AUTOMERGE_RELEASE == 'true' }}
+      PRERELEASE_BRANCH: ${{ needs.expose-vars.outputs.PRERELEASE_BRANCH }}
+      RELEASE_BRANCH: ${{ needs.expose-vars.outputs.RELEASE_BRANCH }}
+      RELEASE_CONFIG_FILE: ${{ needs.expose-vars.outputs.RELEASE_CONFIG_FILE }}
+      RELEASE_MANIFEST_FILE: ${{ needs.expose-vars.outputs.RELEASE_MANIFEST_FILE }}
+      PRERELEASE_CONFIG_FILE: ${{ needs.expose-vars.outputs.PRERELEASE_CONFIG_FILE }}
+      PRERELEASE_MANIFEST_FILE: ${{ needs.expose-vars.outputs.PRERELEASE_MANIFEST_FILE }}
+      ENABLE_PRERELEASE: ${{ needs.expose-vars.outputs.ENABLE_PRERELEASE == 'true' }}
+    # No secrets block: without a GitHub App, this authenticates with the
+    # job's own GITHUB_TOKEN, which is enough to open the release pull
+    # request - it just won't retrigger CI on its own commit.
+
+  build-docker:
+    uses: dnum-mi/fabnum-cicd/.github/workflows/build-docker.yml@v0
+    needs:
+    - expose-vars
+    - release
+    if: ${{ needs.release.outputs.release-created == 'true' }}
+    permissions:
+      packages: write
+      contents: read
+    with:
+      IMAGE_NAME: ${{ needs.expose-vars.outputs.IMAGE_BASE }}/frontend
+      IMAGE_TAG: ${{ needs.release.outputs.version }}
+      IMAGE_CONTEXT: frontend
+      IMAGE_DOCKERFILE: frontend/Dockerfile
+      IMAGE_TARGET: runtime
+      BUILD_AMD64: ${{ needs.expose-vars.outputs.BUILD_AMD64 == 'true' }}
+      BUILD_ARM64: ${{ needs.expose-vars.outputs.BUILD_ARM64 == 'true' }}
+      LATEST_TAG: ${{ needs.expose-vars.outputs.LATEST_TAG == 'true' }}
+      USE_QEMU: ${{ needs.expose-vars.outputs.USE_QEMU == 'true' }}
+      TAG_MAJOR_AND_MINOR: ${{ needs.expose-vars.outputs.TAG_MAJOR_AND_MINOR == 'true' && needs.expose-vars.outputs.LATEST_TAG == 'true' }}
+      TAG_SHORT_SHA: ${{ needs.expose-vars.outputs.TAG_SHORT_SHA == 'true' }}
+      CACHE: true
+      CACHE_MODE: min
+      BUILD_ARGS: |
+        APP_VERSION=${{ needs.release.outputs.version }}
+
+  # Last on purpose, same reasoning as ocr-api: a release lands commits on
+  # main (release-please's release commit) that dev does not have yet, and
+  # dev computes its next prerelease version from a stale base without this.
+  sync-prerelease-branch:
+    uses: dnum-mi/fabnum-cicd/.github/workflows/sync-prerelease-branch.yml@v0
+    needs:
+    - expose-vars
+    - release
+    if: ${{ github.ref_name == needs.expose-vars.outputs.RELEASE_BRANCH && needs.release.outputs.release-created == 'true' }}
+    permissions:
+      contents: write
+    with:
+      RELEASE_BRANCH: ${{ needs.expose-vars.outputs.RELEASE_BRANCH }}
+      PRERELEASE_BRANCH: ${{ needs.expose-vars.outputs.PRERELEASE_BRANCH }}
