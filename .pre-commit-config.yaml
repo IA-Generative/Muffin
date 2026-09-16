@@ -1,0 +1,25 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.20
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-added-large-files
+        args: ['--maxkb=1000']
+      - id: check-merge-conflict
+      - id: end-of-file-fixer
+        # unplugin-* rewrite these on every `vite build` without a trailing
+        # newline; re-adding one here just makes the file permanently dirty.
+        exclude: ^apps/client/src/(components|auto-imports)\.d\.ts$
+      - id: trailing-whitespace
+        exclude: ^apps/client/src/(components|auto-imports)\.d\.ts$
+
+  - repo: https://github.com/zricethezav/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks

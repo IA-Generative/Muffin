@@ -1,0 +1,19 @@
+remote: origin
+target-branch: main
+# The chart sits at the repository root as `helm/`, so the scanned directory is
+# the root itself; chart-testing treats each subdirectory holding a Chart.yaml
+# as a chart and ignores the rest.
+chart-dirs:
+- .
+# Only the plain-HTTP repository needs declaring; the cloudpirates dependencies
+# are pulled straight from their OCI registry by `helm dependency build`.
+chart-repos:
+- cnpg=https://cloudnative-pg.github.io/charts
+helm-extra-args: ''
+validate-chart-schema: true
+validate-chart-values: true
+validate-maintainers: false
+validate-yaml: true
+exclude-deprecated: true
+excluded-charts: []
+debug: true

@@ -1,0 +1,16 @@
+# Trivy config-scan findings accepted as noise rather than fixed, because the underlying
+# condition can't actually be satisfied by chart content - see issue tracking CI/scan noise
+# reduction for the full rationale. Verified locally: `trivy config helm/` reports these two
+# checks and nothing else before this file is applied, and reports zero misconfigurations with it.
+
+misconfigurations:
+  # "Restrict container images to trusted registries" - fires because nothing tells Trivy which
+  # registries (ghcr.io, the cloudpirates OCI registry, docker.io/redis and /postgres) are
+  # trusted. A policy-configuration gap, not a real finding: the chart's own image sources are
+  # unrelated to how the running cluster is configured to trust registries.
+  - id: KSV-0125
+
+  # "Workloads in the default namespace" - a portable Helm chart doesn't hardcode a namespace, so
+  # static analysis without a `--namespace` override can't tell what a real install would use.
+  # Expected noise for any reusable chart.
+  - id: KSV-0110

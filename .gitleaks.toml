@@ -1,0 +1,59 @@
+title = "ocr-api gitleaks config"
+
+# `targetRules` on a global allowlist needs v8.25.0; CI pins 8.30.1.
+minVersion = "v8.25.0"
+
+[extend]
+useDefault = true
+
+# Replaces the commit-pinned fingerprints this repository used to keep in
+# `.gitleaksignore`. A gitleaks git-mode fingerprint is `<commit>:<file>:<rule>:<line>`,
+# so it is tied to the SHA that introduced the line - and every rebase, amend or
+# squash of the branch carrying that line mints a new SHA and orphans the entry.
+# It happened three times, and each break failed CI on *every* open pull request,
+# because `gitleaks git .` walks all fetched refs rather than just the checked-out
+# one. Allowlisting by rule + path + line content instead is SHA-independent, so
+# history rewrites no longer matter.
+
+[[allowlists]]
+targetRules = ["generic-api-key"]
+description = "Local dev/test-only key material, not used anywhere in production."
+# All three criteria must hold: the right rule, in the right file, on the right
+# line. A different high-entropy value added to any of these files is still
+# reported, and so is every other rule on them.
+condition = "AND"
+paths = [
+  '''^\.env$''',
+  '''^docker-compose\.yaml$''',
+  '''^docker-compose-test\.yaml$''',
+]
+regexTarget = "line"
+# ENCRYPTION_KEY (.env): the app's LocalEncryptionProvider Fernet key
+# (src/connector/encryption/local_provider.py) - decrypts nothing outside this
+# repository's own local/CI database, generated once with
+# LocalEncryptionProvider.generate_key().
+#
+# MINIO_KMS_SECRET_KEY (docker-compose.yaml / docker-compose-test.yaml): MinIO's
+# built-in static KMS key, required so MinIO accepts SSE-S3 (AES256) at all (it
+# otherwise rejects PutBucketEncryption/PutObject with "KMS is not configured") -
+# only ever protects the throwaway `minio_data` volume of the local/CI MinIO
+# container.
+# The `\s*` prefix is load-bearing: gitleaks hands `regexTarget = "line"` the
+# matched line with its leading newline still attached, so a bare `^` never matches.
+regexes = [
+  '''^\s*ENCRYPTION_KEY=''',
+  '''^\s*MINIO_KMS_SECRET_KEY:\s*"(?:dev|test)-sse-key:''',
+]
+
+[[allowlists]]
+targetRules = ["kubernetes-secret-yaml"]
+description = "Chart test fixture exercising the `extraObjects` templating path."
+# The built-in rule matches on YAML shape (a `my-secret:`-like key holding a block
+# scalar with `kind: Secret` + `data:`), never on the block's actual values. It
+# fires on helm/test-values.yaml's `extraObjects.my-secret` fixture, which exists
+# solely to exercise the chart's `extraObjects` path during `ct install`/`ct lint`;
+# its "password" is the literal string "secretpassword" piped through `b64enc`, not
+# real secret material - confirmed by re-running gitleaks unredacted locally, where
+# the match highlights only the `my-secret: | / apiVersion` shape, never the
+# password line itself.
+paths = ['''^helm/test-values\.yaml$''']
