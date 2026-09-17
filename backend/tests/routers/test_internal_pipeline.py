@@ -144,3 +144,94 @@ async def test_create_relation_between_two_entities(client):
         )
     assert len(relations) == 1
     assert relations[0].type == "works_at"
+
+
+async def test_get_collection_metadata_includes_description_tags_and_document_summaries(client):
+    collection_id, document_id = await _create_collection_and_document()
+    async with async_session_factory() as session:
+        from sqlalchemy import select
+
+        from app.models.collection import Collection as CollectionModel
+        from app.models.document import Document as DocumentModel
+
+        collection = (
+            await session.execute(select(CollectionModel).where(CollectionModel.id == collection_id))
+        ).scalar_one()
+        collection.description = "An existing description."
+        document = (await session.execute(select(DocumentModel).where(DocumentModel.id == document_id))).scalar_one()
+        document.summary = "This document is about widgets."
+        await session.commit()
+
+    response = await client.get(f"/api/internal/collections/{collection_id}/metadata", headers=_headers())
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["description"] == "An existing description."
+    assert body["tags"] == []
+    assert body["document_summaries"] == ["This document is about widgets."]
+
+
+async def test_get_collection_metadata_not_found(client):
+    response = await client.get(f"/api/internal/collections/{uuid.uuid4()}/metadata", headers=_headers())
+    assert response.status_code == 404
+
+
+async def test_update_collection_description(client):
+    collection_id, _ = await _create_collection_and_document()
+
+    response = await client.patch(
+        f"/api/internal/collections/{collection_id}/description",
+        headers=_headers(),
+        json={"description": "A collection about widgets."},
+    )
+    assert response.status_code == 200
+
+    metadata = (await client.get(f"/api/internal/collections/{collection_id}/metadata", headers=_headers())).json()
+    assert metadata["description"] == "A collection about widgets."
+
+
+async def test_update_collection_tags(client):
+    collection_id, _ = await _create_collection_and_document()
+
+    response = await client.put(
+        f"/api/internal/collections/{collection_id}/tags", headers=_headers(), json={"tags": ["widgets", "reports"]}
+    )
+    assert response.status_code == 200
+
+    metadata = (await client.get(f"/api/internal/collections/{collection_id}/metadata", headers=_headers())).json()
+    assert sorted(metadata["tags"]) == ["reports", "widgets"]
+
+
+async def test_update_collection_description_embedding_creates_then_replaces(client):
+    collection_id, _ = await _create_collection_and_document()
+
+    first = await client.patch(
+        f"/api/internal/collections/{collection_id}/description-embedding",
+        headers=_headers(),
+        json={"model": "text-embedding-3-small", "embedding": [0.1, 0.2, 0.3]},
+    )
+    assert first.status_code == 200
+
+    second = await client.patch(
+        f"/api/internal/collections/{collection_id}/description-embedding",
+        headers=_headers(),
+        json={"model": "text-embedding-3-large", "embedding": [0.4, 0.5, 0.6]},
+    )
+    assert second.status_code == 200
+
+    async with async_session_factory() as session:
+        from app.models.collection import CollectionDescriptionEmbedding
+
+        row = await session.get(CollectionDescriptionEmbedding, collection_id)
+    assert row is not None
+    assert row.model == "text-embedding-3-large"
+    assert row.embedding == [0.4, 0.5, 0.6]
+
+
+async def test_update_collection_description_embedding_not_found(client):
+    response = await client.patch(
+        f"/api/internal/collections/{uuid.uuid4()}/description-embedding",
+        headers=_headers(),
+        json={"model": "text-embedding-3-small", "embedding": [0.1]},
+    )
+    assert response.status_code == 404

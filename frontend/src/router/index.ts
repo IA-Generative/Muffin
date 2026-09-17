@@ -12,5 +12,6 @@ export const router = createRouter({
       component: () => import('../components/CollectionsView.vue'),
     },
     { path: '/tasks', name: 'tasks', component: () => import('../components/TasksView.vue') },
+    { path: '/admin', name: 'admin', component: () => import('../components/AdminSettingsView.vue') },
   ],
 })

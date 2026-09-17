@@ -106,6 +106,7 @@ function saveQa() {
     qaWindowPages: windowsForm.qaWindowPages,
     qaSlidePages: windowsForm.qaSlidePages,
     qaQuestionsPerWindow: windowsForm.qaQuestionsPerWindow,
+    collectionQaCount: windowsForm.collectionQaCount,
   })
 }
 
@@ -392,6 +393,20 @@ const showChunkSize = () => chunkingForm.strategy === 'paragraph' || chunkingFor
           </select>
           <p v-if="chatModelsError" class="settings-tab__hint">{{ chatModelsError }}</p>
           <p v-else-if="noModelsAvailable" class="settings-tab__hint">Aucun modèle disponible.</p>
+        </div>
+        <div class="settings-tab__field">
+          <label for="collection-qa-count">QA générées pour la collection</label>
+          <input
+            id="collection-qa-count"
+            v-model.number="windowsForm.collectionQaCount"
+            type="number"
+            min="1"
+            max="20"
+          />
+          <p class="settings-tab__hint">
+            Nombre de questions-réponses générées à partir de la description de la collection (pas liées à un
+            document), à chaque fois que la description change.
+          </p>
         </div>
       </div>
 

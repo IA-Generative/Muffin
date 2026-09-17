@@ -74,6 +74,10 @@ class PipelineWindowsOut(BaseModel):
     extraction_slide_pages: int = 1
     chunking_window_pages: int = 2
     chunking_slide_pages: int = 1
+    # Not a document-level step like the others above - how many QA pairs
+    # generate_collection_qa produces from the collection's description each
+    # time it changes (see app/models/collection.py's description_embedding).
+    collection_qa_count: int = 3
 
 
 class PipelineWindowsUpdate(BaseModel):
@@ -85,6 +89,7 @@ class PipelineWindowsUpdate(BaseModel):
     extraction_slide_pages: int | None = None
     chunking_window_pages: int | None = None
     chunking_slide_pages: int | None = None
+    collection_qa_count: int | None = None
 
 
 class CollectionOut(BaseModel):

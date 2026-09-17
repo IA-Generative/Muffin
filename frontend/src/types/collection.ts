@@ -81,6 +81,9 @@ export interface PipelineWindows {
   extractionSlidePages: number
   chunkingWindowPages: number
   chunkingSlidePages: number
+  // Not a document-level window like the others above - how many QA pairs
+  // are generated from the collection's description each time it changes.
+  collectionQaCount: number
 }
 
 export interface EvaluationMetrics {

@@ -7,9 +7,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.security.worker_auth import require_worker_api_key
 from app.db import get_db
 from app.repositories.collection_repository import CollectionRepository
-from app.schemas.internal_pipeline import CollectionSettingsInternalOut
+from app.repositories.document_repository import DocumentRepository
+from app.schemas.internal_pipeline import (
+    CollectionDescriptionEmbeddingUpdate,
+    CollectionDescriptionUpdate,
+    CollectionMetadataOut,
+    CollectionSettingsInternalOut,
+    CollectionTagsUpdate,
+)
 
 router = APIRouter(prefix="/internal", tags=["Internal"], dependencies=[Depends(require_worker_api_key)])
+
+# Automated writes (as opposed to a human editing description/tags in the
+# UI) are attributed to this fixed name, same idea as FieldStamp.updated_by
+# for a real user - shown as-is in the collection's "last updated by" info.
+PIPELINE_UPDATED_BY = "pipeline"
 
 
 @router.get(
@@ -39,3 +51,68 @@ async def get_collection_settings(
         generation_models=settings.generation_models or {},
         pipeline_windows=settings.pipeline_windows or {},
     )
+
+
+@router.get(
+    "/collections/{collection_id}/metadata",
+    summary="Fetch a collection's current description/tags plus every document summary, for the "
+    "description/tags-maintenance tasks to decide whether an update is needed",
+    response_model=CollectionMetadataOut,
+)
+async def get_collection_metadata(
+    collection_id: uuid.UUID, db: Annotated[AsyncSession, Depends(get_db)]
+) -> CollectionMetadataOut:
+    collection = await CollectionRepository(db).get_by_id(collection_id)
+    if collection is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found")
+    summaries = await DocumentRepository(db).list_summaries_by_collection(collection_id)
+    return CollectionMetadataOut(
+        description=collection.description,
+        tags=[tag.tag for tag in collection.tags],
+        document_summaries=list(summaries),
+    )
+
+
+@router.patch(
+    "/collections/{collection_id}/description", summary="Report an automatically-maintained collection description"
+)
+async def update_collection_description(
+    collection_id: uuid.UUID, update: CollectionDescriptionUpdate, db: Annotated[AsyncSession, Depends(get_db)]
+) -> dict[str, str]:
+    repository = CollectionRepository(db)
+    collection = await repository.get_by_id(collection_id)
+    if collection is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found")
+    await repository.update_description(collection, update.description, PIPELINE_UPDATED_BY)
+    await db.commit()
+    return {"status": "ok"}
+
+
+@router.put("/collections/{collection_id}/tags", summary="Report automatically-maintained collection tags")
+async def update_collection_tags(
+    collection_id: uuid.UUID, update: CollectionTagsUpdate, db: Annotated[AsyncSession, Depends(get_db)]
+) -> dict[str, str]:
+    repository = CollectionRepository(db)
+    collection = await repository.get_by_id(collection_id)
+    if collection is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found")
+    await repository.update_tags(collection, update.tags, PIPELINE_UPDATED_BY)
+    await db.commit()
+    return {"status": "ok"}
+
+
+@router.patch(
+    "/collections/{collection_id}/description-embedding",
+    summary="Report the embedding vector for a collection's description, used to match a query to the right collection",
+)
+async def update_collection_description_embedding(
+    collection_id: uuid.UUID,
+    update: CollectionDescriptionEmbeddingUpdate,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict[str, str]:
+    repository = CollectionRepository(db)
+    if await repository.get_by_id(collection_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found")
+    await repository.upsert_description_embedding(collection_id, update.model, update.embedding)
+    await db.commit()
+    return {"status": "ok"}
