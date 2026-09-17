@@ -16,7 +16,6 @@ const { page, pageCount, paged: pagedDocuments } = usePagination(documents)
 
 const urlDraft = ref('')
 const isDragging = ref(false)
-const fileInput = ref<HTMLInputElement>()
 
 function submitUrl() {
   if (!urlDraft.value.trim()) return
@@ -50,10 +49,8 @@ const STATUS_LABEL = {
       @dragover.prevent="isDragging = true"
       @dragleave.prevent="isDragging = false"
       @drop.prevent="onDrop"
-      @click="fileInput?.click()"
     >
       <input
-        ref="fileInput"
         type="file"
         multiple
         class="documents-tab__file-input"
