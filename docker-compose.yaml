@@ -142,7 +142,8 @@ services:
       - "6333:6333" # HTTP/gRPC-gateway API
       - "6334:6334" # gRPC API
     healthcheck:
-      test: [
+      test:
+        [
           "CMD",
           "bash",
           "-c",
@@ -168,7 +169,11 @@ services:
       retries: 10
 
   redis:
-    image: redis:7-alpine
+    # redis-stack-server, not plain redis: a superset (same commands Celery already uses work
+    # unchanged) that also adds RediSearch, required by the agent_execution worker's Redis-backed
+    # LangGraph checkpointer (a HITL pause must survive being resumed by a different Celery
+    # prefork child than the one that paused it - see worker/agent_execution/app/agent_service.py).
+    image: redis/redis-stack-server:7.4.0-v6
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -190,7 +195,11 @@ services:
     ports:
       - "8080:8080"
     healthcheck:
-      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/9000 && echo -e 'GET /health/ready HTTP/1.1\r\nhost: localhost\r\nConnection: close\r\n\r\n' >&3 && cat <&3 | grep -q '\"status\": \"UP\"'"]
+      test:
+        [
+          "CMD-SHELL",
+          "exec 3<>/dev/tcp/localhost/9000 && echo -e 'GET /health/ready HTTP/1.1\r\nhost: localhost\r\nConnection: close\r\n\r\n' >&3 && cat <&3 | grep -q '\"status\": \"UP\"'",
+        ]
       interval: 10s
       timeout: 5s
       retries: 15

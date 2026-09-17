@@ -108,3 +108,53 @@ async def test_cancel_run_sets_cancel_requested_and_revokes(client):
 async def test_cancel_unknown_run_returns_404(client):
     response = await client.post(f"/api/runs/{uuid.uuid4()}/cancel")
     assert response.status_code == 404
+
+
+async def test_resume_run_waiting_for_user_dispatches_and_returns_ok(client):
+    from app.models.run import RunStatus
+
+    created = (await _create_run(client)).json()
+    async with async_session_factory() as session:
+        run = await session.get(Run, uuid.UUID(created["id"]))
+        run.status = RunStatus.WAITING_FOR_USER
+        run.pending_human_action = {"question": "Which department do you mean?"}
+        await session.commit()
+
+    with patch("app.services.run_service.enqueue_resume_agent", return_value="celery-resume-1") as mock_enqueue:
+        response = await client.post(f"/api/runs/{created['id']}/resume", json={"answer": "HR"})
+
+    assert response.status_code == 200
+    mock_enqueue.assert_called_once_with(created["id"], "HR")
+
+    async with async_session_factory() as session:
+        run = await session.get(Run, uuid.UUID(created["id"]))
+    assert run.celery_task_id == "celery-resume-1"
+
+
+async def test_resume_run_not_waiting_returns_409(client):
+    created = (await _create_run(client)).json()  # still "queued", never entered waiting_for_user
+
+    response = await client.post(f"/api/runs/{created['id']}/resume", json={"answer": "HR"})
+
+    assert response.status_code == 409
+
+
+async def test_resume_unknown_run_returns_404(client):
+    response = await client.post(f"/api/runs/{uuid.uuid4()}/resume", json={"answer": "HR"})
+    assert response.status_code == 404
+
+
+async def test_run_out_exposes_pending_human_action(client):
+    from app.models.run import RunStatus
+
+    created = (await _create_run(client)).json()
+    assert created["pending_human_action"] is None
+
+    async with async_session_factory() as session:
+        run = await session.get(Run, uuid.UUID(created["id"]))
+        run.status = RunStatus.WAITING_FOR_USER
+        run.pending_human_action = {"question": "Which department do you mean?"}
+        await session.commit()
+
+    response = await client.get(f"/api/runs/{created['id']}")
+    assert response.json()["pending_human_action"] == {"question": "Which department do you mean?"}

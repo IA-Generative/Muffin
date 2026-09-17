@@ -1,3 +1,4 @@
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, StateGraph
 
@@ -30,7 +31,7 @@ def _cancellable_edge(graph: StateGraph, source: str, target: str) -> None:
     graph.add_conditional_edges(source, route_or_cancel(target), {target: target, "cancelled": "cancelled"})
 
 
-def build_graph():
+def build_graph(checkpointer: BaseCheckpointSaver | None = None):
     graph = StateGraph(AgentState)
 
     graph.add_node("load_context", load_context)
@@ -104,7 +105,8 @@ def build_graph():
     _cancellable_edge(graph, "targeted_research", "merge_evidence")
     graph.add_edge("cancelled", END)
 
-    # In-memory checkpointer for now (§32) - swapping in a Postgres-backed one is an infra
-    # change (out of scope here per the brief), but every node already reads/writes through
-    # AgentState so that swap is just this one line once that backend is wired up.
-    return graph.compile(checkpointer=InMemorySaver())
+    # Defaults to an in-process InMemorySaver, which is only safe for tests and single-process
+    # runs - it cannot survive a HITL pause being resumed by a different Celery prefork child
+    # than the one that ran interrupt() (§32). Production wires a real cross-process checkpointer
+    # in via this parameter (see agent_service.py) rather than hardcoding one here.
+    return graph.compile(checkpointer=checkpointer or InMemorySaver())
