@@ -25,6 +25,10 @@ class FakeBackend:
         self.cancel_requested = False
         self.events: list[tuple[str, str | None]] = []
         self.searched_collection_ids: list[list[str]] = []
+        # {collection_id: [{"id":..., "name":..., "status":..., "summary":...}, ...]}
+        self.documents_by_collection: dict[str, list[dict[str, Any]]] = {}
+        # {(document_id, page_number): {"page_number":..., "content":..., "screenshot_url":...}}
+        self.pages: dict[tuple[str, int], dict[str, Any]] = {}
 
     def get_run(self, run_id: str) -> dict[str, Any]:
         return {"cancel_requested": self.cancel_requested}
@@ -68,6 +72,12 @@ class FakeBackend:
 
     def get_default_chat_model(self) -> str | None:
         return "test-model"
+
+    def list_collection_documents(self, user_id: str, collection_id: str) -> list[dict[str, Any]]:
+        return self.documents_by_collection.get(collection_id, [])
+
+    def get_document_page(self, user_id: str, document_id: str, page_number: int) -> dict[str, Any]:
+        return self.pages[(document_id, page_number)]
 
 
 _PATCHED_MODULES = (

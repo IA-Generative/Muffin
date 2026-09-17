@@ -3,6 +3,12 @@ from typing import Annotated, Any, Literal, TypedDict
 
 TaskStatus = Literal["pending", "ready", "blocked", "running", "completed", "failed"]
 
+# What research_task actually does for this task, decided by decompose_query (§ meta-query
+# tools): "search" is the default (evidence search over chunks); the others answer questions
+# about the knowledge bases themselves rather than their content, using data the backend
+# already scoped to this user - never a fresh, unchecked lookup by an LLM-supplied id.
+TaskTool = Literal["search", "list_collections", "collection_summary", "list_documents", "page_content"]
+
 
 class ResearchTask(TypedDict):
     """One unit of research work in the DAG built by decompose_query/build_research_plan.
@@ -12,6 +18,7 @@ class ResearchTask(TypedDict):
     id: str
     query: str
     intent: str | None
+    tool: TaskTool
     dependencies: list[str]
     status: TaskStatus
     candidate_vdbs: list[str]

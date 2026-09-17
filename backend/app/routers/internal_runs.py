@@ -4,13 +4,17 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import storage
 from app.core.security.worker_auth import require_worker_api_key
 from app.db import get_db
 from app.models.run import RunStatus
 from app.repositories.collection_repository import CollectionRepository
+from app.repositories.document_repository import DocumentRepository
 from app.repositories.run_repository import RunRepository
 from app.schemas.internal_run import (
     AccessibleCollectionOut,
+    DocumentPageContentOut,
+    DocumentSummaryOut,
     InternalRunOut,
     RunErrorUpdate,
     RunEventCreate,
@@ -129,16 +133,60 @@ async def create_run_event(
 async def list_accessible_collections(
     user_id: str, db: Annotated[AsyncSession, Depends(get_db)]
 ) -> list[AccessibleCollectionOut]:
-    collections = await CollectionRepository(db).list_all_by_owner(user_id)
+    repository = CollectionRepository(db)
+    collections = await repository.list_all_by_owner(user_id)
+    document_counts = await repository.count_documents([collection.id for collection in collections])
     return [
         AccessibleCollectionOut(
             id=collection.id,
             name=collection.name,
             description=collection.description,
             tags=[tag.tag for tag in collection.tags],
+            document_count=document_counts.get(collection.id, 0),
         )
         for collection in collections
     ]
+
+
+@router.get(
+    "/users/{user_id}/collections/{collection_id}/documents",
+    summary="List one collection's documents (id/name/status/summary) - the collection must be "
+    "one this user owns, same permission barrier as accessible-collections",
+    response_model=list[DocumentSummaryOut],
+)
+async def list_collection_documents(
+    user_id: str, collection_id: uuid.UUID, db: Annotated[AsyncSession, Depends(get_db)]
+) -> list[DocumentSummaryOut]:
+    if await CollectionRepository(db).get(collection_id, user_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found")
+    documents = await DocumentRepository(db).list_by_collection(collection_id)
+    return [
+        DocumentSummaryOut(id=document.id, name=document.name, status=document.status, summary=document.summary)
+        for document in documents
+    ]
+
+
+@router.get(
+    "/users/{user_id}/documents/{document_id}/pages/{page_number}",
+    summary="Fetch one page's text and a short-lived screenshot URL - the document's collection "
+    "must be one this user owns, same permission barrier as accessible-collections",
+    response_model=DocumentPageContentOut,
+)
+async def get_document_page(
+    user_id: str, document_id: uuid.UUID, page_number: int, db: Annotated[AsyncSession, Depends(get_db)]
+) -> DocumentPageContentOut:
+    documents = DocumentRepository(db)
+    document = await documents.get_with_collection(document_id)
+    if document is None or document.collection.owner_id != user_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+    page = await documents.get_page(document_id, page_number)
+    if page is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Page not found")
+    return DocumentPageContentOut(
+        page_number=page.page_number,
+        content=page.content,
+        screenshot_url=storage.get_presigned_url(page.screenshot) if page.screenshot else None,
+    )
 
 
 @router.post(

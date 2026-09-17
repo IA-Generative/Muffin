@@ -33,6 +33,14 @@ def put_object(key: str, data: bytes, content_type: str = "application/octet-str
     _client.put_object(Bucket=_settings.RUSTFS_BUCKET, Key=key, Body=data, ContentType=content_type)
 
 
+def get_presigned_url(key: str, expires_in: int = 3600) -> str:
+    """A short-lived, unauthenticated link to a stored object (e.g. a page screenshot) - handed
+    to the end user in a chat answer, who has no RustFS credentials of their own."""
+    return _client.generate_presigned_url(
+        "get_object", Params={"Bucket": _settings.RUSTFS_BUCKET, "Key": key}, ExpiresIn=expires_in
+    )
+
+
 def delete_objects(keys: list[str]) -> None:
     """Best-effort: called after the rows referencing these keys are already
     deleted from Postgres, so a RustFS/network failure here must not roll

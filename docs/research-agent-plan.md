@@ -189,6 +189,38 @@ gap the audit above used to call out is closed:
   `worker/document_process/tests/test_tasks.py` (embed-per-chunk, failure tolerance) - all
   against a faked `vector_store`/`_openai_client`, no live Qdrant/LLM hub needed to run them.
 
+## Étape 4bis — Knowledge-base introspection tools (done)
+
+The graph could only ever answer content questions (search). It now also answers questions
+*about* the knowledge bases themselves - "how many collections/documents do I have", "summarize
+collection X", "how many documents are in Y", "give me the text/screenshot of page N of
+document Z" - without ever letting an LLM-chosen id escape the permission barrier:
+
+- `analyze_query` gained a fourth intent, `"meta"`, so `decompose_query` doesn't take its
+  simple-single-source shortcut (which always hardcoded `tool="search"`) for these queries -
+  it always asks the LLM, which now also picks a `tool` per task: `search` (default),
+  `list_collections`, `collection_summary`, `list_documents`, `page_content`.
+- `research_task` dispatches on `task["tool"]` (`app/graph/nodes/research_task.py`) - still one
+  node, not one per tool (§35): `list_collections`/`collection_summary` read straight from
+  `accessible_vdbs` (no backend call at all - the count is already in that list, see below);
+  `list_documents`/`page_content` resolve a target collection the same way search resolves VDBs
+  (`select_relevant_vdbs`, intersected against `accessible_vdbs`), then call the two new
+  backend endpoints below scoped to that collection. `page_content` additionally resolves which
+  document/page via `app/graph/services/document_resolver.py`, which intersects the LLM's pick
+  against the *candidate document list the backend already scoped to this user* - never an id
+  the LLM invents.
+- Backend: `AccessibleCollectionOut` gained `document_count` (`CollectionRepository.count_documents`,
+  one grouped query) - `list_collections`/`collection_summary` need no new endpoint at all.
+  Two new ownership-checked endpoints on `/api/internal/runs`'s router: `GET
+  /users/{user_id}/collections/{collection_id}/documents` (name/status/summary per document) and
+  `GET /users/{user_id}/documents/{document_id}/pages/{page_number}` (page text + a presigned
+  RustFS screenshot URL, `storage.get_presigned_url`) - both 404 if the collection isn't owned
+  by `user_id`, same barrier as `accessible-collections`.
+- Tests: `backend/tests/routers/test_internal_runs.py` (document_count, both new endpoints,
+  ownership rejection) and `worker/agent_execution/tests/test_graph.py` (one test per tool,
+  verifying no `search` call happens for the non-search tools and that evidence carries the
+  right `source_id`/`vdb_id`).
+
 ## Étape 5-10
 
 Not started: Celery re-wiring beyond the existing single `agent_service.run()` entry

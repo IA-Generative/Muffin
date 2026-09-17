@@ -50,6 +50,18 @@ class CollectionRepository:
         result = await self.db.execute(self._base_query().where(Collection.id == collection_id))
         return result.scalar_one_or_none()
 
+    async def count_documents(self, collection_ids: list[uuid.UUID]) -> dict[uuid.UUID, int]:
+        """How many documents each collection has - for the research agent to answer "how many
+        documents are in X" without listing them all (§ meta-query tools)."""
+        if not collection_ids:
+            return {}
+        result = await self.db.execute(
+            select(Document.collection_id, func.count(Document.id))
+            .where(Document.collection_id.in_(collection_ids))
+            .group_by(Document.collection_id)
+        )
+        return dict(result.all())
+
     async def get_embedding_models(self, collection_ids: list[uuid.UUID]) -> dict[uuid.UUID, str]:
         """Which embedding model each collection's chunks were embedded with (§12: VDB routing
         picks collections, but the query itself must be embedded once per distinct model among
