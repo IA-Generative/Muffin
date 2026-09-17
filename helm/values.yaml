@@ -263,14 +263,14 @@ backend:
     # @section -- Backend
     labels: {}
     hosts:
-      - # -- Name of the host record.
+      -  # -- Name of the host record.
         # @section -- Backend
         name: "domain.local"
         # -- Paths of the host record to manage routing (avoids repeating the same host for
         # multiple paths/backends).
         # @section -- Backend
         paths:
-          - # -- Path of the host record to manage routing.
+          -  # -- Path of the host record to manage routing.
             # @section -- Backend
             path: "/"
             # -- Path type of the host record.
@@ -1283,14 +1283,14 @@ frontend:
     # @section -- Frontend
     labels: {}
     hosts:
-      - # -- Name of the host record.
+      -  # -- Name of the host record.
         # @section -- Frontend
         name: "domain.local"
         # -- Paths of the host record to manage routing (avoids repeating the same host for
         # multiple paths/backends).
         # @section -- Frontend
         paths:
-          - # -- Path of the host record to manage routing.
+          -  # -- Path of the host record to manage routing.
             # @section -- Frontend
             path: "/"
             # -- Path type of the host record.
@@ -2117,14 +2117,14 @@ document_process:
     # @section -- Document_process
     labels: {}
     hosts:
-      - # -- Name of the host record.
+      -  # -- Name of the host record.
         # @section -- Document_process
         name: "domain.local"
         # -- Paths of the host record to manage routing (avoids repeating the same host for
         # multiple paths/backends).
         # @section -- Document_process
         paths:
-          - # -- Path of the host record to manage routing.
+          -  # -- Path of the host record to manage routing.
             # @section -- Document_process
             path: "/"
             # -- Path type of the host record.
@@ -2951,14 +2951,14 @@ agent_execution:
     # @section -- Agent_execution
     labels: {}
     hosts:
-      - # -- Name of the host record.
+      -  # -- Name of the host record.
         # @section -- Agent_execution
         name: "domain.local"
         # -- Paths of the host record to manage routing (avoids repeating the same host for
         # multiple paths/backends).
         # @section -- Agent_execution
         paths:
-          - # -- Path of the host record to manage routing.
+          -  # -- Path of the host record to manage routing.
             # @section -- Agent_execution
             path: "/"
             # -- Path type of the host record.
