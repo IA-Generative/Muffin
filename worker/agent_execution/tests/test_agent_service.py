@@ -70,3 +70,19 @@ def test_finalize_does_not_generate_a_title_for_a_cancelled_run(monkeypatch):
     AgentService()._finalize("run-1", {"cancelled": True})
 
     fake.get_default_chat_model.assert_not_called()
+
+
+def test_finalize_persists_pending_human_action_on_interrupt(monkeypatch):
+    fake = MagicMock()
+    monkeypatch.setattr("app.agent_service.backend_client", fake)
+
+    interrupt = MagicMock()
+    interrupt.value = {"question": "Which department do you mean?"}
+
+    AgentService()._finalize("run-1", {"__interrupt__": [interrupt]})
+
+    fake.update_run_status.assert_called_once_with("run-1", "waiting_for_user")
+    fake.update_run_state.assert_called_once_with(
+        "run-1", pending_human_action={"question": "Which department do you mean?"}
+    )
+    fake.get_default_chat_model.assert_not_called()

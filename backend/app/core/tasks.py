@@ -21,6 +21,7 @@ PROCESS_DOCUMENT_TASK = "app.tasks.process_document"
 # even though both are produced from this same Celery app instance.
 AGENT_EXECUTION_QUEUE = "agent_execution"
 RUN_AGENT_TASK = "app.tasks.run_agent"
+RESUME_AGENT_TASK = "app.tasks.resume_agent"
 
 
 def enqueue_process_document(document_id: str) -> str:
@@ -35,6 +36,14 @@ def enqueue_run_agent(run_id: str) -> str:
     app/models/run.py) rather than a separate Task row - a run already has
     the id, and it's 1:1 with its own dispatch (no parent/children)."""
     result = _celery_app.send_task(RUN_AGENT_TASK, args=[run_id], queue=AGENT_EXECUTION_QUEUE)
+    return result.id
+
+
+def enqueue_resume_agent(run_id: str, answer: str) -> str:
+    """Continues a run paused on request_clarification's interrupt() (§31) - a distinct task
+    name/args from enqueue_run_agent rather than overloading it, since resuming re-enters the
+    same checkpointed graph execution (Command(resume=...)) instead of starting a fresh one."""
+    result = _celery_app.send_task(RESUME_AGENT_TASK, args=[run_id, answer], queue=AGENT_EXECUTION_QUEUE)
     return result.id
 
 

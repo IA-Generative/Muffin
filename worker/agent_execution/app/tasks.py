@@ -10,3 +10,11 @@ def run_agent(self, run_id: str) -> None:
     search, grounding) lives in the LangGraph graph, invoked once from
     AgentService.run. Never a Celery task per graph node."""
     agent_service.run(run_id)
+
+
+@celery_app.task(name="app.tasks.resume_agent", bind=True)
+def resume_agent(self, run_id: str, answer: str) -> None:
+    """Continues a run paused on request_clarification's interrupt() (§31) - a distinct task
+    from run_agent since it re-enters the same checkpointed graph execution instead of starting
+    a fresh one."""
+    agent_service.resume(run_id, answer)

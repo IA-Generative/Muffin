@@ -1,11 +1,26 @@
 from typing import Any
 
+from langgraph.checkpoint.redis import RedisSaver
 from loguru import logger
 
 from app.backend_client import backend_client
+from app.config import settings
 from app.graph import AgentState, build_graph
 
-_graph = build_graph()
+# Redis-backed, not the graph's default InMemorySaver (§32): a HITL pause (request_clarification's
+# interrupt()) is resumed by whichever Celery prefork child picks up the resume_agent task, which
+# is almost never the same process that ran interrupt() - only a checkpointer outside any single
+# process's memory can survive that. Requires RediSearch (redis-stack-server, not plain redis).
+try:
+    _checkpointer = RedisSaver(redis_url=settings.REDIS_URL)
+    _checkpointer.setup()
+except Exception:
+    # Falls back to build_graph()'s in-process default - fine for tests/local dev without a real
+    # redis-stack reachable, but means a HITL pause can't survive a resume on another process
+    # (or a worker restart) until this connects. Never crash the whole worker over it at import.
+    logger.exception("Failed to set up the Redis checkpointer - falling back to an in-memory one")
+    _checkpointer = None
+_graph = build_graph(checkpointer=_checkpointer)
 
 _TITLE_SYSTEM_PROMPT = (
     "Summarize the following question and answer into a short, specific conversation title - at "
@@ -94,9 +109,8 @@ class AgentService:
             raise
 
     def resume(self, run_id: str, answer: str) -> None:
-        """Entry point for continuing a run paused on request_clarification's interrupt() (§31).
-        Not wired to an API route yet (out of scope for this iteration - LangGraph orchestration
-        only); a future `POST /runs/{id}/resume` calls this the same way `run` is called today."""
+        """Entry point for continuing a run paused on request_clarification's interrupt() (§31),
+        called from app.tasks.resume_agent (dispatched by POST /api/runs/{id}/resume)."""
         from langgraph.types import Command
 
         try:
@@ -113,6 +127,9 @@ class AgentService:
         if final_state.get("__interrupt__"):
             interrupt_payload = final_state["__interrupt__"][0].value
             backend_client.update_run_status(run_id, "waiting_for_user")
+            # Persisted on the Run row itself, not just the event log - RunOut exposes it so the
+            # frontend can show the question without also having to fetch /events.
+            backend_client.update_run_state(run_id, pending_human_action=interrupt_payload)
             backend_client.add_run_event(run_id, "run_waiting_for_user", {"interrupt": interrupt_payload})
             return
 

@@ -12,6 +12,7 @@ interface RunOut {
   conversation_id: string | null
   status: string
   current_activity: string | null
+  pending_human_action: { question?: string } | null
   answer: string | null
   citations: { evidence_id: string; source: string | null; vdb_id: string }[] | null
   error: string | null
@@ -32,6 +33,9 @@ const activeSourcesMessageId = ref<string>()
 const confirmedConversationIds = new Set<string>()
 const conversationAliases: Record<string, string> = {}
 const activePolls = new Map<string, ReturnType<typeof setInterval>>()
+// A run paused on a clarification question (HITL, §31): the next message typed in this
+// conversation answers it (POST /api/runs/{runId}/resume) instead of starting a new run.
+const pendingClarifications: Record<string, { runId: string; messageId: string }> = {}
 
 function resolveConversationId(id: string): string {
   let resolved = id
@@ -104,6 +108,17 @@ async function fetchRun(runId: string): Promise<RunOut> {
   return response.json()
 }
 
+async function resumeRun(runId: string, answer: string): Promise<RunOut> {
+  const response = await fetch(`${API_BASE_URL}/api/runs/${runId}/resume`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ answer }),
+  })
+  if (!response.ok) throw new Error(`${response.status}`)
+  return response.json()
+}
+
 function toSources(citations: RunOut['citations']): Source[] | undefined {
   if (!citations?.length) return undefined
   const seen = new Set<string>()
@@ -118,6 +133,13 @@ function toSources(citations: RunOut['citations']): Source[] | undefined {
 }
 
 function assistantMessageFor(id: string, run: RunOut): ChatMessage {
+  if (run.status === 'waiting_for_user') {
+    return {
+      id,
+      role: 'assistant',
+      content: run.pending_human_action?.question ?? 'Pouvez-vous préciser votre demande ?',
+    }
+  }
   if (!TERMINAL_STATUSES.has(run.status)) {
     return { id, role: 'assistant', content: run.current_activity ?? 'Recherche en cours…' }
   }
@@ -142,18 +164,29 @@ function replaceMessage(conversationId: string, messageId: string, message: Chat
   if (index !== undefined && index !== -1) list[index] = message
 }
 
-// Polls a run until it reaches a terminal status, updating the placeholder
-// assistant message in place each time - same setInterval-based polling
-// convention as useCollections.ts's pollDocumentsWhileProcessing.
-function trackRun(conversationId: string, messageId: string, run: RunOut) {
+// Applies a run's latest state to its placeholder message, and returns whether polling should
+// stop - either a terminal status, or waiting_for_user (§31 HITL): nothing will change there
+// until the user answers, which happens through sendMessage/pendingClarifications below, not
+// more polling.
+function applyRunUpdate(conversationId: string, messageId: string, run: RunOut): boolean {
   replaceMessage(conversationId, messageId, assistantMessageFor(messageId, run))
-  if (TERMINAL_STATUSES.has(run.status)) return
+  if (run.status === 'waiting_for_user') {
+    pendingClarifications[resolveConversationId(conversationId)] = { runId: run.id, messageId }
+    return true
+  }
+  return TERMINAL_STATUSES.has(run.status)
+}
+
+// Polls a run until it reaches a terminal status (or pauses for a clarification), updating the
+// placeholder assistant message in place each time - same setInterval-based polling convention
+// as useCollections.ts's pollDocumentsWhileProcessing.
+function trackRun(conversationId: string, messageId: string, run: RunOut) {
+  if (applyRunUpdate(conversationId, messageId, run)) return
 
   const interval = setInterval(async () => {
     try {
       const current = await fetchRun(run.id)
-      replaceMessage(conversationId, messageId, assistantMessageFor(messageId, current))
-      if (TERMINAL_STATUSES.has(current.status)) {
+      if (applyRunUpdate(conversationId, messageId, current)) {
         clearInterval(interval)
         activePolls.delete(messageId)
       }
@@ -184,8 +217,35 @@ async function runQuery(conversationId: string, messageId: string, query: string
   }
 }
 
+async function resumeAndTrack(conversationId: string, runId: string, messageId: string, answer: string) {
+  try {
+    const run = await resumeRun(runId, answer)
+    trackRun(conversationId, messageId, run)
+  } catch {
+    replaceMessage(conversationId, messageId, {
+      id: messageId,
+      role: 'assistant',
+      content: 'Impossible de reprendre cette recherche.',
+    })
+  }
+}
+
 function sendMessage(content: string) {
   const conversationId = activeId.value
+
+  const pending = pendingClarifications[conversationId]
+  if (pending) {
+    delete pendingClarifications[conversationId]
+    messagesByConversation.value[conversationId].push({ id: crypto.randomUUID(), role: 'user', content })
+    replaceMessage(conversationId, pending.messageId, {
+      id: pending.messageId,
+      role: 'assistant',
+      content: 'Recherche en cours…',
+    })
+    resumeAndTrack(conversationId, pending.runId, pending.messageId, content)
+    return
+  }
+
   const messageId = crypto.randomUUID()
   messagesByConversation.value[conversationId].push(
     { id: crypto.randomUUID(), role: 'user', content },
@@ -210,6 +270,9 @@ function regenerateMessage(id: string) {
     clearInterval(interval)
     activePolls.delete(id)
   }
+  // Regenerating (e.g. from a clarification bubble) abandons whatever run was pending - a
+  // stale entry here would otherwise hijack the next normal sendMessage into "resuming" it.
+  delete pendingClarifications[conversationId]
   list[index] = { id, role: 'assistant', content: 'Recherche en cours…' }
   runQuery(conversationId, id, lastUserMessage.content)
 }
