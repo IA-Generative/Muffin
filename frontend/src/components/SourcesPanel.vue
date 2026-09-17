@@ -20,11 +20,14 @@ defineEmits<{
     </div>
 
     <ul class="sources-panel__list">
-      <li v-for="source in sources" :key="source.url" class="sources-panel__item">
-        <a :href="source.url" target="_blank" rel="noopener noreferrer">
+      <li v-for="source in sources" :key="source.url ?? source.title" class="sources-panel__item">
+        <a v-if="source.url" :href="source.url" target="_blank" rel="noopener noreferrer">
           <span class="sources-panel__title">{{ source.title }}</span>
           <span class="sources-panel__url">{{ source.url }}</span>
         </a>
+        <div v-else class="sources-panel__item-static">
+          <span class="sources-panel__title">{{ source.title }}</span>
+        </div>
       </li>
     </ul>
   </aside>
@@ -82,6 +85,16 @@ defineEmits<{
 
 .sources-panel__item a:hover {
   border-color: var(--border-action-high-blue-france);
+}
+
+.sources-panel__item-static {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--border-default-grey);
+  background: var(--background-default-grey);
 }
 
 .sources-panel__title {

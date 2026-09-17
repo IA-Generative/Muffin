@@ -1,6 +1,8 @@
 export interface Source {
   title: string
-  url: string
+  // Optional: a real run's citations point at a document/knowledge-base id,
+  // not a browsable URL - only mocked/user-added sources have one.
+  url?: string
 }
 
 export interface ChatMessage {
