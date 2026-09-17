@@ -23,13 +23,18 @@ def _collection_evidence(vdb: dict[str, Any], task_id: str, retrieval_query: str
         vdb_id=str(vdb["id"]),
         source_id=str(vdb["id"]),
         content=content,
-        metadata={"document_count": vdb.get("document_count", 0)},
+        # "document_name" is what build_answer_context reads as a citation's display label
+        # (§15) - reused here for a collection's own name so the sources panel shows "AgentControl"
+        # rather than a bare vdb id.
+        metadata={"document_name": vdb["name"], "document_count": vdb.get("document_count", 0)},
         relevance_score=None,
         retrieval_query=retrieval_query,
     )
 
 
-def _count_fact_evidence(task_id: str, retrieval_query: str, noun: str, count: int, vdb_id: str = "") -> Evidence:
+def _count_fact_evidence(
+    task_id: str, retrieval_query: str, noun: str, count: int, vdb_id: str = "", label: str | None = None
+) -> Evidence:
     # A literal, unambiguous sentence rather than relying on generate_answer's LLM to count
     # excerpts itself - tested against a real local model, it sometimes refused to (treating a
     # description as unrelated to "your collections" instead of counting the items it was given).
@@ -41,7 +46,7 @@ def _count_fact_evidence(task_id: str, retrieval_query: str, noun: str, count: i
         vdb_id=vdb_id,
         source_id=vdb_id,
         content=content,
-        metadata={"count": count},
+        metadata={"document_name": label or "Accessible knowledge bases", "count": count},
         relevance_score=None,
         retrieval_query=retrieval_query,
     )
@@ -95,7 +100,7 @@ def _run_list_documents(
                     vdb_id=str(vdb["id"]),
                     source_id=str(document["id"]),
                     content=content,
-                    metadata={"status": document["status"], "collection_name": vdb["name"]},
+                    metadata={"document_name": document["name"], "status": document["status"]},
                     relevance_score=None,
                     retrieval_query=task["query"],
                 )
@@ -108,7 +113,7 @@ def _run_list_documents(
                 vdb_id=str(vdb["id"]),
                 source_id=str(vdb["id"]),
                 content=f"The '{vdb['name']}' collection has exactly {count} document{'' if count == 1 else 's'}.",
-                metadata={"count": count},
+                metadata={"document_name": vdb["name"], "count": count},
                 relevance_score=None,
                 retrieval_query=task["query"],
             )

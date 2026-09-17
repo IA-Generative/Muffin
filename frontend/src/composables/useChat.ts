@@ -200,17 +200,32 @@ async function resumeRun(runId: string, answer: string): Promise<RunOut> {
   return response.json()
 }
 
-function toSources(citations: RunOut['citations']): Source[] | undefined {
-  if (!citations?.length) return undefined
-  const seen = new Set<string>()
+// The backend cites each claim with its evidence excerpt's raw id in brackets (e.g.
+// "[f8109fc0-88cc-...]" - see generate_answer.py's system prompt), so the model's grounding
+// stays verifiable server-side. Showing that literal uuid to the user is meaningless, though -
+// this renumbers every distinct id into a short footnote ([1], [2], ...) in order of first
+// appearance in the text, and builds the sources panel to match those same numbers.
+function formatAnswerWithCitations(answer: string, citations: RunOut['citations']): [string, Source[] | undefined] {
+  if (!citations?.length) return [answer, undefined]
+
+  const citationById = new Map(citations.map((citation) => [citation.evidence_id, citation]))
+  const footnoteNumberById = new Map<string, number>()
   const sources: Source[] = []
-  for (const citation of citations) {
-    const title = citation.source ?? `Source ${citation.vdb_id}`
-    if (seen.has(title)) continue
-    seen.add(title)
-    sources.push({ title })
-  }
-  return sources
+
+  const content = answer.replace(/\[([0-9a-f-]{8,})\]/gi, (match, evidenceId: string) => {
+    const citation = citationById.get(evidenceId)
+    if (!citation) return match
+    let footnoteNumber = footnoteNumberById.get(evidenceId)
+    if (footnoteNumber === undefined) {
+      footnoteNumber = sources.length + 1
+      footnoteNumberById.set(evidenceId, footnoteNumber)
+      const sourceTitle = citation.source ?? `Source ${citation.vdb_id}`
+      sources.push({ title: `${footnoteNumber}. ${sourceTitle}` })
+    }
+    return `[${footnoteNumber}]`
+  })
+
+  return [content, sources.length ? sources : undefined]
 }
 
 function assistantMessageFor(id: string, run: RunOut): ChatMessage {
@@ -225,12 +240,11 @@ function assistantMessageFor(id: string, run: RunOut): ChatMessage {
     return { id, role: 'assistant', content: run.current_activity ?? 'Recherche en cours…' }
   }
   if (run.status === 'completed') {
-    return {
-      id,
-      role: 'assistant',
-      content: run.answer || "Je n'ai pas trouvé de réponse dans vos collections.",
-      sources: toSources(run.citations),
-    }
+    const [content, sources] = formatAnswerWithCitations(
+      run.answer || "Je n'ai pas trouvé de réponse dans vos collections.",
+      run.citations,
+    )
+    return { id, role: 'assistant', content, sources }
   }
   return {
     id,
