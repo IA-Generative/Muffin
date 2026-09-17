@@ -33,6 +33,7 @@ from app.models.feedback import (
 )
 from app.models.message import Message, MessageRole
 from app.models.qa import QaOrigin, QaPair
+from app.models.run import Run, RunEvent, RunStatus
 from app.models.source import MessageSource, Source
 from app.models.task import Task
 
@@ -68,6 +69,9 @@ __all__ = [
     "QaOrigin",
     "QaPair",
     "Relation",
+    "Run",
+    "RunEvent",
+    "RunStatus",
     "ShareSubjectType",
     "Source",
     "Task",

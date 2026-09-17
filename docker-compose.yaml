@@ -74,6 +74,21 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  worker-agent-execution:
+    build:
+      context: ./worker/agent_execution
+      dockerfile: Dockerfile
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      BACKEND_API_URL: http://backend:8000
+      WORKER_API_KEY: ${WORKER_API_KEY:-dev-only-worker-key-not-for-prod}
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    restart: unless-stopped
+
   # RustFS's image runs as non-root (uid 10001); named Docker volumes default
   # to root ownership, so this one-shot fixes permissions before rustfs starts.
   rustfs-volume-permissions:

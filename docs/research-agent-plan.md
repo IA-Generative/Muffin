@@ -106,12 +106,55 @@ step below completes — see "Méthode d'implémentation" for the step list.
   permissions on every call — never trust the LLM.
 - The LangGraph graph itself, in `worker/agent_execution/app/`.
 
-## Étape 2 — Architecture (not started)
+## Étape 2 — Architecture (done, LangGraph scope only)
 
-Boundaries to define: API / Celery / Agent Service / LangGraph / Knowledge services /
-Persistence / Events / A2A.
+Boundaries: Celery/A2A/API/frontend/infra are untouched this iteration - only
+`worker/agent_execution/app/graph/` changed. Layout: `state.py` (AgentState +
+ResearchTask/Evidence/CoverageResult/GroundingResult), `graph.py` (wiring), `nodes/` (one
+per orchestration step, §35 - no node per internal service call), `routing/conditions.py`
+(all conditional-edge functions, including the dynamic `Send`-based fan-out), `services/`
+(vdb_router, evidence normalization, planning, llm helpers - plain functions research_task
+calls, not graph nodes themselves).
 
-## Étape 3-10
+## Étape 3 — Research DAG (done)
 
-Not started. See the architecture brief for the full step list (run lifecycle, research
-DAG, VDB routing, evidence/grounding, HITL/cancellation, events/UI, A2A, tests).
+Graph now matches the target shape: `load_context → load_accessible_vdbs → analyze_query
+→ (request_clarification interrupt if ambiguous) → decompose_query → build_research_plan
+→ [dynamic fan-out] → research_task × N → merge_evidence → (loop back into the fan-out gate
+for any task whose dependency just completed) → evaluate_coverage → (insufficient →
+replan_research → back into the fan-out) → build_answer_context → generate_answer →
+validate_grounding → (invalid → targeted_research → merge_evidence again) → END`.
+
+- **VDB = Collection** in this codebase (audit finding, §7 of the brief) - no separate
+  knowledge-base grouping exists yet, so `load_accessible_vdbs`/`vdb_routing` reuse
+  `list_accessible_collections` rather than inventing a parallel concept; revisit if a real
+  multi-collection VDB grouping is ever introduced.
+- Permission barrier preserved and reused: `select_relevant_vdbs` only ever intersects the
+  LLM's picks against `accessible_vdbs`, never widens it (tested in `test_graph.py`).
+- Reducers: `research_tasks` merges by id (parallel branches update their own task without
+  clobbering others' status), `evidence`/`completed_task_ids`/`failed_task_ids` accumulate
+  via `operator.add`. `deduped_evidence` is a separate derived field, not a rewrite of
+  `evidence` - overwriting a reducer-backed field from a node would double-apply the reducer.
+  `research_task` runs under its own narrower `ResearchTaskInput` schema so a branch never
+  sees the other tasks.
+- Budgets added to `config.py`: `MAX_PARALLEL_TASKS`, `MAX_TOTAL_TASKS`, `MAX_REPLANS`,
+  `MAX_GROUNDING_RESEARCHES` (existing `MAX_PARALLEL_SEARCHES`/`MAX_TOTAL_SEARCHES` kept).
+- Cancellation checked at the top of every node via the existing `cancel_requested` flag;
+  every edge routes through `route_or_cancel`/the fan-out routers so a cancellation is
+  honored between any two steps, not just at fixed checkpoints.
+- HITL wired with LangGraph's native `interrupt()`/`Command(resume=...)` in
+  `request_clarification`, backed by `InMemorySaver` for now - swapping in a Postgres
+  checkpointer is an infra change, out of scope here, but every node already reads/writes
+  through `AgentState` so that swap is a one-line change in `graph.py` later.
+- `AgentService.resume(run_id, answer)` exists as the future entry point for continuing a
+  paused run once an API route exists to call it - not wired to Celery/HTTP yet.
+- Tests: `worker/agent_execution/tests/test_graph.py`, all 10 scenarios from the brief's
+  §36 (simple query, parallel decomposition, dependency ordering, VDB permission barrier,
+  multi-VDB fan-out, failure isolation, targeted replan, grounding-triggered targeted
+  research, HITL interrupt/resume, cancellation) against a fake `backend_client`.
+
+## Étape 4-10
+
+Not started: Celery re-wiring beyond the existing single `agent_service.run()` entry
+point, A2A, the actual `/resume` API route, SSE/UI event consumption, a Postgres
+checkpointer, and real multi-collection VDB grouping if that's ever introduced.
