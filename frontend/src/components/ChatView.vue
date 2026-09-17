@@ -3,13 +3,27 @@ import { watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useChat } from '../composables/useChat'
 import ChatWindow from './ChatWindow.vue'
+import ExecutionPanel from './ExecutionPanel.vue'
 import SourcesPanel from './SourcesPanel.vue'
 
 const route = useRoute()
 const router = useRouter()
 
-const { activeId, messages, activeSources, selectConversation, sendMessage, regenerateMessage, sendFeedback, showSources, closeSources } =
-  useChat()
+const {
+  activeId,
+  messages,
+  activeSources,
+  activeExecutionMessageId,
+  activeExecutionEvents,
+  selectConversation,
+  sendMessage,
+  regenerateMessage,
+  sendFeedback,
+  showSources,
+  closeSources,
+  showExecutionDetails,
+  closeExecutionDetails,
+} = useChat()
 
 // "/" has no conversation id: normalize it to the active one so the URL
 // always reflects which conversation is open, without adding a history entry.
@@ -33,6 +47,12 @@ watch(
     @regenerate="regenerateMessage"
     @feedback="sendFeedback"
     @show-sources="showSources"
+    @show-execution="showExecutionDetails"
   />
   <SourcesPanel v-if="activeSources?.length" :sources="activeSources" @close="closeSources" />
+  <ExecutionPanel
+    v-else-if="activeExecutionMessageId"
+    :events="activeExecutionEvents"
+    @close="closeExecutionDetails"
+  />
 </template>

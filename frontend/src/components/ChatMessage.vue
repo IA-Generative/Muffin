@@ -13,6 +13,7 @@ const emit = defineEmits<{
   regenerate: [id: string]
   feedback: [id: string, value: 'up' | 'down', details?: FeedbackDetails]
   showSources: [id: string]
+  showExecution: [id: string]
 }>()
 
 // User input stays plain text; only the assistant's markdown gets parsed and
@@ -67,6 +68,11 @@ function submitFeedback(details: FeedbackDetails) {
 function openSources() {
   showMenu.value = false
   emit('showSources', props.message.id)
+}
+
+function openExecutionDetails() {
+  showMenu.value = false
+  emit('showExecution', props.message.id)
 }
 
 const sourcesLabel = computed(() => {
@@ -199,6 +205,15 @@ onBeforeUnmount(() => {
               @click="openSources"
             >
               Afficher les sources
+            </button>
+            <button
+              type="button"
+              class="chat-message__menu-item"
+              role="menuitem"
+              :disabled="!message.runId"
+              @click="openExecutionDetails"
+            >
+              Détail de l'exécution
             </button>
           </div>
         </div>

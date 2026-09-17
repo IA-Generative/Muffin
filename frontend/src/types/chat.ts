@@ -10,6 +10,16 @@ export interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
   sources?: Source[]
+  // The research run that produced this message, if any (assistant messages only) - lets the
+  // UI fetch that run's step-by-step event trace ("execution detail") on demand.
+  runId?: string
+}
+
+export interface ExecutionEvent {
+  id: string
+  label: string
+  taskId?: string
+  createdAt: string
 }
 
 export interface FeedbackDetails {
