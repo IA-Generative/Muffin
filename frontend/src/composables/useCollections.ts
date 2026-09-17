@@ -125,6 +125,7 @@ function isCollectionReady(collection: Collection): boolean {
 const collections = ref<Collection[]>([])
 const isLoading = ref(true)
 const error = ref<string | null>(null)
+const documentError = ref<string | null>(null)
 const activeCollectionId = ref<string>()
 const activeCollection = computed(() =>
   collections.value.find((collection) => collection.id === activeCollectionId.value),
@@ -270,14 +271,20 @@ function pollDocumentsWhileProcessing(collectionId: string) {
 }
 
 async function addDocuments(collectionId: string, files: File[]) {
+  documentError.value = null
   for (const file of files) {
     const formData = new FormData()
     formData.append('file', file)
-    await fetch(`${API_BASE_URL}/api/collections/${collectionId}/documents/file`, {
-      method: 'POST',
-      credentials: 'include',
-      body: formData,
-    })
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/collections/${collectionId}/documents/file`, {
+        method: 'POST',
+        credentials: 'include',
+        body: formData,
+      })
+      if (!response.ok) documentError.value = `Échec de l'envoi de « ${file.name} » (${response.status}).`
+    } catch {
+      documentError.value = `Échec de l'envoi de « ${file.name} » : le serveur est inaccessible.`
+    }
   }
   await refreshDocuments(collectionId)
   pollDocumentsWhileProcessing(collectionId)
@@ -285,12 +292,18 @@ async function addDocuments(collectionId: string, files: File[]) {
 
 async function addUrl(collectionId: string, url: string) {
   if (!url.trim()) return
-  await fetch(`${API_BASE_URL}/api/collections/${collectionId}/documents/url`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url: url.trim() }),
-  })
+  documentError.value = null
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/collections/${collectionId}/documents/url`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: url.trim() }),
+    })
+    if (!response.ok) documentError.value = `Échec de l'ajout de l'URL (${response.status}).`
+  } catch {
+    documentError.value = "Échec de l'ajout de l'URL : le serveur est inaccessible."
+  }
   await refreshDocuments(collectionId)
   pollDocumentsWhileProcessing(collectionId)
 }
@@ -441,6 +454,7 @@ export function useCollections() {
     collections,
     isLoading,
     error,
+    documentError,
     activeCollection,
     isCollectionReady,
     markSettingsSaved,
