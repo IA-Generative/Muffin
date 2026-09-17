@@ -1,6 +1,6 @@
 import { computed, ref } from 'vue'
 import { router } from '../router'
-import type { ChatMessage, Conversation, FeedbackDetails, Source } from '../types/chat'
+import type { ChatMessage, Conversation, ExecutionEvent, FeedbackDetails, Source } from '../types/chat'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
 
@@ -17,6 +17,14 @@ interface MessageOut {
   id: string
   role: 'user' | 'assistant'
   content: string
+  created_at: string
+}
+
+interface RunEventOut {
+  id: string
+  task_id: string | null
+  type: string
+  data: Record<string, unknown> | null
   created_at: string
 }
 
@@ -37,6 +45,8 @@ const conversations = ref<Conversation[]>([{ id: 'default', title: 'Nouvelle con
 const activeId = ref('default')
 const messagesByConversation = ref<Record<string, ChatMessage[]>>({ default: [] })
 const activeSourcesMessageId = ref<string>()
+const activeExecutionMessageId = ref<string>()
+const executionEventsByMessageId = ref<Record<string, ExecutionEvent[]>>({})
 // The sidebar starts a conversation under a client-side placeholder id (no
 // GET /api/conversations to fetch a real one from yet); the first run made
 // in it returns the real backend conversation id, which the placeholder is
@@ -86,6 +96,61 @@ const messages = computed(() => messagesByConversation.value[activeId.value] ?? 
 const activeSources = computed(
   () => messages.value.find((message) => message.id === activeSourcesMessageId.value)?.sources,
 )
+const activeExecutionEvents = computed(() =>
+  activeExecutionMessageId.value ? executionEventsByMessageId.value[activeExecutionMessageId.value] : undefined,
+)
+
+// Internal run_events type -> a short label a user can actually read - never the model's own
+// reasoning (the backend never emits that as an event, only these fixed step names, see
+// worker/agent_execution/app/graph/services/events.py).
+const EVENT_LABELS: Record<string, string> = {
+  run_started: 'Recherche démarrée',
+  vdb_discovery_started: 'Recherche des bases de connaissances accessibles…',
+  vdb_discovery_completed: 'Bases de connaissances accessibles identifiées',
+  query_analysis_started: 'Analyse de la question…',
+  query_analysis_completed: 'Question analysée',
+  query_decomposition_started: 'Découpage de la question en sous-tâches…',
+  query_decomposition_completed: 'Question découpée en sous-tâches',
+  research_plan_created: 'Plan de recherche établi',
+  task_started: 'Tâche de recherche démarrée',
+  vdb_routing_started: 'Sélection des bases de connaissances pertinentes…',
+  vdb_routing_completed: 'Bases de connaissances pertinentes sélectionnées',
+  search_started: 'Recherche dans la base de connaissances…',
+  search_completed: 'Résultats de recherche reçus',
+  task_completed: 'Tâche de recherche terminée',
+  task_failed: 'Tâche de recherche échouée',
+  evidence_updated: 'Preuves mises à jour',
+  coverage_evaluation_started: 'Évaluation de la couverture des preuves…',
+  coverage_evaluation_completed: 'Couverture des preuves évaluée',
+  replan_started: 'Re-planification ciblée…',
+  replan_completed: 'Plan de recherche affiné',
+  answer_context_built: 'Contexte de réponse préparé',
+  answer_generation_started: 'Génération de la réponse…',
+  answer_generation_completed: 'Réponse générée',
+  grounding_validation_started: 'Vérification des faits de la réponse…',
+  grounding_validation_completed: 'Faits de la réponse vérifiés',
+  grounding_research_started: 'Recherche complémentaire pour étayer la réponse…',
+  grounding_research_completed: 'Recherche complémentaire terminée',
+  clarification_requested: 'Clarification demandée',
+  clarification_received: 'Clarification reçue',
+  run_waiting_for_user: 'En attente de votre réponse',
+  run_completed: 'Recherche terminée',
+  run_failed: 'Recherche échouée',
+  run_cancelled: 'Recherche annulée',
+}
+
+function eventLabel(type: string): string {
+  return EVENT_LABELS[type] ?? type.replaceAll('_', ' ')
+}
+
+async function fetchRunEvents(runId: string): Promise<RunEventOut[]> {
+  const response = await fetch(`${API_BASE_URL}/api/runs/${runId}/events?page_size=200`, {
+    credentials: 'include',
+  })
+  if (!response.ok) throw new Error(`${response.status}`)
+  const body: { items: RunEventOut[] } = await response.json()
+  return body.items
+}
 
 async function fetchConversationsList(): Promise<ConversationOut[]> {
   const response = await fetch(`${API_BASE_URL}/api/conversations?page_size=100`, { credentials: 'include' })
@@ -234,22 +299,24 @@ function assistantMessageFor(id: string, run: RunOut): ChatMessage {
       id,
       role: 'assistant',
       content: run.pending_human_action?.question ?? 'Pouvez-vous préciser votre demande ?',
+      runId: run.id,
     }
   }
   if (!TERMINAL_STATUSES.has(run.status)) {
-    return { id, role: 'assistant', content: run.current_activity ?? 'Recherche en cours…' }
+    return { id, role: 'assistant', content: run.current_activity ?? 'Recherche en cours…', runId: run.id }
   }
   if (run.status === 'completed') {
     const [content, sources] = formatAnswerWithCitations(
       run.answer || "Je n'ai pas trouvé de réponse dans vos collections.",
       run.citations,
     )
-    return { id, role: 'assistant', content, sources }
+    return { id, role: 'assistant', content, sources, runId: run.id }
   }
   return {
     id,
     role: 'assistant',
     content: run.status === 'cancelled' ? 'Cette recherche a été annulée.' : run.error || 'Cette recherche a échoué.',
+    runId: run.id,
   }
 }
 
@@ -377,11 +444,37 @@ function sendFeedback(id: string, value: 'up' | 'down', details?: FeedbackDetail
 }
 
 function showSources(id: string) {
+  activeExecutionMessageId.value = undefined // the two panels share one slot, mutually exclusive
   activeSourcesMessageId.value = id
 }
 
 function closeSources() {
   activeSourcesMessageId.value = undefined
+}
+
+// Fetches the run's event trace once per message (cached in executionEventsByMessageId), then
+// opens the panel - a live run (still polling) always refetches, since new events keep landing.
+async function showExecutionDetails(id: string) {
+  activeSourcesMessageId.value = undefined // the two panels share one slot, mutually exclusive
+  activeExecutionMessageId.value = id
+  const runId = messages.value.find((message) => message.id === id)?.runId
+  if (!runId) return
+  if (executionEventsByMessageId.value[id] && !activePolls.has(id)) return
+  try {
+    const items = await fetchRunEvents(runId)
+    executionEventsByMessageId.value[id] = items.map((item) => ({
+      id: item.id,
+      label: eventLabel(item.type),
+      taskId: item.task_id ?? undefined,
+      createdAt: item.created_at,
+    }))
+  } catch {
+    executionEventsByMessageId.value[id] = []
+  }
+}
+
+function closeExecutionDetails() {
+  activeExecutionMessageId.value = undefined
 }
 
 export function useChat() {
@@ -390,6 +483,8 @@ export function useChat() {
     activeId,
     messages,
     activeSources,
+    activeExecutionMessageId,
+    activeExecutionEvents,
     selectConversation,
     newConversation,
     sendMessage,
@@ -397,5 +492,7 @@ export function useChat() {
     sendFeedback,
     showSources,
     closeSources,
+    showExecutionDetails,
+    closeExecutionDetails,
   }
 }
