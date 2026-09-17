@@ -7,7 +7,8 @@ import CollectionDetailView from './CollectionDetailView.vue'
 import PaginationControls from './PaginationControls.vue'
 
 const route = useRoute()
-const { collections, activeCollection, createCollection, openCollection, closeCollection } = useCollections()
+const { collections, isLoading, activeCollection, createCollection, openCollection, closeCollection } =
+  useCollections()
 const { search, sortKey, page, pageCount, results: sorted, paged } = useCollectionsBrowser(collections)
 
 // Keeps the open/closed collection state in sync with direct URL navigation
@@ -63,7 +64,11 @@ function indexedCount(documents: { status: string }[]) {
       </select>
     </div>
 
-    <p v-if="sorted.length === 0" class="collections-view__empty">Aucune collection ne correspond à cette recherche.</p>
+    <p v-if="isLoading" class="collections-view__empty">Chargement des collections…</p>
+
+    <p v-else-if="sorted.length === 0" class="collections-view__empty">
+      Aucune collection ne correspond à cette recherche.
+    </p>
 
     <div v-else class="collections-view__grid">
       <button

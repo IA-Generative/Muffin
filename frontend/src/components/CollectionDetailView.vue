@@ -19,17 +19,20 @@ const tagDraft = ref('')
 
 type TabKey = 'documents' | 'qa' | 'evaluation' | 'relations' | 'chunks' | 'settings'
 const TABS: { key: TabKey; label: string }[] = [
+  { key: 'settings', label: 'Paramètres' },
   { key: 'documents', label: 'Documents' },
   { key: 'qa', label: 'Questions / Réponses' },
   { key: 'evaluation', label: 'Évaluation' },
   { key: 'relations', label: 'Entités & Relations' },
   { key: 'chunks', label: 'Chunks' },
-  { key: 'settings', label: 'Paramètres' },
 ]
-const activeTab = ref<TabKey>('documents')
+// Paramètres en premier : on configure le chunking/embedding avant d'ajouter
+// des documents, donc c'est l'onglet le plus utile à l'ouverture.
+const activeTab = ref<TabKey>('settings')
 
 const dateFormatter = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })
-function formatStamp(meta: { updatedBy: string; updatedAt: string }) {
+function formatStamp(meta: { updatedBy: string; updatedAt: string } | null) {
+  if (!meta) return ''
   return `Modifié par ${meta.updatedBy} le ${dateFormatter.format(new Date(meta.updatedAt))}`
 }
 
@@ -79,7 +82,9 @@ function askDelete() {
         aria-label="Description de la collection"
         @change="updateDescription(collection.id, ($event.target as HTMLTextAreaElement).value)"
       />
-      <p class="collection-detail__meta">{{ formatStamp(collection.descriptionMeta) }}</p>
+      <p v-if="collection.descriptionMeta" class="collection-detail__meta">
+        {{ formatStamp(collection.descriptionMeta) }}
+      </p>
 
       <div class="collection-detail__tags">
         <span v-for="tag in collection.tags" :key="tag" class="collection-detail__tag">
