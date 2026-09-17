@@ -7,11 +7,38 @@ from app.graph import AgentState, build_graph
 
 _graph = build_graph()
 
+_TITLE_SYSTEM_PROMPT = (
+    "Summarize the following question and answer into a short, specific conversation title - at "
+    "most 6 words, no surrounding quotes, no trailing punctuation, same language as the question."
+)
+
 
 def _config(run_id: str) -> dict[str, Any]:
     # thread_id = run_id: the checkpointer keys a run's full state (incl. any HITL pause) by
     # this, so resuming later re-enters the same graph execution rather than starting fresh.
     return {"configurable": {"thread_id": run_id}}
+
+
+def _generate_conversation_title(conversation_id: str, query: str, answer: str) -> None:
+    """Best-effort (§ never let a side effect flip an already-completed run to failed): the
+    backend's own title_generated flag makes this idempotent, so it's safe to just attempt it
+    after every completed run rather than the worker tracking "is this the first one" itself."""
+    try:
+        model = backend_client.get_default_chat_model()
+        if model is None:
+            return
+        title = backend_client.llm_chat(
+            model,
+            [
+                {"role": "system", "content": _TITLE_SYSTEM_PROMPT},
+                {"role": "user", "content": f"Question: {query}\n\nAnswer: {answer}"},
+            ],
+        )
+        title = title.strip().strip('"').strip("'")[:80]
+        if title:
+            backend_client.update_conversation_title(conversation_id, title)
+    except Exception:
+        logger.exception(f"Failed to generate a title for conversation {conversation_id}")
 
 
 class AgentService:
@@ -97,6 +124,9 @@ class AgentService:
         backend_client.set_run_result(run_id, final_state["answer"] or "", final_state["citations"])
         backend_client.update_run_status(run_id, "completed")
         backend_client.add_run_event(run_id, "run_completed", {"citation_count": len(final_state["citations"])})
+        _generate_conversation_title(
+            final_state["conversation_id"], final_state["original_query"], final_state["answer"] or ""
+        )
 
 
 agent_service = AgentService()

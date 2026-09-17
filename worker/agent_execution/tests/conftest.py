@@ -30,6 +30,7 @@ class FakeBackend:
         self.documents_by_collection: dict[str, list[dict[str, Any]]] = {}
         # {(document_id, page_number): {"page_number":..., "content":..., "screenshot_url":...}}
         self.pages: dict[tuple[str, int], dict[str, Any]] = {}
+        self.conversation_titles: dict[str, str] = {}
 
     def get_run(self, run_id: str) -> dict[str, Any]:
         return {"cancel_requested": self.cancel_requested}
@@ -82,6 +83,9 @@ class FakeBackend:
 
     def get_document_page(self, user_id: str, document_id: str, page_number: int) -> dict[str, Any]:
         return self.pages[(document_id, page_number)]
+
+    def update_conversation_title(self, conversation_id: str, title: str) -> None:
+        self.conversation_titles[conversation_id] = title
 
 
 _PATCHED_MODULES = (
