@@ -8,6 +8,7 @@ import CollectionEvaluationTab from './CollectionEvaluationTab.vue'
 import CollectionQaTab from './CollectionQaTab.vue'
 import CollectionRelationsTab from './CollectionRelationsTab.vue'
 import CollectionSettingsTab from './CollectionSettingsTab.vue'
+import ConfirmDeleteModal from './ConfirmDeleteModal.vue'
 
 const props = defineProps<{
   collection: Collection
@@ -65,10 +66,11 @@ function removeTag(tag: string) {
   updateTags(props.collection.id, props.collection.tags.filter((item) => item !== tag))
 }
 
-function askDelete() {
-  if (confirm(`Supprimer la collection "${props.collection.name}" ?`)) {
-    deleteCollection(props.collection.id)
-  }
+const showDeleteModal = ref(false)
+
+function confirmDelete() {
+  showDeleteModal.value = false
+  deleteCollection(props.collection.id)
 }
 </script>
 
@@ -89,7 +91,7 @@ function askDelete() {
           aria-label="Nom de la collection"
           @change="updateName(collection.id, ($event.target as HTMLInputElement).value)"
         />
-        <button type="button" class="collection-detail__delete" @click="askDelete">Supprimer</button>
+        <button type="button" class="collection-detail__delete" @click="showDeleteModal = true">Supprimer</button>
       </div>
 
       <textarea
@@ -150,6 +152,15 @@ function askDelete() {
         <CollectionSettingsTab v-else :collection="collection" />
       </div>
     </div>
+
+    <ConfirmDeleteModal
+      v-if="showDeleteModal"
+      title="Supprimer cette collection ?"
+      :warning="`Cette action est irréversible : tous les documents, questions/réponses, entités et chunks de « ${collection.name} » seront définitivement supprimés, y compris les fichiers et captures d'écran stockés.`"
+      :confirm-text="collection.name"
+      @confirm="confirmDelete"
+      @cancel="showDeleteModal = false"
+    />
   </section>
 </template>
 

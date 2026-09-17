@@ -2,6 +2,7 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import storage
 from app.core.security.factory import RequestContext
 from app.models.collection import Collection
 from app.repositories.collection_repository import CollectionRepository
@@ -66,8 +67,15 @@ class CollectionService:
 
     async def delete_collection(self, collection_id: uuid.UUID, user: RequestContext) -> None:
         collection = await self._get_owned(collection_id, user)
+        # Collected before the cascade delete removes the rows that reference
+        # them - Postgres cleanup and RustFS cleanup can't be one transaction.
+        rustfs_keys = await self.repository.list_rustfs_keys(collection_id)
         await self.repository.delete(collection)
         await self.db.commit()
+        # Best-effort and after the commit: a RustFS failure here must not
+        # roll back a deletion the user already sees as done.
+        # TODO: also delete this collection's vectors once Qdrant exists.
+        storage.delete_objects(rustfs_keys)
 
     async def _get_owned(self, collection_id: uuid.UUID, user: RequestContext) -> Collection:
         collection = await self.repository.get(collection_id, user.user_id)

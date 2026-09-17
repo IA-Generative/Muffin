@@ -14,10 +14,6 @@ import type {
   Relation,
 } from '../types/collection'
 
-function doc(name: string, type: CollectionDocument['type'], status: CollectionDocument['status']): CollectionDocument {
-  return { id: crypto.randomUUID(), name, type, status, progress: status === 'indexed' ? 100 : 0 }
-}
-
 function qa(
   question: string,
   answer: string,
@@ -78,6 +74,18 @@ function toCollection(raw: CollectionOut): Collection {
     instructions: raw.instructions,
     evaluationRuns: raw.evaluation_runs,
   }
+}
+
+interface DocumentOut {
+  id: string
+  name: string
+  type: CollectionDocument['type']
+  status: CollectionDocument['status']
+  progress: number
+}
+
+function toDocument(raw: DocumentOut): CollectionDocument {
+  return { id: raw.id, name: raw.name, type: raw.type, status: raw.status, progress: raw.progress }
 }
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
@@ -159,6 +167,16 @@ fetchCollections()
 function openCollection(id: string, options: { navigate?: boolean } = {}) {
   activeCollectionId.value = id
   if (!collections.value.some((item) => item.id === id)) fetchCollection(id)
+  // CollectionOut doesn't embed documents (avoids an N+1 on every list/get) -
+  // always fetched separately, and polling resumes here in case processing
+  // was still running when the collection was last closed.
+  refreshDocuments(id).then(() => {
+    const collection = collections.value.find((item) => item.id === id)
+    const stillProcessing = collection?.documents.some(
+      (document) => document.status === 'pending' || document.status === 'indexing',
+    )
+    if (stillProcessing) pollDocumentsWhileProcessing(id)
+  })
   const target = `/collections/${id}`
   if (options.navigate !== false && router.currentRoute.value.fullPath !== target) {
     router.push(target)
@@ -216,47 +234,75 @@ async function deleteCollection(id: string) {
   if (activeCollectionId.value === id) closeCollection()
 }
 
-// Pas de backend : on simule un pipeline d'indexation progressif côté client.
-function simulateIndexing(collectionId: string, documentId: string) {
-  const collection = collections.value.find((item) => item.id === collectionId)
-  const document = collection?.documents.find((item) => item.id === documentId)
-  if (!document) return
+// One poll loop per collection at most, stopped once nothing is pending/indexing.
+const documentPolls = new Map<string, ReturnType<typeof setInterval>>()
 
-  document.status = 'indexing'
-  const interval = setInterval(() => {
-    document.progress = Math.min(100, document.progress + Math.round(10 + Math.random() * 20))
-    if (document.progress >= 100) {
-      document.status = 'indexed'
-      collection!.updatedAt = new Date().toISOString()
-      clearInterval(interval)
+async function refreshDocuments(collectionId: string) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/collections/${collectionId}/documents`, {
+      credentials: 'include',
+    })
+    if (!response.ok) return
+    const raw: DocumentOut[] = await response.json()
+    const collection = collections.value.find((item) => item.id === collectionId)
+    if (!collection) return
+    collection.documents = raw.map(toDocument)
+
+    const stillProcessing = collection.documents.some(
+      (document) => document.status === 'pending' || document.status === 'indexing',
+    )
+    if (!stillProcessing) {
+      const interval = documentPolls.get(collectionId)
+      if (interval) clearInterval(interval)
+      documentPolls.delete(collectionId)
     }
-  }, 400)
-}
-
-function addDocuments(collectionId: string, files: File[]) {
-  const collection = collections.value.find((item) => item.id === collectionId)
-  if (!collection) return
-  for (const file of files) {
-    const newDoc = doc(file.name, 'file', 'pending')
-    collection.documents.push(newDoc)
-    simulateIndexing(collectionId, newDoc.id)
+  } catch {
+    // Ignored: the next poll tick (or the next manual refresh) retries.
   }
-  collection.updatedAt = new Date().toISOString()
 }
 
-function addUrl(collectionId: string, url: string) {
-  const collection = collections.value.find((item) => item.id === collectionId)
-  if (!collection || !url.trim()) return
-  const newDoc = doc(url.trim(), 'url', 'pending')
-  collection.documents.push(newDoc)
-  collection.updatedAt = new Date().toISOString()
-  simulateIndexing(collectionId, newDoc.id)
+function pollDocumentsWhileProcessing(collectionId: string) {
+  if (documentPolls.has(collectionId)) return
+  documentPolls.set(
+    collectionId,
+    setInterval(() => refreshDocuments(collectionId), 2000),
+  )
 }
 
-function removeDocument(collectionId: string, documentId: string) {
+async function addDocuments(collectionId: string, files: File[]) {
+  for (const file of files) {
+    const formData = new FormData()
+    formData.append('file', file)
+    await fetch(`${API_BASE_URL}/api/collections/${collectionId}/documents/file`, {
+      method: 'POST',
+      credentials: 'include',
+      body: formData,
+    })
+  }
+  await refreshDocuments(collectionId)
+  pollDocumentsWhileProcessing(collectionId)
+}
+
+async function addUrl(collectionId: string, url: string) {
+  if (!url.trim()) return
+  await fetch(`${API_BASE_URL}/api/collections/${collectionId}/documents/url`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url: url.trim() }),
+  })
+  await refreshDocuments(collectionId)
+  pollDocumentsWhileProcessing(collectionId)
+}
+
+async function removeDocument(collectionId: string, documentId: string) {
+  const response = await fetch(`${API_BASE_URL}/api/collections/${collectionId}/documents/${documentId}`, {
+    method: 'DELETE',
+    credentials: 'include',
+  })
+  if (!response.ok) return
   const collection = collections.value.find((item) => item.id === collectionId)
-  if (!collection) return
-  collection.documents = collection.documents.filter((item) => item.id !== documentId)
+  if (collection) collection.documents = collection.documents.filter((item) => item.id !== documentId)
 }
 
 function addQaPair(collectionId: string, question: string, answer: string) {
@@ -298,16 +344,16 @@ function updateEmbeddingModel(collectionId: string, model: string) {
   collection.updatedAt = new Date().toISOString()
 }
 
-// Pas de backend : on rejoue simplement l'indexation de tous les documents.
-function reindexCollection(collectionId: string) {
+async function reindexCollection(collectionId: string) {
+  const response = await fetch(`${API_BASE_URL}/api/collections/${collectionId}/documents/reindex`, {
+    method: 'POST',
+    credentials: 'include',
+  })
+  if (!response.ok) return
   const collection = collections.value.find((item) => item.id === collectionId)
-  if (!collection) return
-  collection.reindexRequired = false
-  for (const document of collection.documents) {
-    document.status = 'pending'
-    document.progress = 0
-    simulateIndexing(collectionId, document.id)
-  }
+  if (collection) collection.reindexRequired = false
+  await refreshDocuments(collectionId)
+  pollDocumentsWhileProcessing(collectionId)
 }
 
 function updateInstructionField(collectionId: string, field: keyof PipelineInstructions, value: string) {

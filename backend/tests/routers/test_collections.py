@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete
@@ -6,6 +8,7 @@ from app.core.security.factory import RequestContext, get_current_user
 from app.db import async_session_factory
 from app.main import app
 from app.models.collection import Collection
+from app.models.document import Document, DocumentPage
 
 
 @pytest.fixture
@@ -68,6 +71,25 @@ async def test_delete_collection(client):
 
     response = await client.delete(f"/api/collections/{created['id']}")
     assert response.status_code == 204
+
+
+async def test_delete_collection_removes_rustfs_objects(client):
+    created = (await client.post("/api/collections")).json()
+
+    async with async_session_factory() as session:
+        document = Document(collection_id=created["id"], name="report.pdf", type="file", storage_key="docs/report.pdf")
+        session.add(document)
+        await session.flush()
+        session.add(DocumentPage(document_id=document.id, page_number=1, content="hi", screenshot="screens/p1.png"))
+        await session.commit()
+
+    with patch("app.services.collection_service.storage.delete_objects") as mock_delete:
+        response = await client.delete(f"/api/collections/{created['id']}")
+
+    assert response.status_code == 204
+    mock_delete.assert_called_once()
+    (deleted_keys,), _ = mock_delete.call_args
+    assert set(deleted_keys) == {"docs/report.pdf", "screens/p1.png"}
 
     assert (await client.get(f"/api/collections/{created['id']}")).status_code == 404
 
