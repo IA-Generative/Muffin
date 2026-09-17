@@ -13,7 +13,11 @@ const showSettings = ref(false)
 const { user, login, logout } = useCurrentUser()
 const { conversations, activeId, selectConversation, newConversation } = useChat()
 
-const activeView = computed(() => (route.path.startsWith('/collections') ? 'collections' : 'chat'))
+const activeView = computed(() => {
+  if (route.path.startsWith('/collections')) return 'collections'
+  if (route.path.startsWith('/tasks')) return 'tasks'
+  return 'chat'
+})
 </script>
 
 <template>
@@ -26,6 +30,7 @@ const activeView = computed(() => (route.path.startsWith('/collections') ? 'coll
       @select="selectConversation"
       @new="newConversation"
       @open-collections="router.push('/collections')"
+      @open-tasks="router.push('/tasks')"
       @open-settings="showSettings = true"
       @login="login()"
       @logout="logout"

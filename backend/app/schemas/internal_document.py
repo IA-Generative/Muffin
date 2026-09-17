@@ -11,6 +11,7 @@ class InternalDocumentOut(BaseModel):
     type: str
     status: str
     storage_key: str | None
+    summary: str | None = None
 
 
 class DocumentStatusUpdate(BaseModel):
@@ -23,6 +24,11 @@ class DocumentPageCreate(BaseModel):
     page_number: int
     content: str
     screenshot: str | None = None
+
+
+class DocumentPageOut(BaseModel):
+    page_number: int
+    content: str
 
 
 class ChunkCreate(BaseModel):

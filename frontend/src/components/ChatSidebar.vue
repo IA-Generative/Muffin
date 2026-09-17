@@ -6,7 +6,7 @@ import type { User } from '../types/user'
 defineProps<{
   conversations: Conversation[]
   activeId: string
-  activeView: 'chat' | 'collections'
+  activeView: 'chat' | 'collections' | 'tasks'
   user: User | null
 }>()
 
@@ -14,6 +14,7 @@ const emit = defineEmits<{
   select: [id: string]
   new: []
   openCollections: []
+  openTasks: []
   openSettings: []
   login: []
   logout: []
@@ -25,6 +26,11 @@ const userWrapper = ref<HTMLElement>()
 function openSettings() {
   showUserMenu.value = false
   emit('openSettings')
+}
+
+function openTasks() {
+  showUserMenu.value = false
+  emit('openTasks')
 }
 
 function logout() {
@@ -110,6 +116,12 @@ function initials(name: string) {
             />
           </svg>
           Paramètres
+        </button>
+        <button type="button" class="user-menu__item" role="menuitem" @click="openTasks">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 11l3 3 8-8M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9" />
+          </svg>
+          Tâches
         </button>
         <button type="button" class="user-menu__item" role="menuitem" @click="logout">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">

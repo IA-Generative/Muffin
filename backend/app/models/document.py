@@ -37,6 +37,9 @@ class Document(UUIDMixin, TimestampMixin, Base):
     )
     progress: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Separate from summary: a summarize_document failure shouldn't be able to
+    # clobber a real summary a previous run already produced, and vice versa.
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     collection: Mapped["Collection"] = relationship(back_populates="documents")  # noqa: F821
     pages: Mapped[list["DocumentPage"]] = relationship(

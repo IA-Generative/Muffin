@@ -11,5 +11,6 @@ export const router = createRouter({
       name: 'collection-detail',
       component: () => import('../components/CollectionsView.vue'),
     },
+    { path: '/tasks', name: 'tasks', component: () => import('../components/TasksView.vue') },
   ],
 })
