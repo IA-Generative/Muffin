@@ -20,6 +20,13 @@ class Message(UUIDMixin, TimestampMixin, Base):
     )
     role: Mapped[MessageRole] = mapped_column(Enum(MessageRole, name="message_role"), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    # Only ever set for an ASSISTANT message (the run that produced it) - SET NULL rather than
+    # CASCADE so a run being cleaned up later never silently deletes chat history with it. Lets
+    # the frontend re-fetch that run's citations/event trace ("execution detail") for a message
+    # restored from history, not just a live one still in memory.
+    run_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("runs.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     conversation: Mapped["Conversation"] = relationship(back_populates="messages")  # noqa: F821
     sources: Mapped[list["Source"]] = relationship(  # noqa: F821
