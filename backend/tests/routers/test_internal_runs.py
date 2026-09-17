@@ -308,3 +308,34 @@ async def test_search_finds_matching_chunk(client, monkeypatch):
     assert len(results) == 1
     assert "télétravail" in results[0]["text"]
     assert results[0]["chunk_id"] == str(telework_chunk_id)
+
+
+async def test_search_tolerates_an_embedding_model_that_is_unavailable(client, monkeypatch):
+    """A collection's embedding_model can be misconfigured/unavailable on the LLM hub (real
+    incident: the hub didn't have "text-embedding-3-small") - that must degrade to empty results
+    for that collection, never a 500 that fails the whole request for every other collection."""
+    from types import SimpleNamespace
+
+    from app.services import search_service
+
+    async with async_session_factory() as session:
+        collection = Collection(owner_id="dev-user", name="Policies", description="")
+        collection.settings = CollectionSettings(embedding_model="not-a-real-model")
+        session.add(collection)
+        await session.commit()
+        collection_id = collection.id
+
+    async def failing_embedding(**_kwargs):
+        raise RuntimeError("model 'not-a-real-model' not found")
+
+    fake_openai_client = SimpleNamespace(embeddings=SimpleNamespace(create=failing_embedding))
+    monkeypatch.setattr(search_service, "_openai_client", fake_openai_client)
+
+    response = await client.post(
+        "/api/internal/search",
+        headers=_headers(),
+        json={"collection_ids": [str(collection_id)], "query": "télétravail", "limit": 5},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == []

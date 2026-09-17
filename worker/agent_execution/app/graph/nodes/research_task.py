@@ -14,7 +14,9 @@ from app.graph.state import Evidence, ResearchTaskInput
 
 
 def _collection_evidence(vdb: dict[str, Any], task_id: str, retrieval_query: str) -> Evidence:
-    content = f"{vdb['name']}: {vdb['description']} ({vdb.get('document_count', 0)} document(s))"
+    content = (
+        f"Knowledge base collection '{vdb['name']}': {vdb['description']} ({vdb.get('document_count', 0)} document(s))"
+    )
     return Evidence(
         id=str(uuid.uuid4()),
         task_id=task_id,
@@ -22,6 +24,24 @@ def _collection_evidence(vdb: dict[str, Any], task_id: str, retrieval_query: str
         source_id=str(vdb["id"]),
         content=content,
         metadata={"document_count": vdb.get("document_count", 0)},
+        relevance_score=None,
+        retrieval_query=retrieval_query,
+    )
+
+
+def _count_fact_evidence(task_id: str, retrieval_query: str, noun: str, count: int, vdb_id: str = "") -> Evidence:
+    # A literal, unambiguous sentence rather than relying on generate_answer's LLM to count
+    # excerpts itself - tested against a real local model, it sometimes refused to (treating a
+    # description as unrelated to "your collections" instead of counting the items it was given).
+    plural = "" if count == 1 else "s"
+    content = f"You have exactly {count} accessible {noun}{plural}."
+    return Evidence(
+        id=str(uuid.uuid4()),
+        task_id=task_id,
+        vdb_id=vdb_id,
+        source_id=vdb_id,
+        content=content,
+        metadata={"count": count},
         relevance_score=None,
         retrieval_query=retrieval_query,
     )
@@ -49,6 +69,7 @@ def _run_list_collections(task: dict[str, Any], accessible_vdbs: list[dict[str, 
     # set itself (§4), which load_accessible_vdbs already fetched for this exact permission
     # reason, not narrowed by relevance since every accessible collection is the answer.
     evidence = [_collection_evidence(vdb, task["id"], task["query"]) for vdb in accessible_vdbs]
+    evidence.append(_count_fact_evidence(task["id"], task["query"], "knowledge base collection", len(accessible_vdbs)))
     return {"selected_vdbs": [str(v["id"]) for v in accessible_vdbs]}, evidence
 
 
@@ -79,6 +100,19 @@ def _run_list_documents(
                     retrieval_query=task["query"],
                 )
             )
+        count = len(documents)
+        evidence.append(
+            Evidence(
+                id=str(uuid.uuid4()),
+                task_id=task["id"],
+                vdb_id=str(vdb["id"]),
+                source_id=str(vdb["id"]),
+                content=f"The '{vdb['name']}' collection has exactly {count} document{'' if count == 1 else 's'}.",
+                metadata={"count": count},
+                relevance_score=None,
+                retrieval_query=task["query"],
+            )
+        )
     return {"selected_vdbs": [str(v["id"]) for v in selected_vdbs]}, evidence
 
 
