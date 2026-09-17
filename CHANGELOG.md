@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.2.0](https://github.com/IA-Generative/Muffin/compare/v0.1.0...v0.2.0) (2026-09-17)
+
+
+### Features
+
+* add backend service with Redis and Keycloak integration ([951cd40](https://github.com/IA-Generative/Muffin/commit/951cd402da360090d014669ba1d910ad8a4d8b41))
+* add chat functionality with message handling and sources display ([7f8b6bf](https://github.com/IA-Generative/Muffin/commit/7f8b6bf1ae732fe5cee28fea768cad805915c70e))
+* add qa into front ([0ae35f8](https://github.com/IA-Generative/Muffin/commit/0ae35f88858e20c809525c3ae2e7d4637730b8c4))
+* admini collections ([478ac2f](https://github.com/IA-Generative/Muffin/commit/478ac2ff9a301dc8f689a7203c7f766f63e15180))
+* **backend:** add collections CRUD, repository/service layers, and generic pagination ([b24684c](https://github.com/IA-Generative/Muffin/commit/b24684cc1b8cef04670b75163febbc530e180009))
+* **backend:** add kecloak integration ([1c200bf](https://github.com/IA-Generative/Muffin/commit/1c200bf8f56edcd79eb6d9355822195997454827))
+* **backend:** add worker-facing internal API (API key auth) for document ingestion ([55a9564](https://github.com/IA-Generative/Muffin/commit/55a9564fb83e4a57fa3d5474b5eeac190f842f57))
+* **bakend:** add models choice ([1d96b93](https://github.com/IA-Generative/Muffin/commit/1d96b9379fdc0b0aad6d9a565231f772d3438e6a))
+* **ci:** add initial configuration files for release management and CI/CD ([d2e4908](https://github.com/IA-Generative/Muffin/commit/d2e4908e65d56b9ba84f0c21a51f359391004d42))
+* **collections:** persist chunking/embedding/instructions settings, add per-step model pickers ([d03f364](https://github.com/IA-Generative/Muffin/commit/d03f3648dfcf7705bd0457fc390b8855feba37ee))
+* **collections:** sliding-window params per pipeline step, new Résumé section, modern card layout ([32ee12f](https://github.com/IA-Generative/Muffin/commit/32ee12fdae6de3efd5a256a2aafe67221bf931e6))
+* **documents:** real upload/delete/reindex wired end-to-end, plus type-to-confirm delete ([0b6d6af](https://github.com/IA-Generative/Muffin/commit/0b6d6af321163859487638b00dc8afacb9bba7a0))
+* enhance collections management with detailed views, pagination, and search functionality ([c4a7b7b](https://github.com/IA-Generative/Muffin/commit/c4a7b7b0310e40b8a36acaca6a8abd144c28142e))
+* **frontend:** add vue-router for conversation and collection URLs ([6bd5e83](https://github.com/IA-Generative/Muffin/commit/6bd5e834176b6139dbf666615cf623edfd87983b))
+* **frontend:** connect collections to the backend, embedding-model picker, settings tab first ([9f7b10e](https://github.com/IA-Generative/Muffin/commit/9f7b10e0bd0013c29bc93997e39288685d6aab31))
+* **frontend:** require a name and confirmed settings before using a collection ([f4d8e39](https://github.com/IA-Generative/Muffin/commit/f4d8e390c42342ae5df8813c5d368c3b6a857b00))
+* task integration ([e3249b7](https://github.com/IA-Generative/Muffin/commit/e3249b7066409cb9d975986c8768d9349f7f215a))
+* **worker:** add document_process Celery worker (liteparse + scrapling + RustFS) ([b5dceb4](https://github.com/IA-Generative/Muffin/commit/b5dceb4dbe83f2101f1426846154bce9392399c1))
+
+
+### Bug Fixes
+
+* **ci:** specify pnpm version via frontend/package.json for lint-frontend ([49b8dfc](https://github.com/IA-Generative/Muffin/commit/49b8dfcffa973b80fcebf415c6bf0f65aa669aba))
+* **docker:** backend had no RUSTFS_* env vars, so uploads failed silently ([195eaa2](https://github.com/IA-Generative/Muffin/commit/195eaa25dd7ba92cebb4fa8cbd0390ffe4765b18))
+* **docker:** make backend FRONTEND_URL overridable via .env ([b0d5960](https://github.com/IA-Generative/Muffin/commit/b0d5960f31ec84f7a5de067f80d39f14458d8bdf))
+* **frontend:** stop the file picker from reopening after choosing a file ([2b401b7](https://github.com/IA-Generative/Muffin/commit/2b401b76aeb6c7ea14849aa75ff619889c621aa5))
+* **release:** bump backend version with the release manifest ([abdf53c](https://github.com/IA-Generative/Muffin/commit/abdf53c12250f4c205165937b8ce03111dd0bd3c))
+* **release:** bump frontend version alongside the release manifest ([6353338](https://github.com/IA-Generative/Muffin/commit/63533380989efc836dad8625e4ac4921354c04fd))
+
 ## [0.2.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.1.0...v0.2.0-rc) (2026-09-17)
 
 
