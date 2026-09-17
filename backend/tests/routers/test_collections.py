@@ -211,3 +211,80 @@ async def test_collections_are_scoped_to_their_owner(client):
         assert (await client.get(f"/api/collections/{created['id']}")).status_code == 404
     finally:
         del app.dependency_overrides[get_current_user]
+
+
+async def test_list_qa_pairs_includes_document_name_as_source(client):
+    from app.models.qa import QaOrigin, QaPair
+
+    collection_id = (await client.post("/api/collections")).json()["id"]
+    async with async_session_factory() as session:
+        document = Document(collection_id=collection_id, name="report.pdf", type="url")
+        session.add(document)
+        await session.flush()
+        session.add(
+            QaPair(
+                collection_id=collection_id,
+                document_id=document.id,
+                question="What is this?",
+                answer="A report.",
+                origin=QaOrigin.GENERATED,
+                validated=False,
+            )
+        )
+        await session.commit()
+
+    response = await client.get(f"/api/collections/{collection_id}/qa-pairs")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 1
+    assert body[0]["question"] == "What is this?"
+    assert body[0]["source"] == "report.pdf"
+    assert body[0]["origin"] == "generated"
+
+
+async def test_list_qa_pairs_for_unknown_collection_returns_404(client):
+    response = await client.get(f"/api/collections/{uuid.uuid4()}/qa-pairs")
+    assert response.status_code == 404
+
+
+async def test_list_entities(client):
+    from app.models.entity import Entity, EntityType
+
+    collection_id = (await client.post("/api/collections")).json()["id"]
+    async with async_session_factory() as session:
+        session.add(Entity(collection_id=collection_id, name="Acme Corp", type=EntityType.ORGANISATION, mentions=3))
+        await session.commit()
+
+    response = await client.get(f"/api/collections/{collection_id}/entities")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 1
+    assert body[0]["name"] == "Acme Corp"
+    assert body[0]["type"] == "organisation"
+    assert body[0]["mentions"] == 3
+
+
+async def test_list_relations_uses_entity_names_for_from_and_to(client):
+    from app.models.entity import Entity, EntityType, Relation
+
+    collection_id = (await client.post("/api/collections")).json()["id"]
+    async with async_session_factory() as session:
+        alice = Entity(collection_id=collection_id, name="Alice", type=EntityType.PERSONNE, mentions=1)
+        acme = Entity(collection_id=collection_id, name="Acme Corp", type=EntityType.ORGANISATION, mentions=1)
+        session.add_all([alice, acme])
+        await session.flush()
+        session.add(
+            Relation(collection_id=collection_id, from_entity_id=alice.id, to_entity_id=acme.id, type="works_at")
+        )
+        await session.commit()
+
+    response = await client.get(f"/api/collections/{collection_id}/relations")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 1
+    assert body[0]["from"] == "Alice"
+    assert body[0]["to"] == "Acme Corp"
+    assert body[0]["type"] == "works_at"
