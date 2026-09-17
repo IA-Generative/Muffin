@@ -35,12 +35,21 @@ services:
       OPENAI_API_BASE_URL: ${OPENAI_API_BASE_URL:-}
       # Shared secret checked on every /api/internal/* call from a worker.
       WORKER_API_KEY: ${WORKER_API_KEY:-dev-only-worker-key-not-for-prod}
+      # Without these, RustFsSettings falls back to its localhost:9000
+      # default, which inside this container resolves to nothing - file
+      # uploads fail silently before a Document row is even created.
+      RUSTFS_ENDPOINT_URL: http://rustfs:9000
+      RUSTFS_ACCESS_KEY: rustfsadmin
+      RUSTFS_SECRET_KEY: rustfsadmin
+      RUSTFS_BUCKET: muffin-documents
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
       keycloak:
+        condition: service_healthy
+      rustfs:
         condition: service_healthy
     restart: unless-stopped
 

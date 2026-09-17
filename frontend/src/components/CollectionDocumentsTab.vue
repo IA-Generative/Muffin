@@ -9,7 +9,7 @@ const props = defineProps<{
   collection: Collection
 }>()
 
-const { addDocuments, addUrl, removeDocument } = useCollections()
+const { addDocuments, addUrl, removeDocument, documentError } = useCollections()
 
 const documents = computed(() => props.collection.documents)
 const { page, pageCount, paged: pagedDocuments } = usePagination(documents)
@@ -69,6 +69,8 @@ const STATUS_LABEL = {
       />
       <button type="submit" class="fr-btn fr-btn--secondary" :disabled="!urlDraft.trim()">Ajouter</button>
     </form>
+
+    <p v-if="documentError" class="documents-tab__error" role="alert">{{ documentError }}</p>
 
     <ul v-if="collection.documents.length" class="documents-tab__list">
       <li v-for="document in pagedDocuments" :key="document.id" class="documents-tab__item">
@@ -154,6 +156,12 @@ const STATUS_LABEL = {
   background: var(--background-default-grey);
   color: var(--text-default-grey);
   font: inherit;
+}
+
+.documents-tab__error {
+  margin: 0.75rem 0 0;
+  font-size: 0.8125rem;
+  color: var(--text-default-error);
 }
 
 .documents-tab__list {
