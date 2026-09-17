@@ -7,7 +7,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.security.worker_auth import require_worker_api_key
 from app.db import get_db
 from app.models.run import RunStatus
-from app.repositories.chunk_repository import ChunkRepository
 from app.repositories.collection_repository import CollectionRepository
 from app.repositories.run_repository import RunRepository
 from app.schemas.internal_run import (
@@ -21,6 +20,7 @@ from app.schemas.internal_run import (
     SearchRequest,
     SearchResultOut,
 )
+from app.services.search_service import SearchService
 
 router = APIRouter(prefix="/internal", tags=["Internal"], dependencies=[Depends(require_worker_api_key)])
 
@@ -143,12 +143,11 @@ async def list_accessible_collections(
 
 @router.post(
     "/search",
-    summary="Full-text search over the chunks of the given collections (Postgres today, "
-    "not Qdrant - see docs/research-agent-plan.md)",
+    summary="Vector search (Qdrant) over the chunks of the given collections",
     response_model=list[SearchResultOut],
 )
 async def search(body: SearchRequest, db: Annotated[AsyncSession, Depends(get_db)]) -> list[SearchResultOut]:
-    rows = await ChunkRepository(db).search(body.collection_ids, body.query, body.limit)
+    rows = await SearchService(db).search(body.collection_ids, body.query, body.limit)
     return [
         SearchResultOut(
             chunk_id=chunk.id,

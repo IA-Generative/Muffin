@@ -50,6 +50,17 @@ class CollectionRepository:
         result = await self.db.execute(self._base_query().where(Collection.id == collection_id))
         return result.scalar_one_or_none()
 
+    async def get_embedding_models(self, collection_ids: list[uuid.UUID]) -> dict[uuid.UUID, str]:
+        """Which embedding model each collection's chunks were embedded with (§12: VDB routing
+        picks collections, but the query itself must be embedded once per distinct model among
+        them before searching each one's own Qdrant collection)."""
+        result = await self.db.execute(
+            select(CollectionSettings.collection_id, CollectionSettings.embedding_model).where(
+                CollectionSettings.collection_id.in_(collection_ids)
+            )
+        )
+        return dict(result.all())
+
     async def create(self, *, owner_id: str, name: str, embedding_model: str) -> Collection:
         collection = Collection(owner_id=owner_id, name=name, description="")
         collection.settings = CollectionSettings(embedding_model=embedding_model)

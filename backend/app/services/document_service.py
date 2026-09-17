@@ -6,6 +6,7 @@ from app.models.chunk import Chunk
 from app.models.document import Document, DocumentPage, DocumentStatus
 from app.repositories.document_repository import DocumentRepository
 from app.schemas.internal_document import ChunkCreate, DocumentPageCreate, DocumentStatusUpdate
+from app.services import vector_store
 
 
 class DocumentNotFoundError(Exception):
@@ -41,9 +42,11 @@ class DocumentService:
         return created
 
     async def add_chunk(self, document_id: uuid.UUID, chunk: ChunkCreate) -> Chunk:
-        await self.get_document(document_id)
+        document = await self.get_document(document_id)
         created = await self.repository.add_chunk(document_id, chunk.index, chunk.text, chunk.token_count, chunk.extras)
         await self.db.commit()
+        if chunk.embedding is not None:
+            vector_store.upsert_chunk_embedding(document.collection_id, created.id, chunk.embedding)
         return created
 
     async def set_summary(self, document_id: uuid.UUID, summary: str) -> None:

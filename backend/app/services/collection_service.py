@@ -17,6 +17,7 @@ from app.schemas.collection import (
     RelationOut,
 )
 from app.schemas.pagination import Page, PaginationParams
+from app.services import vector_store
 
 DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small"
 DEFAULT_COLLECTION_NAME = "Nouvelle collection"
@@ -145,10 +146,10 @@ class CollectionService:
         rustfs_keys = await self.repository.list_rustfs_keys(collection_id)
         await self.repository.delete(collection)
         await self.db.commit()
-        # Best-effort and after the commit: a RustFS failure here must not
-        # roll back a deletion the user already sees as done.
-        # TODO: also delete this collection's vectors once Qdrant exists.
+        # Best-effort and after the commit: a RustFS/Qdrant failure here must
+        # not roll back a deletion the user already sees as done.
         storage.delete_objects(rustfs_keys)
+        vector_store.delete_collection(collection_id)
 
     async def _get_owned(self, collection_id: uuid.UUID, user: RequestContext) -> Collection:
         collection = await self.repository.get(collection_id, user.user_id)

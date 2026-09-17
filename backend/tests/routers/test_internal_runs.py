@@ -165,8 +165,11 @@ async def test_list_accessible_collections_owner_only(client):
     assert names == ["Mine"]
 
 
-async def test_search_finds_matching_chunk(client):
+async def test_search_finds_matching_chunk(client, monkeypatch):
+    from types import SimpleNamespace
+
     from app.models.chunk import Chunk
+    from app.services import search_service, vector_store
 
     async with async_session_factory() as session:
         collection = Collection(owner_id="dev-user", name="Policies", description="")
@@ -176,19 +179,32 @@ async def test_search_finds_matching_chunk(client):
         document = Document(collection_id=collection.id, name="policy.pdf", type="file", storage_key="k")
         session.add(document)
         await session.flush()
-        session.add(
-            Chunk(
-                document_id=document.id,
-                index=0,
-                text="Le télétravail est autorisé deux jours par semaine.",
-                token_count=10,
-            )
+        telework_chunk = Chunk(
+            document_id=document.id,
+            index=0,
+            text="Le télétravail est autorisé deux jours par semaine.",
+            token_count=10,
         )
+        session.add(telework_chunk)
         session.add(
             Chunk(document_id=document.id, index=1, text="Les congés payés sont de 25 jours par an.", token_count=10)
         )
         await session.commit()
         collection_id = collection.id
+        telework_chunk_id = telework_chunk.id
+
+    # The vector store itself (Qdrant) isn't exercised here - only that the search endpoint
+    # embeds the query, asks vector_store.search per selected collection, and hydrates whatever
+    # chunk ids come back. Qdrant ranking behavior is covered by app/services/vector_store.py
+    # being a thin pass-through to the qdrant-client SDK, not worth re-testing against a fake.
+    async def create_embedding(**_kwargs):
+        return SimpleNamespace(data=[SimpleNamespace(embedding=[0.1, 0.2])])
+
+    fake_openai_client = SimpleNamespace(embeddings=SimpleNamespace(create=create_embedding))
+    monkeypatch.setattr(search_service, "_openai_client", fake_openai_client)
+    monkeypatch.setattr(
+        vector_store, "search", lambda collection_id, query_embedding, limit: [(telework_chunk_id, 0.9)]
+    )
 
     response = await client.post(
         "/api/internal/search",
@@ -200,3 +216,4 @@ async def test_search_finds_matching_chunk(client):
     results = response.json()
     assert len(results) == 1
     assert "télétravail" in results[0]["text"]
+    assert results[0]["chunk_id"] == str(telework_chunk_id)
