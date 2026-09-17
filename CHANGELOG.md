@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.3.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.2.0...v0.3.0-rc) (2026-09-17)
+
+
+### Features
+
+* **ci:** add helm chart linting and release pipelines ([57bb5c9](https://github.com/IA-Generative/Muffin/commit/57bb5c9ce5f05e857c675e926aac5907baae9b96))
+* **helm:** add chart dependencies ([28a4059](https://github.com/IA-Generative/Muffin/commit/28a4059d6cf2c5b7033dec04c6b6dba241e07254))
+* **helm:** add helm charts ([2eb8bca](https://github.com/IA-Generative/Muffin/commit/2eb8bca0b8735f6d19e038e03a0f63c3d2071eb2))
+* **helm:** replace servicename placeholder with actual components ([9de47ed](https://github.com/IA-Generative/Muffin/commit/9de47edb25a05454da6e5a83367f0e4f0494bb5b))
+
 ## [0.2.0](https://github.com/IA-Generative/Muffin/compare/v0.1.0...v0.2.0) (2026-09-17)
 
 
