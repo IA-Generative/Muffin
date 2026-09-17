@@ -1,0 +1,18 @@
+{{- if .Values.enabled }}
+{{- if eq .Values.backend.deploymentType "DaemonSet" }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "helper.componentFullname" (dict "root" . "componentName" "backend") }}
+  labels: {{- (include "helper.labels" (dict "root" . "componentName" "backend")) | nindent 4 }}
+spec:
+  revisionHistoryLimit: {{ .Values.backend.revisionHistoryLimit | default 10 }}
+  selector:
+    matchLabels: {{- include "helper.selectorLabels" (dict "root" . "componentName" "backend") | nindent 6 }}
+  {{- with .Values.backend.updateStrategy }}
+  updateStrategy: {{- toYaml . | nindent 4 }}
+  {{- end }}
+  template:
+    {{- include "helper.component.podTemplate" (dict "root" . "name" "backend" "component" .Values.backend) | nindent 4 }}
+{{- end }}
+{{- end }}

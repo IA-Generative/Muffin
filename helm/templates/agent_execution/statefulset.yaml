@@ -1,0 +1,25 @@
+{{- if .Values.enabled }}
+{{- if eq .Values.agent_execution.deploymentType "StatefulSet" }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "helper.componentFullname" (dict "root" . "componentName" "agent_execution") }}
+  labels: {{- include "helper.labels" (dict "root" . "componentName" "agent_execution") | nindent 4 }}
+spec:
+  {{- if not .Values.agent_execution.autoscaling.enabled }}
+  replicas: {{ .Values.agent_execution.replicaCount }}
+  {{- end }}
+  revisionHistoryLimit: {{ .Values.agent_execution.revisionHistoryLimit | default 10 }}
+  selector:
+    matchLabels: {{- include "helper.selectorLabels" (dict "root" . "componentName" "agent_execution") | nindent 6 }}
+  serviceName: {{ include "helper.componentFullname" (dict "root" . "componentName" "agent_execution") }}
+  {{- with .Values.agent_execution.updateStrategy }}
+  updateStrategy: {{- toYaml . | nindent 4 }}
+  {{- end }}
+  template:
+    {{- include "helper.component.podTemplate" (dict "root" . "name" "agent_execution" "component" .Values.agent_execution) | nindent 4 }}
+  {{- if or .Values.agent_execution.volumeClaims .Values.agent_execution.extraVolumeClaims }}
+  volumeClaimTemplates: {{- toYaml (concat (default (list) .Values.agent_execution.volumeClaims) (default (list) .Values.agent_execution.extraVolumeClaims)) | nindent 2 }}
+  {{- end }}
+{{- end }}
+{{- end }}

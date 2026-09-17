@@ -1,0 +1,10 @@
+{{- if .Values.enabled }}
+{{- if and .Values.document_process.serviceAccount.enabled .Values.document_process.serviceAccount.clusterRole.create .Values.document_process.serviceAccount.clusterRole.rules }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "helper.componentFullname" (dict "root" . "componentName" "document_process") }}
+  labels: {{- (include "helper.labels" (dict "root" . "componentName" "document_process")) | nindent 4 }}
+rules: {{- toYaml .Values.document_process.serviceAccount.clusterRole.rules | nindent 0 }}
+{{- end }}
+{{- end }}
