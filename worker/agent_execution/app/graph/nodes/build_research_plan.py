@@ -2,7 +2,7 @@ from typing import Any
 
 from app.backend_client import backend_client
 from app.config import settings
-from app.graph.services.events import emit, is_cancelled
+from app.graph.services.events import emit, is_cancelled, set_activity
 from app.graph.services.planning import compute_ready_and_blocked
 from app.graph.state import AgentState
 
@@ -15,6 +15,7 @@ def build_research_plan(state: AgentState) -> dict[str, Any]:
     if is_cancelled(run_id):
         return {"cancelled": True}
 
+    set_activity(run_id, "build_research_plan", "Planning the research")
     tasks = state["research_tasks"]
     ready, blocked = compute_ready_and_blocked(tasks, completed_ids=set(), running_or_done_ids=set())
     ready_tasks = [{**task, "status": "ready"} for task in ready]

@@ -440,6 +440,44 @@ def test_page_content_tool_resolves_document_and_page_then_fetches_it(make_run):
     assert evidence["source_id"] == "doc-1"
 
 
+def test_current_activity_is_updated_at_every_node_not_just_a_generic_placeholder(make_run):
+    """Regression: nodes used to only post to the run_events log (fake.events) and never called
+    update_run_status, so Run.current_node/current_activity - the only two fields a client
+    polling GET /api/runs/{id} actually sees change - stayed empty for the whole run. The chat
+    UI's placeholder ("Recherche en cours…") then never updated, looking like nothing happened."""
+
+    def router(system_prompt: str) -> str:
+        if "Analyze the user" in system_prompt:
+            return _analysis()
+        if "select the ones relevant" in system_prompt.lower():
+            return '["hr"]'
+        if "Decide whether" in system_prompt:
+            return json.dumps({"status": "sufficient", "missing_information": [], "reasoning": "ok"})
+        if "Check whether every" in system_prompt:
+            return json.dumps({"valid": True, "unsupported_claims": []})
+        return "The policy is X [abc]."
+
+    graph, fake = make_run([{"id": "hr", "name": "HR", "description": "HR", "tags": []}], router)
+    state = initial_state("What is the leave policy?")
+    graph.invoke(state, config=_config(state))
+
+    nodes_reported = {node for node, _activity in fake.activities}
+    assert {
+        "load_context",
+        "load_accessible_vdbs",
+        "analyze_query",
+        "build_research_plan",
+        "research_task",
+        "merge_evidence",
+        "evaluate_coverage",
+        "build_answer_context",
+        "generate_answer",
+        "validate_grounding",
+    } <= nodes_reported
+    # Every activity string is distinct content, not the same generic placeholder repeated.
+    assert len({activity for _node, activity in fake.activities}) > 1
+
+
 def test_cancellation_before_search_stops_the_run_cleanly(make_run):
     def router(system_prompt: str) -> str:
         if "Analyze the user" in system_prompt:
