@@ -1,6 +1,6 @@
 from typing import Any
 
-from app.graph.services.events import emit, is_cancelled
+from app.graph.services.events import emit, is_cancelled, set_activity
 from app.graph.state import AgentState
 
 _MAX_EVIDENCE_FOR_ANSWER = 20
@@ -13,6 +13,7 @@ def build_answer_context(state: AgentState) -> dict[str, Any]:
     if is_cancelled(run_id):
         return {"cancelled": True}
 
+    set_activity(run_id, "build_answer_context", "Preparing the answer")
     ordered = sorted(state["deduped_evidence"], key=lambda e: e["relevance_score"] or 0.0, reverse=True)
     selected = ordered[:_MAX_EVIDENCE_FOR_ANSWER]
     coverage = state.get("coverage_result")

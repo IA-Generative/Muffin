@@ -1,6 +1,6 @@
 from typing import Any
 
-from app.graph.services.events import emit, is_cancelled
+from app.graph.services.events import emit, is_cancelled, set_activity
 from app.graph.services.llm import default_model, json_chat
 from app.graph.state import AgentState, ResearchTask
 
@@ -20,6 +20,7 @@ def replan_research(state: AgentState) -> dict[str, Any]:
 
     next_version = state["plan_version"] + 1
     missing = state["coverage_result"]["missing_information"]
+    set_activity(run_id, "replan_research", "Refining the research plan")
     emit(run_id, "replan_started", {"missing_information": missing, "plan_version": next_version})
 
     model = default_model()

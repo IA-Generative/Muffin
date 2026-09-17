@@ -1,6 +1,6 @@
 from typing import Any
 
-from app.graph.services.events import emit, is_cancelled
+from app.graph.services.events import emit, is_cancelled, set_activity
 from app.graph.services.llm import default_model, json_chat
 from app.graph.state import AgentState, ResearchTask, TaskTool
 
@@ -87,6 +87,7 @@ def decompose_query(state: AgentState) -> dict[str, Any]:
     if is_cancelled(run_id):
         return {"cancelled": True}
 
+    set_activity(run_id, "decompose_query", "Breaking down your question")
     emit(run_id, "query_decomposition_started")
     analysis = state["query_analysis"]
     query = state["original_query"]

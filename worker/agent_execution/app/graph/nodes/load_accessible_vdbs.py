@@ -1,7 +1,7 @@
 from typing import Any
 
 from app.backend_client import backend_client
-from app.graph.services.events import emit, is_cancelled
+from app.graph.services.events import emit, is_cancelled, set_activity
 from app.graph.state import AgentState
 
 
@@ -17,6 +17,7 @@ def load_accessible_vdbs(state: AgentState) -> dict[str, Any]:
     if is_cancelled(run_id):
         return {"cancelled": True}
 
+    set_activity(run_id, "load_accessible_vdbs", "Checking your accessible knowledge bases")
     emit(run_id, "vdb_discovery_started")
     accessible = backend_client.list_accessible_collections(state["user_id"])
     emit(run_id, "vdb_discovery_completed", {"accessible_count": len(accessible)})

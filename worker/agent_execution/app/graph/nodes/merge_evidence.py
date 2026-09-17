@@ -1,6 +1,6 @@
 from typing import Any
 
-from app.graph.services.events import emit, is_cancelled
+from app.graph.services.events import emit, is_cancelled, set_activity
 from app.graph.state import AgentState, Evidence
 
 
@@ -24,6 +24,7 @@ def merge_evidence(state: AgentState) -> dict[str, Any]:
     if is_cancelled(run_id):
         return {"cancelled": True}
 
+    set_activity(run_id, "merge_evidence", "Merging the research results")
     deduped = _dedupe(state["evidence"])
     emit(
         run_id,
