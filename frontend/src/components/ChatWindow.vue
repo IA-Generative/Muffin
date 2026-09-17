@@ -2,6 +2,7 @@
 import { nextTick, ref, watch } from 'vue'
 import type { ChatMessage, FeedbackDetails } from '../types/chat'
 import ChatMessageItem from './ChatMessage.vue'
+import ModelSelector from './ModelSelector.vue'
 
 const props = defineProps<{
   messages: ChatMessage[]
@@ -44,6 +45,10 @@ watch(
 
 <template>
   <section class="chat-window">
+    <header class="chat-window__header">
+      <ModelSelector />
+    </header>
+
     <div v-if="messages.length === 0" class="chat-window__intro">
       <h1>Qu'est-ce qu'on fait aujourd'hui ?</h1>
     </div>
@@ -97,6 +102,13 @@ watch(
   flex-direction: column;
   height: 100%;
   min-width: 0;
+}
+
+.chat-window__header {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: flex-end;
+  padding: 0.75rem 1.5rem 0;
 }
 
 .chat-window__inner {

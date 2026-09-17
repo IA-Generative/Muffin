@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useCollections } from '../composables/useCollections'
 import type { Collection } from '../types/collection'
 import CollectionChunksTab from './CollectionChunksTab.vue'
@@ -8,28 +8,50 @@ import CollectionEvaluationTab from './CollectionEvaluationTab.vue'
 import CollectionQaTab from './CollectionQaTab.vue'
 import CollectionRelationsTab from './CollectionRelationsTab.vue'
 import CollectionSettingsTab from './CollectionSettingsTab.vue'
+import ConfirmDeleteModal from './ConfirmDeleteModal.vue'
 
 const props = defineProps<{
   collection: Collection
 }>()
 
-const { closeCollection, updateName, updateDescription, updateTags, deleteCollection } = useCollections()
+const { closeCollection, updateName, updateDescription, updateTags, deleteCollection, isCollectionReady } =
+  useCollections()
 
 const tagDraft = ref('')
+const isReady = computed(() => isCollectionReady(props.collection))
 
 type TabKey = 'documents' | 'qa' | 'evaluation' | 'relations' | 'chunks' | 'settings'
 const TABS: { key: TabKey; label: string }[] = [
+  { key: 'settings', label: 'Paramètres' },
   { key: 'documents', label: 'Documents' },
   { key: 'qa', label: 'Questions / Réponses' },
   { key: 'evaluation', label: 'Évaluation' },
   { key: 'relations', label: 'Entités & Relations' },
   { key: 'chunks', label: 'Chunks' },
-  { key: 'settings', label: 'Paramètres' },
 ]
-const activeTab = ref<TabKey>('documents')
+// Paramètres en premier : on configure le chunking/embedding avant d'ajouter
+// des documents, donc c'est l'onglet le plus utile à l'ouverture.
+const activeTab = ref<TabKey>('settings')
+
+// Tant que le nom et les paramètres n'ont pas été confirmés, on reste
+// coincé sur l'onglet Paramètres - y compris si on y revient plus tard
+// (changement de collection active, navigation directe par URL).
+watch(
+  () => [props.collection.id, isReady.value],
+  () => {
+    if (!isReady.value) activeTab.value = 'settings'
+  },
+  { immediate: true },
+)
+
+function selectTab(key: TabKey) {
+  if (key !== 'settings' && !isReady.value) return
+  activeTab.value = key
+}
 
 const dateFormatter = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })
-function formatStamp(meta: { updatedBy: string; updatedAt: string }) {
+function formatStamp(meta: { updatedBy: string; updatedAt: string } | null) {
+  if (!meta) return ''
   return `Modifié par ${meta.updatedBy} le ${dateFormatter.format(new Date(meta.updatedAt))}`
 }
 
@@ -44,17 +66,18 @@ function removeTag(tag: string) {
   updateTags(props.collection.id, props.collection.tags.filter((item) => item !== tag))
 }
 
-function askDelete() {
-  if (confirm(`Supprimer la collection "${props.collection.name}" ?`)) {
-    deleteCollection(props.collection.id)
-  }
+const showDeleteModal = ref(false)
+
+function confirmDelete() {
+  showDeleteModal.value = false
+  deleteCollection(props.collection.id)
 }
 </script>
 
 <template>
   <section class="collection-detail">
     <div class="collection-detail__inner">
-      <button type="button" class="collection-detail__back" @click="closeCollection">
+      <button type="button" class="collection-detail__back" @click="closeCollection()">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
           <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12l7.5-7.5M3 12h18" />
         </svg>
@@ -68,7 +91,7 @@ function askDelete() {
           aria-label="Nom de la collection"
           @change="updateName(collection.id, ($event.target as HTMLInputElement).value)"
         />
-        <button type="button" class="collection-detail__delete" @click="askDelete">Supprimer</button>
+        <button type="button" class="collection-detail__delete" @click="showDeleteModal = true">Supprimer</button>
       </div>
 
       <textarea
@@ -79,7 +102,9 @@ function askDelete() {
         aria-label="Description de la collection"
         @change="updateDescription(collection.id, ($event.target as HTMLTextAreaElement).value)"
       />
-      <p class="collection-detail__meta">{{ formatStamp(collection.descriptionMeta) }}</p>
+      <p v-if="collection.descriptionMeta" class="collection-detail__meta">
+        {{ formatStamp(collection.descriptionMeta) }}
+      </p>
 
       <div class="collection-detail__tags">
         <span v-for="tag in collection.tags" :key="tag" class="collection-detail__tag">
@@ -105,11 +130,18 @@ function askDelete() {
           type="button"
           class="collection-detail__tab"
           :class="{ 'collection-detail__tab--active': activeTab === tab.key }"
-          @click="activeTab = tab.key"
+          :disabled="tab.key !== 'settings' && !isReady"
+          :title="tab.key !== 'settings' && !isReady ? 'Nommez la collection et enregistrez ses paramètres d\'abord' : undefined"
+          @click="selectTab(tab.key)"
         >
           {{ tab.label }}
         </button>
       </nav>
+
+      <p v-if="!isReady" class="collection-detail__gate-hint">
+        Donnez un nom à cette collection et enregistrez ses paramètres de découpage et de modèle d'embedding
+        avant d'ajouter des documents.
+      </p>
 
       <div class="collection-detail__panel">
         <CollectionDocumentsTab v-if="activeTab === 'documents'" :collection="collection" />
@@ -120,6 +152,15 @@ function askDelete() {
         <CollectionSettingsTab v-else :collection="collection" />
       </div>
     </div>
+
+    <ConfirmDeleteModal
+      v-if="showDeleteModal"
+      title="Supprimer cette collection ?"
+      :warning="`Cette action est irréversible : tous les documents, questions/réponses, entités et chunks de « ${collection.name} » seront définitivement supprimés, y compris les fichiers et captures d'écran stockés.`"
+      :confirm-text="collection.name"
+      @confirm="confirmDelete"
+      @cancel="showDeleteModal = false"
+    />
   </section>
 </template>
 
@@ -275,6 +316,19 @@ function askDelete() {
   color: var(--text-action-high-blue-france);
   border-bottom-color: var(--border-action-high-blue-france);
   font-weight: 700;
+}
+
+.collection-detail__tab:disabled {
+  color: var(--text-disabled-grey);
+  cursor: not-allowed;
+}
+
+.collection-detail__gate-hint {
+  margin: 1rem 0 0;
+  padding: 0.75rem;
+  border-radius: 0.375rem;
+  background: var(--background-alt-orange-terre-battue, var(--background-alt-grey));
+  font-size: 0.8125rem;
 }
 
 .collection-detail__panel {

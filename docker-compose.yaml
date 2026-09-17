@@ -4,13 +4,164 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     ports:
-      - "8080:8080"
+      # Host 8081, not 8080: Keycloak already claims host 8080 below.
+      - "8081:8080"
     restart: unless-stopped
 
-  # backend:
-  #   build:
-  #     context: ./backend
-  #     dockerfile: Dockerfile
-  #   ports:
-  #     - "8000:8000"
-  #   restart: unless-stopped
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://muffin:muffin@postgres:5432/muffin
+      REDIS_URL: redis://redis:6379/0
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_PUBLIC_URL: http://localhost:8080
+      KEYCLOAK_REALM: muffin
+      KEYCLOAK_CLIENT_ID: muffin-backend
+      KEYCLOAK_CLIENT_SECRET: dev-only-secret-not-for-prod
+      BACKEND_PUBLIC_URL: http://localhost:8000
+      # :8081 by default (the dockerized frontend service below). Override to
+      # http://localhost:5173 in a local .env when running `make front`
+      # instead - the redirect after login and CORS both key off this single
+      # origin, so it must match whichever frontend you're actually using.
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:8081}
+      SESSION_COOKIE_SECURE: "false"
+      # LLM hub (OpenAI-compatible). Unset in .env by default -
+      # GET /api/models responds 503 instead of crashing the app.
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_API_BASE_URL: ${OPENAI_API_BASE_URL:-}
+      # Shared secret checked on every /api/internal/* call from a worker.
+      WORKER_API_KEY: ${WORKER_API_KEY:-dev-only-worker-key-not-for-prod}
+      # Without these, RustFsSettings falls back to its localhost:9000
+      # default, which inside this container resolves to nothing - file
+      # uploads fail silently before a Document row is even created.
+      RUSTFS_ENDPOINT_URL: http://rustfs:9000
+      RUSTFS_ACCESS_KEY: rustfsadmin
+      RUSTFS_SECRET_KEY: rustfsadmin
+      RUSTFS_BUCKET: muffin-documents
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+      rustfs:
+        condition: service_healthy
+    restart: unless-stopped
+
+  worker-document-process:
+    build:
+      context: ./worker/document_process
+      dockerfile: Dockerfile
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      BACKEND_API_URL: http://backend:8000
+      WORKER_API_KEY: ${WORKER_API_KEY:-dev-only-worker-key-not-for-prod}
+      RUSTFS_ENDPOINT_URL: http://rustfs:9000
+      RUSTFS_ACCESS_KEY: rustfsadmin
+      RUSTFS_SECRET_KEY: rustfsadmin
+      RUSTFS_BUCKET: muffin-documents
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_started
+      rustfs:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # RustFS's image runs as non-root (uid 10001); named Docker volumes default
+  # to root ownership, so this one-shot fixes permissions before rustfs starts.
+  rustfs-volume-permissions:
+    image: alpine
+    volumes:
+      - rustfs-data-0:/data0
+      - rustfs-data-1:/data1
+      - rustfs-data-2:/data2
+      - rustfs-data-3:/data3
+    command: chown -R 10001:10001 /data0 /data1 /data2 /data3
+    restart: "no"
+
+  rustfs:
+    image: rustfs/rustfs:latest
+    depends_on:
+      rustfs-volume-permissions:
+        condition: service_completed_successfully
+    environment:
+      RUSTFS_VOLUMES: /data/rustfs{0...3}
+      RUSTFS_ADDRESS: 0.0.0.0:9000
+      RUSTFS_CONSOLE_ADDRESS: 0.0.0.0:9001
+      RUSTFS_CONSOLE_ENABLE: "true"
+      RUSTFS_ACCESS_KEY: rustfsadmin # dev only
+      RUSTFS_SECRET_KEY: rustfsadmin # dev only
+      # Named Docker volumes for the 4 erasure-set dirs all land on the same
+      # physical disk, which RustFS refuses by default. Dev-only bypass.
+      RUSTFS_UNSAFE_BYPASS_DISK_CHECK: "true"
+    volumes:
+      - rustfs-data-0:/data/rustfs0
+      - rustfs-data-1:/data/rustfs1
+      - rustfs-data-2:/data/rustfs2
+      - rustfs-data-3:/data/rustfs3
+    ports:
+      - "9000:9000" # S3 API
+      - "9001:9001" # Console
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 20s
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: muffin
+      POSTGRES_PASSWORD: muffin
+      POSTGRES_DB: muffin
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U muffin"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.2
+    command: start-dev --import-realm
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HEALTH_ENABLED: "true"
+      KC_HOSTNAME: localhost
+      KC_HOSTNAME_PORT: 8080
+      KC_HOSTNAME_STRICT: "false"
+    volumes:
+      - ./docker/keycloak/realm-muffin.json:/opt/keycloak/data/import/realm-muffin.json:ro
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/9000 && echo -e 'GET /health/ready HTTP/1.1\r\nhost: localhost\r\nConnection: close\r\n\r\n' >&3 && cat <&3 | grep -q '\"status\": \"UP\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 30s
+
+volumes:
+  postgres-data:
+  rustfs-data-0:
+  rustfs-data-1:
+  rustfs-data-2:
+  rustfs-data-3:

@@ -1,8 +1,8 @@
 name: Lint
 
 # Kept local rather than delegated to fabnum-cicd: the shared catalogue has no
-# frontend linter, and this one is a thin wrapper around the frontend's own
-# typecheck. A Python step for `backend/` lands here once that folder exists.
+# frontend linter, and this one is a thin wrapper around each side's own
+# tooling (typecheck for the frontend, ruff for the backend).
 
 on:
   workflow_call:
@@ -12,6 +12,11 @@ on:
         required: false
         type: string
         default: "22"
+      PYTHON_VERSION:
+        description: Python version used to run the backend linter
+        required: false
+        type: string
+        default: "3.12"
   workflow_dispatch:
     inputs:
       NODE_VERSION:
@@ -19,10 +24,15 @@ on:
         required: false
         type: string
         default: "22"
+      PYTHON_VERSION:
+        description: Python version used to run the backend linter
+        required: false
+        type: string
+        default: "3.12"
 
 jobs:
-  lint:
-    name: Lint code
+  lint-frontend:
+    name: Lint frontend
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -51,3 +61,59 @@ jobs:
     - name: Typecheck frontend
       working-directory: frontend
       run: pnpm run typecheck
+
+  lint-backend:
+    name: Lint backend
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6.1.0
+
+    - name: Set up uv
+      uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78  # v7.6.0
+      with:
+        python-version: ${{ inputs.PYTHON_VERSION }}
+        enable-cache: true
+        cache-dependency-glob: backend/uv.lock
+
+    - name: Install backend dependencies
+      working-directory: backend
+      run: uv sync --group dev
+
+    - name: Ruff check
+      working-directory: backend
+      run: uv run ruff check .
+
+    - name: Ruff format check
+      working-directory: backend
+      run: uv run ruff format --check .
+
+  lint-worker-document-process:
+    name: Lint worker/document_process
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6.1.0
+
+    - name: Set up uv
+      uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78  # v7.6.0
+      with:
+        python-version: ${{ inputs.PYTHON_VERSION }}
+        enable-cache: true
+        cache-dependency-glob: worker/document_process/uv.lock
+
+    - name: Install worker dependencies
+      working-directory: worker/document_process
+      run: uv sync --group dev
+
+    - name: Ruff check
+      working-directory: worker/document_process
+      run: uv run ruff check .
+
+    - name: Ruff format check
+      working-directory: worker/document_process
+      run: uv run ruff format --check .

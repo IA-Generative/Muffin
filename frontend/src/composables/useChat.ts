@@ -1,4 +1,5 @@
 import { computed, ref } from 'vue'
+import { router } from '../router'
 import type { ChatMessage, Conversation, FeedbackDetails, Source } from '../types/chat'
 
 // Pas encore de backend : réponse Markdown + sources mockées pour valider le rendu de l'UI.
@@ -32,8 +33,14 @@ const activeSources = computed(
   () => messages.value.find((message) => message.id === activeSourcesMessageId.value)?.sources,
 )
 
-function selectConversation(id: string) {
+// `navigate: false` is used when a route change already triggered this (see
+// ChatView's route watcher) - pushing again there would just double the entry.
+function selectConversation(id: string, options: { navigate?: boolean } = {}) {
   activeId.value = id
+  const target = `/c/${id}`
+  if (options.navigate !== false && router.currentRoute.value.fullPath !== target) {
+    router.push(target)
+  }
 }
 
 function newConversation() {
@@ -41,6 +48,7 @@ function newConversation() {
   conversations.value.unshift({ id, title: 'Nouvelle conversation' })
   messagesByConversation.value[id] = []
   activeId.value = id
+  router.push(`/c/${id}`)
 }
 
 function sendMessage(content: string) {

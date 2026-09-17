@@ -21,7 +21,9 @@ COLOR_CYAN    := \033[36m
 # Runtime
 UV      := uv
 PNPM    := pnpm
+DOCKER_COMPOSE := docker compose
 FRONTEND_DIR := frontend
+BACKEND_DIR   := backend
 
 .DEFAULT_GOAL := help
 
@@ -52,9 +54,15 @@ help: ## Show this help message
 # -----------------------------------------------------------------------------
 
 .PHONY: install
-install: install-uv install-hooks ## Install everything (uv, git hooks)
+install: install-uv install-hooks install-backend ## Install everything (uv, git hooks, backend deps)
 	@echo "$(COLOR_BOLD)$(COLOR_GREEN)  ✓ Workspace ready$(COLOR_RESET)"
 	@echo "$(COLOR_DIM)  Run 'make check' to validate the repo$(COLOR_RESET)"
+
+.PHONY: install-backend
+install-backend: install-uv ## Sync the backend virtualenv (backend/.venv)
+	@echo "$(COLOR_BLUE)→$(COLOR_RESET) Syncing backend dependencies..."
+	@cd $(BACKEND_DIR) && $(UV) sync --group dev
+	@echo "$(COLOR_GREEN)✓$(COLOR_RESET) Backend dependencies synced"
 
 .PHONY: install-uv
 install-uv: ## Install the uv Python package manager if missing
@@ -104,6 +112,26 @@ front: ## Start the frontend dev server with hot reload (http://localhost:5173)
 	fi
 	@$(PNPM) --dir $(FRONTEND_DIR) dev
 
+.PHONY: back
+back: ## Start the backend dev server with hot reload (http://localhost:8000/api/docs)
+	@cd $(BACKEND_DIR) && $(UV) run uvicorn app.main:app --reload --port 8000
+
+.PHONY: up
+up: ## Start the full stack (frontend, backend, Postgres, Redis, Keycloak) in Docker
+	@$(DOCKER_COMPOSE) up -d
+
+.PHONY: down
+down: ## Stop the full Docker stack
+	@$(DOCKER_COMPOSE) down
+
+.PHONY: migrate
+migrate: ## Apply pending Alembic migrations to the local Postgres
+	@cd $(BACKEND_DIR) && $(UV) run alembic upgrade head
+
+.PHONY: migration
+migration: ## Generate a new Alembic migration from model changes (usage: make migration m="message")
+	@cd $(BACKEND_DIR) && $(UV) run alembic revision --autogenerate -m "$(m)"
+
 # -----------------------------------------------------------------------------
 ## ▸ Checks
 # -----------------------------------------------------------------------------
@@ -117,3 +145,19 @@ check: ## Run all pre-commit hooks against every file (ruff, gitleaks, ...)
 gitleaks: ## Run gitleaks alone against the full git history
 	$(call _require,pre-commit,Run 'make install-hooks' first)
 	@pre-commit run gitleaks --all-files --hook-stage manual
+
+.PHONY: lint-backend
+lint-backend: ## Lint and format-check the backend (ruff)
+	@cd $(BACKEND_DIR) && $(UV) run ruff check . && $(UV) run ruff format --check .
+
+TEST_DATABASE_URL := postgresql+asyncpg://muffin:muffin@localhost:55432/muffin
+TEST_REDIS_URL     := redis://localhost:56379/0
+
+.PHONY: test-backend
+test-backend: ## Run backend unit tests against a throwaway Postgres/Redis
+	@$(DOCKER_COMPOSE) -f docker-compose-test.yaml up -d --wait
+	@cd $(BACKEND_DIR) && \
+		(DATABASE_URL=$(TEST_DATABASE_URL) $(UV) run alembic upgrade head && \
+		DATABASE_URL=$(TEST_DATABASE_URL) REDIS_URL=$(TEST_REDIS_URL) $(UV) run pytest; status=$$?; \
+		cd .. && $(DOCKER_COMPOSE) -f docker-compose-test.yaml down -v; \
+		exit $$status)

@@ -1,11 +1,26 @@
 <script setup lang="ts">
+import { watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useCollections } from '../composables/useCollections'
 import { useCollectionsBrowser } from '../composables/useCollectionsBrowser'
 import CollectionDetailView from './CollectionDetailView.vue'
 import PaginationControls from './PaginationControls.vue'
 
-const { collections, activeCollection, createCollection, openCollection } = useCollections()
+const route = useRoute()
+const { collections, isLoading, activeCollection, createCollection, openCollection, closeCollection } =
+  useCollections()
 const { search, sortKey, page, pageCount, results: sorted, paged } = useCollectionsBrowser(collections)
+
+// Keeps the open/closed collection state in sync with direct URL navigation
+// (typed URL, back/forward) - clicks already go through openCollection/closeCollection.
+watch(
+  () => route.params.id,
+  (id) => {
+    if (typeof id === 'string') openCollection(id, { navigate: false })
+    else closeCollection({ navigate: false })
+  },
+  { immediate: true },
+)
 
 const dateFormatter = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium' })
 function formatDate(iso: string) {
@@ -49,7 +64,11 @@ function indexedCount(documents: { status: string }[]) {
       </select>
     </div>
 
-    <p v-if="sorted.length === 0" class="collections-view__empty">Aucune collection ne correspond à cette recherche.</p>
+    <p v-if="isLoading" class="collections-view__empty">Chargement des collections…</p>
+
+    <p v-else-if="sorted.length === 0" class="collections-view__empty">
+      Aucune collection ne correspond à cette recherche.
+    </p>
 
     <div v-else class="collections-view__grid">
       <button
