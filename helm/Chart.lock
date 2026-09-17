@@ -1,0 +1,18 @@
+dependencies:
+- name: redis
+  repository: oci://registry-1.docker.io/cloudpirates
+  version: 0.27.9
+- name: postgres
+  repository: oci://registry-1.docker.io/cloudpirates
+  version: 0.19.6
+- name: rustfs
+  repository: oci://registry-1.docker.io/cloudpirates
+  version: 0.10.0
+- name: cluster
+  repository: https://cloudnative-pg.github.io/charts
+  version: 0.8.1
+- name: qdrant
+  repository: https://qdrant.github.io/qdrant-helm
+  version: 1.17.0
+digest: sha256:2a573417e8c7085f98e65528bde6683b2cc5f70668df9bde121f50ff46b9d957
+generated: "2026-09-17T12:09:47.110763779+02:00"

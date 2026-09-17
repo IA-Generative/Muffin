@@ -18,12 +18,31 @@ annotations: {}
 #     - kind: fixed
 #       description: Remove podMonitor template that is natively handle by operator
 keywords: []
-dependencies: []
-# - name: cnpg-cluster
-#   alias: cnpg
-#   version: 1.5.2
-#   repository: https://this-is-tobi.github.io/helm-charts
-#   condition: cnpg.enabled
+dependencies:
+  - name: redis
+    alias: redis
+    version: 0.27.9
+    repository: oci://registry-1.docker.io/cloudpirates
+    condition: redis.enabled
+  - name: postgres
+    alias: postgres
+    version: 0.19.6
+    repository: oci://registry-1.docker.io/cloudpirates
+    condition: postgres.enabled
+  - name: rustfs
+    alias: rustfs
+    version: 0.10.0
+    repository: oci://registry-1.docker.io/cloudpirates
+    condition: rustfs.enabled
+  - name: cluster
+    alias: cnpg
+    version: 0.8.1
+    repository: https://cloudnative-pg.github.io/charts
+    condition: cnpg.enabled
+  - name: qdrant
+    repository: https://qdrant.github.io/qdrant-helm
+    version: 1.17.0
+    condition: qdrant.enabled
 sources: []
 # - https://github.com/this-is-tobi/helm-charts
 maintainers: []
