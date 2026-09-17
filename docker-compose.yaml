@@ -33,6 +33,8 @@ services:
       # GET /api/models responds 503 instead of crashing the app.
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_API_BASE_URL: ${OPENAI_API_BASE_URL:-}
+      # Shared secret checked on every /api/internal/* call from a worker.
+      WORKER_API_KEY: ${WORKER_API_KEY:-dev-only-worker-key-not-for-prod}
     depends_on:
       postgres:
         condition: service_healthy
@@ -41,6 +43,69 @@ services:
       keycloak:
         condition: service_healthy
     restart: unless-stopped
+
+  worker-document-process:
+    build:
+      context: ./worker/document_process
+      dockerfile: Dockerfile
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      BACKEND_API_URL: http://backend:8000
+      WORKER_API_KEY: ${WORKER_API_KEY:-dev-only-worker-key-not-for-prod}
+      RUSTFS_ENDPOINT_URL: http://rustfs:9000
+      RUSTFS_ACCESS_KEY: rustfsadmin
+      RUSTFS_SECRET_KEY: rustfsadmin
+      RUSTFS_BUCKET: muffin-documents
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_started
+      rustfs:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # RustFS's image runs as non-root (uid 10001); named Docker volumes default
+  # to root ownership, so this one-shot fixes permissions before rustfs starts.
+  rustfs-volume-permissions:
+    image: alpine
+    volumes:
+      - rustfs-data-0:/data0
+      - rustfs-data-1:/data1
+      - rustfs-data-2:/data2
+      - rustfs-data-3:/data3
+    command: chown -R 10001:10001 /data0 /data1 /data2 /data3
+    restart: "no"
+
+  rustfs:
+    image: rustfs/rustfs:latest
+    depends_on:
+      rustfs-volume-permissions:
+        condition: service_completed_successfully
+    environment:
+      RUSTFS_VOLUMES: /data/rustfs{0...3}
+      RUSTFS_ADDRESS: 0.0.0.0:9000
+      RUSTFS_CONSOLE_ADDRESS: 0.0.0.0:9001
+      RUSTFS_CONSOLE_ENABLE: "true"
+      RUSTFS_ACCESS_KEY: rustfsadmin # dev only
+      RUSTFS_SECRET_KEY: rustfsadmin # dev only
+      # Named Docker volumes for the 4 erasure-set dirs all land on the same
+      # physical disk, which RustFS refuses by default. Dev-only bypass.
+      RUSTFS_UNSAFE_BYPASS_DISK_CHECK: "true"
+    volumes:
+      - rustfs-data-0:/data/rustfs0
+      - rustfs-data-1:/data/rustfs1
+      - rustfs-data-2:/data/rustfs2
+      - rustfs-data-3:/data/rustfs3
+    ports:
+      - "9000:9000" # S3 API
+      - "9001:9001" # Console
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 20s
 
   postgres:
     image: postgres:16-alpine
@@ -87,3 +152,7 @@ services:
 
 volumes:
   postgres-data:
+  rustfs-data-0:
+  rustfs-data-1:
+  rustfs-data-2:
+  rustfs-data-3:
