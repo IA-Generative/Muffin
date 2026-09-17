@@ -125,6 +125,54 @@ async def test_create_document_page_and_chunk_with_extras(client):
     assert chunks[0].extras == {"bbox": {"x": 0, "y": 0, "width": 100, "height": 20}, "kind": "paragraph"}
 
 
+async def test_create_document_chunk_with_embedding_upserts_into_qdrant(client, monkeypatch):
+    from app.services import vector_store
+
+    document_id = await _create_document(client)
+    upserted: list[tuple] = []
+    monkeypatch.setattr(vector_store, "upsert_chunk_embedding", lambda *args: upserted.append(args))
+
+    response = await client.post(
+        f"/api/internal/documents/{document_id}/chunks",
+        headers=_headers(),
+        json={"index": 0, "text": "Hello world", "token_count": 2, "embedding": [0.1, 0.2, 0.3]},
+    )
+
+    assert response.status_code == 201
+    assert len(upserted) == 1
+    collection_id, chunk_id, embedding = upserted[0]
+    assert embedding == [0.1, 0.2, 0.3]
+
+    async with async_session_factory() as session:
+        from sqlalchemy import select
+
+        from app.models.chunk import Chunk
+        from app.models.document import Document
+
+        document = (await session.execute(select(Document).where(Document.id == document_id))).scalar_one()
+        chunk = (await session.execute(select(Chunk).where(Chunk.document_id == document_id))).scalar_one()
+
+    assert collection_id == document.collection_id
+    assert chunk_id == chunk.id
+
+
+async def test_create_document_chunk_without_embedding_does_not_touch_qdrant(client, monkeypatch):
+    from app.services import vector_store
+
+    document_id = await _create_document(client)
+    upserted: list[tuple] = []
+    monkeypatch.setattr(vector_store, "upsert_chunk_embedding", lambda *args: upserted.append(args))
+
+    response = await client.post(
+        f"/api/internal/documents/{document_id}/chunks",
+        headers=_headers(),
+        json={"index": 0, "text": "Hello world", "token_count": 2},
+    )
+
+    assert response.status_code == 201
+    assert upserted == []
+
+
 async def test_list_document_pages(client):
     document_id = await _create_document(client)
     await client.post(

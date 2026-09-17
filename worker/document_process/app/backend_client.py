@@ -45,11 +45,17 @@ class BackendClient:
         return response.json()
 
     def add_chunk(
-        self, document_id: str, index: int, text: str, token_count: int, extras: dict[str, Any] | None = None
+        self,
+        document_id: str,
+        index: int,
+        text: str,
+        token_count: int,
+        extras: dict[str, Any] | None = None,
+        embedding: list[float] | None = None,
     ) -> None:
         response = self._client.post(
             f"/api/internal/documents/{document_id}/chunks",
-            json={"index": index, "text": text, "token_count": token_count, "extras": extras},
+            json={"index": index, "text": text, "token_count": token_count, "extras": extras, "embedding": embedding},
         )
         response.raise_for_status()
 
