@@ -55,6 +55,12 @@ Docker Compose or CI) always wins over anything in a `.env*` file.
 | `LOG_LEVEL` | `INFO` | loguru log level |
 | `LOG_FORMAT` | `console` | `console` (colorized) or `json` |
 
+## Worker API key (`backend/app/config/worker.py`)
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `WORKER_API_KEY` | _(empty)_ | Shared secret checked (via the `X-API-Key` header) on every `/api/internal/*` call from a worker. Empty means those routes always respond `401` |
+
 ## Auth strategy (read directly from `os.environ`, not a `.env` file)
 
 | Variable | Default | Description |
@@ -67,6 +73,21 @@ Docker Compose or CI) always wins over anything in a `.env*` file.
 | --- | --- | --- |
 | `FRONTEND_URL` | `http://localhost:8081` | Passed through to the `backend` service. Set to `http://localhost:5173` when running the frontend via `make front` instead of the dockerized `frontend` service |
 | `OPENAI_API_KEY` / `OPENAI_API_BASE_URL` | _(empty)_ | Same as above, passed through to the dockerized `backend` service |
+| `WORKER_API_KEY` | `dev-only-worker-key-not-for-prod` | Shared between `backend` and `worker-document-process`; passed through to both |
+
+## Document-processing worker (`worker/document_process/app/config.py`)
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `REDIS_URL` | `redis://localhost:6379/0` | Celery broker/result backend |
+| `CELERY_QUEUE_NAME` | `document_processing` | Dedicated queue this worker consumes from |
+| `BACKEND_API_URL` | `http://localhost:8000` | Base URL for `/api/internal/*` calls |
+| `WORKER_API_KEY` | _(empty)_ | Must match the backend's `WORKER_API_KEY` |
+| `RUSTFS_ENDPOINT_URL` | `http://localhost:9000` | RustFS S3 API endpoint |
+| `RUSTFS_ACCESS_KEY` / `RUSTFS_SECRET_KEY` | `rustfsadmin` / `rustfsadmin` | RustFS credentials (dev defaults — change for anything real) |
+| `RUSTFS_BUCKET` | `muffin-documents` | Bucket holding uploaded files and generated page screenshots |
+| `OCR_LANGUAGE` | `fra` | Tesseract language code liteparse uses for scanned pages |
+| `TESSDATA_PATH` | _(none)_ | Where to find that language's `.traineddata` file — the Docker image sets this to the apt-installed `tesseract-ocr-fra` path |
 
 ## Frontend (`frontend/.env*`, read by Vite - `VITE_` prefix required)
 
