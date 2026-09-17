@@ -8,8 +8,13 @@ const props = defineProps<{
   collection: Collection
 }>()
 
-const { updateChunkingSettings, updateEmbeddingModel, reindexCollection, updateInstructionField } =
-  useCollections()
+const {
+  updateChunkingSettings,
+  updateEmbeddingModel,
+  reindexCollection,
+  updateInstructionField,
+  markSettingsSaved,
+} = useCollections()
 const { models: embeddingModels, isLoading: isLoadingEmbeddingModels, error: embeddingModelsError } =
   useEmbeddingModels()
 
@@ -32,13 +37,28 @@ watch(
   },
 )
 
+// Chaque section se sauvegarde séparément et demande sa propre confirmation :
+// ce n'est pas juste un champ de formulaire, ça affecte la façon dont les
+// documents déjà indexés sont interprétés.
 function saveChunking() {
+  if (!confirm('Confirmer la modification des paramètres de découpage ? Cela peut nécessiter une réindexation.')) {
+    return
+  }
   updateChunkingSettings(props.collection.id, { ...chunkingForm })
   updateInstructionField(props.collection.id, 'chunking', chunkingInstructions.value)
+  markSettingsSaved(props.collection.id)
 }
 
 function saveEmbeddingModel() {
+  if (
+    !confirm(
+      "Confirmer le changement de modèle d'embedding ? Les documents déjà indexés devront être réindexés.",
+    )
+  ) {
+    return
+  }
   updateEmbeddingModel(props.collection.id, embeddingModelDraft.value)
+  markSettingsSaved(props.collection.id)
 }
 
 const STRATEGY_HINT: Record<ChunkingSettings['strategy'], string> = {

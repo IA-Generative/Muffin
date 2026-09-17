@@ -82,6 +82,38 @@ function toCollection(raw: CollectionOut): Collection {
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
 
+// Backend's default name for a freshly created collection - used to detect
+// "not renamed yet" without a dedicated flag.
+const DEFAULT_COLLECTION_NAME = 'Nouvelle collection'
+const SETTINGS_SAVED_STORAGE_KEY = 'muffin.collectionsWithSavedSettings'
+
+function readSavedSettingsIds(): Set<string> {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(SETTINGS_SAVED_STORAGE_KEY) ?? '[]'))
+  } catch {
+    return new Set()
+  }
+}
+
+function hasSavedSettings(collectionId: string): boolean {
+  return readSavedSettingsIds().has(collectionId)
+}
+
+// Confirmed (not just saved with defaults) at least once: that's what gates
+// documents/QA/etc. on a freshly created collection, see isCollectionReady.
+function markSettingsSaved(collectionId: string) {
+  const ids = readSavedSettingsIds()
+  ids.add(collectionId)
+  localStorage.setItem(SETTINGS_SAVED_STORAGE_KEY, JSON.stringify([...ids]))
+}
+
+// A collection must be named and have its chunking/embedding parameters
+// explicitly confirmed before documents (or anything else) can be added -
+// this is what CollectionDetailView gates its other tabs on.
+function isCollectionReady(collection: Collection): boolean {
+  return collection.name.trim() !== '' && collection.name !== DEFAULT_COLLECTION_NAME && hasSavedSettings(collection.id)
+}
+
 const collections = ref<Collection[]>([])
 const isLoading = ref(true)
 const error = ref<string | null>(null)
@@ -364,6 +396,8 @@ export function useCollections() {
     isLoading,
     error,
     activeCollection,
+    isCollectionReady,
+    markSettingsSaved,
     refresh: fetchCollections,
     openCollection,
     closeCollection,
