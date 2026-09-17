@@ -13,6 +13,7 @@ const emit = defineEmits<{
   regenerate: [id: string]
   feedback: [id: string, value: 'up' | 'down', details?: FeedbackDetails]
   showSources: [id: string]
+  showExecution: [id: string]
 }>()
 
 const draft = ref('')
@@ -62,6 +63,7 @@ watch(
           @regenerate="emit('regenerate', $event)"
           @feedback="(id, value, details) => emit('feedback', id, value, details)"
           @show-sources="emit('showSources', $event)"
+          @show-execution="emit('showExecution', $event)"
         />
         <div ref="scrollAnchor" />
       </div>
