@@ -271,23 +271,21 @@ const showChunkSize = () => chunkingForm.strategy === 'paragraph' || chunkingFor
 
 <style scoped>
 .settings-tab {
-  display: flex;
-  flex-direction: column;
-  gap: 2rem;
-  max-width: 24rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  align-items: start;
+  gap: 1.25rem;
+  max-width: 72rem;
 }
 
 .settings-tab__section {
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  padding-bottom: 1.5rem;
-  border-bottom: 1px solid var(--border-default-grey);
-}
-
-.settings-tab__section:last-child {
-  border-bottom: none;
-  padding-bottom: 0;
+  padding: 1.25rem;
+  border: 1px solid var(--border-default-grey);
+  border-radius: 0.75rem;
+  background: var(--background-default-grey);
 }
 
 .settings-tab__title {
