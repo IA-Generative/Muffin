@@ -3,8 +3,8 @@ name: CD
 on:
   push:
     branches:
-    - dev
-    - main
+      - dev
+      - main
   workflow_dispatch:
 
 # Releases must never overlap: two pushes landing close together would run two
@@ -34,6 +34,14 @@ env:
   PRERELEASE_CONFIG_FILE: .github/releases/release-please-config-prerelease.json
   PRERELEASE_MANIFEST_FILE: .github/releases/.release-please-manifest-prerelease.json
   ENABLE_PRERELEASE: true
+  # The chart lives at the repository root as `helm/`; CHART_NAME is the
+  # directory under CHARTS_DIR, while the published OCI artifact is named from
+  # Chart.yaml (`helm`) - so it stays ghcr.io/<repo>/helm regardless.
+  CHARTS_DIR: ./
+  CHART_NAME: helm
+  # Only the plain-HTTP dependencies need declaring; the cloudpirates charts
+  # are pulled straight from their OCI registry.
+  HELM_REPOS: cnpg=https://cloudnative-pg.github.io/charts,qdrant=https://qdrant.github.io/qdrant-helm
 
 jobs:
   expose-vars:
@@ -55,20 +63,23 @@ jobs:
       PRERELEASE_CONFIG_FILE: ${{ env.PRERELEASE_CONFIG_FILE }}
       PRERELEASE_MANIFEST_FILE: ${{ env.PRERELEASE_MANIFEST_FILE }}
       ENABLE_PRERELEASE: ${{ env.ENABLE_PRERELEASE }}
+      CHARTS_DIR: ${{ env.CHARTS_DIR }}
+      CHART_NAME: ${{ env.CHART_NAME }}
+      HELM_REPOS: ${{ env.HELM_REPOS }}
       IMAGE_BASE: ${{ steps.image-base.outputs.IMAGE_BASE }}
     steps:
-    - name: Exposing env vars
-      run: echo "Exposing env vars"
+      - name: Exposing env vars
+        run: echo "Exposing env vars"
 
-    - name: Compute image base
-      id: image-base
-      shell: bash
-      run: echo "IMAGE_BASE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      - name: Compute image base
+        id: image-base
+        shell: bash
+        run: echo "IMAGE_BASE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
 
   release:
     uses: dnum-mi/fabnum-cicd/.github/workflows/release-app.yml@v0
     needs:
-    - expose-vars
+      - expose-vars
     permissions:
       issues: write
       pull-requests: write
@@ -91,8 +102,8 @@ jobs:
   build-docker:
     uses: dnum-mi/fabnum-cicd/.github/workflows/build-docker.yml@v0
     needs:
-    - expose-vars
-    - release
+      - expose-vars
+      - release
     if: ${{ needs.release.outputs.release-created == 'true' }}
     permissions:
       packages: write
@@ -114,14 +125,62 @@ jobs:
       BUILD_ARGS: |
         APP_VERSION=${{ needs.release.outputs.version }}
 
+  bump-chart:
+    uses: dnum-mi/fabnum-cicd/.github/workflows/update-helm-chart.yml@v0
+    needs:
+      - expose-vars
+      - release
+      - build-docker
+    if: ${{ needs.release.outputs.release-created == 'true' }}
+    permissions:
+      contents: write
+      pull-requests: write
+    with:
+      # Monorepo: the chart ships with the code, so the bump is committed
+      # straight onto the branch instead of arriving as a pull request.
+      RUN_MODE: local
+      CHART_DIR: ${{ needs.expose-vars.outputs.CHARTS_DIR }}
+      CHART_NAME: ${{ needs.expose-vars.outputs.CHART_NAME }}
+      # UPGRADE_TYPE defaults to 'auto': level from the appVersion delta, rc
+      # cycle vs release selected by the shape of APP_VERSION. The chart keeps
+      # its own version line.
+      APP_VERSION: ${{ needs.release.outputs.version }}
+
+  release-chart:
+    uses: dnum-mi/fabnum-cicd/.github/workflows/release-helm-local.yml@v0
+    needs:
+      - expose-vars
+      - release
+      - build-docker
+      - bump-chart
+    if: ${{ needs.release.outputs.release-created == 'true' }}
+    permissions:
+      contents: read
+      packages: write
+    with:
+      # Monorepo: the chart shares the app's tag namespace, so chart-releaser's
+      # tag-based change detection is unreliable - package the exact commit
+      # bump-chart just pushed instead.
+      CHARTS_DIR: ${{ needs.expose-vars.outputs.CHARTS_DIR }}
+      CHART_NAME: ${{ needs.expose-vars.outputs.CHART_NAME }}
+      CHECKOUT_REF: ${{ needs.bump-chart.outputs.commit-sha }}
+      HELM_REPOS: ${{ needs.expose-vars.outputs.HELM_REPOS }}
+
   # Last on purpose, same reasoning as ocr-api: a release lands commits on
-  # main (release-please's release commit) that dev does not have yet, and
-  # dev computes its next prerelease version from a stale base without this.
+  # main (release-please's release commit, and bump-chart's chart bump) that
+  # dev does not have yet, and dev computes its next prerelease version from
+  # a stale base without this.
+  #
+  # `needs:` lists exactly the jobs that COMMIT to main - release and
+  # bump-chart - and nothing else. build-docker and release-chart commit
+  # nothing, and listing them would only let a failed build or a failed
+  # publish skip the sync, leaving dev stale for no reason.
   sync-prerelease-branch:
     uses: dnum-mi/fabnum-cicd/.github/workflows/sync-prerelease-branch.yml@v0
     needs:
-    - expose-vars
-    - release
+      - expose-vars
+      - release
+      - bump-chart
     if: ${{ github.ref_name == needs.expose-vars.outputs.RELEASE_BRANCH && needs.release.outputs.release-created == 'true' }}
     permissions:
       contents: write

@@ -3,12 +3,12 @@ name: CI
 on:
   pull_request:
     types:
-    - opened
-    - reopened
-    - synchronize
-    - ready_for_review
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
     branches:
-    - "**"
+      - "**"
   workflow_dispatch:
 
 # Only the newest push to a pull request is worth building; cancel superseded
@@ -23,6 +23,7 @@ env:
   LATEST_TAG: false
   USE_QEMU: false
   TAG_SHORT_SHA: false
+  CT_CONF_PATH: ci/configs/ct.yaml
 
 jobs:
   path-filter:
@@ -35,51 +36,55 @@ jobs:
       frontend: ${{ steps.filter.outputs.frontend }}
       backend: ${{ steps.filter.outputs.backend }}
       worker_document_process: ${{ steps.filter.outputs.worker_document_process }}
+      helm: ${{ steps.filter.outputs.helm }}
       ci: ${{ steps.filter.outputs.ci }}
       services: ${{ steps.services.outputs.services }}
     steps:
-    - name: Checks-out repository
-      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6.1.0
+      - name: Checks-out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
-    - name: Check updated files paths
-      uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad  # v3.0.4
-      id: filter
-      with:
-        filters: |
-          frontend:
-            - 'frontend/**'
-          backend:
-            - 'backend/**'
-          worker_document_process:
-            - 'worker/document_process/**'
-          ci:
-            - '.github/workflows/**'
+      - name: Check updated files paths
+        uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3.0.4
+        id: filter
+        with:
+          filters: |
+            frontend:
+              - 'frontend/**'
+            backend:
+              - 'backend/**'
+            worker_document_process:
+              - 'worker/document_process/**'
+            helm:
+              - 'helm/**'
+              - 'ci/configs/ct.yaml'
+            ci:
+              - '.github/workflows/**'
 
-    - name: Select images to build
-      id: services
-      env:
-        FRONTEND: ${{ steps.filter.outputs.frontend }}
-        BACKEND: ${{ steps.filter.outputs.backend }}
-        WORKER_DOCUMENT_PROCESS: ${{ steps.filter.outputs.worker_document_process }}
-        CI: ${{ steps.filter.outputs.ci }}
-      run: |
-        set -euo pipefail
+      - name: Select images to build
+        id: services
+        env:
+          FRONTEND: ${{ steps.filter.outputs.frontend }}
+          BACKEND: ${{ steps.filter.outputs.backend }}
+          WORKER_DOCUMENT_PROCESS: ${{ steps.filter.outputs.worker_document_process }}
+          CI: ${{ steps.filter.outputs.ci }}
+        run: |
+          set -euo pipefail
 
-        SERVICES='[]'
-        add() { SERVICES=$(jq -c --argjson s "$1" '. + [$s]' <<<"$SERVICES"); }
+          SERVICES='[]'
+          add() { SERVICES=$(jq -c --argjson s "$1" '. + [$s]' <<<"$SERVICES"); }
 
-        if [ "$FRONTEND" = "true" ] || [ "$CI" = "true" ]; then
-          add '{"name":"frontend","context":"frontend","dockerfile":"frontend/Dockerfile","target":"runtime"}'
-        fi
-        if [ "$BACKEND" = "true" ] || [ "$CI" = "true" ]; then
-          add '{"name":"backend","context":"backend","dockerfile":"backend/Dockerfile","target":"runtime"}'
-        fi
-        if [ "$WORKER_DOCUMENT_PROCESS" = "true" ] || [ "$CI" = "true" ]; then
-          add '{"name":"worker-document-process","context":"worker/document_process","dockerfile":"worker/document_process/Dockerfile","target":"runtime"}'
-        fi
+          if [ "$FRONTEND" = "true" ] || [ "$CI" = "true" ]; then
+            add '{"name":"frontend","context":"frontend","dockerfile":"frontend/Dockerfile","target":"runtime"}'
+          fi
+          if [ "$BACKEND" = "true" ] || [ "$CI" = "true" ]; then
+            add '{"name":"backend","context":"backend","dockerfile":"backend/Dockerfile","target":"runtime"}'
+          fi
+          if [ "$WORKER_DOCUMENT_PROCESS" = "true" ] || [ "$CI" = "true" ]; then
+            add '{"name":"worker-document-process","context":"worker/document_process","dockerfile":"worker/document_process/Dockerfile","target":"runtime"}'
+          fi
 
-        echo "Images to build: $SERVICES"
-        echo "services=$SERVICES" >> "$GITHUB_OUTPUT"
+          echo "Images to build: $SERVICES"
+          echo "services=$SERVICES" >> "$GITHUB_OUTPUT"
 
   expose-vars:
     runs-on: ubuntu-latest
@@ -91,29 +96,30 @@ jobs:
       LATEST_TAG: ${{ env.LATEST_TAG }}
       USE_QEMU: ${{ env.USE_QEMU }}
       TAG_SHORT_SHA: ${{ env.TAG_SHORT_SHA }}
+      CT_CONF_PATH: ${{ env.CT_CONF_PATH }}
       IMAGE_BASE: ${{ steps.image.outputs.IMAGE_BASE }}
       IMAGE_TAG: ${{ steps.image.outputs.IMAGE_TAG }}
     steps:
-    - name: Exposing env vars
-      run: echo "Exposing env vars"
+      - name: Exposing env vars
+        run: echo "Exposing env vars"
 
-    - name: Compute image base and tag
-      id: image
-      shell: bash
-      env:
-        PR_NUMBER: ${{ github.event.pull_request.number || github.event.number || '' }}
-      run: |
-        set -euo pipefail
+      - name: Compute image base and tag
+        id: image
+        shell: bash
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.number || '' }}
+        run: |
+          set -euo pipefail
 
-        echo "IMAGE_BASE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+          echo "IMAGE_BASE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
 
-        if [ -n "$PR_NUMBER" ]; then
-          IMAGE_TAG="pr-$PR_NUMBER"
-        else
-          IMAGE_TAG=$(printf '%s' "${GITHUB_REF_NAME,,}" | tr -c 'a-z0-9._-' '-')
-        fi
-        echo "Image tag: $IMAGE_TAG"
-        echo "IMAGE_TAG=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+          if [ -n "$PR_NUMBER" ]; then
+            IMAGE_TAG="pr-$PR_NUMBER"
+          else
+            IMAGE_TAG=$(printf '%s' "${GITHUB_REF_NAME,,}" | tr -c 'a-z0-9._-' '-')
+          fi
+          echo "Image tag: $IMAGE_TAG"
+          echo "IMAGE_TAG=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
 
   lint-commits:
     uses: dnum-mi/fabnum-cicd/.github/workflows/lint-commits.yml@v0
@@ -125,7 +131,7 @@ jobs:
   lint:
     uses: ./.github/workflows/lint.yml
     needs:
-    - path-filter
+      - path-filter
     if: ${{ needs.path-filter.outputs.frontend == 'true' || needs.path-filter.outputs.backend == 'true' || needs.path-filter.outputs.worker_document_process == 'true' || needs.path-filter.outputs.ci == 'true' }}
     permissions:
       contents: read
@@ -133,7 +139,7 @@ jobs:
   unit-tests:
     uses: ./.github/workflows/unit-tests.yml
     needs:
-    - path-filter
+      - path-filter
     if: ${{ needs.path-filter.outputs.backend == 'true' || needs.path-filter.outputs.worker_document_process == 'true' || needs.path-filter.outputs.ci == 'true' }}
     permissions:
       contents: read
@@ -152,7 +158,7 @@ jobs:
   scan-trivy-conf:
     uses: dnum-mi/fabnum-cicd/.github/workflows/scan-trivy.yml@v0
     needs:
-    - expose-vars
+      - expose-vars
     permissions:
       contents: read
       security-events: write
@@ -169,8 +175,8 @@ jobs:
   build-docker:
     uses: dnum-mi/fabnum-cicd/.github/workflows/build-docker.yml@v0
     needs:
-    - path-filter
-    - expose-vars
+      - path-filter
+      - expose-vars
     if: ${{ needs.path-filter.outputs.services != '[]' }}
     permissions:
       packages: write
@@ -198,9 +204,9 @@ jobs:
   scan-trivy-images:
     uses: dnum-mi/fabnum-cicd/.github/workflows/scan-trivy.yml@v0
     needs:
-    - path-filter
-    - expose-vars
-    - build-docker
+      - path-filter
+      - expose-vars
+      - build-docker
     if: ${{ needs.path-filter.outputs.services != '[]' }}
     permissions:
       contents: read
@@ -218,6 +224,19 @@ jobs:
       GITHUB_SECURITY_TAB: true
       CATEGORY: trivy-image-${{ matrix.service.name }}
 
+  lint-helm:
+    uses: dnum-mi/fabnum-cicd/.github/workflows/lint-helm.yml@v0
+    needs:
+      - path-filter
+      - expose-vars
+    if: ${{ needs.path-filter.outputs.helm == 'true' || needs.path-filter.outputs.ci == 'true' }}
+    permissions:
+      contents: read
+    with:
+      CT_CONF_PATH: ${{ needs.expose-vars.outputs.CT_CONF_PATH }}
+      CHARTS_DIR: helm
+      HELM_DOCS_VERSION: v1.14.2
+
   # Workaround for required status check in protection branches (see. https://github.com/orgs/community/discussions/13690)
   all-jobs-passed:
     name: Check jobs status
@@ -227,27 +246,28 @@ jobs:
     # Every job in this workflow must be listed here, or a failure in the
     # missing one leaves the gate green and the branch mergeable.
     needs:
-    - path-filter
-    - expose-vars
-    - lint-commits
-    - lint
-    - unit-tests
-    - scan-gitleaks
-    - scan-trivy-conf
-    - build-docker
-    - scan-trivy-images
+      - path-filter
+      - expose-vars
+      - lint-commits
+      - lint
+      - unit-tests
+      - scan-gitleaks
+      - scan-trivy-conf
+      - build-docker
+      - scan-trivy-images
+      - lint-helm
     steps:
-    - name: Check status of all required jobs
-      run: |-
-        NEEDS_CONTEXT='${{ toJson(needs) }}'
-        JOB_IDS=$(echo "$NEEDS_CONTEXT" | jq -r 'keys[]')
-        for JOB_ID in $JOB_IDS; do
-          RESULT=$(echo "$NEEDS_CONTEXT" | jq -r ".[\"$JOB_ID\"].result")
-          echo "$JOB_ID job result: $RESULT"
-          if [[ $RESULT != "success" && $RESULT != "skipped" ]]; then
-            echo "***"
-            echo "Error: The $JOB_ID job did not pass."
-            exit 1
-          fi
-        done
-        echo "All jobs passed or were skipped."
+      - name: Check status of all required jobs
+        run: |-
+          NEEDS_CONTEXT='${{ toJson(needs) }}'
+          JOB_IDS=$(echo "$NEEDS_CONTEXT" | jq -r 'keys[]')
+          for JOB_ID in $JOB_IDS; do
+            RESULT=$(echo "$NEEDS_CONTEXT" | jq -r ".[\"$JOB_ID\"].result")
+            echo "$JOB_ID job result: $RESULT"
+            if [[ $RESULT != "success" && $RESULT != "skipped" ]]; then
+              echo "***"
+              echo "Error: The $JOB_ID job did not pass."
+              exit 1
+            fi
+          done
+          echo "All jobs passed or were skipped."
