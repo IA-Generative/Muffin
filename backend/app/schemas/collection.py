@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 if TYPE_CHECKING:
     from app.models.collection import Collection as CollectionModel
@@ -11,6 +11,31 @@ if TYPE_CHECKING:
 class FieldStamp(BaseModel):
     updated_by: str
     updated_at: datetime
+
+
+class QaPairOut(BaseModel):
+    id: uuid.UUID
+    question: str
+    answer: str
+    source: str | None = None
+    origin: str
+    validated: bool
+
+
+class EntityOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    type: str
+    mentions: int
+
+
+class RelationOut(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: uuid.UUID
+    from_entity: str = Field(alias="from")
+    to: str
+    type: str
 
 
 class ChunkingSettings(BaseModel):

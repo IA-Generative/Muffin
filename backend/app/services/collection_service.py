@@ -6,7 +6,16 @@ from app.core import storage
 from app.core.security.factory import RequestContext
 from app.models.collection import Collection
 from app.repositories.collection_repository import CollectionRepository
-from app.schemas.collection import CollectionOut, CollectionSettingsUpdate, CollectionUpdate
+from app.repositories.entity_repository import EntityRepository
+from app.repositories.qa_pair_repository import QaPairRepository
+from app.schemas.collection import (
+    CollectionOut,
+    CollectionSettingsUpdate,
+    CollectionUpdate,
+    EntityOut,
+    QaPairOut,
+    RelationOut,
+)
 from app.schemas.pagination import Page, PaginationParams
 
 DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small"
@@ -26,6 +35,8 @@ class CollectionService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
         self.repository = CollectionRepository(db)
+        self.qa_pairs = QaPairRepository(db)
+        self.entities = EntityRepository(db)
 
     async def list_collections(self, user: RequestContext, pagination: PaginationParams) -> Page[CollectionOut]:
         collections, total = await self.repository.list_by_owner(
@@ -94,6 +105,38 @@ class CollectionService:
         # with a server-side onupdate), so nothing on `collection` is expired.
         await self.db.commit()
         return CollectionOut.from_model(collection)
+
+    async def list_qa_pairs(self, collection_id: uuid.UUID, user: RequestContext) -> list[QaPairOut]:
+        await self._get_owned(collection_id, user)
+        pairs = await self.qa_pairs.list_by_collection(collection_id)
+        return [
+            QaPairOut(
+                id=pair.id,
+                question=pair.question,
+                answer=pair.answer,
+                source=pair.document.name if pair.document else None,
+                origin=pair.origin,
+                validated=pair.validated,
+            )
+            for pair in pairs
+        ]
+
+    async def list_entities(self, collection_id: uuid.UUID, user: RequestContext) -> list[EntityOut]:
+        await self._get_owned(collection_id, user)
+        entities = await self.entities.list_by_collection(collection_id)
+        return [
+            EntityOut(id=entity.id, name=entity.name, type=entity.type, mentions=entity.mentions) for entity in entities
+        ]
+
+    async def list_relations(self, collection_id: uuid.UUID, user: RequestContext) -> list[RelationOut]:
+        await self._get_owned(collection_id, user)
+        relations = await self.entities.list_relations_by_collection(collection_id)
+        return [
+            RelationOut(
+                id=relation.id, from_entity=relation.from_entity.name, to=relation.to_entity.name, type=relation.type
+            )
+            for relation in relations
+        ]
 
     async def delete_collection(self, collection_id: uuid.UUID, user: RequestContext) -> None:
         collection = await self._get_owned(collection_id, user)

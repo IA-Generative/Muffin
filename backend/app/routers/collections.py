@@ -6,7 +6,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security.factory import RequestContext, get_current_user
 from app.db import get_db
-from app.schemas.collection import CollectionOut, CollectionSettingsUpdate, CollectionUpdate
+from app.schemas.collection import (
+    CollectionOut,
+    CollectionSettingsUpdate,
+    CollectionUpdate,
+    EntityOut,
+    QaPairOut,
+    RelationOut,
+)
 from app.schemas.pagination import Page, PaginationParams
 from app.services.collection_service import CollectionNotFoundError, CollectionService
 
@@ -70,6 +77,42 @@ async def update_collection_settings(
 ) -> CollectionOut:
     try:
         return await service.update_settings(collection_id, user, update)
+    except CollectionNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
+
+
+@router.get(
+    "/collections/{collection_id}/qa-pairs",
+    summary="List a collection's question/answer pairs (generated and manual)",
+    response_model=list[QaPairOut],
+)
+async def list_qa_pairs(collection_id: uuid.UUID, user: UserDep, service: ServiceDep) -> list[QaPairOut]:
+    try:
+        return await service.list_qa_pairs(collection_id, user)
+    except CollectionNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
+
+
+@router.get(
+    "/collections/{collection_id}/entities",
+    summary="List a collection's extracted entities",
+    response_model=list[EntityOut],
+)
+async def list_entities(collection_id: uuid.UUID, user: UserDep, service: ServiceDep) -> list[EntityOut]:
+    try:
+        return await service.list_entities(collection_id, user)
+    except CollectionNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
+
+
+@router.get(
+    "/collections/{collection_id}/relations",
+    summary="List a collection's extracted relations between entities",
+    response_model=list[RelationOut],
+)
+async def list_relations(collection_id: uuid.UUID, user: UserDep, service: ServiceDep) -> list[RelationOut]:
+    try:
+        return await service.list_relations(collection_id, user)
     except CollectionNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
 

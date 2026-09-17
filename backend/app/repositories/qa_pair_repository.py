@@ -1,6 +1,9 @@
 import uuid
+from collections.abc import Sequence
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.models.qa import QaOrigin, QaPair
 
@@ -22,3 +25,12 @@ class QaPairRepository:
         self.db.add(qa_pair)
         await self.db.flush()
         return qa_pair
+
+    async def list_by_collection(self, collection_id: uuid.UUID) -> Sequence[QaPair]:
+        result = await self.db.execute(
+            select(QaPair)
+            .where(QaPair.collection_id == collection_id)
+            .options(selectinload(QaPair.document))
+            .order_by(QaPair.created_at.desc())
+        )
+        return result.scalars().all()

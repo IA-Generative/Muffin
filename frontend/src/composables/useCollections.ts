@@ -200,9 +200,10 @@ fetchCollections()
 function openCollection(id: string, options: { navigate?: boolean } = {}) {
   activeCollectionId.value = id
   if (!collections.value.some((item) => item.id === id)) fetchCollection(id)
-  // CollectionOut doesn't embed documents (avoids an N+1 on every list/get) -
-  // always fetched separately, and polling resumes here in case processing
-  // was still running when the collection was last closed.
+  // CollectionOut doesn't embed documents/qa_pairs/entities/relations (avoids
+  // an N+1 on every list/get) - all fetched separately here, and polling
+  // resumes for documents in case processing was still running when the
+  // collection was last closed.
   refreshDocuments(id).then(() => {
     const collection = collections.value.find((item) => item.id === id)
     const stillProcessing = collection?.documents.some(
@@ -210,6 +211,8 @@ function openCollection(id: string, options: { navigate?: boolean } = {}) {
     )
     if (stillProcessing) pollDocumentsWhileProcessing(id)
   })
+  refreshQaPairs(id)
+  refreshEntitiesAndRelations(id)
   const target = `/collections/${id}`
   if (options.navigate !== false && router.currentRoute.value.fullPath !== target) {
     router.push(target)
@@ -291,6 +294,37 @@ async function refreshDocuments(collectionId: string) {
     }
   } catch {
     // Ignored: the next poll tick (or the next manual refresh) retries.
+  }
+}
+
+async function refreshQaPairs(collectionId: string) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/collections/${collectionId}/qa-pairs`, {
+      credentials: 'include',
+    })
+    if (!response.ok) return
+    // Field names already match QaPair (id/question/answer/source/origin/validated) - no mapping needed.
+    const raw: QaPair[] = await response.json()
+    const collection = collections.value.find((item) => item.id === collectionId)
+    if (collection) collection.qaPairs = raw
+  } catch {
+    // Ignored: the tab just keeps whatever it last had; a manual reopen retries.
+  }
+}
+
+async function refreshEntitiesAndRelations(collectionId: string) {
+  try {
+    const [entitiesResponse, relationsResponse] = await Promise.all([
+      fetch(`${API_BASE_URL}/api/collections/${collectionId}/entities`, { credentials: 'include' }),
+      fetch(`${API_BASE_URL}/api/collections/${collectionId}/relations`, { credentials: 'include' }),
+    ])
+    const collection = collections.value.find((item) => item.id === collectionId)
+    if (!collection) return
+    // Field names already match Entity (id/name/type/mentions) and Relation (id/from/to/type) - no mapping needed.
+    if (entitiesResponse.ok) collection.entities = await entitiesResponse.json()
+    if (relationsResponse.ok) collection.relations = await relationsResponse.json()
+  } catch {
+    // Ignored: same as refreshQaPairs above.
   }
 }
 
@@ -537,6 +571,8 @@ export function useCollections() {
     addQaPair,
     removeQaPair,
     toggleQaValidation,
+    refreshQaPairs,
+    refreshEntitiesAndRelations,
     updateChunkingSettings,
     updateEmbeddingModel,
     updateGenerationModel,

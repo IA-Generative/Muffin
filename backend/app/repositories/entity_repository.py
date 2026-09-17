@@ -1,7 +1,9 @@
 import uuid
+from collections.abc import Sequence
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.models.entity import Entity, EntityType, Relation
 
@@ -34,3 +36,17 @@ class EntityRepository:
         self.db.add(relation)
         await self.db.flush()
         return relation
+
+    async def list_by_collection(self, collection_id: uuid.UUID) -> Sequence[Entity]:
+        result = await self.db.execute(
+            select(Entity).where(Entity.collection_id == collection_id).order_by(Entity.mentions.desc())
+        )
+        return result.scalars().all()
+
+    async def list_relations_by_collection(self, collection_id: uuid.UUID) -> Sequence[Relation]:
+        result = await self.db.execute(
+            select(Relation)
+            .where(Relation.collection_id == collection_id)
+            .options(selectinload(Relation.from_entity), selectinload(Relation.to_entity))
+        )
+        return result.scalars().all()
