@@ -92,6 +92,53 @@ def test_process_document_for_a_file_writes_pages_screenshots_and_chunks_with_bb
     assert spawned_args == ["doc-2", "col-2"]
 
 
+def test_chunk_document_embeds_each_chunk_with_the_collections_own_model(monkeypatch):
+    monkeypatch.setattr(tasks, "backend_client", MagicMock())
+    monkeypatch.setattr(task_logging, "backend_client", MagicMock())
+    monkeypatch.setattr(tasks, "_spawn", MagicMock())
+    tasks.backend_client.get_collection_settings.return_value = {
+        "chunking_strategy": "paragraph",
+        "chunk_size": 500,
+        "chunk_overlap": 50,
+        "embedding_model": "text-embedding-3-small",
+        "pipeline_windows": {},
+    }
+    tasks.backend_client.get_pages.return_value = [{"page_number": 1, "content": "Some page content.\n\nMore."}]
+    tasks.backend_client.embed.return_value = [0.1, 0.2, 0.3]
+
+    tasks.chunk_document("doc-4", "col-4")
+
+    assert tasks.backend_client.embed.call_count >= 1
+    for call in tasks.backend_client.embed.call_args_list:
+        assert call.args[0] == "text-embedding-3-small"
+
+    add_chunk_calls = tasks.backend_client.add_chunk.call_args_list
+    assert add_chunk_calls
+    for call in add_chunk_calls:
+        assert call.kwargs["embedding"] == [0.1, 0.2, 0.3]
+
+
+def test_chunk_document_tolerates_embedding_failures(monkeypatch):
+    monkeypatch.setattr(tasks, "backend_client", MagicMock())
+    monkeypatch.setattr(task_logging, "backend_client", MagicMock())
+    monkeypatch.setattr(tasks, "_spawn", MagicMock())
+    tasks.backend_client.get_collection_settings.return_value = {
+        "chunking_strategy": "paragraph",
+        "chunk_size": 500,
+        "chunk_overlap": 50,
+        "embedding_model": "text-embedding-3-small",
+        "pipeline_windows": {},
+    }
+    tasks.backend_client.get_pages.return_value = [{"page_number": 1, "content": "Some page content."}]
+    tasks.backend_client.embed.side_effect = RuntimeError("LLM hub unavailable")
+
+    tasks.chunk_document("doc-5", "col-5")
+
+    for call in tasks.backend_client.add_chunk.call_args_list:
+        assert call.kwargs["embedding"] is None
+    tasks.backend_client.update_status.assert_any_call("doc-5", status="indexed", progress=100)
+
+
 def test_process_document_reports_error_status_on_failure(monkeypatch):
     monkeypatch.setattr(tasks, "backend_client", MagicMock())
     monkeypatch.setattr(task_logging, "backend_client", MagicMock())

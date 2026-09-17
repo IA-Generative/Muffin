@@ -182,12 +182,24 @@ def chunk_document(self, document_id: str, collection_id: str) -> None:
             )
             logger.info(f"Produced {len(chunks)} chunk(s) for document {document_id}")
             for index, chunk in enumerate(chunks):
+                # The collection's own embedding_model (unlike the collection-description
+                # embedding above, chunk search never compares across collections - each one is
+                # searched on its own once VDB routing has already picked it, see
+                # docs/research-agent-plan.md). Best-effort: a chunk with no embedding is just
+                # not searchable, it still exists for its text/summary/QA/extraction uses.
+                embedding = None
+                try:
+                    embedding = backend_client.embed(settings["embedding_model"], chunk.text)
+                except Exception:
+                    logger.exception(f"Failed to embed chunk {index} of document {document_id}")
+
                 backend_client.add_chunk(
                     document_id,
                     index=index,
                     text=chunk.text,
                     token_count=round(len(chunk.text) * TOKENS_PER_CHAR),
                     extras={"page_start": chunk.page_start, "page_end": chunk.page_end},
+                    embedding=embedding,
                 )
 
             backend_client.update_status(document_id, status="indexed", progress=100)

@@ -65,7 +65,6 @@ step below completes — see "Méthode d'implémentation" for the step list.
 - LangGraph / LangChain: zero reference anywhere in the repo.
 - A2A: zero reference anywhere.
 - A "VDB"/"knowledge base" concept distinct from `Collection`: doesn't exist (one granularity today).
-- Qdrant in code: zero import/client, only a TODO comment + the Helm dependency.
 - Tool/function-calling for the LLM: doesn't exist.
 - SSE/WebSocket: doesn't exist — everything is polling today.
 - `POST /runs`, `GET /runs/{id}`: don't exist.
@@ -153,8 +152,46 @@ validate_grounding → (invalid → targeted_research → merge_evidence again) 
   multi-VDB fan-out, failure isolation, targeted replan, grounding-triggered targeted
   research, HITL interrupt/resume, cancellation) against a fake `backend_client`.
 
-## Étape 4-10
+## Étape 4 — Vector search (Qdrant) (done)
+
+`ChunkRepository.search`'s Postgres full-text search is replaced by real vector search - the
+gap the audit above used to call out is closed:
+
+- **Storage**: one Qdrant collection per Muffin `Collection` (`chunks_{collection_id}`,
+  `app/services/vector_store.py`), created lazily on the first embedded chunk with whatever
+  vector size that collection's own `embedding_model` produces. Never one global Qdrant
+  collection - keeps per-collection deletion trivial and never mixes two collections'
+  potentially different embedding dimensions.
+- **Embedding at ingestion**: `worker/document_process`'s `chunk_document` task now embeds
+  each chunk (via the existing `POST /api/internal/llm/embed`, using the collection's own
+  `embedding_model` setting - previously dead config, now actually consumed) and sends the
+  vector alongside the chunk in `POST /api/internal/documents/{id}/chunks`. Best-effort: an
+  embedding failure (e.g. no LLM hub configured) logs and leaves that chunk merely
+  unsearchable, it doesn't fail the pipeline - same convention as the existing
+  collection-description embedding step.
+- **Backend storage**: `DocumentService.add_chunk` upserts into Qdrant right after the
+  Postgres `Chunk` row commits (`document_service.py`), point id = chunk id.
+- **Search**: `app/services/search_service.py` groups the selected collections by embedding
+  model (a collection's chunks are only ever compared within their own Qdrant collection, so -
+  unlike the collection-description embedding, which must stay in one global embedding space
+  to be comparable across collections - each collection can use its own model), embeds the
+  query once per distinct model, queries each collection's own Qdrant collection, merges by
+  score, and hydrates the winning chunk ids back into `Chunk`/`Document` rows for text/name.
+  `POST /api/internal/search` (used by the agent's `research_task`/VDB routing) now calls this
+  instead of `ChunkRepository.search`.
+- **Deletion**: `CollectionService.delete_collection` now also deletes that collection's Qdrant
+  collection (best-effort, same reasoning as the existing RustFS object cleanup).
+- **Local dev**: `docker-compose.yaml` gains a `qdrant` service (`qdrant/qdrant:v1.15.5`,
+  named volume, healthcheck) and `QDRANT_URL` on `backend` - the worker never talks to Qdrant
+  directly, only the backend does. `/api/health` reports Qdrant alongside redis/database.
+- Tests: `backend/tests/routers/test_internal_documents.py` (chunk embedding upsert,
+  no-embedding no-op), `test_internal_runs.py` (search hydration), `test_health.py`, and
+  `worker/document_process/tests/test_tasks.py` (embed-per-chunk, failure tolerance) - all
+  against a faked `vector_store`/`_openai_client`, no live Qdrant/LLM hub needed to run them.
+
+## Étape 5-10
 
 Not started: Celery re-wiring beyond the existing single `agent_service.run()` entry
 point, A2A, the actual `/resume` API route, SSE/UI event consumption, a Postgres
-checkpointer, and real multi-collection VDB grouping if that's ever introduced.
+checkpointer for the LangGraph runs, and real multi-collection VDB grouping if that's
+ever introduced.
