@@ -104,5 +104,9 @@ class BackendClient:
         response.raise_for_status()
         return response.json()
 
+    def update_conversation_title(self, conversation_id: str, title: str) -> None:
+        response = self._client.patch(f"/api/internal/conversations/{conversation_id}/title", json={"title": title})
+        response.raise_for_status()
+
 
 backend_client = BackendClient()

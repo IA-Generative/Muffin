@@ -339,3 +339,51 @@ async def test_search_tolerates_an_embedding_model_that_is_unavailable(client, m
 
     assert response.status_code == 200
     assert response.json() == []
+
+
+async def test_update_conversation_title_sets_it_once(client):
+    async with async_session_factory() as session:
+        conversation = Conversation(user_id="dev-user", title="What is the leave policy?")
+        session.add(conversation)
+        await session.commit()
+        conversation_id = conversation.id
+
+    response = await client.patch(
+        f"/api/internal/conversations/{conversation_id}/title",
+        headers=_headers(),
+        json={"title": "Leave policy questions"},
+    )
+    assert response.status_code == 200
+
+    async with async_session_factory() as session:
+        refreshed = await session.get(Conversation, conversation_id)
+        assert refreshed.title == "Leave policy questions"
+        assert refreshed.title_generated is True
+
+
+async def test_update_conversation_title_is_a_no_op_once_already_generated(client):
+    async with async_session_factory() as session:
+        conversation = Conversation(user_id="dev-user", title="Already generated", title_generated=True)
+        session.add(conversation)
+        await session.commit()
+        conversation_id = conversation.id
+
+    response = await client.patch(
+        f"/api/internal/conversations/{conversation_id}/title",
+        headers=_headers(),
+        json={"title": "A later run's title"},
+    )
+    assert response.status_code == 200
+
+    async with async_session_factory() as session:
+        refreshed = await session.get(Conversation, conversation_id)
+        assert refreshed.title == "Already generated"
+
+
+async def test_update_conversation_title_not_found(client):
+    response = await client.patch(
+        f"/api/internal/conversations/{uuid.uuid4()}/title",
+        headers=_headers(),
+        json={"title": "x"},
+    )
+    assert response.status_code == 404
