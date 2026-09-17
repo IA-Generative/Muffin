@@ -59,6 +59,42 @@ class CollectionRepository:
         collection.tags_updated_by = updated_by
         collection.tags_updated_at = datetime.now(UTC)
 
+    async def update_settings(
+        self,
+        collection: Collection,
+        *,
+        chunking_strategy: str | None,
+        chunk_size: int | None,
+        chunk_overlap: int | None,
+        embedding_model: str | None,
+        instructions: dict[str, str] | None,
+        generation_models: dict[str, str | None] | None,
+    ) -> bool:
+        """Returns whether the embedding model actually changed - the caller
+        uses that to flip reindex_required."""
+        settings = collection.settings
+        embedding_model_changed = embedding_model is not None and embedding_model != settings.embedding_model
+
+        if chunking_strategy is not None:
+            settings.chunking_strategy = chunking_strategy
+        if chunk_size is not None:
+            settings.chunk_size = chunk_size
+        if chunk_overlap is not None:
+            settings.chunk_overlap = chunk_overlap
+        if embedding_model is not None:
+            settings.embedding_model = embedding_model
+        if embedding_model_changed:
+            settings.reindex_required = True
+        if instructions is not None:
+            settings.instructions_qa = instructions["qa"]
+            settings.instructions_extraction = instructions["extraction"]
+            settings.instructions_chunking = instructions["chunking"]
+            settings.instructions_tagging = instructions["tagging"]
+        if generation_models is not None:
+            settings.generation_models = {**(settings.generation_models or {}), **generation_models}
+
+        return embedding_model_changed
+
     async def list_rustfs_keys(self, collection_id: uuid.UUID) -> list[str]:
         """Every RustFS object under this collection - uploaded files and page
         screenshots - collected before the cascade delete removes the rows

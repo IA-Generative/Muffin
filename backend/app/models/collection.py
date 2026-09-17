@@ -1,8 +1,10 @@
 import enum
 import uuid
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDMixin
@@ -98,5 +100,10 @@ class CollectionSettings(Base):
     instructions_extraction: Mapped[str] = mapped_column(Text, nullable=False, default="")
     instructions_chunking: Mapped[str] = mapped_column(Text, nullable=False, default="")
     instructions_tagging: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # Chat model used for each generation step - {"qa": "...", "extraction":
+    # "...", "chunking": "...", "tagging": "..."}. Each key is None until the
+    # user picks one; the caller (worker task) defaults to the first model
+    # GET /api/models returns rather than hardcoding one here.
+    generation_models: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
 
     collection: Mapped["Collection"] = relationship(back_populates="settings")

@@ -6,7 +6,7 @@ from app.core import storage
 from app.core.security.factory import RequestContext
 from app.models.collection import Collection
 from app.repositories.collection_repository import CollectionRepository
-from app.schemas.collection import CollectionOut, CollectionUpdate
+from app.schemas.collection import CollectionOut, CollectionSettingsUpdate, CollectionUpdate
 from app.schemas.pagination import Page, PaginationParams
 
 DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small"
@@ -63,6 +63,33 @@ class CollectionService:
         # after the UPDATE, and accessing it later outside an active await
         # crashes with MissingGreenlet instead of lazy-loading like sync ORM would.
         await self.db.refresh(collection, attribute_names=["updated_at"])
+        return CollectionOut.from_model(collection)
+
+    async def update_settings(
+        self, collection_id: uuid.UUID, user: RequestContext, update: CollectionSettingsUpdate
+    ) -> CollectionOut:
+        collection = await self._get_owned(collection_id, user)
+
+        await self.repository.update_settings(
+            collection,
+            chunking_strategy=update.chunking_strategy,
+            chunk_size=update.chunk_size,
+            chunk_overlap=update.chunk_overlap,
+            embedding_model=update.embedding_model,
+            instructions=update.instructions.model_dump() if update.instructions is not None else None,
+            # exclude_unset, not model_dump(): only the keys the caller sent
+            # should be merged in - the schema defaults every field to None,
+            # so a full dump would overwrite the others with None too.
+            generation_models=(
+                update.generation_models.model_dump(exclude_unset=True)
+                if update.generation_models is not None
+                else None
+            ),
+        )
+
+        # No refresh needed: only collection_settings columns changed (none
+        # with a server-side onupdate), so nothing on `collection` is expired.
+        await self.db.commit()
         return CollectionOut.from_model(collection)
 
     async def delete_collection(self, collection_id: uuid.UUID, user: RequestContext) -> None:

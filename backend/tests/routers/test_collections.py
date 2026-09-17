@@ -1,3 +1,4 @@
+import uuid
 from unittest.mock import patch
 
 import pytest
@@ -64,6 +65,65 @@ async def test_update_collection_name_description_and_tags(client):
     assert body["tags"] == ["a", "b"]
     assert body["description_meta"]["updated_by"] == "dev@example.com"
     assert body["tags_meta"]["updated_by"] == "dev@example.com"
+
+
+async def test_update_settings_persists_chunking_instructions_and_models(client):
+    created = (await client.post("/api/collections")).json()
+
+    response = await client.patch(
+        f"/api/collections/{created['id']}/settings",
+        json={
+            "chunking_strategy": "fixed",
+            "chunk_size": 800,
+            "chunk_overlap": 100,
+            "instructions": {"qa": "Sois concis", "extraction": "", "chunking": "", "tagging": ""},
+            "generation_models": {"qa": "gpt-4o-mini"},
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["chunking_settings"] == {"strategy": "fixed", "chunk_size": 800, "chunk_overlap": 100}
+    assert body["instructions"]["qa"] == "Sois concis"
+    assert body["generation_models"]["qa"] == "gpt-4o-mini"
+    assert body["generation_models"]["tagging"] is None
+    # Untouched by this request.
+    assert body["reindex_required"] is False
+
+
+async def test_update_settings_changing_embedding_model_requires_reindex(client):
+    created = (await client.post("/api/collections")).json()
+    assert created["embedding_model"] == "text-embedding-3-small"
+
+    response = await client.patch(
+        f"/api/collections/{created['id']}/settings", json={"embedding_model": "text-embedding-3-large"}
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["embedding_model"] == "text-embedding-3-large"
+    assert body["reindex_required"] is True
+
+
+async def test_update_settings_generation_models_merge_not_replace(client):
+    created = (await client.post("/api/collections")).json()
+    await client.patch(f"/api/collections/{created['id']}/settings", json={"generation_models": {"qa": "model-a"}})
+
+    response = await client.patch(
+        f"/api/collections/{created['id']}/settings", json={"generation_models": {"tagging": "model-b"}}
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["generation_models"]["qa"] == "model-a"
+    assert body["generation_models"]["tagging"] == "model-b"
+
+
+async def test_update_settings_for_unknown_collection_returns_404(client):
+    response = await client.patch(
+        f"/api/collections/{uuid.uuid4()}/settings", json={"embedding_model": "text-embedding-3-large"}
+    )
+    assert response.status_code == 404
 
 
 async def test_delete_collection(client):

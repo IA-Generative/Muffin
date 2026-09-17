@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security.factory import RequestContext, get_current_user
 from app.db import get_db
-from app.schemas.collection import CollectionOut, CollectionUpdate
+from app.schemas.collection import CollectionOut, CollectionSettingsUpdate, CollectionUpdate
 from app.schemas.pagination import Page, PaginationParams
 from app.services.collection_service import CollectionNotFoundError, CollectionService
 
@@ -56,6 +56,20 @@ async def update_collection(
 ) -> CollectionOut:
     try:
         return await service.update_collection(collection_id, user, update)
+    except CollectionNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
+
+
+@router.patch(
+    "/collections/{collection_id}/settings",
+    summary="Update chunking, embedding model, per-step generation models, and pipeline instructions",
+    response_model=CollectionOut,
+)
+async def update_collection_settings(
+    collection_id: uuid.UUID, update: CollectionSettingsUpdate, user: UserDep, service: ServiceDep
+) -> CollectionOut:
+    try:
+        return await service.update_settings(collection_id, user, update)
     except CollectionNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
 
