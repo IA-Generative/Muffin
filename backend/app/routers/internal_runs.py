@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core import storage
 from app.core.security.worker_auth import require_worker_api_key
 from app.db import get_db
+from app.models.message import MessageRole
 from app.models.run import RunStatus
 from app.repositories.collection_repository import CollectionRepository
 from app.repositories.conversation_repository import ConversationRepository
@@ -97,6 +98,10 @@ async def update_run_result(
     if run is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
     await repository.set_result(run, update.answer, update.citations)
+    # Persisted as a real Message, not just Run.answer, so GET /conversations/{id}/messages can
+    # restore the full thread (§ conversation persistence) - Run stays about execution/status,
+    # Message is the single source of truth for what the user actually sees in the chat history.
+    await ConversationRepository(db).add_message(run.conversation_id, MessageRole.ASSISTANT, update.answer)
     await db.commit()
     return {"status": "ok"}
 

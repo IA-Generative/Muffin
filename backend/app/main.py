@@ -6,6 +6,7 @@ from app.config import KeycloakSettings
 from app.routers.admin_settings import router as admin_settings_router
 from app.routers.auth import router as auth_router
 from app.routers.collections import router as collections_router
+from app.routers.conversations import router as conversations_router
 from app.routers.documents import router as documents_router
 from app.routers.health import router as health_router
 from app.routers.internal_collections import router as internal_collections_router
@@ -34,6 +35,7 @@ app = FastAPI(
         {"name": "Documents", "description": "Documents within a collection: upload, register a URL, delete."},
         {"name": "Tasks", "description": "Background tasks dispatched on the user's behalf: status, revocation."},
         {"name": "Runs", "description": "Research agent runs: create, status/events, cancellation."},
+        {"name": "Conversations", "description": "Chat conversations and their message history."},
         {"name": "Admin", "description": "Global, admin-only settings."},
         {"name": "Internal", "description": "Worker-to-backend calls, authenticated via a shared API key."},
     ],
@@ -53,6 +55,7 @@ app.include_router(auth_router, prefix="/api/auth")
 app.include_router(health_router, prefix="/api")
 app.include_router(models_router, prefix="/api")
 app.include_router(collections_router, prefix="/api")
+app.include_router(conversations_router, prefix="/api")
 app.include_router(documents_router, prefix="/api")
 app.include_router(tasks_router, prefix="/api")
 app.include_router(runs_router, prefix="/api")

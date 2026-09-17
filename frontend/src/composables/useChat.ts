@@ -6,7 +6,20 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000
 
 const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled'])
 
-// Backend response shapes (snake_case) - see backend/app/schemas/run.py.
+// Backend response shapes (snake_case) - see backend/app/schemas/conversation.py and run.py.
+interface ConversationOut {
+  id: string
+  title: string | null
+  updated_at: string
+}
+
+interface MessageOut {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  created_at: string
+}
+
 interface RunOut {
   id: string
   conversation_id: string | null
@@ -36,6 +49,10 @@ const activePolls = new Map<string, ReturnType<typeof setInterval>>()
 // A run paused on a clarification question (HITL, §31): the next message typed in this
 // conversation answers it (POST /api/runs/{runId}/resume) instead of starting a new run.
 const pendingClarifications: Record<string, { runId: string; messageId: string }> = {}
+// Which conversation ids already have their message history loaded (or definitively don't exist
+// on the backend) - avoids re-fetching on every sidebar click, and lets a brand-new local-only
+// conversation (newConversation()) skip a fetch that would just 404.
+const loadedConversationIds = new Set<string>()
 
 function resolveConversationId(id: string): string {
   let resolved = id
@@ -45,6 +62,7 @@ function resolveConversationId(id: string): string {
 
 function migrateConversationId(placeholderId: string, realId: string): string {
   confirmedConversationIds.add(realId)
+  loadedConversationIds.add(realId) // its messages are already in memory, nothing to fetch
   const currentId = resolveConversationId(placeholderId)
   if (currentId === realId) return realId
 
@@ -69,10 +87,47 @@ const activeSources = computed(
   () => messages.value.find((message) => message.id === activeSourcesMessageId.value)?.sources,
 )
 
+async function fetchConversationsList(): Promise<ConversationOut[]> {
+  const response = await fetch(`${API_BASE_URL}/api/conversations?page_size=100`, { credentials: 'include' })
+  if (!response.ok) throw new Error(`${response.status}`)
+  const body: { items: ConversationOut[] } = await response.json()
+  return body.items
+}
+
+async function fetchMessagesList(conversationId: string): Promise<MessageOut[]> {
+  const response = await fetch(`${API_BASE_URL}/api/conversations/${conversationId}/messages`, {
+    credentials: 'include',
+  })
+  if (!response.ok) throw new Error(`${response.status}`)
+  return response.json()
+}
+
+// Restores a conversation's history on first visit (sidebar click, or a bookmarked /c/<id>
+// reload) - a no-op once loaded. A 404 means this id never became a real backend conversation
+// (e.g. a local-only placeholder from before a reload wiped module state) - starts it fresh
+// rather than surfacing an error the user can't do anything about.
+async function ensureMessagesLoaded(conversationId: string) {
+  if (loadedConversationIds.has(conversationId)) return
+  loadedConversationIds.add(conversationId)
+  try {
+    const items = await fetchMessagesList(conversationId)
+    messagesByConversation.value[conversationId] = items.map((item) => ({
+      id: item.id,
+      role: item.role,
+      content: item.content,
+    }))
+    confirmedConversationIds.add(conversationId)
+  } catch {
+    if (!messagesByConversation.value[conversationId]) messagesByConversation.value[conversationId] = []
+  }
+}
+
 // `navigate: false` is used when a route change already triggered this (see
 // ChatView's route watcher) - pushing again there would just double the entry.
 function selectConversation(id: string, options: { navigate?: boolean } = {}) {
   activeId.value = id
+  if (!messagesByConversation.value[id]) messagesByConversation.value[id] = []
+  ensureMessagesLoaded(id)
   const target = `/c/${id}`
   if (options.navigate !== false && router.currentRoute.value.fullPath !== target) {
     router.push(target)
@@ -83,9 +138,35 @@ function newConversation() {
   const id = crypto.randomUUID()
   conversations.value.unshift({ id, title: 'Nouvelle conversation' })
   messagesByConversation.value[id] = []
+  loadedConversationIds.add(id) // fresh and local-only - nothing to fetch, would just 404
   activeId.value = id
   router.push(`/c/${id}`)
 }
+
+// Populates the sidebar with real past conversations on load, and - only if the app opened on
+// "/" with nothing typed yet, never for a bookmarked /c/<id> already being restored - takes over
+// the placeholder with the most recently active one instead of starting on an empty new chat.
+async function initializeConversations() {
+  try {
+    const items = await fetchConversationsList()
+    if (items.length === 0) return
+
+    conversations.value = items.map((item) => ({ id: item.id, title: item.title || 'Nouvelle conversation' }))
+    for (const item of items) confirmedConversationIds.add(item.id)
+
+    if (activeId.value === 'default' && (messagesByConversation.value.default ?? []).length === 0) {
+      const mostRecentId = items[0].id
+      await ensureMessagesLoaded(mostRecentId)
+      delete messagesByConversation.value.default
+      activeId.value = mostRecentId
+      router.replace(`/c/${mostRecentId}`)
+    }
+  } catch {
+    // Best-effort - the app still works with just the local placeholder conversation.
+  }
+}
+
+initializeConversations()
 
 async function createRun(conversationId: string, query: string): Promise<RunOut> {
   // Only ever send a conversation_id the backend actually confirmed exists - the sidebar's
