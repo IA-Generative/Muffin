@@ -101,7 +101,9 @@ async def update_run_result(
     # Persisted as a real Message, not just Run.answer, so GET /conversations/{id}/messages can
     # restore the full thread (§ conversation persistence) - Run stays about execution/status,
     # Message is the single source of truth for what the user actually sees in the chat history.
-    await ConversationRepository(db).add_message(run.conversation_id, MessageRole.ASSISTANT, update.answer)
+    await ConversationRepository(db).add_message(
+        run.conversation_id, MessageRole.ASSISTANT, update.answer, run_id=run.id
+    )
     await db.commit()
     return {"status": "ok"}
 

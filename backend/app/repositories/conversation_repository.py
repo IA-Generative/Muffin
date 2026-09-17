@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.conversation import Conversation
 from app.models.message import Message, MessageRole
+from app.models.run import Run
 
 
 class ConversationRepository:
@@ -40,11 +41,17 @@ class ConversationRepository:
         )
         return result.scalars().all(), total or 0
 
-    async def list_messages(self, conversation_id: uuid.UUID) -> Sequence[Message]:
+    async def list_messages(self, conversation_id: uuid.UUID) -> Sequence[tuple[Message, list[dict] | None]]:
+        """Joined to Run rather than storing citations on Message too - Run is already the
+        source of truth for them (§ conversation persistence), and a message never outlives the
+        run that produced it in any way that would make them diverge."""
         result = await self.db.execute(
-            select(Message).where(Message.conversation_id == conversation_id).order_by(Message.created_at)
+            select(Message, Run.citations)
+            .outerjoin(Run, Message.run_id == Run.id)
+            .where(Message.conversation_id == conversation_id)
+            .order_by(Message.created_at)
         )
-        return result.scalars().all()
+        return result.all()
 
     async def get_by_id(self, conversation_id: uuid.UUID) -> Conversation | None:
         """No owner check - internal/worker use only, never exposed on a user-facing route."""
@@ -61,8 +68,10 @@ class ConversationRepository:
         await self.db.flush()
         return conversation
 
-    async def add_message(self, conversation_id: uuid.UUID, role: MessageRole, content: str) -> Message:
-        message = Message(conversation_id=conversation_id, role=role, content=content)
+    async def add_message(
+        self, conversation_id: uuid.UUID, role: MessageRole, content: str, run_id: uuid.UUID | None = None
+    ) -> Message:
+        message = Message(conversation_id=conversation_id, role=role, content=content, run_id=run_id)
         self.db.add(message)
         await self.db.flush()
         return message

@@ -28,5 +28,15 @@ class ConversationService:
         conversation = await self.conversations.get(conversation_id, user.user_id)
         if conversation is None:
             raise ConversationNotFoundError(str(conversation_id))
-        messages = await self.conversations.list_messages(conversation_id)
-        return [MessageOut(id=m.id, role=m.role, content=m.content, created_at=m.created_at) for m in messages]
+        rows = await self.conversations.list_messages(conversation_id)
+        return [
+            MessageOut(
+                id=message.id,
+                role=message.role,
+                content=message.content,
+                created_at=message.created_at,
+                run_id=message.run_id,
+                citations=citations,
+            )
+            for message, citations in rows
+        ]

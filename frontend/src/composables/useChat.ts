@@ -13,11 +13,19 @@ interface ConversationOut {
   updated_at: string
 }
 
+interface Citation {
+  evidence_id: string
+  source: string | null
+  vdb_id: string
+}
+
 interface MessageOut {
   id: string
   role: 'user' | 'assistant'
   content: string
   created_at: string
+  run_id: string | null
+  citations: Citation[] | null
 }
 
 interface RunEventOut {
@@ -35,7 +43,7 @@ interface RunOut {
   current_activity: string | null
   pending_human_action: { question?: string } | null
   answer: string | null
-  citations: { evidence_id: string; source: string | null; vdb_id: string }[] | null
+  citations: Citation[] | null
   error: string | null
 }
 
@@ -176,11 +184,16 @@ async function ensureMessagesLoaded(conversationId: string) {
   loadedConversationIds.add(conversationId)
   try {
     const items = await fetchMessagesList(conversationId)
-    messagesByConversation.value[conversationId] = items.map((item) => ({
-      id: item.id,
-      role: item.role,
-      content: item.content,
-    }))
+    messagesByConversation.value[conversationId] = items.map((item) => {
+      const [content, sources] = formatAnswerWithCitations(item.content, item.citations)
+      return {
+        id: item.id,
+        role: item.role,
+        content,
+        sources,
+        runId: item.run_id ?? undefined,
+      }
+    })
     confirmedConversationIds.add(conversationId)
   } catch {
     if (!messagesByConversation.value[conversationId]) messagesByConversation.value[conversationId] = []
@@ -270,16 +283,16 @@ async function resumeRun(runId: string, answer: string): Promise<RunOut> {
 // stays verifiable server-side. Showing that literal uuid to the user is meaningless, though -
 // this renumbers every distinct id into a short footnote ([1], [2], ...) in order of first
 // appearance in the text, and builds the sources panel to match those same numbers.
-function formatAnswerWithCitations(answer: string, citations: RunOut['citations']): [string, Source[] | undefined] {
+function formatAnswerWithCitations(answer: string, citations: Citation[] | null | undefined): [string, Source[] | undefined] {
   if (!citations?.length) return [answer, undefined]
 
   const citationById = new Map(citations.map((citation) => [citation.evidence_id, citation]))
   const footnoteNumberById = new Map<string, number>()
   const sources: Source[] = []
 
-  const content = answer.replace(/\[([0-9a-f-]{8,})\]/gi, (match, evidenceId: string) => {
+  function footnoteFor(evidenceId: string): number | undefined {
     const citation = citationById.get(evidenceId)
-    if (!citation) return match
+    if (!citation) return undefined
     let footnoteNumber = footnoteNumberById.get(evidenceId)
     if (footnoteNumber === undefined) {
       footnoteNumber = sources.length + 1
@@ -287,8 +300,27 @@ function formatAnswerWithCitations(answer: string, citations: RunOut['citations'
       const sourceTitle = citation.source ?? `Source ${citation.vdb_id}`
       sources.push({ title: `${footnoteNumber}. ${sourceTitle}` })
     }
-    return `[${footnoteNumber}]`
-  })
+    return footnoteNumber
+  }
+
+  // Permissive on the outside (a small/local model sometimes cites several ids in one bracket,
+  // separated by a comma/space/semicolon), strict on each individual id (an exact match against
+  // a real citation) - an id that doesn't match anything is never shown raw, it's just dropped,
+  // since an unverifiable citation is itself a grounding problem, not a display one.
+  const content = answer
+    .replace(/\[([0-9a-f][0-9a-f,;\s-]{6,}[0-9a-f])\]/gi, (match, group: string) => {
+      const numbers = [
+        ...new Set(
+          group
+            .split(/[,;\s]+/)
+            .map((candidate) => footnoteFor(candidate.trim()))
+            .filter((n): n is number => n !== undefined),
+        ),
+      ]
+      return numbers.length ? `[${numbers.join(',')}]` : ''
+    })
+    .replace(/ {2,}/g, ' ')
+    .replace(/ ([.,;:!?])/g, '$1')
 
   return [content, sources.length ? sources : undefined]
 }
