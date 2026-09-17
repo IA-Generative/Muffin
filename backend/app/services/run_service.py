@@ -3,8 +3,9 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security.factory import RequestContext
-from app.core.tasks import enqueue_run_agent, revoke_task
+from app.core.tasks import enqueue_resume_agent, enqueue_run_agent, revoke_task
 from app.models.message import MessageRole
+from app.models.run import RunStatus
 from app.repositories.conversation_repository import ConversationRepository
 from app.repositories.run_repository import RunRepository
 from app.schemas.pagination import Page, PaginationParams
@@ -16,6 +17,10 @@ class RunNotFoundError(Exception):
 
 
 class ConversationNotFoundError(Exception):
+    pass
+
+
+class RunNotWaitingError(Exception):
     pass
 
 
@@ -69,6 +74,20 @@ class RunService:
         # DB round-trip just to count them for `total`.
         return pagination.to_page(items, len(items))
 
+    async def resume_run(self, run_id: uuid.UUID, user: RequestContext, answer: str) -> RunOut:
+        run = await self._get_owned(run_id, user)
+        if run.status != RunStatus.WAITING_FOR_USER:
+            raise RunNotWaitingError(str(run_id))
+        # Dispatched before the commit below has even run isn't safe here (unlike create_run,
+        # this row already exists and the worker only reads it, doesn't idempotency-check a
+        # freshly-inserted one) - order doesn't matter, so commit first for consistency with
+        # create_run's "never race a read the worker might do first" reasoning anyway.
+        celery_task_id = enqueue_resume_agent(str(run_id), answer)
+        await self.runs.set_celery_task_id(run, celery_task_id)
+        await self.db.commit()
+        await self.db.refresh(run, attribute_names=["updated_at"])
+        return self._to_out(run)
+
     async def cancel_run(self, run_id: uuid.UUID, user: RequestContext) -> RunOut:
         run = await self._get_owned(run_id, user)
         await self.runs.request_cancel(run)
@@ -98,6 +117,7 @@ class RunService:
             current_activity=run.current_activity,
             plan_version=run.plan_version,
             replan_count=run.replan_count,
+            pending_human_action=run.pending_human_action,
             answer=run.answer,
             citations=run.citations,
             error=run.error,

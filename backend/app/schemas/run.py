@@ -10,6 +10,10 @@ class RunCreate(BaseModel):
     conversation_id: uuid.UUID | None = None
 
 
+class RunResumeRequest(BaseModel):
+    answer: str
+
+
 class RunEventOut(BaseModel):
     id: uuid.UUID
     task_id: str | None
@@ -28,6 +32,7 @@ class RunOut(BaseModel):
     current_activity: str | None
     plan_version: int
     replan_count: int
+    pending_human_action: dict[str, Any] | None
     answer: str | None
     citations: list[dict[str, Any]] | None
     error: str | None

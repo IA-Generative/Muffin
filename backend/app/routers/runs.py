@@ -7,8 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.security.factory import RequestContext, get_current_user
 from app.db import get_db
 from app.schemas.pagination import Page, PaginationParams
-from app.schemas.run import RunCreate, RunEventOut, RunOut
-from app.services.run_service import ConversationNotFoundError, RunNotFoundError, RunService
+from app.schemas.run import RunCreate, RunEventOut, RunOut, RunResumeRequest
+from app.services.run_service import ConversationNotFoundError, RunNotFoundError, RunNotWaitingError, RunService
 
 router = APIRouter(tags=["Runs"])
 
@@ -58,6 +58,23 @@ async def list_run_events(
         return await service.list_events(run_id, user, since, pagination)
     except RunNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found") from error
+
+
+@router.post(
+    "/runs/{run_id}/resume",
+    summary="Answer a run's pending clarification question and continue it (only valid while "
+    "status is waiting_for_user)",
+    response_model=RunOut,
+)
+async def resume_run(run_id: uuid.UUID, body: RunResumeRequest, user: UserDep, service: ServiceDep) -> RunOut:
+    try:
+        return await service.resume_run(run_id, user, body.answer)
+    except RunNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found") from error
+    except RunNotWaitingError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Run is not waiting for a clarification"
+        ) from error
 
 
 @router.post(
