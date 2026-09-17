@@ -6,5 +6,8 @@ for combinations where the workload templates themselves would render nothing (e
 Add one `include` line per component when you add components to this chart.
 */ -}}
 {{- if .Values.enabled }}
-{{- include "helper.component.validate" (dict "name" "servicename" "component" .Values.servicename) }}
+{{- include "helper.component.validate" (dict "name" "backend" "component" .Values.backend) }}
+{{- include "helper.component.validate" (dict "name" "frontend" "component" .Values.frontend) }}
+{{- include "helper.component.validate" (dict "name" "document_process" "component" .Values.document_process) }}
+{{- include "helper.component.validate" (dict "name" "agent_execution" "component" .Values.agent_execution) }}
 {{- end }}
