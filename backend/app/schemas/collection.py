@@ -26,6 +26,13 @@ class PipelineInstructions(BaseModel):
     tagging: str
 
 
+class GenerationModels(BaseModel):
+    qa: str | None = None
+    extraction: str | None = None
+    chunking: str | None = None
+    tagging: str | None = None
+
+
 class CollectionOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -50,6 +57,7 @@ class CollectionOut(BaseModel):
     embedding_model: str
     reindex_required: bool
     instructions: PipelineInstructions
+    generation_models: GenerationModels
 
     @classmethod
     def from_model(cls, collection: "CollectionModel") -> "CollectionOut":
@@ -83,6 +91,7 @@ class CollectionOut(BaseModel):
                 chunking=settings.instructions_chunking,
                 tagging=settings.instructions_tagging,
             ),
+            generation_models=GenerationModels(**(settings.generation_models or {})),
         )
 
 
@@ -90,3 +99,12 @@ class CollectionUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
     tags: list[str] | None = None
+
+
+class CollectionSettingsUpdate(BaseModel):
+    chunking_strategy: str | None = None
+    chunk_size: int | None = None
+    chunk_overlap: int | None = None
+    embedding_model: str | None = None
+    instructions: PipelineInstructions | None = None
+    generation_models: GenerationModels | None = None

@@ -9,6 +9,7 @@ import type {
   EvaluationResult,
   EvaluationRun,
   FieldStamp,
+  GenerationModels,
   PipelineInstructions,
   QaPair,
   Relation,
@@ -44,10 +45,11 @@ interface CollectionOut {
   relations: Relation[]
   chunks: Chunk[]
   evaluation_runs: EvaluationRun[]
-  chunking_settings: ChunkingSettings
+  chunking_settings: { strategy: ChunkingSettings['strategy']; chunk_size: number; chunk_overlap: number }
   embedding_model: string
   reindex_required: boolean
   instructions: PipelineInstructions
+  generation_models: GenerationModels
 }
 
 function toStamp(meta: CollectionOut['description_meta']): FieldStamp | null {
@@ -68,10 +70,15 @@ function toCollection(raw: CollectionOut): Collection {
     entities: raw.entities,
     relations: raw.relations,
     chunks: raw.chunks,
-    chunkingSettings: raw.chunking_settings,
+    chunkingSettings: {
+      strategy: raw.chunking_settings.strategy,
+      chunkSize: raw.chunking_settings.chunk_size,
+      chunkOverlap: raw.chunking_settings.chunk_overlap,
+    },
     embeddingModel: raw.embedding_model,
     reindexRequired: raw.reindex_required,
     instructions: raw.instructions,
+    generationModels: raw.generation_models,
     evaluationRuns: raw.evaluation_runs,
   }
 }
@@ -339,22 +346,35 @@ function toggleQaValidation(collectionId: string, qaPairId: string) {
   pair.validated = !pair.validated
 }
 
-function updateChunkingSettings(collectionId: string, settings: ChunkingSettings) {
-  const collection = collections.value.find((item) => item.id === collectionId)
-  if (!collection) return
-  collection.chunkingSettings = settings
-  collection.updatedAt = new Date().toISOString()
+async function patchSettings(id: string, body: Record<string, unknown>) {
+  const response = await fetch(`${API_BASE_URL}/api/collections/${id}/settings`, {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!response.ok) return
+  const collection = toCollection(await response.json())
+  const index = collections.value.findIndex((item) => item.id === id)
+  if (index !== -1) collections.value[index] = collection
 }
 
-// Changer de modèle d'embedding invalide les vecteurs déjà calculés : posé à
-// part du reste du chunking pour que ce seul changement déclenche le besoin
-// de réindexation, sans en imposer un pour un simple ajustement de stratégie.
-function updateEmbeddingModel(collectionId: string, model: string) {
-  const collection = collections.value.find((item) => item.id === collectionId)
-  if (!collection) return
-  if (collection.embeddingModel !== model) collection.reindexRequired = true
-  collection.embeddingModel = model
-  collection.updatedAt = new Date().toISOString()
+async function updateChunkingSettings(collectionId: string, settings: ChunkingSettings) {
+  await patchSettings(collectionId, {
+    chunking_strategy: settings.strategy,
+    chunk_size: settings.chunkSize,
+    chunk_overlap: settings.chunkOverlap,
+  })
+}
+
+// Changer de modèle d'embedding invalide les vecteurs déjà calculés - le
+// backend détecte ce changement et positionne reindexRequired lui-même.
+async function updateEmbeddingModel(collectionId: string, model: string) {
+  await patchSettings(collectionId, { embedding_model: model })
+}
+
+async function updateGenerationModel(collectionId: string, field: keyof GenerationModels, model: string) {
+  await patchSettings(collectionId, { generation_models: { [field]: model } })
 }
 
 async function reindexCollection(collectionId: string) {
@@ -369,11 +389,12 @@ async function reindexCollection(collectionId: string) {
   pollDocumentsWhileProcessing(collectionId)
 }
 
-function updateInstructionField(collectionId: string, field: keyof PipelineInstructions, value: string) {
+async function updateInstructionField(collectionId: string, field: keyof PipelineInstructions, value: string) {
   const collection = collections.value.find((item) => item.id === collectionId)
   if (!collection) return
-  collection.instructions[field] = value
-  collection.updatedAt = new Date().toISOString()
+  // The backend expects the whole PipelineInstructions object, not a patch of
+  // one field - send the current one with just this field changed.
+  await patchSettings(collectionId, { instructions: { ...collection.instructions, [field]: value } })
 }
 
 // Pas de backend : score chaque Q/R validée avec des valeurs plausibles au
@@ -474,6 +495,7 @@ export function useCollections() {
     toggleQaValidation,
     updateChunkingSettings,
     updateEmbeddingModel,
+    updateGenerationModel,
     reindexCollection,
     updateInstructionField,
     runEvaluation,

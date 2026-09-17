@@ -59,6 +59,14 @@ export interface PipelineInstructions {
   tagging: string
 }
 
+// One chat model per generation step - null until the user picks one.
+export interface GenerationModels {
+  qa: string | null
+  extraction: string | null
+  chunking: string | null
+  tagging: string | null
+}
+
 export interface EvaluationMetrics {
   precisionAtK: number
   recallAtK: number
@@ -110,5 +118,6 @@ export interface Collection {
   embeddingModel: string
   reindexRequired: boolean
   instructions: PipelineInstructions
+  generationModels: GenerationModels
   evaluationRuns: EvaluationRun[]
 }
