@@ -69,6 +69,7 @@ class CollectionRepository:
         embedding_model: str | None,
         instructions: dict[str, str] | None,
         generation_models: dict[str, str | None] | None,
+        pipeline_windows: dict[str, int] | None,
     ) -> bool:
         """Returns whether the embedding model actually changed - the caller
         uses that to flip reindex_required."""
@@ -90,8 +91,11 @@ class CollectionRepository:
             settings.instructions_extraction = instructions["extraction"]
             settings.instructions_chunking = instructions["chunking"]
             settings.instructions_tagging = instructions["tagging"]
+            settings.instructions_summary = instructions["summary"]
         if generation_models is not None:
             settings.generation_models = {**(settings.generation_models or {}), **generation_models}
+        if pipeline_windows is not None:
+            settings.pipeline_windows = {**(settings.pipeline_windows or {}), **pipeline_windows}
 
         return embedding_model_changed
 

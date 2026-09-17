@@ -76,7 +76,7 @@ async def test_update_settings_persists_chunking_instructions_and_models(client)
             "chunking_strategy": "fixed",
             "chunk_size": 800,
             "chunk_overlap": 100,
-            "instructions": {"qa": "Sois concis", "extraction": "", "chunking": "", "tagging": ""},
+            "instructions": {"qa": "Sois concis", "extraction": "", "chunking": "", "tagging": "", "summary": ""},
             "generation_models": {"qa": "gpt-4o-mini"},
         },
     )
@@ -117,6 +117,41 @@ async def test_update_settings_generation_models_merge_not_replace(client):
     body = response.json()
     assert body["generation_models"]["qa"] == "model-a"
     assert body["generation_models"]["tagging"] == "model-b"
+
+
+async def test_pipeline_windows_default_when_never_saved(client):
+    created = (await client.post("/api/collections")).json()
+
+    assert created["pipeline_windows"] == {
+        "summary_pages_per_map": 5,
+        "qa_window_pages": 2,
+        "qa_slide_pages": 1,
+        "qa_questions_per_window": 3,
+        "extraction_window_pages": 4,
+        "extraction_slide_pages": 1,
+        "chunking_window_pages": 2,
+        "chunking_slide_pages": 1,
+    }
+
+
+async def test_update_settings_pipeline_windows_merge_not_replace(client):
+    created = (await client.post("/api/collections")).json()
+
+    await client.patch(
+        f"/api/collections/{created['id']}/settings",
+        json={"pipeline_windows": {"qa_window_pages": 3, "qa_slide_pages": 2}},
+    )
+    response = await client.patch(
+        f"/api/collections/{created['id']}/settings", json={"pipeline_windows": {"summary_pages_per_map": 8}}
+    )
+
+    assert response.status_code == 200
+    body = response.json()["pipeline_windows"]
+    assert body["qa_window_pages"] == 3
+    assert body["qa_slide_pages"] == 2
+    assert body["summary_pages_per_map"] == 8
+    # Untouched keys keep their defaults.
+    assert body["extraction_window_pages"] == 4
 
 
 async def test_update_settings_for_unknown_collection_returns_404(client):

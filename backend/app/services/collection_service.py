@@ -85,6 +85,9 @@ class CollectionService:
                 if update.generation_models is not None
                 else None
             ),
+            pipeline_windows=(
+                update.pipeline_windows.model_dump(exclude_unset=True) if update.pipeline_windows is not None else None
+            ),
         )
 
         # No refresh needed: only collection_settings columns changed (none

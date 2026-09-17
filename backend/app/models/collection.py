@@ -100,10 +100,18 @@ class CollectionSettings(Base):
     instructions_extraction: Mapped[str] = mapped_column(Text, nullable=False, default="")
     instructions_chunking: Mapped[str] = mapped_column(Text, nullable=False, default="")
     instructions_tagging: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    instructions_summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
     # Chat model used for each generation step - {"qa": "...", "extraction":
-    # "...", "chunking": "...", "tagging": "..."}. Each key is None until the
-    # user picks one; the caller (worker task) defaults to the first model
-    # GET /api/models returns rather than hardcoding one here.
+    # "...", "chunking": "...", "tagging": "...", "summary": "..."}. Each key
+    # is None until the user picks one; the caller (worker task) defaults to
+    # the first model GET /api/models returns rather than hardcoding one here.
     generation_models: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    # Sliding-window params for the steps that read several pages of a
+    # document at once instead of one chunk at a time - summary (map-reduce),
+    # QA generation, entity/relation extraction, and semantic chunking. Flat
+    # dict (not nested per step) so a partial update can merge by top-level
+    # key the same way generation_models does; missing keys fall back to
+    # PipelineWindowsOut's defaults, see app/schemas/collection.py.
+    pipeline_windows: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
 
     collection: Mapped["Collection"] = relationship(back_populates="settings")
