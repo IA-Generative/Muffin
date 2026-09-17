@@ -378,7 +378,10 @@
         }
       }
     },
-    "servicename": { "$ref": "#/definitions/workloadComponent" },
+    "backend": { "$ref": "#/definitions/workloadComponent" },
+    "frontend": { "$ref": "#/definitions/workloadComponent" },
+    "document_process": { "$ref": "#/definitions/workloadComponent" },
+    "agent_execution": { "$ref": "#/definitions/workloadComponent" },
     "jobs": {
       "type": ["object", "null"],
       "additionalProperties": { "$ref": "#/definitions/batchEntry" }
