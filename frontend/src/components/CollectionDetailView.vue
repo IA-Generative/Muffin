@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useCollections } from '../composables/useCollections'
 import type { Collection } from '../types/collection'
 import CollectionChunksTab from './CollectionChunksTab.vue'
@@ -13,9 +13,11 @@ const props = defineProps<{
   collection: Collection
 }>()
 
-const { closeCollection, updateName, updateDescription, updateTags, deleteCollection } = useCollections()
+const { closeCollection, updateName, updateDescription, updateTags, deleteCollection, isCollectionReady } =
+  useCollections()
 
 const tagDraft = ref('')
+const isReady = computed(() => isCollectionReady(props.collection))
 
 type TabKey = 'documents' | 'qa' | 'evaluation' | 'relations' | 'chunks' | 'settings'
 const TABS: { key: TabKey; label: string }[] = [
@@ -29,6 +31,22 @@ const TABS: { key: TabKey; label: string }[] = [
 // Paramètres en premier : on configure le chunking/embedding avant d'ajouter
 // des documents, donc c'est l'onglet le plus utile à l'ouverture.
 const activeTab = ref<TabKey>('settings')
+
+// Tant que le nom et les paramètres n'ont pas été confirmés, on reste
+// coincé sur l'onglet Paramètres - y compris si on y revient plus tard
+// (changement de collection active, navigation directe par URL).
+watch(
+  () => [props.collection.id, isReady.value],
+  () => {
+    if (!isReady.value) activeTab.value = 'settings'
+  },
+  { immediate: true },
+)
+
+function selectTab(key: TabKey) {
+  if (key !== 'settings' && !isReady.value) return
+  activeTab.value = key
+}
 
 const dateFormatter = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })
 function formatStamp(meta: { updatedBy: string; updatedAt: string } | null) {
@@ -110,11 +128,18 @@ function askDelete() {
           type="button"
           class="collection-detail__tab"
           :class="{ 'collection-detail__tab--active': activeTab === tab.key }"
-          @click="activeTab = tab.key"
+          :disabled="tab.key !== 'settings' && !isReady"
+          :title="tab.key !== 'settings' && !isReady ? 'Nommez la collection et enregistrez ses paramètres d\'abord' : undefined"
+          @click="selectTab(tab.key)"
         >
           {{ tab.label }}
         </button>
       </nav>
+
+      <p v-if="!isReady" class="collection-detail__gate-hint">
+        Donnez un nom à cette collection et enregistrez ses paramètres de découpage et de modèle d'embedding
+        avant d'ajouter des documents.
+      </p>
 
       <div class="collection-detail__panel">
         <CollectionDocumentsTab v-if="activeTab === 'documents'" :collection="collection" />
@@ -280,6 +305,19 @@ function askDelete() {
   color: var(--text-action-high-blue-france);
   border-bottom-color: var(--border-action-high-blue-france);
   font-weight: 700;
+}
+
+.collection-detail__tab:disabled {
+  color: var(--text-disabled-grey);
+  cursor: not-allowed;
+}
+
+.collection-detail__gate-hint {
+  margin: 1rem 0 0;
+  padding: 0.75rem;
+  border-radius: 0.375rem;
+  background: var(--background-alt-orange-terre-battue, var(--background-alt-grey));
+  font-size: 0.8125rem;
 }
 
 .collection-detail__panel {
