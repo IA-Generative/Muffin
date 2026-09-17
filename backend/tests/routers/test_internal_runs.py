@@ -9,7 +9,7 @@ from app.db import async_session_factory
 from app.main import app
 from app.models.collection import Collection, CollectionSettings
 from app.models.conversation import Conversation
-from app.models.document import Document
+from app.models.document import Document, DocumentPage
 from app.models.message import Message, MessageRole
 from app.models.run import Run
 
@@ -156,13 +156,104 @@ async def test_list_accessible_collections_owner_only(client):
         other = Collection(owner_id="someone-else", name="Not mine", description="")
         other.settings = CollectionSettings(embedding_model="text-embedding-3-small")
         session.add_all([owned, other])
+        await session.flush()
+        session.add(Document(collection_id=owned.id, name="a.pdf", type="file", storage_key="a"))
+        session.add(Document(collection_id=owned.id, name="b.pdf", type="file", storage_key="b"))
         await session.commit()
 
     response = await client.get("/api/internal/users/dev-user/accessible-collections", headers=_headers())
 
     assert response.status_code == 200
-    names = [c["name"] for c in response.json()]
-    assert names == ["Mine"]
+    body = response.json()
+    assert [c["name"] for c in body] == ["Mine"]
+    assert body[0]["document_count"] == 2
+
+
+async def test_list_collection_documents_requires_ownership(client):
+    async with async_session_factory() as session:
+        collection = Collection(owner_id="someone-else", name="Not mine", description="")
+        collection.settings = CollectionSettings(embedding_model="text-embedding-3-small")
+        session.add(collection)
+        await session.commit()
+        collection_id = collection.id
+
+    response = await client.get(
+        f"/api/internal/users/dev-user/collections/{collection_id}/documents", headers=_headers()
+    )
+
+    assert response.status_code == 404
+
+
+async def test_list_collection_documents_returns_name_status_and_summary(client):
+    async with async_session_factory() as session:
+        collection = Collection(owner_id="dev-user", name="Policies", description="")
+        collection.settings = CollectionSettings(embedding_model="text-embedding-3-small")
+        session.add(collection)
+        await session.flush()
+        session.add(
+            Document(
+                collection_id=collection.id,
+                name="handbook.pdf",
+                type="file",
+                storage_key="k",
+                summary="Employee handbook.",
+            )
+        )
+        await session.commit()
+        collection_id = collection.id
+
+    response = await client.get(
+        f"/api/internal/users/dev-user/collections/{collection_id}/documents", headers=_headers()
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 1
+    assert body[0]["name"] == "handbook.pdf"
+    assert body[0]["summary"] == "Employee handbook."
+
+
+async def test_get_document_page_requires_ownership(client):
+    async with async_session_factory() as session:
+        collection = Collection(owner_id="someone-else", name="Not mine", description="")
+        collection.settings = CollectionSettings(embedding_model="text-embedding-3-small")
+        session.add(collection)
+        await session.flush()
+        document = Document(collection_id=collection.id, name="doc.pdf", type="file", storage_key="k")
+        session.add(document)
+        await session.commit()
+        document_id = document.id
+
+    response = await client.get(f"/api/internal/users/dev-user/documents/{document_id}/pages/1", headers=_headers())
+
+    assert response.status_code == 404
+
+
+async def test_get_document_page_returns_content_and_screenshot_url(client, monkeypatch):
+    from app.routers import internal_runs
+
+    async with async_session_factory() as session:
+        collection = Collection(owner_id="dev-user", name="Policies", description="")
+        collection.settings = CollectionSettings(embedding_model="text-embedding-3-small")
+        session.add(collection)
+        await session.flush()
+        document = Document(collection_id=collection.id, name="doc.pdf", type="file", storage_key="k")
+        session.add(document)
+        await session.flush()
+        session.add(
+            DocumentPage(document_id=document.id, page_number=1, content="Page one text.", screenshot="shots/p1.png")
+        )
+        await session.commit()
+        document_id = document.id
+
+    monkeypatch.setattr(internal_runs.storage, "get_presigned_url", lambda key: f"https://example.com/{key}")
+
+    response = await client.get(f"/api/internal/users/dev-user/documents/{document_id}/pages/1", headers=_headers())
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["content"] == "Page one text."
+    assert body["screenshot_url"] == "https://example.com/shots/p1.png"
 
 
 async def test_search_finds_matching_chunk(client, monkeypatch):

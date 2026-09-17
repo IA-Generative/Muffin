@@ -74,3 +74,17 @@ class AccessibleCollectionOut(BaseModel):
     name: str
     description: str
     tags: list[str]
+    document_count: int
+
+
+class DocumentSummaryOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    status: str
+    summary: str | None
+
+
+class DocumentPageContentOut(BaseModel):
+    page_number: int
+    content: str
+    screenshot_url: str | None
