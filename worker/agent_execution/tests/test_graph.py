@@ -302,9 +302,53 @@ def test_list_collections_tool_answers_from_accessible_vdbs_without_searching(ma
     result = graph.invoke(state, config=_config(state))
 
     assert fake.searched_collection_ids == []
-    assert len(result["deduped_evidence"]) == 2
-    assert {e["vdb_id"] for e in result["deduped_evidence"]} == {"hr", "eng"}
+    # One evidence item per collection, plus one explicit "you have exactly N" fact - never left
+    # for the answer LLM to infer a count from prose alone (real model tested against would
+    # sometimes refuse to, see test_meta_tool_never_replans_into_a_pointless_search's sibling bug).
+    assert len(result["deduped_evidence"]) == 3
+    assert any(
+        e["content"] == "You have exactly 2 accessible knowledge base collections." for e in result["deduped_evidence"]
+    )
     assert result["answer"] == "You have 2 collections: HR and Engineering [x]."
+
+
+def test_meta_tool_never_replans_into_a_pointless_search(make_run):
+    """Regression: evaluate_coverage used to run its usual LLM sufficiency judgment on
+    list_collections' evidence too. A collection description that doesn't literally state a
+    count reads as "insufficient" to that judgment, triggering a replan into a `search` task -
+    which can never answer "how many collections do I have" - burning the replan budget and
+    still producing a hedged "couldn't be established" answer instead of the count already in
+    hand. A meta-only task's evidence must be treated as complete without ever asking."""
+    coverage_calls = 0
+
+    def router(system_prompt: str) -> str:
+        nonlocal coverage_calls
+        if "Analyze the user" in system_prompt:
+            return _analysis(intent="meta")
+        if "Break the user's query" in system_prompt:
+            return json.dumps(
+                [{"id": "count-collections", "query": "how many collections", "tool": "list_collections"}]
+            )
+        if "Decide whether" in system_prompt:
+            coverage_calls += 1
+            # The real, observed failure mode: the LLM calls a legitimate meta answer
+            # insufficient because the description doesn't literally state a count.
+            return json.dumps(
+                {"status": "insufficient", "missing_information": ["the number of collections"], "reasoning": "n/a"}
+            )
+        if "Check whether every" in system_prompt:
+            return json.dumps({"valid": True, "unsupported_claims": []})
+        return "You have 2 collections [x]."
+
+    graph, fake = make_run(_hr_eng_vdbs(), router)
+    state = initial_state("How many collections do I have?")
+    result = graph.invoke(state, config=_config(state))
+
+    assert coverage_calls == 0, "evaluate_coverage must not ask the LLM about a meta-only task's evidence"
+    assert result["replan_count"] == 0
+    assert result["plan_version"] == 0
+    assert result["coverage_result"]["status"] == "sufficient"
+    assert result["answer"] == "You have 2 collections [x]."
 
 
 def test_collection_summary_tool_resolves_a_single_collection(make_run):
@@ -353,8 +397,10 @@ def test_list_documents_tool_calls_backend_for_the_resolved_collection(make_run)
     state = initial_state("How many documents are in the HR collection?")
     result = graph.invoke(state, config=_config(state))
 
-    assert len(result["deduped_evidence"]) == 2
-    assert {e["source_id"] for e in result["deduped_evidence"]} == {"doc-1", "doc-2"}
+    # Two per-document evidence items, plus one explicit "has exactly N documents" fact.
+    assert len(result["deduped_evidence"]) == 3
+    assert {"doc-1", "doc-2"} <= {e["source_id"] for e in result["deduped_evidence"]}
+    assert any(e["content"] == "The 'HR' collection has exactly 2 documents." for e in result["deduped_evidence"])
     assert fake.searched_collection_ids == []
 
 

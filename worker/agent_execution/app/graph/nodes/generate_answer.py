@@ -8,7 +8,10 @@ from app.graph.state import AgentState
 _SYSTEM_PROMPT = (
     "Answer the user's query using only the given evidence excerpts. Cite each claim with its excerpt id "
     "in brackets, e.g. [abc123]. Never invent facts not supported by the excerpts. If the evidence notes "
-    "some information is missing, say so plainly instead of guessing or narrating your internal process."
+    "some information is missing, say so plainly instead of guessing or narrating your internal process. "
+    'If the query asks for a count (e.g. "how many collections/documents"), each excerpt below already '
+    "represents one distinct item unless it says otherwise - count the excerpts and state that number "
+    "directly. Never refuse to count just because no single excerpt states the total as a sentence."
 )
 
 

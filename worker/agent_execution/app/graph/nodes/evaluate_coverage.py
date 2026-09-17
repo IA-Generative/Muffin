@@ -20,8 +20,17 @@ def evaluate_coverage(state: AgentState) -> dict[str, Any]:
 
     emit(run_id, "coverage_evaluation_started")
     evidence = state["deduped_evidence"]
+    completed_ids = set(state["completed_task_ids"])
+    completed_tasks = [t for t in state["research_tasks"] if t["id"] in completed_ids]
+    is_meta_only = bool(completed_tasks) and all(t.get("tool", "search") != "search" for t in completed_tasks)
 
-    if not evidence:
+    if is_meta_only:
+        # A knowledge-base lookup (list_collections, collection_summary, list_documents,
+        # page_content) is complete the moment it runs - there's no "coverage" to judge, and a
+        # replan would only ever produce a content search that can never answer it (§ meta-query
+        # tools). An empty result is itself a valid answer (e.g. zero collections), not a miss.
+        coverage = CoverageResult(status="sufficient", missing_information=[], reasoning="Knowledge-base lookup.")
+    elif not evidence:
         coverage = CoverageResult(
             status="insufficient",
             missing_information=["no evidence retrieved yet"],

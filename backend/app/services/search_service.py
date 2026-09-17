@@ -2,6 +2,7 @@ import uuid
 from collections import defaultdict
 from collections.abc import Sequence
 
+from loguru import logger
 from openai import AsyncOpenAI
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -45,7 +46,14 @@ class SearchService:
 
         scored_ids: dict[uuid.UUID, float] = {}
         for model, collections_for_model in collections_by_model.items():
-            query_embedding = await self._embed(model, query)
+            try:
+                query_embedding = await self._embed(model, query)
+            except Exception:
+                # A misconfigured/unavailable embedding model for this one group of collections
+                # must not fail collections using a different, working model (§29: one bad
+                # branch doesn't take the whole search down) - they just contribute no results.
+                logger.exception(f"Failed to embed the search query with model '{model}'")
+                continue
             for collection_id in collections_for_model:
                 for chunk_id, score in vector_store.search(collection_id, query_embedding, limit):
                     scored_ids[chunk_id] = max(score, scored_ids.get(chunk_id, float("-inf")))
