@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.collection import Collection, CollectionSettings, CollectionTag
+from app.models.document import Document, DocumentPage
 
 
 class CollectionRepository:
@@ -57,6 +58,22 @@ class CollectionRepository:
         collection.tags = [CollectionTag(collection_id=collection.id, tag=tag) for tag in dict.fromkeys(tags)]
         collection.tags_updated_by = updated_by
         collection.tags_updated_at = datetime.now(UTC)
+
+    async def list_rustfs_keys(self, collection_id: uuid.UUID) -> list[str]:
+        """Every RustFS object under this collection - uploaded files and page
+        screenshots - collected before the cascade delete removes the rows
+        that reference them."""
+        storage_keys = await self.db.scalars(
+            select(Document.storage_key).where(
+                Document.collection_id == collection_id, Document.storage_key.is_not(None)
+            )
+        )
+        screenshot_keys = await self.db.scalars(
+            select(DocumentPage.screenshot)
+            .join(Document, DocumentPage.document_id == Document.id)
+            .where(Document.collection_id == collection_id, DocumentPage.screenshot.is_not(None))
+        )
+        return [*storage_keys.all(), *screenshot_keys.all()]
 
     async def delete(self, collection: Collection) -> None:
         await self.db.delete(collection)
