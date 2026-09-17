@@ -31,6 +31,13 @@ class CollectionRepository:
         )
         return result.scalars().all(), total or 0
 
+    async def list_all_by_owner(self, owner_id: str) -> Sequence[Collection]:
+        """Unpaginated - for server-side permission checks (e.g. the research
+        agent's "which collections can this user's query even reach"), not
+        for a UI listing."""
+        result = await self.db.execute(self._base_query().where(Collection.owner_id == owner_id))
+        return result.scalars().all()
+
     async def get(self, collection_id: uuid.UUID, owner_id: str) -> Collection | None:
         result = await self.db.execute(
             self._base_query().where(Collection.id == collection_id, Collection.owner_id == owner_id)
