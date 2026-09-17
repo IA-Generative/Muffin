@@ -97,9 +97,9 @@ export interface Collection {
   id: string
   name: string
   description: string
-  descriptionMeta: FieldStamp
+  descriptionMeta: FieldStamp | null
   tags: string[]
-  tagsMeta: FieldStamp
+  tagsMeta: FieldStamp | null
   updatedAt: string
   documents: CollectionDocument[]
   qaPairs: QaPair[]

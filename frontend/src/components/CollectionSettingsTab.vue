@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { reactive, ref, watch } from 'vue'
 import { useCollections } from '../composables/useCollections'
+import { useEmbeddingModels } from '../composables/useEmbeddingModels'
 import type { ChunkingSettings, Collection } from '../types/collection'
 
 const props = defineProps<{
@@ -9,6 +10,8 @@ const props = defineProps<{
 
 const { updateChunkingSettings, updateEmbeddingModel, reindexCollection, updateInstructionField } =
   useCollections()
+const { models: embeddingModels, isLoading: isLoadingEmbeddingModels, error: embeddingModelsError } =
+  useEmbeddingModels()
 
 const chunkingForm = reactive<ChunkingSettings>({ ...props.collection.chunkingSettings })
 const chunkingInstructions = ref(props.collection.instructions.chunking)
@@ -102,11 +105,21 @@ const showChunkSize = () => chunkingForm.strategy === 'paragraph' || chunkingFor
 
       <div class="settings-tab__field">
         <label for="embedding-model">Modèle</label>
-        <select id="embedding-model" v-model="embeddingModelDraft" class="fr-select">
-          <option value="text-embedding-3-small">text-embedding-3-small</option>
-          <option value="text-embedding-3-large">text-embedding-3-large</option>
-          <option value="mistral-embed">mistral-embed</option>
+        <select
+          id="embedding-model"
+          v-model="embeddingModelDraft"
+          class="fr-select"
+          :disabled="isLoadingEmbeddingModels"
+        >
+          <option
+            v-if="embeddingModelDraft && !embeddingModels.some((model) => model.id === embeddingModelDraft)"
+            :value="embeddingModelDraft"
+          >
+            {{ embeddingModelDraft }}
+          </option>
+          <option v-for="model in embeddingModels" :key="model.id" :value="model.id">{{ model.id }}</option>
         </select>
+        <p v-if="embeddingModelsError" class="settings-tab__hint">{{ embeddingModelsError }}</p>
         <p class="settings-tab__hint">
           Changer de modèle rend les vecteurs déjà calculés incompatibles : les documents doivent être réindexés.
         </p>

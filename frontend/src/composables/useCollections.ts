@@ -6,7 +6,6 @@ import type {
   Collection,
   CollectionDocument,
   Entity,
-  EntityType,
   EvaluationResult,
   EvaluationRun,
   FieldStamp,
@@ -14,14 +13,9 @@ import type {
   QaPair,
   Relation,
 } from '../types/collection'
-import { useCurrentUser } from './useCurrentUser'
 
 function doc(name: string, type: CollectionDocument['type'], status: CollectionDocument['status']): CollectionDocument {
   return { id: crypto.randomUUID(), name, type, status, progress: status === 'indexed' ? 100 : 0 }
-}
-
-function stamp(updatedBy: string, updatedAt: string): FieldStamp {
-  return { updatedBy, updatedAt }
 }
 
 function qa(
@@ -39,220 +33,100 @@ function qa(
   }
 }
 
-function relation(from: string, to: string, type: string): Relation {
-  return { id: crypto.randomUUID(), from, to, type }
+// Backend response is snake_case; the rest of the app uses camelCase.
+interface CollectionOut {
+  id: string
+  name: string
+  description: string
+  description_meta: { updated_by: string; updated_at: string } | null
+  tags: string[]
+  tags_meta: { updated_by: string; updated_at: string } | null
+  updated_at: string
+  documents: CollectionDocument[]
+  qa_pairs: QaPair[]
+  entities: Entity[]
+  relations: Relation[]
+  chunks: Chunk[]
+  evaluation_runs: EvaluationRun[]
+  chunking_settings: ChunkingSettings
+  embedding_model: string
+  reindex_required: boolean
+  instructions: PipelineInstructions
 }
 
-function entity(name: string, type: EntityType, mentions: number): Entity {
-  return { id: crypto.randomUUID(), name, type, mentions }
+function toStamp(meta: CollectionOut['description_meta']): FieldStamp | null {
+  return meta ? { updatedBy: meta.updated_by, updatedAt: meta.updated_at } : null
 }
 
-function chunk(documentName: string, index: number, text: string): Chunk {
-  return { id: crypto.randomUUID(), documentName, index, text, tokenCount: Math.round(text.length / 4) }
+function toCollection(raw: CollectionOut): Collection {
+  return {
+    id: raw.id,
+    name: raw.name,
+    description: raw.description,
+    descriptionMeta: toStamp(raw.description_meta),
+    tags: raw.tags,
+    tagsMeta: toStamp(raw.tags_meta),
+    updatedAt: raw.updated_at,
+    documents: raw.documents,
+    qaPairs: raw.qa_pairs,
+    entities: raw.entities,
+    relations: raw.relations,
+    chunks: raw.chunks,
+    chunkingSettings: raw.chunking_settings,
+    embeddingModel: raw.embedding_model,
+    reindexRequired: raw.reindex_required,
+    instructions: raw.instructions,
+    evaluationRuns: raw.evaluation_runs,
+  }
 }
 
-function defaultChunkingSettings(): ChunkingSettings {
-  return { strategy: 'paragraph', chunkSize: 512, chunkOverlap: 50 }
-}
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
 
-function defaultInstructions(): PipelineInstructions {
-  return { qa: '', extraction: '', chunking: '', tagging: '' }
-}
-
-// Mock jusqu'au branchement du backend.
-const collections = ref<Collection[]>([
-  {
-    id: 'c1',
-    name: 'Projets',
-    description: 'Notes et documents liés aux projets en cours.',
-    descriptionMeta: stamp('Michou', '2026-09-15T10:00:00Z'),
-    tags: ['interne', 'travail'],
-    tagsMeta: stamp('Michou', '2026-09-12T09:00:00Z'),
-    updatedAt: '2026-09-15T10:00:00Z',
-    documents: [
-      doc('plan-projet.pdf', 'file', 'indexed'),
-      doc('budget.xlsx', 'file', 'indexed'),
-      doc('roadmap.pdf', 'file', 'indexed'),
-      doc('https://intranet.example.fr/projets', 'url', 'indexed'),
-    ],
-    qaPairs: [
-      qa('Quel est le budget alloué au projet ?', 'Le budget prévisionnel est détaillé dans budget.xlsx.', {
-        source: 'budget.xlsx',
-      }),
-      qa('Qui pilote le projet ?', "L'équipe projet est listée dans plan-projet.pdf, section 2.", {
-        source: 'plan-projet.pdf',
-        validated: true,
-      }),
-    ],
-    entities: [
-      entity('Michou', 'personne', 4),
-      entity('Direction des systèmes d\'information', 'organisation', 2),
-      entity('30 juin 2027', 'date', 1),
-    ],
-    relations: [
-      relation('plan-projet.pdf', 'budget.xlsx', 'référence'),
-      relation('roadmap.pdf', 'plan-projet.pdf', 'découle de'),
-    ],
-    chunks: [
-      chunk('plan-projet.pdf', 0, "Le projet vise à moderniser l'infrastructure interne sur 12 mois, avec trois jalons majeurs..."),
-      chunk('plan-projet.pdf', 1, "L'équipe est composée de 6 personnes réparties sur le développement, le design et la conduite du changement..."),
-      chunk('budget.xlsx', 0, 'Budget total : 240 000€, répartis entre infrastructure (60%), prestations externes (30%) et formation (10%).'),
-    ],
-    chunkingSettings: defaultChunkingSettings(),
-    embeddingModel: 'text-embedding-3-small',
-    reindexRequired: false,
-    instructions: defaultInstructions(),
-    evaluationRuns: [],
-  },
-  {
-    id: 'c2',
-    name: 'Notes',
-    description: 'Notes personnelles diverses.',
-    descriptionMeta: stamp('Michou', '2026-09-10T10:00:00Z'),
-    tags: ['personnel'],
-    tagsMeta: stamp('Michou', '2026-09-10T10:00:00Z'),
-    updatedAt: '2026-09-10T10:00:00Z',
-    documents: Array.from({ length: 12 }, (_, i) =>
-      doc(`note-${i + 1}.md`, 'file', i < 9 ? 'indexed' : 'pending'),
-    ),
-    qaPairs: [],
-    entities: [],
-    relations: [],
-    chunks: [],
-    chunkingSettings: defaultChunkingSettings(),
-    embeddingModel: 'text-embedding-3-small',
-    reindexRequired: false,
-    instructions: defaultInstructions(),
-    evaluationRuns: [],
-  },
-  {
-    id: 'c3',
-    name: 'Marchés publics',
-    description: "Cahiers des charges et appels d'offres suivis par la direction.",
-    descriptionMeta: stamp('Michou', '2026-09-14T10:00:00Z'),
-    tags: ['juridique', 'marchés'],
-    tagsMeta: stamp('Michou', '2026-09-02T10:00:00Z'),
-    updatedAt: '2026-09-14T10:00:00Z',
-    documents: Array.from({ length: 27 }, (_, i) => doc(`marche-${i + 1}.pdf`, 'file', 'indexed')),
-    qaPairs: [],
-    entities: [],
-    relations: [],
-    chunks: [],
-    chunkingSettings: defaultChunkingSettings(),
-    embeddingModel: 'text-embedding-3-small',
-    reindexRequired: false,
-    instructions: defaultInstructions(),
-    evaluationRuns: [],
-  },
-  {
-    id: 'c4',
-    name: 'RGAA & accessibilité',
-    description: "Référentiels et rapports d'audit accessibilité.",
-    descriptionMeta: stamp('Michou', '2026-08-30T10:00:00Z'),
-    tags: ['accessibilité', 'qualité'],
-    tagsMeta: stamp('Michou', '2026-08-30T10:00:00Z'),
-    updatedAt: '2026-08-30T10:00:00Z',
-    documents: [
-      ...Array.from({ length: 5 }, (_, i) => doc(`audit-${i + 1}.pdf`, 'file', 'indexed')),
-      ...Array.from({ length: 3 }, (_, i) => doc(`referentiel-${i + 1}.pdf`, 'file', 'pending')),
-    ],
-    qaPairs: [],
-    entities: [],
-    relations: [],
-    chunks: [],
-    chunkingSettings: defaultChunkingSettings(),
-    embeddingModel: 'text-embedding-3-small',
-    reindexRequired: false,
-    instructions: defaultInstructions(),
-    evaluationRuns: [],
-  },
-  {
-    id: 'c5',
-    name: 'RH',
-    description: 'Procédures internes ressources humaines.',
-    descriptionMeta: stamp('Michou', '2026-09-01T10:00:00Z'),
-    tags: ['rh', 'interne'],
-    tagsMeta: stamp('Michou', '2026-09-01T10:00:00Z'),
-    updatedAt: '2026-09-01T10:00:00Z',
-    documents: Array.from({ length: 15 }, (_, i) => doc(`procedure-${i + 1}.pdf`, 'file', 'indexed')),
-    qaPairs: [],
-    entities: [],
-    relations: [],
-    chunks: [],
-    chunkingSettings: defaultChunkingSettings(),
-    embeddingModel: 'text-embedding-3-small',
-    reindexRequired: false,
-    instructions: defaultInstructions(),
-    evaluationRuns: [],
-  },
-  {
-    id: 'c6',
-    name: 'Sécurité',
-    description: "Politiques de sécurité et rapports d'audit.",
-    descriptionMeta: stamp('Michou', '2026-09-16T08:00:00Z'),
-    tags: ['sécurité', 'audit'],
-    tagsMeta: stamp('Michou', '2026-09-05T08:00:00Z'),
-    updatedAt: '2026-09-16T08:00:00Z',
-    documents: [
-      doc('politique-securite.pdf', 'file', 'indexed'),
-      doc('rapport-audit-2026.pdf', 'file', 'indexed'),
-      doc('plan-continuite.pdf', 'file', 'pending'),
-      doc('https://cert.ssi.gouv.fr', 'url', 'pending'),
-      doc('procedure-incident.pdf', 'file', 'pending'),
-      doc('charte-securite.pdf', 'file', 'pending'),
-    ],
-    qaPairs: [
-      qa(
-        'Que faire en cas de suspicion de compromission ?',
-        'Suivre procedure-incident.pdf : isoler le poste puis prévenir le RSSI.',
-        { source: 'procedure-incident.pdf' },
-      ),
-    ],
-    entities: [
-      entity('RSSI', 'personne', 3),
-      entity('CERT-FR', 'organisation', 2),
-    ],
-    relations: [relation('rapport-audit-2026.pdf', 'politique-securite.pdf', 'contrôle la conformité à')],
-    chunks: [
-      chunk('politique-securite.pdf', 0, "La politique de sécurité s'applique à l'ensemble des systèmes d'information de l'organisation..."),
-      chunk('rapport-audit-2026.pdf', 0, "L'audit 2026 relève 3 non-conformités majeures et 8 mineures, détaillées en annexe..."),
-    ],
-    chunkingSettings: { ...defaultChunkingSettings(), strategy: 'semantic', chunkSize: 384 },
-    embeddingModel: 'text-embedding-3-small',
-    reindexRequired: false,
-    instructions: defaultInstructions(),
-    evaluationRuns: [],
-  },
-  {
-    id: 'c7',
-    name: 'Communication externe',
-    description: 'Supports de communication et éléments de langage.',
-    descriptionMeta: stamp('Michou', '2026-07-20T10:00:00Z'),
-    tags: ['communication'],
-    tagsMeta: stamp('Michou', '2026-07-20T10:00:00Z'),
-    updatedAt: '2026-07-20T10:00:00Z',
-    documents: Array.from({ length: 3 }, (_, i) => doc(`support-${i + 1}.pdf`, 'file', 'indexed')),
-    qaPairs: [],
-    entities: [],
-    relations: [],
-    chunks: [],
-    chunkingSettings: defaultChunkingSettings(),
-    embeddingModel: 'text-embedding-3-small',
-    reindexRequired: false,
-    instructions: defaultInstructions(),
-    evaluationRuns: [],
-  },
-])
-
+const collections = ref<Collection[]>([])
+const isLoading = ref(true)
+const error = ref<string | null>(null)
 const activeCollectionId = ref<string>()
 const activeCollection = computed(() =>
   collections.value.find((collection) => collection.id === activeCollectionId.value),
 )
 
+async function fetchCollections() {
+  isLoading.value = true
+  error.value = null
+  try {
+    // A single generously-sized page for now: collections are still browsed
+    // and paginated entirely client-side (see useCollectionsBrowser).
+    const response = await fetch(`${API_BASE_URL}/api/collections?page_size=100`, { credentials: 'include' })
+    if (!response.ok) throw new Error(`${response.status}`)
+    const body: { items: CollectionOut[] } = await response.json()
+    collections.value = body.items.map(toCollection)
+  } catch {
+    error.value = 'Impossible de récupérer les collections.'
+  } finally {
+    isLoading.value = false
+  }
+}
+
+async function fetchCollection(id: string) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/collections/${id}`, { credentials: 'include' })
+    if (!response.ok) return
+    const collection = toCollection(await response.json())
+    const index = collections.value.findIndex((item) => item.id === id)
+    if (index === -1) collections.value.push(collection)
+    else collections.value[index] = collection
+  } catch {
+    // Ignored: the detail view already handles a missing/unfetchable collection.
+  }
+}
+
+fetchCollections()
+
 // `navigate: false` is used when a route change already triggered this (see
 // CollectionsView's route watcher) - pushing again there would just double the entry.
 function openCollection(id: string, options: { navigate?: boolean } = {}) {
   activeCollectionId.value = id
+  if (!collections.value.some((item) => item.id === id)) fetchCollection(id)
   const target = `/collections/${id}`
   if (options.navigate !== false && router.currentRoute.value.fullPath !== target) {
     router.push(target)
@@ -266,60 +140,46 @@ function closeCollection(options: { navigate?: boolean } = {}) {
   }
 }
 
-function createCollection() {
-  const { user } = useCurrentUser()
-  const now = new Date().toISOString()
-  const id = crypto.randomUUID()
-  collections.value.unshift({
-    id,
-    name: 'Nouvelle collection',
-    description: '',
-    descriptionMeta: stamp(user.value?.name ?? 'Anonyme', now),
-    tags: [],
-    tagsMeta: stamp(user.value?.name ?? 'Anonyme', now),
-    updatedAt: now,
-    documents: [],
-    qaPairs: [],
-    entities: [],
-    relations: [],
-    chunks: [],
-    chunkingSettings: defaultChunkingSettings(),
-    embeddingModel: 'text-embedding-3-small',
-    reindexRequired: false,
-    instructions: defaultInstructions(),
-    evaluationRuns: [],
+async function createCollection() {
+  const response = await fetch(`${API_BASE_URL}/api/collections`, { method: 'POST', credentials: 'include' })
+  if (!response.ok) return
+  const collection = toCollection(await response.json())
+  collections.value.unshift(collection)
+  openCollection(collection.id)
+}
+
+async function patchCollection(id: string, body: Record<string, unknown>) {
+  const response = await fetch(`${API_BASE_URL}/api/collections/${id}`, {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
   })
-  openCollection(id)
+  if (!response.ok) return
+  const collection = toCollection(await response.json())
+  const index = collections.value.findIndex((item) => item.id === id)
+  if (index !== -1) collections.value[index] = collection
 }
 
 function updateName(id: string, name: string) {
-  const collection = collections.value.find((item) => item.id === id)
-  if (!collection || !name.trim()) return
-  collection.name = name.trim()
-  collection.updatedAt = new Date().toISOString()
+  if (!name.trim()) return
+  patchCollection(id, { name: name.trim() })
 }
 
 function updateDescription(id: string, description: string) {
-  const { user } = useCurrentUser()
-  const collection = collections.value.find((item) => item.id === id)
-  if (!collection) return
-  const now = new Date().toISOString()
-  collection.description = description
-  collection.descriptionMeta = stamp(user.value?.name ?? 'Anonyme', now)
-  collection.updatedAt = now
+  patchCollection(id, { description })
 }
 
 function updateTags(id: string, tags: string[]) {
-  const { user } = useCurrentUser()
-  const collection = collections.value.find((item) => item.id === id)
-  if (!collection) return
-  const now = new Date().toISOString()
-  collection.tags = tags
-  collection.tagsMeta = stamp(user.value?.name ?? 'Anonyme', now)
-  collection.updatedAt = now
+  patchCollection(id, { tags })
 }
 
-function deleteCollection(id: string) {
+async function deleteCollection(id: string) {
+  const response = await fetch(`${API_BASE_URL}/api/collections/${id}`, {
+    method: 'DELETE',
+    credentials: 'include',
+  })
+  if (!response.ok) return
   collections.value = collections.value.filter((item) => item.id !== id)
   if (activeCollectionId.value === id) closeCollection()
 }
@@ -501,7 +361,10 @@ function runEvaluation(collectionId: string) {
 export function useCollections() {
   return {
     collections,
+    isLoading,
+    error,
     activeCollection,
+    refresh: fetchCollections,
     openCollection,
     closeCollection,
     createCollection,
