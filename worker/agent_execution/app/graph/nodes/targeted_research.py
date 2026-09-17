@@ -40,6 +40,7 @@ def targeted_research(state: AgentState) -> dict[str, Any]:
                 id=task_id,
                 query=claim,
                 intent="grounding_gap",
+                tool="search",
                 dependencies=[],
                 status="completed",
                 candidate_vdbs=[],

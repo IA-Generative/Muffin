@@ -2,20 +2,31 @@ from typing import Any
 
 from app.graph.services.events import emit, is_cancelled
 from app.graph.services.llm import default_model, json_chat
-from app.graph.state import AgentState, ResearchTask
+from app.graph.state import AgentState, ResearchTask, TaskTool
+
+_VALID_TOOLS: frozenset[str] = frozenset(
+    {"search", "list_collections", "collection_summary", "list_documents", "page_content"}
+)
 
 _SYSTEM_PROMPT = (
-    "Break the user's query into research tasks, one per distinct sub-topic that needs its own search. "
-    "A simple query stays a single task. Respond only with a JSON array of objects with keys: "
-    '"id" (short slug, unique), "query" (the search-oriented question for this task), '
-    '"intent" (short string or null), "dependencies" (array of task ids this task needs the results of '
-    "first, e.g. a comparison task depends on the tasks covering each side of the comparison). "
-    "Independent tasks must have an empty dependencies array so they can run in parallel."
+    "Break the user's query into research tasks. Respond only with a JSON array of objects with keys: "
+    '"id" (short slug, unique), "query" (the question this task answers), "intent" (short string or null), '
+    '"tool" (one of "search", "list_collections", "collection_summary", "list_documents", "page_content"), '
+    '"dependencies" (array of task ids this task needs completed first, e.g. a comparison task depends on '
+    "the tasks covering each side of the comparison).\n\n"
+    "Tool guide:\n"
+    '- "search": look for information inside document content - the default for most questions.\n'
+    '- "list_collections": the user asks how many knowledge bases/collections they have, or wants them listed.\n'
+    '- "collection_summary": the user wants a summary/description of one specific collection.\n'
+    '- "list_documents": the user asks how many documents are in a collection, or wants a document\'s summary.\n'
+    '- "page_content": the user wants the text and/or screenshot of one specific page of one document.\n\n'
+    "A simple query stays a single task. Independent tasks must have an empty dependencies array so they can "
+    "run in parallel."
 )
 
 
-def _fallback_task(query: str) -> list[dict[str, Any]]:
-    return [{"id": "task-1", "query": query, "intent": None, "dependencies": []}]
+def _fallback_task(query: str, tool: TaskTool = "search") -> list[dict[str, Any]]:
+    return [{"id": "task-1", "query": query, "intent": None, "tool": tool, "dependencies": []}]
 
 
 def _sanitize(raw: list[Any], original_query: str) -> list[ResearchTask]:
@@ -33,11 +44,13 @@ def _sanitize(raw: list[Any], original_query: str) -> list[ResearchTask]:
         dependencies = [
             str(dep) for dep in item.get("dependencies", []) if str(dep) in valid_ids and str(dep) != task_id
         ]
+        tool = item.get("tool") if item.get("tool") in _VALID_TOOLS else "search"
         tasks.append(
             ResearchTask(
                 id=task_id,
                 query=str(item["query"]),
                 intent=item.get("intent"),
+                tool=tool,
                 dependencies=dependencies,
                 status="pending",
                 candidate_vdbs=[],
@@ -52,6 +65,7 @@ def _sanitize(raw: list[Any], original_query: str) -> list[ResearchTask]:
             id="task-1",
             query=original_query,
             intent=None,
+            tool="search",
             dependencies=[],
             status="pending",
             candidate_vdbs=[],
@@ -65,7 +79,10 @@ def _sanitize(raw: list[Any], original_query: str) -> list[ResearchTask]:
 
 def decompose_query(state: AgentState) -> dict[str, Any]:
     """Turns the query into a DAG of ResearchTasks (§6/§7). Not every query needs decomposing -
-    a simple lookup analysis short-circuits to a single task without spending an LLM call."""
+    a simple, single-source, content-search analysis short-circuits to a single search task
+    without spending an LLM call. A "meta" query (about the knowledge bases themselves - counts,
+    summaries, page content) always goes through the LLM so the right tool gets picked (§ meta-
+    query tools)."""
     run_id = state["run_id"]
     if is_cancelled(run_id):
         return {"cancelled": True}
@@ -74,7 +91,12 @@ def decompose_query(state: AgentState) -> dict[str, Any]:
     analysis = state["query_analysis"]
     query = state["original_query"]
 
-    if not analysis.get("requires_multiple_sources") and analysis.get("complexity") == "simple":
+    is_simple_search = (
+        analysis.get("intent") != "meta"
+        and not analysis.get("requires_multiple_sources")
+        and analysis.get("complexity") == "simple"
+    )
+    if is_simple_search:
         tasks = _sanitize(_fallback_task(query), query)
     else:
         model = default_model()

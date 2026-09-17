@@ -36,6 +36,12 @@ class DocumentRepository:
         )
         return result.scalars().all()
 
+    async def get_page(self, document_id: uuid.UUID, page_number: int) -> DocumentPage | None:
+        result = await self.db.execute(
+            select(DocumentPage).where(DocumentPage.document_id == document_id, DocumentPage.page_number == page_number)
+        )
+        return result.scalar_one_or_none()
+
     async def list_by_collection(self, collection_id: uuid.UUID) -> Sequence[Document]:
         result = await self.db.execute(
             select(Document).where(Document.collection_id == collection_id).order_by(Document.created_at)

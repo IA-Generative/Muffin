@@ -22,8 +22,8 @@ def _analysis(**overrides) -> str:
 
 def _hr_eng_vdbs() -> list[dict]:
     return [
-        {"id": "hr", "name": "HR", "description": "HR policies", "tags": []},
-        {"id": "eng", "name": "Engineering", "description": "Engineering docs", "tags": []},
+        {"id": "hr", "name": "HR", "description": "HR policies", "tags": [], "document_count": 3},
+        {"id": "eng", "name": "Engineering", "description": "Engineering docs", "tags": [], "document_count": 5},
     ]
 
 
@@ -283,6 +283,115 @@ def test_ambiguous_query_interrupts_for_clarification_then_resumes(make_run):
     resumed = graph.invoke(Command(resume="HR department"), config=config)
     assert "__interrupt__" not in resumed
     assert resumed["answer"] == "answer [x]."
+
+
+def test_list_collections_tool_answers_from_accessible_vdbs_without_searching(make_run):
+    def router(system_prompt: str) -> str:
+        if "Analyze the user" in system_prompt:
+            return _analysis(intent="meta")
+        if "Break the user's query" in system_prompt:
+            return json.dumps([{"id": "t1", "query": "how many collections do I have", "tool": "list_collections"}])
+        if "Decide whether" in system_prompt:
+            return json.dumps({"status": "sufficient", "missing_information": [], "reasoning": "ok"})
+        if "Check whether every" in system_prompt:
+            return json.dumps({"valid": True, "unsupported_claims": []})
+        return "You have 2 collections: HR and Engineering [x]."
+
+    graph, fake = make_run(_hr_eng_vdbs(), router)
+    state = initial_state("How many collections do I have?")
+    result = graph.invoke(state, config=_config(state))
+
+    assert fake.searched_collection_ids == []
+    assert len(result["deduped_evidence"]) == 2
+    assert {e["vdb_id"] for e in result["deduped_evidence"]} == {"hr", "eng"}
+    assert result["answer"] == "You have 2 collections: HR and Engineering [x]."
+
+
+def test_collection_summary_tool_resolves_a_single_collection(make_run):
+    def router(system_prompt: str) -> str:
+        if "Analyze the user" in system_prompt:
+            return _analysis(intent="meta")
+        if "Break the user's query" in system_prompt:
+            return json.dumps([{"id": "t1", "query": "summarize the HR collection", "tool": "collection_summary"}])
+        if "select the ones relevant" in system_prompt.lower():
+            return '["hr"]'
+        if "Decide whether" in system_prompt:
+            return json.dumps({"status": "sufficient", "missing_information": [], "reasoning": "ok"})
+        if "Check whether every" in system_prompt:
+            return json.dumps({"valid": True, "unsupported_claims": []})
+        return "answer [x]."
+
+    graph, fake = make_run(_hr_eng_vdbs(), router)
+    state = initial_state("What's the HR collection about?")
+    result = graph.invoke(state, config=_config(state))
+
+    assert len(result["deduped_evidence"]) == 1
+    assert result["deduped_evidence"][0]["vdb_id"] == "hr"
+    assert "3 document(s)" in result["deduped_evidence"][0]["content"]
+
+
+def test_list_documents_tool_calls_backend_for_the_resolved_collection(make_run):
+    def router(system_prompt: str) -> str:
+        if "Analyze the user" in system_prompt:
+            return _analysis(intent="meta")
+        if "Break the user's query" in system_prompt:
+            return json.dumps([{"id": "t1", "query": "how many documents in HR", "tool": "list_documents"}])
+        if "select the ones relevant" in system_prompt.lower():
+            return '["hr"]'
+        if "Decide whether" in system_prompt:
+            return json.dumps({"status": "sufficient", "missing_information": [], "reasoning": "ok"})
+        if "Check whether every" in system_prompt:
+            return json.dumps({"valid": True, "unsupported_claims": []})
+        return "There are 2 documents [x]."
+
+    graph, fake = make_run(_hr_eng_vdbs(), router)
+    fake.documents_by_collection["hr"] = [
+        {"id": "doc-1", "name": "handbook.pdf", "status": "indexed", "summary": "Employee handbook."},
+        {"id": "doc-2", "name": "leave-policy.pdf", "status": "indexed", "summary": "Leave policy."},
+    ]
+
+    state = initial_state("How many documents are in the HR collection?")
+    result = graph.invoke(state, config=_config(state))
+
+    assert len(result["deduped_evidence"]) == 2
+    assert {e["source_id"] for e in result["deduped_evidence"]} == {"doc-1", "doc-2"}
+    assert fake.searched_collection_ids == []
+
+
+def test_page_content_tool_resolves_document_and_page_then_fetches_it(make_run):
+    def router(system_prompt: str) -> str:
+        if "Analyze the user" in system_prompt:
+            return _analysis(intent="meta")
+        if "Break the user's query" in system_prompt:
+            return json.dumps([{"id": "t1", "query": "page 3 of the handbook", "tool": "page_content"}])
+        if "select the ones relevant" in system_prompt.lower():
+            return '["hr"]'
+        if "identify which document and page number" in system_prompt.lower():
+            return json.dumps({"document_id": "doc-1", "page_number": 3})
+        if "Decide whether" in system_prompt:
+            return json.dumps({"status": "sufficient", "missing_information": [], "reasoning": "ok"})
+        if "Check whether every" in system_prompt:
+            return json.dumps({"valid": True, "unsupported_claims": []})
+        return "Here is page 3 [x]."
+
+    graph, fake = make_run(_hr_eng_vdbs(), router)
+    fake.documents_by_collection["hr"] = [
+        {"id": "doc-1", "name": "handbook.pdf", "status": "indexed", "summary": "Employee handbook."},
+    ]
+    fake.pages[("doc-1", 3)] = {
+        "page_number": 3,
+        "content": "Telework is allowed two days a week.",
+        "screenshot_url": "https://example.com/shots/doc-1-3.png",
+    }
+
+    state = initial_state("Show me page 3 of the handbook")
+    result = graph.invoke(state, config=_config(state))
+
+    assert len(result["deduped_evidence"]) == 1
+    evidence = result["deduped_evidence"][0]
+    assert evidence["content"] == "Telework is allowed two days a week."
+    assert evidence["metadata"]["screenshot_url"] == "https://example.com/shots/doc-1-3.png"
+    assert evidence["source_id"] == "doc-1"
 
 
 def test_cancellation_before_search_stops_the_run_cleanly(make_run):

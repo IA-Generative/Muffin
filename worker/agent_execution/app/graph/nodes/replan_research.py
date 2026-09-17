@@ -42,6 +42,7 @@ def replan_research(state: AgentState) -> dict[str, Any]:
             id=f"replan-{next_version}-{i}",
             query=str(item.get("query", missing[i] if i < len(missing) else state["original_query"])),
             intent=item.get("intent"),
+            tool="search",
             dependencies=[],
             status="pending",
             candidate_vdbs=[],

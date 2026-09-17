@@ -6,9 +6,13 @@ from app.graph.state import AgentState
 
 _SYSTEM_PROMPT = (
     "Analyze the user's query before any research is done. Respond only with a JSON object with keys: "
-    '"intent" (one of "lookup", "comparison", "synthesis"), "topics" (array of short strings), '
+    '"intent" (one of "lookup", "comparison", "synthesis", "meta"), "topics" (array of short strings), '
     '"requires_multiple_sources" (bool), "complexity" (one of "simple", "complex"), '
-    '"ambiguous" (bool), "clarification_question" (string or null, only set if ambiguous is true).'
+    '"ambiguous" (bool), "clarification_question" (string or null, only set if ambiguous is true). '
+    'Use "meta" when the query is about the knowledge bases themselves rather than their content - e.g. '
+    "how many collections/documents the user has access to, a collection's or document's summary, or the "
+    "content/screenshot of one specific page, rather than a document/policy question that content search "
+    "should answer."
 )
 
 _FALLBACK: dict[str, Any] = {

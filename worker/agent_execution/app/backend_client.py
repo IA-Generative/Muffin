@@ -94,5 +94,15 @@ class BackendClient:
         response.raise_for_status()
         return response.json()["model"]
 
+    def list_collection_documents(self, user_id: str, collection_id: str) -> list[dict[str, Any]]:
+        response = self._client.get(f"/api/internal/users/{user_id}/collections/{collection_id}/documents")
+        response.raise_for_status()
+        return response.json()
+
+    def get_document_page(self, user_id: str, document_id: str, page_number: int) -> dict[str, Any]:
+        response = self._client.get(f"/api/internal/users/{user_id}/documents/{document_id}/pages/{page_number}")
+        response.raise_for_status()
+        return response.json()
+
 
 backend_client = BackendClient()
