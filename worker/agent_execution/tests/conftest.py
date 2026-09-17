@@ -24,6 +24,7 @@ class FakeBackend:
         self.llm_router = llm_router
         self.cancel_requested = False
         self.events: list[tuple[str, str | None]] = []
+        self.activities: list[tuple[str, str]] = []  # [(node, activity), ...]
         self.searched_collection_ids: list[list[str]] = []
         # {collection_id: [{"id":..., "name":..., "status":..., "summary":...}, ...]}
         self.documents_by_collection: dict[str, list[dict[str, Any]]] = {}
@@ -38,8 +39,11 @@ class FakeBackend:
     ) -> None:
         self.events.append((type_, task_id))
 
-    def update_run_status(self, *args: Any, **kwargs: Any) -> None:
-        pass
+    def update_run_status(
+        self, run_id: str, status: str, current_node: str | None = None, current_activity: str | None = None
+    ) -> None:
+        if current_node is not None and current_activity is not None:
+            self.activities.append((current_node, current_activity))
 
     def update_run_state(self, *args: Any, **kwargs: Any) -> None:
         pass

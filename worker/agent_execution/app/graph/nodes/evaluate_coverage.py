@@ -1,6 +1,6 @@
 from typing import Any
 
-from app.graph.services.events import emit, is_cancelled
+from app.graph.services.events import emit, is_cancelled, set_activity
 from app.graph.services.llm import default_model, json_chat
 from app.graph.state import AgentState, CoverageResult
 
@@ -18,6 +18,7 @@ def evaluate_coverage(state: AgentState) -> dict[str, Any]:
     if is_cancelled(run_id):
         return {"cancelled": True}
 
+    set_activity(run_id, "evaluate_coverage", "Checking whether the results are enough")
     emit(run_id, "coverage_evaluation_started")
     evidence = state["deduped_evidence"]
     completed_ids = set(state["completed_task_ids"])

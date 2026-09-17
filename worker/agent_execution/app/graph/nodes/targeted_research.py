@@ -2,7 +2,7 @@ from typing import Any
 
 from app.backend_client import backend_client
 from app.config import settings
-from app.graph.services.events import emit, is_cancelled
+from app.graph.services.events import emit, is_cancelled, set_activity
 from app.graph.services.evidence import normalize_results
 from app.graph.services.llm import default_model
 from app.graph.services.vdb_router import select_relevant_vdbs
@@ -21,6 +21,7 @@ def targeted_research(state: AgentState) -> dict[str, Any]:
 
     claims = state["grounding_result"]["unsupported_claims"][:_MAX_CLAIMS_RESEARCHED]
     count = state["grounding_research_count"] + 1
+    set_activity(run_id, "targeted_research", "Looking for additional support for the answer")
     emit(run_id, "grounding_research_started", {"unsupported_claims": claims, "attempt": count})
 
     model = default_model()

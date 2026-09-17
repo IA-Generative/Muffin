@@ -1,6 +1,6 @@
 from typing import Any
 
-from app.graph.services.events import emit, is_cancelled
+from app.graph.services.events import emit, is_cancelled, set_activity
 from app.graph.services.llm import default_model, json_chat
 from app.graph.state import AgentState
 
@@ -33,6 +33,7 @@ def analyze_query(state: AgentState) -> dict[str, Any]:
     if is_cancelled(run_id):
         return {"cancelled": True}
 
+    set_activity(run_id, "analyze_query", "Analyzing your question")
     emit(run_id, "query_analysis_started", {"query": state["original_query"]})
     model = default_model()
     if model is None:

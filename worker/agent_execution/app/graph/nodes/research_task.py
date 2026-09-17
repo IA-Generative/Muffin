@@ -6,7 +6,7 @@ from loguru import logger
 from app.backend_client import backend_client
 from app.config import settings
 from app.graph.services.document_resolver import resolve_document_page
-from app.graph.services.events import emit, is_cancelled
+from app.graph.services.events import emit, is_cancelled, set_activity
 from app.graph.services.evidence import normalize_results
 from app.graph.services.llm import default_model
 from app.graph.services.vdb_router import select_relevant_vdbs
@@ -174,6 +174,7 @@ def research_task(state: ResearchTaskInput) -> dict[str, Any]:
     if is_cancelled(run_id):
         return {"research_tasks": [{**task, "status": "failed", "error": "cancelled"}], "failed_task_ids": [task_id]}
 
+    set_activity(run_id, "research_task", task["query"])
     emit(run_id, "task_started", {"query": task["query"], "tool": task["tool"]}, task_id=task_id)
     try:
         emit(run_id, "vdb_routing_started", task_id=task_id)

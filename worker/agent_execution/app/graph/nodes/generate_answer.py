@@ -1,7 +1,7 @@
 from typing import Any
 
 from app.backend_client import backend_client
-from app.graph.services.events import emit, is_cancelled
+from app.graph.services.events import emit, is_cancelled, set_activity
 from app.graph.services.llm import default_model
 from app.graph.state import AgentState
 
@@ -23,6 +23,7 @@ def generate_answer(state: AgentState) -> dict[str, Any]:
     if is_cancelled(run_id):
         return {"cancelled": True}
 
+    set_activity(run_id, "generate_answer", "Generating the answer")
     emit(run_id, "answer_generation_started")
     context = state["answer_context"]
     model = default_model()
