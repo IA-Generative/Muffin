@@ -9,10 +9,12 @@ from app.core.security.worker_auth import require_worker_api_key
 from app.db import get_db
 from app.models.run import RunStatus
 from app.repositories.collection_repository import CollectionRepository
+from app.repositories.conversation_repository import ConversationRepository
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.run_repository import RunRepository
 from app.schemas.internal_run import (
     AccessibleCollectionOut,
+    ConversationTitleUpdate,
     DocumentPageContentOut,
     DocumentSummaryOut,
     InternalRunOut,
@@ -187,6 +189,25 @@ async def get_document_page(
         content=page.content,
         screenshot_url=storage.get_presigned_url(page.screenshot) if page.screenshot else None,
     )
+
+
+@router.patch(
+    "/conversations/{conversation_id}/title",
+    summary="Rewrite a conversation's title from its first run's query+answer - a one-time, "
+    "idempotent event (no-op once title_generated is set) so a later run in the same "
+    "conversation never overwrites a title the first one already generated",
+)
+async def update_conversation_title(
+    conversation_id: uuid.UUID, body: ConversationTitleUpdate, db: Annotated[AsyncSession, Depends(get_db)]
+) -> dict[str, str]:
+    repository = ConversationRepository(db)
+    conversation = await repository.get_by_id(conversation_id)
+    if conversation is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
+    if not conversation.title_generated:
+        await repository.set_generated_title(conversation, body.title)
+        await db.commit()
+    return {"status": "ok"}
 
 
 @router.post(

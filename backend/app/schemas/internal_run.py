@@ -88,3 +88,7 @@ class DocumentPageContentOut(BaseModel):
     page_number: int
     content: str
     screenshot_url: str | None
+
+
+class ConversationTitleUpdate(BaseModel):
+    title: str
