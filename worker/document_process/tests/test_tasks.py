@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from app import tasks
+from app import task_logging, tasks
 
 
 def _fake_block(text: str, kind: str = "paragraph", bbox=(1.0, 2.0, 100.0, 20.0)):
@@ -19,34 +19,54 @@ def _fake_screenshot(page_num: int, image_bytes: bytes = b"png-bytes"):
 
 def test_process_document_for_a_url_creates_one_page_and_one_chunk(monkeypatch):
     monkeypatch.setattr(tasks, "backend_client", MagicMock())
+    monkeypatch.setattr(task_logging, "backend_client", MagicMock())
+    monkeypatch.setattr(tasks, "_spawn", MagicMock())
     monkeypatch.setattr(tasks, "fetch_url_markdown", lambda url: "# Hello\n\nSome content")
     tasks.backend_client.get_document.return_value = {
         "id": "doc-1",
         "type": "url",
         "name": "https://example.com",
         "storage_key": None,
+        "collection_id": "col-1",
     }
+    tasks.backend_client.get_pages.return_value = []
 
     tasks.process_document("doc-1")
 
     tasks.backend_client.update_status.assert_any_call("doc-1", status="indexing", progress=0)
     tasks.backend_client.add_page.assert_called_once_with("doc-1", page_number=1, content="# Hello\n\nSome content")
-    tasks.backend_client.add_chunk.assert_called_once()
-    tasks.backend_client.update_status.assert_any_call("doc-1", status="indexed", progress=100)
+    tasks.backend_client.update_status.assert_any_call("doc-1", status="indexing", progress=50)
+    tasks._spawn.assert_called_once()
+    spawned_task, spawned_args = (
+        tasks._spawn.call_args.args[0],
+        tasks._spawn.call_args.args[1],
+    )
+    assert spawned_task.name == "app.tasks.chunk_document"
+    assert spawned_args == ["doc-1", "col-1"]
 
 
-def test_process_document_for_a_file_writes_pages_screenshots_and_chunks_with_bbox(monkeypatch):
+def test_process_document_for_a_file_writes_pages_screenshots_and_chunks_with_bbox(
+    monkeypatch,
+):
     monkeypatch.setattr(tasks, "backend_client", MagicMock())
+    monkeypatch.setattr(task_logging, "backend_client", MagicMock())
+    monkeypatch.setattr(tasks, "_spawn", MagicMock())
     monkeypatch.setattr(tasks, "storage", MagicMock())
     tasks.backend_client.get_document.return_value = {
         "id": "doc-2",
         "type": "file",
         "name": "report.pdf",
         "storage_key": "docs/report.pdf",
+        "collection_id": "col-2",
     }
+    tasks.backend_client.get_pages.return_value = []
     tasks.storage.get_object.return_value = b"pdf-bytes"
 
-    parsed_page = _fake_page(1, "Full page text", blocks=[_fake_block("First paragraph"), _fake_block("", kind="rule")])
+    parsed_page = _fake_page(
+        1,
+        "Full page text",
+        blocks=[_fake_block("First paragraph"), _fake_block("", kind="rule")],
+    )
     fake_result = SimpleNamespace(pages=[parsed_page], screenshots=[_fake_screenshot(1)])
     monkeypatch.setattr(tasks, "parse_file", lambda data: fake_result)
 
@@ -57,27 +77,30 @@ def test_process_document_for_a_file_writes_pages_screenshots_and_chunks_with_bb
         "screenshots/doc-2/page-1.png", b"png-bytes", content_type="image/png"
     )
     tasks.backend_client.add_page.assert_called_once_with(
-        "doc-2", page_number=1, content="Full page text", screenshot="screenshots/doc-2/page-1.png"
+        "doc-2",
+        page_number=1,
+        content="Full page text",
+        screenshot="screenshots/doc-2/page-1.png",
     )
-    # The empty-text "rule" block is skipped - only the paragraph becomes a chunk.
-    tasks.backend_client.add_chunk.assert_called_once()
-    call_kwargs = tasks.backend_client.add_chunk.call_args.kwargs
-    assert call_kwargs["text"] == "First paragraph"
-    assert call_kwargs["extras"] == {
-        "kind": "paragraph",
-        "page": 1,
-        "bbox": {"x": 1.0, "y": 2.0, "width": 100.0, "height": 20.0},
-    }
-    tasks.backend_client.update_status.assert_any_call("doc-2", status="indexed", progress=100)
+    tasks.backend_client.update_status.assert_any_call("doc-2", status="indexing", progress=50)
+    tasks._spawn.assert_called_once()
+    spawned_task, spawned_args = (
+        tasks._spawn.call_args.args[0],
+        tasks._spawn.call_args.args[1],
+    )
+    assert spawned_task.name == "app.tasks.chunk_document"
+    assert spawned_args == ["doc-2", "col-2"]
 
 
 def test_process_document_reports_error_status_on_failure(monkeypatch):
     monkeypatch.setattr(tasks, "backend_client", MagicMock())
+    monkeypatch.setattr(task_logging, "backend_client", MagicMock())
     tasks.backend_client.get_document.return_value = {
         "id": "doc-3",
         "type": "file",
         "name": "broken.pdf",
         "storage_key": None,
+        "collection_id": "col-3",
     }
 
     try:
