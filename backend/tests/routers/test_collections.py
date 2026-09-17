@@ -131,6 +131,7 @@ async def test_pipeline_windows_default_when_never_saved(client):
         "extraction_slide_pages": 1,
         "chunking_window_pages": 2,
         "chunking_slide_pages": 1,
+        "collection_qa_count": 3,
     }
 
 

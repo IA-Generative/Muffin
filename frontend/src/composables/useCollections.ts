@@ -60,6 +60,7 @@ interface CollectionOut {
     extraction_slide_pages: number
     chunking_window_pages: number
     chunking_slide_pages: number
+    collection_qa_count: number
   }
 }
 
@@ -73,6 +74,7 @@ function toPipelineWindows(raw: CollectionOut['pipeline_windows']): PipelineWind
     extractionSlidePages: raw.extraction_slide_pages,
     chunkingWindowPages: raw.chunking_window_pages,
     chunkingSlidePages: raw.chunking_slide_pages,
+    collectionQaCount: raw.collection_qa_count,
   }
 }
 
@@ -445,6 +447,7 @@ const PIPELINE_WINDOW_KEYS: Record<keyof PipelineWindows, string> = {
   extractionSlidePages: 'extraction_slide_pages',
   chunkingWindowPages: 'chunking_window_pages',
   chunkingSlidePages: 'chunking_slide_pages',
+  collectionQaCount: 'collection_qa_count',
 }
 
 async function updatePipelineWindows(collectionId: string, values: Partial<PipelineWindows>) {

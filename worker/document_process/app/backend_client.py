@@ -70,7 +70,7 @@ class BackendClient:
         response.raise_for_status()
         return response.json()
 
-    def create_qa_pair(self, collection_id: str, document_id: str, question: str, answer: str) -> None:
+    def create_qa_pair(self, collection_id: str, document_id: str | None, question: str, answer: str) -> None:
         response = self._client.post(
             f"/api/internal/collections/{collection_id}/qa-pairs",
             json={"document_id": document_id, "question": question, "answer": answer},
@@ -116,6 +116,43 @@ class BackendClient:
         )
         response.raise_for_status()
         return response.json()["content"]
+
+    def get_default_chat_model(self) -> str | None:
+        response = self._client.get("/api/internal/llm/default-chat-model")
+        response.raise_for_status()
+        return response.json()["model"]
+
+    def get_default_embedding_model(self) -> str | None:
+        response = self._client.get("/api/internal/llm/default-embedding-model")
+        response.raise_for_status()
+        return response.json()["model"]
+
+    def get_collection_metadata(self, collection_id: str) -> dict[str, Any]:
+        response = self._client.get(f"/api/internal/collections/{collection_id}/metadata")
+        response.raise_for_status()
+        return response.json()
+
+    def update_collection_description(self, collection_id: str, description: str) -> None:
+        response = self._client.patch(
+            f"/api/internal/collections/{collection_id}/description", json={"description": description}
+        )
+        response.raise_for_status()
+
+    def update_collection_tags(self, collection_id: str, tags: list[str]) -> None:
+        response = self._client.put(f"/api/internal/collections/{collection_id}/tags", json={"tags": tags})
+        response.raise_for_status()
+
+    def embed(self, model: str, text: str) -> list[float]:
+        response = self._client.post("/api/internal/llm/embed", json={"model": model, "input": text})
+        response.raise_for_status()
+        return response.json()["embedding"]
+
+    def update_collection_description_embedding(self, collection_id: str, model: str, embedding: list[float]) -> None:
+        response = self._client.patch(
+            f"/api/internal/collections/{collection_id}/description-embedding",
+            json={"model": model, "embedding": embedding},
+        )
+        response.raise_for_status()
 
 
 backend_client = BackendClient()

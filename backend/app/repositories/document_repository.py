@@ -42,6 +42,14 @@ class DocumentRepository:
         )
         return result.scalars().all()
 
+    async def list_summaries_by_collection(self, collection_id: uuid.UUID) -> Sequence[str]:
+        result = await self.db.scalars(
+            select(Document.summary)
+            .where(Document.collection_id == collection_id, Document.summary.is_not(None))
+            .order_by(Document.created_at)
+        )
+        return result.all()
+
     async def create_file(self, collection_id: uuid.UUID, name: str, storage_key: str) -> Document:
         document = Document(collection_id=collection_id, name=name, type=DocumentType.FILE, storage_key=storage_key)
         self.db.add(document)

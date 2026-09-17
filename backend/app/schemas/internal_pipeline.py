@@ -80,3 +80,36 @@ class EntityOut(BaseModel):
     name: str
     type: str
     mentions: int
+
+
+class CollectionMetadataOut(BaseModel):
+    """What the worker needs to decide whether the collection's
+    description/tags should change: their current values, plus every
+    document summary produced so far (used to synthesize them the first
+    time, before there's a description/tags to incrementally revise)."""
+
+    description: str
+    tags: list[str]
+    document_summaries: list[str]
+
+
+class CollectionDescriptionUpdate(BaseModel):
+    description: str
+
+
+class CollectionTagsUpdate(BaseModel):
+    tags: list[str]
+
+
+class CollectionDescriptionEmbeddingUpdate(BaseModel):
+    model: str
+    embedding: list[float]
+
+
+class LlmEmbedRequest(BaseModel):
+    model: str
+    input: str
+
+
+class LlmEmbedResponse(BaseModel):
+    embedding: list[float]

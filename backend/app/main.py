@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
 from app.config import KeycloakSettings
+from app.routers.admin_settings import router as admin_settings_router
 from app.routers.auth import router as auth_router
 from app.routers.collections import router as collections_router
 from app.routers.documents import router as documents_router
@@ -30,6 +31,7 @@ app = FastAPI(
         {"name": "Collections", "description": "Collections owned by the current user."},
         {"name": "Documents", "description": "Documents within a collection: upload, register a URL, delete."},
         {"name": "Tasks", "description": "Background tasks dispatched on the user's behalf: status, revocation."},
+        {"name": "Admin", "description": "Global, admin-only settings."},
         {"name": "Internal", "description": "Worker-to-backend calls, authenticated via a shared API key."},
     ],
 )
@@ -50,6 +52,7 @@ app.include_router(models_router, prefix="/api")
 app.include_router(collections_router, prefix="/api")
 app.include_router(documents_router, prefix="/api")
 app.include_router(tasks_router, prefix="/api")
+app.include_router(admin_settings_router, prefix="/api")
 app.include_router(internal_documents_router, prefix="/api")
 app.include_router(internal_collections_router, prefix="/api")
 app.include_router(internal_pipeline_router, prefix="/api")

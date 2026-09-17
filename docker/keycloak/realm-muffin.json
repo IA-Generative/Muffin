@@ -11,7 +11,13 @@
     "realm": [
       { "name": "admin", "description": "Full administrative access to Muffin" },
       { "name": "user", "description": "Standard Muffin user" }
-    ]
+    ],
+    "client": {
+      "muffin-backend": [
+        { "name": "admin", "description": "Full administrative access to Muffin" },
+        { "name": "user", "description": "Standard Muffin user" }
+      ]
+    }
   },
   "clients": [
     {
@@ -29,7 +35,24 @@
       "defaultClientScopes": ["openid", "profile", "email", "roles"],
       "attributes": {
         "post.logout.redirect.uris": "http://localhost:5173##http://localhost:8081"
-      }
+      },
+      "protocolMappers": [
+        {
+          "name": "client-roles-in-userinfo",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-client-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "usermodel.clientRoleMapping.clientId": "muffin-backend",
+            "claim.name": "resource_access.muffin-backend.roles",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
     }
   ],
   "users": [
@@ -41,7 +64,23 @@
       "enabled": true,
       "emailVerified": true,
       "credentials": [{ "type": "password", "value": "muffin-dev", "temporary": false }],
-      "realmRoles": ["admin", "user"]
+      "realmRoles": ["admin", "user"],
+      "clientRoles": {
+        "muffin-backend": ["admin", "user"]
+      }
+    },
+    {
+      "username": "julie",
+      "email": "julie@example.com",
+      "firstName": "Julie",
+      "lastName": "Test",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [{ "type": "password", "value": "muffin-dev", "temporary": false }],
+      "realmRoles": ["user"],
+      "clientRoles": {
+        "muffin-backend": ["user"]
+      }
     }
   ]
 }

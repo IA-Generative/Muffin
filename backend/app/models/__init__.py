@@ -1,8 +1,10 @@
+from app.models.app_settings import AppSettings
 from app.models.base import Base
 from app.models.chunk import Chunk
 from app.models.collection import (
     ChunkingStrategy,
     Collection,
+    CollectionDescriptionEmbedding,
     CollectionSettings,
     CollectionShare,
     CollectionTag,
@@ -35,10 +37,12 @@ from app.models.source import MessageSource, Source
 from app.models.task import Task
 
 __all__ = [
+    "AppSettings",
     "Base",
     "Chunk",
     "ChunkingStrategy",
     "Collection",
+    "CollectionDescriptionEmbedding",
     "CollectionSettings",
     "CollectionShare",
     "CollectionTag",

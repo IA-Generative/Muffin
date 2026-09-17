@@ -16,6 +16,7 @@ const { conversations, activeId, selectConversation, newConversation } = useChat
 const activeView = computed(() => {
   if (route.path.startsWith('/collections')) return 'collections'
   if (route.path.startsWith('/tasks')) return 'tasks'
+  if (route.path.startsWith('/admin')) return 'admin'
   return 'chat'
 })
 </script>
@@ -31,6 +32,7 @@ const activeView = computed(() => {
       @new="newConversation"
       @open-collections="router.push('/collections')"
       @open-tasks="router.push('/tasks')"
+      @open-admin="router.push('/admin')"
       @open-settings="showSettings = true"
       @login="login()"
       @logout="logout"

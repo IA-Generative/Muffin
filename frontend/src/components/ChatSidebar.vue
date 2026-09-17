@@ -6,7 +6,7 @@ import type { User } from '../types/user'
 defineProps<{
   conversations: Conversation[]
   activeId: string
-  activeView: 'chat' | 'collections' | 'tasks'
+  activeView: 'chat' | 'collections' | 'tasks' | 'admin'
   user: User | null
 }>()
 
@@ -15,6 +15,7 @@ const emit = defineEmits<{
   new: []
   openCollections: []
   openTasks: []
+  openAdmin: []
   openSettings: []
   login: []
   logout: []
@@ -31,6 +32,11 @@ function openSettings() {
 function openTasks() {
   showUserMenu.value = false
   emit('openTasks')
+}
+
+function openAdmin() {
+  showUserMenu.value = false
+  emit('openAdmin')
 }
 
 function logout() {
@@ -122,6 +128,16 @@ function initials(name: string) {
             <path stroke-linecap="round" stroke-linejoin="round" d="M9 11l3 3 8-8M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9" />
           </svg>
           Tâches
+        </button>
+        <button v-if="user?.isAdmin" type="button" class="user-menu__item" role="menuitem" @click="openAdmin">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M12 3l7 3.5v5.5c0 4-3 6.5-7 8-4-1.5-7-4-7-8V6.5L12 3z"
+            />
+          </svg>
+          Administration
         </button>
         <button type="button" class="user-menu__item" role="menuitem" @click="logout">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
