@@ -1,0 +1,23 @@
+{{- if .Values.enabled }}
+{{- if .Values.backend.metrics.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "helper.componentFullname" (dict "root" . "componentName" "backend-metrics") }}
+  labels: {{- (include "helper.labels" (dict "root" . "componentName" "backend-metrics")) | nindent 4 }}
+  {{- if .Values.backend.metrics.service.labels }}
+    {{- toYaml .Values.backend.metrics.service.labels | nindent 4 }}
+  {{- end }}
+  {{- if .Values.backend.metrics.service.annotations }}
+  annotations: {{- toYaml .Values.backend.metrics.service.annotations | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.backend.metrics.service.type | default "ClusterIP" }}
+  ports:
+  - port: {{ .Values.backend.metrics.service.port }}
+    targetPort: {{ .Values.backend.metrics.service.targetPort }}
+    protocol: TCP
+    name: {{ .Values.backend.metrics.service.portName | default "metrics" }}
+  selector: {{- include "helper.selectorLabels" (dict "root" . "componentName" "backend") | nindent 4 }}
+{{- end }}
+{{- end }}

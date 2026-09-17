@@ -1,0 +1,52 @@
+{{- if .Values.enabled }}
+{{- if and .Values.agent_execution.metrics.enabled .Values.agent_execution.metrics.serviceMonitor.enabled }}
+{{- $metricSvcPort := .Values.agent_execution.metrics.service.portName | default .Values.agent_execution.metrics.service.port -}}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "helper.componentFullname" (dict "root" . "componentName" "agent_execution-metrics") }}
+  labels: {{- (include "helper.labels" (dict "root" . "componentName" "agent_execution")) | nindent 4 }}
+  {{- if .Values.agent_execution.metrics.serviceMonitor.labels }}
+    {{- toYaml .Values.agent_execution.metrics.serviceMonitor.labels | nindent 4 }}
+  {{- end }}
+  {{- if .Values.agent_execution.metrics.serviceMonitor.annotations }}
+  annotations: {{- toYaml .Values.agent_execution.metrics.serviceMonitor.annotations | nindent 4 }}
+  {{- end }}
+spec:
+  endpoints:
+  {{- range .Values.agent_execution.metrics.serviceMonitor.endpoints }}
+  - port: {{ $metricSvcPort }}
+    path: {{ .path }}
+    honorLabels: {{ .honorLabels }}
+    {{- if and .basicAuth .basicAuth.username .basicAuth.password }}
+    basicAuth: {{- toYaml .basicAuth | nindent 6 }}
+    {{- end }}
+    {{- if and .bearerTokenSecret .bearerTokenSecret.name .bearerTokenSecret.key }}
+    bearerTokenSecret: {{- toYaml .bearerTokenSecret | nindent 6 }}
+    {{- end }}
+    {{- if .interval }}
+    interval: {{ .interval }}
+    {{- end }}
+    {{- if .scrapeTimeout }}
+    scrapeTimeout: {{ .scrapeTimeout }}
+    {{- end }}
+    {{- if .relabelings }}
+    relabelings: {{- toYaml .relabelings | nindent 6 }}
+    {{- end }}
+    {{- if .metricRelabelings }}
+    metricRelabelings: {{- toYaml .metricRelabelings | nindent 6 }}
+    {{- end }}
+    {{- if .scheme }}
+    scheme: {{ .scheme }}
+    {{- end }}
+    {{- if .tlsConfig }}
+    tlsConfig: {{- toYaml .tlsConfig | nindent 6 }}
+    {{- end }}
+  {{- end }}
+  namespaceSelector:
+    matchNames:
+    - {{ .Release.Namespace | quote }}
+  selector:
+    matchLabels: {{- include "helper.selectorLabels" (dict "root" . "componentName" "agent_execution-metrics") | nindent 6 }}
+{{- end }}
+{{- end }}

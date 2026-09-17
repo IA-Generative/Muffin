@@ -1,0 +1,32 @@
+apiVersion: v2
+name: helm
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+description: A Helm chart to deploy helm.
+# Floor set by the core APIs the chart renders (autoscaling/v2, policy/v1). The Gateway API
+# resources additionally need the gateway.networking.k8s.io CRDs installed in the cluster.
+kubeVersion: ">=1.25.0-0"
+# home: https://this-is-tobi.com
+deprecated: false
+annotations: {}
+#   artifacthub.io/category: storage
+#   artifacthub.io/license: MIT
+#   artifacthub.io/changes: |
+#     - kind: changed
+#       description: Upgrade backup image to v1.0.1
+#     - kind: fixed
+#       description: Remove podMonitor template that is natively handle by operator
+keywords: []
+dependencies: []
+# - name: cnpg-cluster
+#   alias: cnpg
+#   version: 1.5.2
+#   repository: https://this-is-tobi.github.io/helm-charts
+#   condition: cnpg.enabled
+sources: []
+# - https://github.com/this-is-tobi/helm-charts
+maintainers: []
+# - name: this-is-tobi
+#   email: this-is-tobi@proton.me
+#   url: https://this-is-tobi.com

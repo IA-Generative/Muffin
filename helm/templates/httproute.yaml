@@ -1,0 +1,105 @@
+{{- if .Values.enabled }}
+{{- if .Values.global.httpRoute.enabled -}}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "helper.fullname" . }}
+  labels: {{- (include "helper.labels" (dict "root" . "componentName" "global")) | nindent 4 }}
+  {{- if .Values.global.httpRoute.labels }}
+    {{- toYaml .Values.global.httpRoute.labels | nindent 4 }}
+  {{- end }}
+  {{- if .Values.global.httpRoute.annotations }}
+  annotations:
+    {{- tpl (toYaml .Values.global.httpRoute.annotations) . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.global.httpRoute.parentRefs }}
+  parentRefs:
+  {{- range .Values.global.httpRoute.parentRefs }}
+  - name: {{ .name }}
+    {{- if .namespace }}
+    namespace: {{ .namespace }}
+    {{- end }}
+    {{- if .sectionName }}
+    sectionName: {{ .sectionName }}
+    {{- end }}
+    {{- if .port }}
+    port: {{ .port }}
+    {{- end }}
+    {{- if .group }}
+    group: {{ .group }}
+    {{- end }}
+    {{- if .kind }}
+    kind: {{ .kind }}
+    {{- end }}
+  {{- end }}
+  {{- end }}
+  {{- if .Values.global.httpRoute.hostnames }}
+  hostnames:
+  {{- range .Values.global.httpRoute.hostnames }}
+  - {{ . | quote }}
+  {{- end }}
+  {{- end }}
+  {{- if .Values.global.httpRoute.rules }}
+  rules:
+  {{- range .Values.global.httpRoute.rules }}
+  {{- if .matches }}
+  - matches:
+    {{- range .matches }}
+    {{- if .path }}
+    - path:
+        type: {{ .path.type | default "PathPrefix" }}
+        value: {{ .path.value | default "/" }}
+    {{- end }}
+      {{- if .headers }}
+      headers:
+      {{- range .headers }}
+      - type: {{ .type | default "Exact" }}
+        name: {{ .name }}
+        value: {{ .value }}
+      {{- end }}
+      {{- end }}
+      {{- if .queryParams }}
+      queryParams:
+      {{- range .queryParams }}
+      - type: {{ .type | default "Exact" }}
+        name: {{ .name }}
+        value: {{ .value }}
+      {{- end }}
+      {{- end }}
+      {{- if .method }}
+      method: {{ .method }}
+      {{- end }}
+    {{- end }}
+    {{- end }}
+    {{- if .filters }}
+    filters:
+    {{- toYaml .filters | nindent 4 }}
+    {{- end }}
+    {{- if .backendRefs }}
+    backendRefs:
+    {{- range .backendRefs }}
+    - name: {{ .name | required "global.httpRoute.rules[].backendRefs[].name is required: the chart-level HTTPRoute has no default backend service (use servicename.httpRoute to route to this chart's own service)" }}
+      port: {{ .port | default 80 }}
+      {{- if .weight }}
+      weight: {{ .weight }}
+      {{- end }}
+      {{- if .group }}
+      group: {{ .group }}
+      {{- end }}
+      {{- if .kind }}
+      kind: {{ .kind }}
+      {{- end }}
+      {{- if .namespace }}
+      namespace: {{ .namespace }}
+      {{- end }}
+    {{- end }}
+    {{- else }}
+    {{- fail "global.httpRoute.rules[].backendRefs is required: the chart-level HTTPRoute has no default backend service (use servicename.httpRoute to route to this chart's own service)" }}
+    {{- end }}
+  {{- end }}
+  {{- else }}
+  {{- fail "global.httpRoute.rules is required when global.httpRoute.enabled is true: the chart-level HTTPRoute has no default backend service to build a catch-all rule from (use servicename.httpRoute to route to this chart's own service)" }}
+  {{- end }}
+{{- end }}
+{{- end }}

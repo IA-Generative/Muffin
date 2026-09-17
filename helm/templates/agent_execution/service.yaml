@@ -1,0 +1,26 @@
+{{- if .Values.enabled }}
+{{- /* Not gated on `deploymentType`: every supported kind (Deployment/StatefulSet/DaemonSet) can
+sit behind a Service, and `service.enabled` is the switch for components that take no traffic.
+This matches metrics.yaml, which is gated the same way. */ -}}
+{{- if .Values.agent_execution.service.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "helper.componentFullname" (dict "root" . "componentName" "agent_execution") }}
+  labels: {{- (include "helper.labels" (dict "root" . "componentName" "agent_execution")) | nindent 4 }}
+spec:
+  type: {{ .Values.agent_execution.service.type | default "ClusterIP" }}
+  ports:
+  - port: {{ .Values.agent_execution.service.port | default 80 }}
+    targetPort: {{ .Values.agent_execution.containerPortName | default .Values.agent_execution.containerPort | default 8080 }}
+    protocol: {{ .Values.agent_execution.service.protocol | default "TCP" }}
+    {{- if and (eq .Values.agent_execution.service.type "NodePort") .Values.agent_execution.service.nodePort }}
+    nodePort: {{ .Values.agent_execution.service.nodePort }}
+    {{- end }}
+    name: {{ .Values.agent_execution.service.portName | default "http" }}
+  {{- if .Values.agent_execution.service.extraPorts -}}
+  {{- toYaml .Values.agent_execution.service.extraPorts | nindent 2 -}}
+  {{- end }}
+  selector: {{- include "helper.selectorLabels" (dict "root" . "componentName" "agent_execution") | nindent 4 }}
+{{- end }}
+{{- end }}

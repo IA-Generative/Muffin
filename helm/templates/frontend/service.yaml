@@ -1,0 +1,26 @@
+{{- if .Values.enabled }}
+{{- /* Not gated on `deploymentType`: every supported kind (Deployment/StatefulSet/DaemonSet) can
+sit behind a Service, and `service.enabled` is the switch for components that take no traffic.
+This matches metrics.yaml, which is gated the same way. */ -}}
+{{- if .Values.frontend.service.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "helper.componentFullname" (dict "root" . "componentName" "frontend") }}
+  labels: {{- (include "helper.labels" (dict "root" . "componentName" "frontend")) | nindent 4 }}
+spec:
+  type: {{ .Values.frontend.service.type | default "ClusterIP" }}
+  ports:
+  - port: {{ .Values.frontend.service.port | default 80 }}
+    targetPort: {{ .Values.frontend.containerPortName | default .Values.frontend.containerPort | default 8080 }}
+    protocol: {{ .Values.frontend.service.protocol | default "TCP" }}
+    {{- if and (eq .Values.frontend.service.type "NodePort") .Values.frontend.service.nodePort }}
+    nodePort: {{ .Values.frontend.service.nodePort }}
+    {{- end }}
+    name: {{ .Values.frontend.service.portName | default "http" }}
+  {{- if .Values.frontend.service.extraPorts -}}
+  {{- toYaml .Values.frontend.service.extraPorts | nindent 2 -}}
+  {{- end }}
+  selector: {{- include "helper.selectorLabels" (dict "root" . "componentName" "frontend") | nindent 4 }}
+{{- end }}
+{{- end }}

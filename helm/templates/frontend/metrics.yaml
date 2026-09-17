@@ -1,0 +1,23 @@
+{{- if .Values.enabled }}
+{{- if .Values.frontend.metrics.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "helper.componentFullname" (dict "root" . "componentName" "frontend-metrics") }}
+  labels: {{- (include "helper.labels" (dict "root" . "componentName" "frontend-metrics")) | nindent 4 }}
+  {{- if .Values.frontend.metrics.service.labels }}
+    {{- toYaml .Values.frontend.metrics.service.labels | nindent 4 }}
+  {{- end }}
+  {{- if .Values.frontend.metrics.service.annotations }}
+  annotations: {{- toYaml .Values.frontend.metrics.service.annotations | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.frontend.metrics.service.type | default "ClusterIP" }}
+  ports:
+  - port: {{ .Values.frontend.metrics.service.port }}
+    targetPort: {{ .Values.frontend.metrics.service.targetPort }}
+    protocol: TCP
+    name: {{ .Values.frontend.metrics.service.portName | default "metrics" }}
+  selector: {{- include "helper.selectorLabels" (dict "root" . "componentName" "frontend") | nindent 4 }}
+{{- end }}
+{{- end }}
