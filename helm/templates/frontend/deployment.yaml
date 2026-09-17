@@ -1,0 +1,25 @@
+{{- if .Values.enabled }}
+{{- if eq .Values.frontend.deploymentType "Deployment" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "helper.componentFullname" (dict "root" . "componentName" "frontend") }}
+  labels: {{- (include "helper.labels" (dict "root" . "componentName" "frontend")) | nindent 4 }}
+spec:
+  {{- if not .Values.frontend.autoscaling.enabled }}
+  replicas: {{ .Values.frontend.replicaCount }}
+  {{- end }}
+  revisionHistoryLimit: {{ .Values.frontend.revisionHistoryLimit | default 10 }}
+  selector:
+    matchLabels: {{- include "helper.selectorLabels" (dict "root" . "componentName" "frontend") | nindent 6 }}
+  strategy:
+    type: {{ .Values.frontend.strategy.type }}
+    {{- if eq .Values.frontend.strategy.type "RollingUpdate" }}
+    rollingUpdate:
+      maxUnavailable: {{ .Values.frontend.strategy.rollingUpdate.maxUnavailable }}
+      maxSurge: {{ .Values.frontend.strategy.rollingUpdate.maxSurge }}
+    {{- end }}
+  template:
+    {{- include "helper.component.podTemplate" (dict "root" . "name" "frontend" "component" .Values.frontend) | nindent 4 }}
+{{- end }}
+{{- end }}

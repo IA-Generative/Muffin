@@ -1,0 +1,27 @@
+{{- if .Values.enabled }}
+{{- if .Values.backend.pdb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "helper.componentFullname" (dict "root" . "componentName" "backend") }}
+  labels: {{- (include "helper.labels" (dict "root" . "componentName" "backend")) | nindent 4 }}
+  {{- if .Values.backend.pdb.labels }}
+    {{- toYaml .Values.backend.pdb.labels | nindent 4 }}
+  {{- end }}
+  {{- if .Values.backend.pdb.annotations }}
+  annotations: {{- toYaml .Values.backend.pdb.annotations | nindent 4 }}
+  {{- end }}
+spec:
+  {{- /* Tested against the empty string rather than for truthiness: `maxUnavailable: 0` is a valid
+  setting (it blocks every voluntary eviction) but is falsy, so `with`/`if` would silently fall
+  through to minAvailable. `toString` maps both nil and "" to "", which are the two unset forms.
+  `helper.component.validate` guarantees at least one of the two is set. */ -}}
+  {{- if ne (toString .Values.backend.pdb.maxUnavailable) "" }}
+  maxUnavailable: {{ .Values.backend.pdb.maxUnavailable }}
+  {{- else }}
+  minAvailable: {{ .Values.backend.pdb.minAvailable }}
+  {{- end }}
+  selector:
+    matchLabels: {{- include "helper.selectorLabels" (dict "root" . "componentName" "backend") | nindent 6 }}
+{{- end }}
+{{- end }}

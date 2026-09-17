@@ -1,0 +1,23 @@
+{{- if .Values.enabled }}
+{{- if .Values.agent_execution.metrics.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "helper.componentFullname" (dict "root" . "componentName" "agent_execution-metrics") }}
+  labels: {{- (include "helper.labels" (dict "root" . "componentName" "agent_execution-metrics")) | nindent 4 }}
+  {{- if .Values.agent_execution.metrics.service.labels }}
+    {{- toYaml .Values.agent_execution.metrics.service.labels | nindent 4 }}
+  {{- end }}
+  {{- if .Values.agent_execution.metrics.service.annotations }}
+  annotations: {{- toYaml .Values.agent_execution.metrics.service.annotations | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.agent_execution.metrics.service.type | default "ClusterIP" }}
+  ports:
+  - port: {{ .Values.agent_execution.metrics.service.port }}
+    targetPort: {{ .Values.agent_execution.metrics.service.targetPort }}
+    protocol: TCP
+    name: {{ .Values.agent_execution.metrics.service.portName | default "metrics" }}
+  selector: {{- include "helper.selectorLabels" (dict "root" . "componentName" "agent_execution") | nindent 4 }}
+{{- end }}
+{{- end }}

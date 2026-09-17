@@ -1,0 +1,26 @@
+{{- if .Values.enabled }}
+{{- /* Not gated on `deploymentType`: every supported kind (Deployment/StatefulSet/DaemonSet) can
+sit behind a Service, and `service.enabled` is the switch for components that take no traffic.
+This matches metrics.yaml, which is gated the same way. */ -}}
+{{- if .Values.document_process.service.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "helper.componentFullname" (dict "root" . "componentName" "document_process") }}
+  labels: {{- (include "helper.labels" (dict "root" . "componentName" "document_process")) | nindent 4 }}
+spec:
+  type: {{ .Values.document_process.service.type | default "ClusterIP" }}
+  ports:
+  - port: {{ .Values.document_process.service.port | default 80 }}
+    targetPort: {{ .Values.document_process.containerPortName | default .Values.document_process.containerPort | default 8080 }}
+    protocol: {{ .Values.document_process.service.protocol | default "TCP" }}
+    {{- if and (eq .Values.document_process.service.type "NodePort") .Values.document_process.service.nodePort }}
+    nodePort: {{ .Values.document_process.service.nodePort }}
+    {{- end }}
+    name: {{ .Values.document_process.service.portName | default "http" }}
+  {{- if .Values.document_process.service.extraPorts -}}
+  {{- toYaml .Values.document_process.service.extraPorts | nindent 2 -}}
+  {{- end }}
+  selector: {{- include "helper.selectorLabels" (dict "root" . "componentName" "document_process") | nindent 4 }}
+{{- end }}
+{{- end }}
