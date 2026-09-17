@@ -23,12 +23,42 @@ const conversations = ref<Conversation[]>([{ id: 'default', title: 'Nouvelle con
 const activeId = ref('default')
 const messagesByConversation = ref<Record<string, ChatMessage[]>>({ default: [] })
 const activeSourcesMessageId = ref<string>()
-// The sidebar's conversation ids are purely a client-side concept; a real
-// backend conversation only exists once its first run is created. Mapping
-// one to the other lets every message in the same sidebar thread land in the
-// same backend conversation without needing a GET /api/conversations yet.
-const backendConversationId = ref<Record<string, string>>({})
+// The sidebar starts a conversation under a client-side placeholder id (no
+// GET /api/conversations to fetch a real one from yet); the first run made
+// in it returns the real backend conversation id, which the placeholder is
+// then renamed to everywhere (sidebar entry, message list, URL) via
+// migrateConversationId/resolveConversationId below - so /c/<id> reflects a
+// real, bookmarkable conversation as soon as one exists, not the placeholder.
+const confirmedConversationIds = new Set<string>()
+const conversationAliases: Record<string, string> = {}
 const activePolls = new Map<string, ReturnType<typeof setInterval>>()
+
+function resolveConversationId(id: string): string {
+  let resolved = id
+  while (conversationAliases[resolved]) resolved = conversationAliases[resolved]
+  return resolved
+}
+
+function migrateConversationId(placeholderId: string, realId: string): string {
+  confirmedConversationIds.add(realId)
+  const currentId = resolveConversationId(placeholderId)
+  if (currentId === realId) return realId
+
+  messagesByConversation.value[realId] = [
+    ...(messagesByConversation.value[realId] ?? []),
+    ...(messagesByConversation.value[currentId] ?? []),
+  ]
+  delete messagesByConversation.value[currentId]
+  conversationAliases[currentId] = realId
+
+  const conversation = conversations.value.find((item) => item.id === currentId)
+  if (conversation) conversation.id = realId
+  if (activeId.value === currentId) {
+    activeId.value = realId
+    router.replace(`/c/${realId}`)
+  }
+  return realId
+}
 
 const messages = computed(() => messagesByConversation.value[activeId.value] ?? [])
 const activeSources = computed(
@@ -54,11 +84,15 @@ function newConversation() {
 }
 
 async function createRun(conversationId: string, query: string): Promise<RunOut> {
+  // Only ever send a conversation_id the backend actually confirmed exists - the sidebar's
+  // placeholder id would 404 (ConversationNotFoundError), so a brand-new conversation's first
+  // run omits it and lets the backend create one instead.
+  const known = confirmedConversationIds.has(conversationId) ? conversationId : undefined
   const response = await fetch(`${API_BASE_URL}/api/runs`, {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query, conversation_id: backendConversationId.value[conversationId] }),
+    body: JSON.stringify({ query, conversation_id: known }),
   })
   if (!response.ok) throw new Error(`${response.status}`)
   return response.json()
@@ -103,7 +137,7 @@ function assistantMessageFor(id: string, run: RunOut): ChatMessage {
 }
 
 function replaceMessage(conversationId: string, messageId: string, message: ChatMessage) {
-  const list = messagesByConversation.value[conversationId]
+  const list = messagesByConversation.value[resolveConversationId(conversationId)]
   const index = list?.findIndex((item) => item.id === messageId)
   if (index !== undefined && index !== -1) list[index] = message
 }
@@ -139,8 +173,8 @@ function trackRun(conversationId: string, messageId: string, run: RunOut) {
 async function runQuery(conversationId: string, messageId: string, query: string) {
   try {
     const run = await createRun(conversationId, query)
-    if (run.conversation_id) backendConversationId.value[conversationId] = run.conversation_id
-    trackRun(conversationId, messageId, run)
+    const resolvedId = run.conversation_id ? migrateConversationId(conversationId, run.conversation_id) : conversationId
+    trackRun(resolvedId, messageId, run)
   } catch {
     replaceMessage(conversationId, messageId, {
       id: messageId,
