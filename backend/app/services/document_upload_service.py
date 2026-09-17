@@ -5,10 +5,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import storage
 from app.core.security.factory import RequestContext
-from app.core.tasks import enqueue_process_document
+from app.core.tasks import PROCESS_DOCUMENT_TASK, enqueue_process_document
 from app.models.document import Document, DocumentStatus
 from app.repositories.collection_repository import CollectionRepository
 from app.repositories.document_repository import DocumentRepository
+from app.repositories.task_repository import TaskRepository
 from app.schemas.document import DocumentOut
 
 from .collection_service import CollectionNotFoundError
@@ -23,6 +24,7 @@ class DocumentUploadService:
         self.db = db
         self.collections = CollectionRepository(db)
         self.documents = DocumentRepository(db)
+        self.tasks = TaskRepository(db)
 
     async def list_documents(self, collection_id: uuid.UUID, user: RequestContext) -> list[DocumentOut]:
         await self._get_owned_collection(collection_id, user)
@@ -39,14 +41,22 @@ class DocumentUploadService:
 
         document = await self.documents.create_file(collection_id, safe_name, storage_key)
         await self.db.commit()
-        enqueue_process_document(str(document.id))
+        celery_task_id = enqueue_process_document(str(document.id))
+        await self.tasks.create(
+            celery_task_id, PROCESS_DOCUMENT_TASK, user.user_id, document_id=document.id, collection_id=collection_id
+        )
+        await self.db.commit()
         return DocumentOut.model_validate(document)
 
     async def create_url_document(self, collection_id: uuid.UUID, user: RequestContext, url: str) -> DocumentOut:
         await self._get_owned_collection(collection_id, user)
         document = await self.documents.create_url(collection_id, url)
         await self.db.commit()
-        enqueue_process_document(str(document.id))
+        celery_task_id = enqueue_process_document(str(document.id))
+        await self.tasks.create(
+            celery_task_id, PROCESS_DOCUMENT_TASK, user.user_id, document_id=document.id, collection_id=collection_id
+        )
+        await self.db.commit()
         return DocumentOut.model_validate(document)
 
     async def reindex_collection(self, collection_id: uuid.UUID, user: RequestContext) -> list[DocumentOut]:
@@ -61,7 +71,15 @@ class DocumentUploadService:
         storage.delete_objects(orphaned_screenshot_keys)
 
         for document in documents:
-            enqueue_process_document(str(document.id))
+            celery_task_id = enqueue_process_document(str(document.id))
+            await self.tasks.create(
+                celery_task_id,
+                PROCESS_DOCUMENT_TASK,
+                user.user_id,
+                document_id=document.id,
+                collection_id=collection_id,
+            )
+        await self.db.commit()
         return [DocumentOut.model_validate(document) for document in documents]
 
     async def delete_document(self, collection_id: uuid.UUID, user: RequestContext, document_id: uuid.UUID) -> None:

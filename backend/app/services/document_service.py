@@ -30,6 +30,10 @@ class DocumentService:
         await self.db.refresh(document)
         return document
 
+    async def list_pages(self, document_id: uuid.UUID) -> list[DocumentPage]:
+        await self.get_document(document_id)
+        return list(await self.repository.list_pages(document_id))
+
     async def add_page(self, document_id: uuid.UUID, page: DocumentPageCreate) -> DocumentPage:
         await self.get_document(document_id)
         created = await self.repository.add_page(document_id, page.page_number, page.content, page.screenshot)
@@ -41,3 +45,18 @@ class DocumentService:
         created = await self.repository.add_chunk(document_id, chunk.index, chunk.text, chunk.token_count, chunk.extras)
         await self.db.commit()
         return created
+
+    async def set_summary(self, document_id: uuid.UUID, summary: str) -> None:
+        document = await self.get_document(document_id)
+        await self.repository.set_summary(document, summary)
+        await self.db.commit()
+
+    async def set_error(self, document_id: uuid.UUID, error: str) -> None:
+        document = await self.get_document(document_id)
+        await self.repository.set_error(document, error)
+        await self.db.commit()
+
+    async def replace_tags(self, document_id: uuid.UUID, tags: list[str]) -> None:
+        document = await self.get_document(document_id)
+        await self.repository.replace_tags(document, tags)
+        await self.db.commit()

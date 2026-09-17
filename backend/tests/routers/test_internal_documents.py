@@ -123,3 +123,71 @@ async def test_create_document_page_and_chunk_with_extras(client):
     assert pages[0].screenshot == "screens/page-1.png"
     assert len(chunks) == 1
     assert chunks[0].extras == {"bbox": {"x": 0, "y": 0, "width": 100, "height": 20}, "kind": "paragraph"}
+
+
+async def test_list_document_pages(client):
+    document_id = await _create_document(client)
+    await client.post(
+        f"/api/internal/documents/{document_id}/pages",
+        headers=_headers(),
+        json={"page_number": 1, "content": "Page one"},
+    )
+    await client.post(
+        f"/api/internal/documents/{document_id}/pages",
+        headers=_headers(),
+        json={"page_number": 2, "content": "Page two"},
+    )
+
+    response = await client.get(f"/api/internal/documents/{document_id}/pages", headers=_headers())
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {"page_number": 1, "content": "Page one"},
+        {"page_number": 2, "content": "Page two"},
+    ]
+
+
+async def test_update_document_summary(client):
+    document_id = await _create_document(client)
+
+    response = await client.patch(
+        f"/api/internal/documents/{document_id}/summary", headers=_headers(), json={"summary": "A short summary."}
+    )
+
+    assert response.status_code == 200
+    body = (await client.get(f"/api/internal/documents/{document_id}", headers=_headers())).json()
+    assert body["summary"] == "A short summary."
+
+
+async def test_update_document_error_does_not_clobber_summary(client):
+    document_id = await _create_document(client)
+    await client.patch(
+        f"/api/internal/documents/{document_id}/summary", headers=_headers(), json={"summary": "Kept summary."}
+    )
+
+    response = await client.patch(
+        f"/api/internal/documents/{document_id}/error", headers=_headers(), json={"error": "Boom"}
+    )
+
+    assert response.status_code == 200
+    body = (await client.get(f"/api/internal/documents/{document_id}", headers=_headers())).json()
+    assert body["summary"] == "Kept summary."
+
+
+async def test_replace_document_tags(client):
+    document_id = await _create_document(client)
+
+    response = await client.put(
+        f"/api/internal/documents/{document_id}/tags", headers=_headers(), json={"tags": ["invoice", "2024"]}
+    )
+    assert response.status_code == 200
+
+    async with async_session_factory() as session:
+        from sqlalchemy import select
+
+        from app.models.document import DocumentTag
+
+        tags = (
+            (await session.execute(select(DocumentTag).where(DocumentTag.document_id == document_id))).scalars().all()
+        )
+    assert sorted(tag.tag for tag in tags) == ["2024", "invoice"]

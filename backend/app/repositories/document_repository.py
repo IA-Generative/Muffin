@@ -4,9 +4,10 @@ from typing import Any
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.models.chunk import Chunk
-from app.models.document import Document, DocumentPage, DocumentStatus, DocumentType
+from app.models.document import Document, DocumentPage, DocumentStatus, DocumentTag, DocumentType
 
 
 class DocumentRepository:
@@ -17,11 +18,23 @@ class DocumentRepository:
         result = await self.db.execute(select(Document).where(Document.id == document_id))
         return result.scalar_one_or_none()
 
+    async def get_with_collection(self, document_id: uuid.UUID) -> Document | None:
+        result = await self.db.execute(
+            select(Document).where(Document.id == document_id).options(selectinload(Document.collection))
+        )
+        return result.scalar_one_or_none()
+
     async def get_in_collection(self, collection_id: uuid.UUID, document_id: uuid.UUID) -> Document | None:
         result = await self.db.execute(
             select(Document).where(Document.id == document_id, Document.collection_id == collection_id)
         )
         return result.scalar_one_or_none()
+
+    async def list_pages(self, document_id: uuid.UUID) -> Sequence[DocumentPage]:
+        result = await self.db.execute(
+            select(DocumentPage).where(DocumentPage.document_id == document_id).order_by(DocumentPage.page_number)
+        )
+        return result.scalars().all()
 
     async def list_by_collection(self, collection_id: uuid.UUID) -> Sequence[Document]:
         result = await self.db.execute(
@@ -78,6 +91,20 @@ class DocumentRepository:
             document.progress = progress
         if summary is not None:
             document.summary = summary
+
+    async def set_summary(self, document: Document, summary: str) -> None:
+        document.summary = summary
+
+    async def set_error(self, document: Document, error: str) -> None:
+        document.error = error
+
+    async def replace_tags(self, document: Document, tags: list[str]) -> None:
+        # Adds directly rather than assigning `document.tags = [...]`: that
+        # relationship isn't eager-loaded by `get()`, and reassigning it would
+        # need SQLAlchemy to lazy-load the current collection first, which
+        # can't happen outside a greenlet in async mode.
+        await self.db.execute(delete(DocumentTag).where(DocumentTag.document_id == document.id))
+        self.db.add_all([DocumentTag(document_id=document.id, tag=tag) for tag in dict.fromkeys(tags)])
 
     async def add_page(
         self, document_id: uuid.UUID, page_number: int, content: str, screenshot: str | None

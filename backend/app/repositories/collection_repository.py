@@ -37,6 +37,12 @@ class CollectionRepository:
         )
         return result.scalar_one_or_none()
 
+    async def get_by_id(self, collection_id: uuid.UUID) -> Collection | None:
+        """No owner check - internal/worker use only, never exposed on a
+        user-facing route."""
+        result = await self.db.execute(self._base_query().where(Collection.id == collection_id))
+        return result.scalar_one_or_none()
+
     async def create(self, *, owner_id: str, name: str, embedding_model: str) -> Collection:
         collection = Collection(owner_id=owner_id, name=name, description="")
         collection.settings = CollectionSettings(embedding_model=embedding_model)

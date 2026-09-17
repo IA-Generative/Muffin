@@ -10,6 +10,7 @@ from app.main import app
 from app.models.chunk import Chunk
 from app.models.collection import Collection
 from app.models.document import DocumentPage
+from app.models.task import Task
 
 
 @pytest.fixture
@@ -18,6 +19,10 @@ async def client():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as async_client:
         yield async_client
     async with async_session_factory() as session:
+        # Task rows aren't cascade-deleted with their collection/document
+        # (ondelete="SET NULL" - see app/models/task.py), so they'd otherwise
+        # pile up across test runs and collide on celery_task_id's unique index.
+        await session.execute(delete(Task))
         await session.execute(delete(Collection))
         await session.commit()
 
@@ -31,7 +36,9 @@ async def test_create_file_document_uploads_and_queues_processing(client):
 
     with (
         patch("app.services.document_upload_service.storage.put_object") as mock_put,
-        patch("app.services.document_upload_service.enqueue_process_document") as mock_enqueue,
+        patch(
+            "app.services.document_upload_service.enqueue_process_document", return_value="celery-task-id"
+        ) as mock_enqueue,
     ):
         response = await client.post(
             f"/api/collections/{collection_id}/documents/file",
@@ -54,7 +61,9 @@ async def test_create_file_document_uploads_and_queues_processing(client):
 async def test_create_url_document_queues_processing(client):
     collection_id = await _create_collection(client)
 
-    with patch("app.services.document_upload_service.enqueue_process_document") as mock_enqueue:
+    with patch(
+        "app.services.document_upload_service.enqueue_process_document", return_value="celery-task-id"
+    ) as mock_enqueue:
         response = await client.post(
             f"/api/collections/{collection_id}/documents/url", json={"url": "https://example.com"}
         )
@@ -68,7 +77,7 @@ async def test_create_url_document_queues_processing(client):
 
 async def test_list_documents(client):
     collection_id = await _create_collection(client)
-    with patch("app.services.document_upload_service.enqueue_process_document"):
+    with patch("app.services.document_upload_service.enqueue_process_document", return_value="celery-task-id"):
         await client.post(f"/api/collections/{collection_id}/documents/url", json={"url": "https://example.com"})
 
     response = await client.get(f"/api/collections/{collection_id}/documents")
@@ -78,7 +87,7 @@ async def test_list_documents(client):
 
 
 async def test_create_document_for_unknown_collection_returns_404(client):
-    with patch("app.services.document_upload_service.enqueue_process_document"):
+    with patch("app.services.document_upload_service.enqueue_process_document", return_value="celery-task-id"):
         response = await client.post(
             f"/api/collections/{uuid.uuid4()}/documents/url", json={"url": "https://example.com"}
         )
@@ -89,7 +98,7 @@ async def test_delete_document_removes_its_rustfs_objects(client):
     collection_id = await _create_collection(client)
     with (
         patch("app.services.document_upload_service.storage.put_object"),
-        patch("app.services.document_upload_service.enqueue_process_document"),
+        patch("app.services.document_upload_service.enqueue_process_document", return_value="celery-task-id"),
     ):
         created = (
             await client.post(
@@ -118,7 +127,7 @@ async def test_reindex_resets_status_and_requeues(client):
     collection_id = await _create_collection(client)
     with (
         patch("app.services.document_upload_service.storage.put_object"),
-        patch("app.services.document_upload_service.enqueue_process_document"),
+        patch("app.services.document_upload_service.enqueue_process_document", return_value="celery-task-id-1"),
     ):
         created = (
             await client.post(
@@ -134,7 +143,9 @@ async def test_reindex_resets_status_and_requeues(client):
 
     with (
         patch("app.services.document_upload_service.storage.delete_objects") as mock_delete,
-        patch("app.services.document_upload_service.enqueue_process_document") as mock_enqueue,
+        patch(
+            "app.services.document_upload_service.enqueue_process_document", return_value="celery-task-id-2"
+        ) as mock_enqueue,
     ):
         response = await client.post(f"/api/collections/{collection_id}/documents/reindex")
 
