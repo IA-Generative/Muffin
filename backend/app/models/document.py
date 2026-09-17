@@ -25,8 +25,11 @@ class Document(UUIDMixin, TimestampMixin, Base):
     collection_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("collections.id", ondelete="CASCADE"), index=True, nullable=False
     )
+    # For type=url, name doubles as the URL to fetch. For type=file, the raw
+    # bytes live in RustFS under storage_key - name is just the display name.
     name: Mapped[str] = mapped_column(String, nullable=False)
     type: Mapped[DocumentType] = mapped_column(Enum(DocumentType, name="document_type"), nullable=False)
+    storage_key: Mapped[str | None] = mapped_column(String, nullable=True)
     status: Mapped[DocumentStatus] = mapped_column(
         Enum(DocumentStatus, name="document_status"),
         nullable=False,
@@ -66,5 +69,8 @@ class DocumentPage(UUIDMixin, Base):
     )
     page_number: Mapped[int] = mapped_column(Integer, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    # RustFS key of this page's PNG screenshot (liteparse-produced), if any -
+    # scraped URL pages don't have one.
+    screenshot: Mapped[str | None] = mapped_column(String, nullable=True)
 
     document: Mapped["Document"] = relationship(back_populates="pages")
