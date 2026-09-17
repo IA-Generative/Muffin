@@ -93,6 +93,12 @@ async def test_list_conversation_messages_includes_user_and_assistant_turns_in_o
     assert [m["role"] for m in body] == ["user", "assistant"]
     assert body[0]["content"] == "What is the telework policy?"
     assert body[1]["content"] == "Telework is allowed two days a week [abc]."
+    # The assistant message carries its run's id and citations - a restored message (after a
+    # reload) must be able to render citation footnotes and fetch execution detail too, not just
+    # a live one still held in the frontend's own memory.
+    assert body[0]["run_id"] is None
+    assert body[1]["run_id"] == run["id"]
+    assert body[1]["citations"] == [{"evidence_id": "abc", "source": "policy.pdf", "vdb_id": "hr"}]
 
 
 async def test_list_conversation_messages_accumulates_across_multiple_runs(client):
