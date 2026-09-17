@@ -11,6 +11,7 @@ import type {
   FieldStamp,
   GenerationModels,
   PipelineInstructions,
+  PipelineWindows,
   QaPair,
   Relation,
 } from '../types/collection'
@@ -50,6 +51,29 @@ interface CollectionOut {
   reindex_required: boolean
   instructions: PipelineInstructions
   generation_models: GenerationModels
+  pipeline_windows: {
+    summary_pages_per_map: number
+    qa_window_pages: number
+    qa_slide_pages: number
+    qa_questions_per_window: number
+    extraction_window_pages: number
+    extraction_slide_pages: number
+    chunking_window_pages: number
+    chunking_slide_pages: number
+  }
+}
+
+function toPipelineWindows(raw: CollectionOut['pipeline_windows']): PipelineWindows {
+  return {
+    summaryPagesPerMap: raw.summary_pages_per_map,
+    qaWindowPages: raw.qa_window_pages,
+    qaSlidePages: raw.qa_slide_pages,
+    qaQuestionsPerWindow: raw.qa_questions_per_window,
+    extractionWindowPages: raw.extraction_window_pages,
+    extractionSlidePages: raw.extraction_slide_pages,
+    chunkingWindowPages: raw.chunking_window_pages,
+    chunkingSlidePages: raw.chunking_slide_pages,
+  }
 }
 
 function toStamp(meta: CollectionOut['description_meta']): FieldStamp | null {
@@ -79,6 +103,7 @@ function toCollection(raw: CollectionOut): Collection {
     reindexRequired: raw.reindex_required,
     instructions: raw.instructions,
     generationModels: raw.generation_models,
+    pipelineWindows: toPipelineWindows(raw.pipeline_windows),
     evaluationRuns: raw.evaluation_runs,
   }
 }
@@ -377,6 +402,25 @@ async function updateGenerationModel(collectionId: string, field: keyof Generati
   await patchSettings(collectionId, { generation_models: { [field]: model } })
 }
 
+const PIPELINE_WINDOW_KEYS: Record<keyof PipelineWindows, string> = {
+  summaryPagesPerMap: 'summary_pages_per_map',
+  qaWindowPages: 'qa_window_pages',
+  qaSlidePages: 'qa_slide_pages',
+  qaQuestionsPerWindow: 'qa_questions_per_window',
+  extractionWindowPages: 'extraction_window_pages',
+  extractionSlidePages: 'extraction_slide_pages',
+  chunkingWindowPages: 'chunking_window_pages',
+  chunkingSlidePages: 'chunking_slide_pages',
+}
+
+async function updatePipelineWindows(collectionId: string, values: Partial<PipelineWindows>) {
+  const pipeline_windows: Record<string, number> = {}
+  for (const [key, value] of Object.entries(values)) {
+    if (value !== undefined) pipeline_windows[PIPELINE_WINDOW_KEYS[key as keyof PipelineWindows]] = value
+  }
+  await patchSettings(collectionId, { pipeline_windows })
+}
+
 async function reindexCollection(collectionId: string) {
   const response = await fetch(`${API_BASE_URL}/api/collections/${collectionId}/documents/reindex`, {
     method: 'POST',
@@ -496,6 +540,7 @@ export function useCollections() {
     updateChunkingSettings,
     updateEmbeddingModel,
     updateGenerationModel,
+    updatePipelineWindows,
     reindexCollection,
     updateInstructionField,
     runEvaluation,

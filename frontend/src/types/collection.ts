@@ -57,6 +57,7 @@ export interface PipelineInstructions {
   extraction: string
   chunking: string
   tagging: string
+  summary: string
 }
 
 // One chat model per generation step - null until the user picks one.
@@ -65,6 +66,21 @@ export interface GenerationModels {
   extraction: string | null
   chunking: string | null
   tagging: string | null
+  summary: string | null
+}
+
+// Sliding-window params for steps that read several pages at once instead of
+// one chunk at a time: summary (map-reduce), QA generation, entity/relation
+// extraction, and semantic chunking.
+export interface PipelineWindows {
+  summaryPagesPerMap: number
+  qaWindowPages: number
+  qaSlidePages: number
+  qaQuestionsPerWindow: number
+  extractionWindowPages: number
+  extractionSlidePages: number
+  chunkingWindowPages: number
+  chunkingSlidePages: number
 }
 
 export interface EvaluationMetrics {
@@ -119,5 +135,6 @@ export interface Collection {
   reindexRequired: boolean
   instructions: PipelineInstructions
   generationModels: GenerationModels
+  pipelineWindows: PipelineWindows
   evaluationRuns: EvaluationRun[]
 }
