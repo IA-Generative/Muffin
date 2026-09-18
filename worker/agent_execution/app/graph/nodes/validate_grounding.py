@@ -1,7 +1,7 @@
 from typing import Any
 
 from app.graph.services.events import emit, is_cancelled, set_activity
-from app.graph.services.llm import default_model, json_chat
+from app.graph.services.llm import json_chat
 from app.graph.state import AgentState, GroundingResult
 
 _SYSTEM_PROMPT = (
@@ -29,7 +29,7 @@ def validate_grounding(state: AgentState) -> dict[str, Any]:
         # ground-check against, and nothing further to research either.
         result = GroundingResult(valid=True, unsupported_claims=[])
     else:
-        model = default_model()
+        model = state["chat_model"]
         if model is None:
             result = GroundingResult(valid=True, unsupported_claims=[])
         else:

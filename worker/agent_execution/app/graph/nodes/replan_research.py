@@ -1,7 +1,7 @@
 from typing import Any
 
 from app.graph.services.events import emit, is_cancelled, set_activity
-from app.graph.services.llm import default_model, json_chat
+from app.graph.services.llm import json_chat
 from app.graph.state import AgentState, ResearchTask
 
 _SYSTEM_PROMPT = (
@@ -23,7 +23,7 @@ def replan_research(state: AgentState) -> dict[str, Any]:
     set_activity(run_id, "replan_research", "Refining the research plan")
     emit(run_id, "replan_started", {"missing_information": missing, "plan_version": next_version})
 
-    model = default_model()
+    model = state["chat_model"]
     if model is None or not missing:
         new_queries = [{"query": gap, "intent": None} for gap in missing] or [
             {"query": state["contextualized_query"], "intent": None}
