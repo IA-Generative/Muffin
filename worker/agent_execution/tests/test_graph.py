@@ -155,6 +155,28 @@ def test_vdb_routing_never_escapes_accessible_set(make_run):
         assert "finance" not in collection_ids
 
 
+def test_pinned_collections_are_always_searched_even_if_not_llm_selected(make_run):
+    """The chat composer's "+" picker - a user-attached collection is searched regardless of
+    what VDB routing's own relevance guess would have picked on its own."""
+
+    def router(system_prompt: str) -> str:
+        if "Analyze the user" in system_prompt:
+            return _analysis()
+        if "select the ones relevant" in system_prompt.lower():
+            return '["hr"]'  # the LLM itself would only have picked HR
+        if "Decide whether" in system_prompt:
+            return json.dumps({"status": "sufficient", "missing_information": [], "reasoning": "ok"})
+        if "Check whether every" in system_prompt:
+            return json.dumps({"valid": True, "unsupported_claims": []})
+        return "answer [x]."
+
+    graph, fake = make_run(_hr_eng_vdbs(), router)
+    state = initial_state("What is the leave policy?", pinned_vdb_ids=["eng"])
+    graph.invoke(state, config=_config(state))
+
+    assert fake.searched_collection_ids == [["hr", "eng"]]
+
+
 def test_multi_vdb_task_searches_all_relevant_vdbs_in_parallel(make_run):
     def router(system_prompt: str) -> str:
         if "Analyze the user" in system_prompt:

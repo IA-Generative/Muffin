@@ -69,6 +69,7 @@ class ResearchTaskInput(TypedDict):
     accessible_vdbs: list[dict[str, Any]]
     task: ResearchTask
     chat_model: str | None
+    pinned_vdb_ids: list[str]
 
 
 class AgentState(TypedDict):
@@ -90,6 +91,11 @@ class AgentState(TypedDict):
     # doesn't change mid-run, so doing that per node was a pure latency tax (one extra
     # worker<->backend round trip before every single LLM call, on the critical path).
     chat_model: str | None
+
+    # Collections the user explicitly attached to this message (the chat composer's "+"
+    # picker) - always searched regardless of what VDB routing's own relevance guess would have
+    # picked, see select_relevant_vdbs. Empty list, never None, when nothing was attached.
+    pinned_vdb_ids: list[str]
 
     # --- permission barrier (§4) ---
     accessible_vdbs: list[dict[str, Any]]

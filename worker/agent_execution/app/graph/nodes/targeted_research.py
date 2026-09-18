@@ -28,7 +28,7 @@ def targeted_research(state: AgentState) -> dict[str, Any]:
     evidence = []
     for i, claim in enumerate(claims):
         task_id = f"grounding-{count}-{i}"
-        selected_vdbs = select_relevant_vdbs(claim, state["accessible_vdbs"], model)
+        selected_vdbs = select_relevant_vdbs(claim, state["accessible_vdbs"], model, state["pinned_vdb_ids"])
         results = (
             backend_client.search([str(v["id"]) for v in selected_vdbs], claim, settings.SEARCH_RESULTS_PER_QUERY)
             if selected_vdbs
