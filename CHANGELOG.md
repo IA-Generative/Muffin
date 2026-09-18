@@ -1,5 +1,56 @@
 # Changelog
 
+## [0.3.0-rc.1](https://github.com/IA-Generative/Muffin/compare/v0.3.0-rc...v0.3.0-rc.1) (2026-09-18)
+
+
+### Features
+
+* **chat:** let users attach collections to search via a "+" composer picker ([9d8c5d5](https://github.com/IA-Generative/Muffin/commit/9d8c5d59acd0d646d640c2a3fef442df770bf8a5))
+* **chat:** split sources into document/tool cards, add page+chunk modal ([0d335c8](https://github.com/IA-Generative/Muffin/commit/0d335c8f8388082d9104aef95abc22f1c623a6e3))
+* deep-linkable document modal, two-column layout, backend-proxied screenshots ([99692a7](https://github.com/IA-Generative/Muffin/commit/99692a708f9d2519ac3eee66ccf82610e0814dcd))
+* document detail modal - summary, tags, paginated pages, QA, entities ([cbdc0a5](https://github.com/IA-Generative/Muffin/commit/cbdc0a588eda0c3e33633615ea7a975876bb4dee))
+* **frontend:** animated loading dots and French step labels while a run is in progress ([9172117](https://github.com/IA-Generative/Muffin/commit/9172117f4f07a0332b0a8050f0323296eec2deea))
+* **frontend:** collapsible sidebar and conversation title tooltip ([51203b2](https://github.com/IA-Generative/Muffin/commit/51203b23b71bbe2a40ad2dc6bb7d7b54356b5ba4))
+* **frontend:** paginate the conversation sidebar (infinite scroll) ([c8159d1](https://github.com/IA-Generative/Muffin/commit/c8159d195b129e9f6c2b86ad0d573d2d3f912458))
+* **frontend:** rename and delete conversations from the sidebar ([58d4626](https://github.com/IA-Generative/Muffin/commit/58d4626a2dade342c80683a81a26fa3d5cbc29ea))
+* **frontend:** show a run's step-by-step execution detail alongside sources ([c3f473a](https://github.com/IA-Generative/Muffin/commit/c3f473af45730cf9f88ecd72fbf7eae6d6a53f2e))
+* **frontend:** show elapsed time next to the pending-run indicator ([95f7d0d](https://github.com/IA-Generative/Muffin/commit/95f7d0d53228bf6208dd678da87728c3d12b8d83))
+* **frontend:** wire the chat UI to the real research-agent run API ([12f2201](https://github.com/IA-Generative/Muffin/commit/12f2201345fa60801b5fb1abf3aa606bb21b7805))
+* **research-agent:** add knowledge-base introspection tools to the graph ([33c8088](https://github.com/IA-Generative/Muffin/commit/33c808853d2e53e48319675bd0056321afc52a10))
+* **research-agent:** auto-generate the conversation title from the first Q&A ([14b82b0](https://github.com/IA-Generative/Muffin/commit/14b82b0d7240669502296276f4174436ed765888))
+* **research-agent:** implement Run/RunEvent persistence and the LangGraph research DAG ([2f277aa](https://github.com/IA-Generative/Muffin/commit/2f277aa2189018ff5c8bec14bff3e9190ad67721))
+* **research-agent:** let users pin collections to search from the chat composer ([658628d](https://github.com/IA-Generative/Muffin/commit/658628d1547722d42d683cad3db05eb5f2b55840))
+* **research-agent:** persist conversation history and restore it in the frontend ([f25ce53](https://github.com/IA-Generative/Muffin/commit/f25ce530920fab1e331bf1fdb8303ee1b3b60ba9))
+* **research-agent:** replace full-text chunk search with Qdrant vector search ([6c86a58](https://github.com/IA-Generative/Muffin/commit/6c86a58d6c2ab954b093f04bbabd3d31fdebdefb))
+* **research-agent:** search qa cache, then summaries, then chunks ([5f92a66](https://github.com/IA-Generative/Muffin/commit/5f92a66114be3f0781ba9faac22c4c77b6560ce5))
+* **research-agent:** wire HITL end-to-end (resume API, frontend, durable checkpointer) ([c23232a](https://github.com/IA-Generative/Muffin/commit/c23232afb6710e73663adc261e857a2277168556))
+* scope entities/relations to the document they were extracted from ([8941227](https://github.com/IA-Generative/Muffin/commit/8941227e47b485e525cd5e1de7bc04cc92126aa1))
+
+
+### Bug Fixes
+
+* **backend:** resolve a working embedding model for new collections ([fbdeeae](https://github.com/IA-Generative/Muffin/commit/fbdeeae1a18f175856fb3c766f1a486e6dd6eee6))
+* **ci:** gitlab kaniko jobs pointed at a different project's Dockerfiles ([168d2eb](https://github.com/IA-Generative/Muffin/commit/168d2ebcbc72dc0a3cd2f599fe785239fa1062a0))
+* **ci:** prefix gitlab image tags with muffin- ([c3522eb](https://github.com/IA-Generative/Muffin/commit/c3522eb855e105ed7f76ada0fdde31f6abb50e91))
+* **execution-detail:** 422 on GET /runs/{id}/events emptied the panel every time ([c2e8c89](https://github.com/IA-Generative/Muffin/commit/c2e8c8933deef7b648393feea2b600caf1280fe5))
+* **execution-detail:** timeline groups frozen at mount, never updated ([2f42f26](https://github.com/IA-Generative/Muffin/commit/2f42f26d07cc10dbb33acf371bd66a9e1dcaa2e7))
+* **frontend:** conversation menu got clipped on the first row and didn't close reliably ([4aeb60d](https://github.com/IA-Generative/Muffin/commit/4aeb60d83e6faedf8bf4fe96f78da1a0ce376c01))
+* **frontend:** fix TS build errors breaking the frontend Docker build ([e99caf0](https://github.com/IA-Generative/Muffin/commit/e99caf0d9312105949c6d26a0e24265e17583967))
+* **frontend:** render citation footnotes instead of raw evidence uuids ([9dfe2c5](https://github.com/IA-Generative/Muffin/commit/9dfe2c5ddae3b49ab9917fb7f5970b5904af7b86))
+* **frontend:** resolve aliased conversation id before renaming ([1edf89a](https://github.com/IA-Generative/Muffin/commit/1edf89a569254083742960f6ba7f3db08def9b69))
+* **frontend:** sync the URL to the real conversation id after the first run ([81f1aef](https://github.com/IA-Generative/Muffin/commit/81f1aef354f1a27cd9880e9644c5f842e540920c))
+* **research-agent:** resolve follow-up questions against conversation history ([7ac9131](https://github.com/IA-Generative/Muffin/commit/7ac9131d7c5e48aa5fc728fa85aeb0eed36cee44))
+* **research-agent:** restore per-node current_activity updates during a run ([2ff4a2c](https://github.com/IA-Generative/Muffin/commit/2ff4a2ca42bfbac1b1c5cb5d1f322ac225a55163))
+* **research-agent:** restored messages weren't citation-processed, and unmatched ids leaked raw ([e6f8e87](https://github.com/IA-Generative/Muffin/commit/e6f8e8734563235de2818109428951a0a81a641b))
+* **research-agent:** three bugs found testing "how many collections do I have" live ([f193cd4](https://github.com/IA-Generative/Muffin/commit/f193cd4ae3ca0192769c1d10a64b5b25717e2c76))
+
+
+### Performance Improvements
+
+* **research-agent:** cap conversation history threaded into a new run ([8e78387](https://github.com/IA-Generative/Muffin/commit/8e7838736cf7449e15252c8da5ed82767e7704b7))
+* **research-agent:** fetch the chat model once per run instead of once per node ([78ce5c5](https://github.com/IA-Generative/Muffin/commit/78ce5c553f6c3269d626e227c2a216f5f9367c94))
+* **research-agent:** skip the grounding check for simple/meta answers ([8083fc7](https://github.com/IA-Generative/Muffin/commit/8083fc76524a55a547b36b1b3695fad1fda463ca))
+
 ## [0.3.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.2.0...v0.3.0-rc) (2026-09-17)
 
 
