@@ -3,6 +3,7 @@ import type { ExecutionEvent } from '../types/chat'
 
 const props = defineProps<{
   events: ExecutionEvent[] | undefined
+  error?: boolean
 }>()
 
 defineEmits<{
@@ -37,7 +38,8 @@ const groups = (() => {
       <button type="button" class="execution-panel__close" aria-label="Fermer" @click="$emit('close')">✕</button>
     </div>
 
-    <p v-if="events === undefined" class="execution-panel__empty">Chargement…</p>
+    <p v-if="error" class="execution-panel__error">Impossible de charger le détail de l'exécution.</p>
+    <p v-else-if="events === undefined" class="execution-panel__empty">Chargement…</p>
     <p v-else-if="events.length === 0" class="execution-panel__empty">Aucun détail disponible pour cette recherche.</p>
 
     <ol v-else class="execution-panel__timeline">
@@ -89,6 +91,12 @@ const groups = (() => {
   margin-top: 1rem;
   font-size: 0.875rem;
   color: var(--text-mention-grey);
+}
+
+.execution-panel__error {
+  margin-top: 1rem;
+  font-size: 0.875rem;
+  color: var(--text-default-error);
 }
 
 .execution-panel__timeline {

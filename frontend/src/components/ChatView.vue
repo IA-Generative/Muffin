@@ -15,6 +15,7 @@ const {
   activeSources,
   activeExecutionMessageId,
   activeExecutionEvents,
+  activeExecutionError,
   selectConversation,
   sendMessage,
   regenerateMessage,
@@ -53,6 +54,7 @@ watch(
   <ExecutionPanel
     v-else-if="activeExecutionMessageId"
     :events="activeExecutionEvents"
+    :error="activeExecutionError"
     @close="closeExecutionDetails"
   />
 </template>
