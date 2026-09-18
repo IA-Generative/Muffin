@@ -387,7 +387,9 @@ def extract_entities_window(self, document_id: str, collection_id: str, start_pa
 
             entity_ids: dict[str, str] = {}
             for entity in entities:
-                created = backend_client.upsert_entity(collection_id, str(entity["name"]), str(entity["type"]))
+                created = backend_client.upsert_entity(
+                    collection_id, document_id, str(entity["name"]), str(entity["type"])
+                )
                 entity_ids[str(entity["name"])] = created["id"]
 
             for relation in relations:
@@ -396,7 +398,7 @@ def extract_entities_window(self, document_id: str, collection_id: str, start_pa
                 if from_id is None or to_id is None:
                     logger.warning(f"Skipping relation with unresolved entity: {relation!r}")
                     continue
-                backend_client.create_relation(collection_id, from_id, to_id, str(relation["type"]))
+                backend_client.create_relation(collection_id, document_id, from_id, to_id, str(relation["type"]))
         except Exception as error:
             _fail(document_id, f"extract entities for pages {start_page}-{end_page}", error)
             raise

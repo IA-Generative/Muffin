@@ -9,7 +9,9 @@ from app.core.tasks import PROCESS_DOCUMENT_TASK, enqueue_process_document
 from app.models.document import Document, DocumentStatus
 from app.repositories.collection_repository import CollectionRepository
 from app.repositories.document_repository import DocumentRepository
+from app.repositories.entity_repository import EntityRepository
 from app.repositories.task_repository import TaskRepository
+from app.schemas.collection import EntityOut, RelationOut
 from app.schemas.document import DocumentDetailOut, DocumentOut, DocumentPageOut
 from app.schemas.pagination import Page, PaginationParams
 
@@ -25,6 +27,7 @@ class DocumentUploadService:
         self.db = db
         self.collections = CollectionRepository(db)
         self.documents = DocumentRepository(db)
+        self.entities = EntityRepository(db)
         self.tasks = TaskRepository(db)
 
     async def list_documents(self, collection_id: uuid.UUID, user: RequestContext) -> list[DocumentOut]:
@@ -138,6 +141,29 @@ class DocumentUploadService:
         if page is None or page.screenshot is None:
             raise DocumentNotFoundError(f"page {page_number} of document {document_id}")
         return storage.get_object(page.screenshot)
+
+    async def list_entities(
+        self, collection_id: uuid.UUID, user: RequestContext, document_id: uuid.UUID
+    ) -> list[EntityOut]:
+        await self._get_owned_collection(collection_id, user)
+        await self._get_owned_document(collection_id, document_id)
+        entities = await self.entities.list_by_document(document_id)
+        return [
+            EntityOut(id=entity.id, name=entity.name, type=entity.type, mentions=entity.mentions) for entity in entities
+        ]
+
+    async def list_relations(
+        self, collection_id: uuid.UUID, user: RequestContext, document_id: uuid.UUID
+    ) -> list[RelationOut]:
+        await self._get_owned_collection(collection_id, user)
+        await self._get_owned_document(collection_id, document_id)
+        relations = await self.entities.list_relations_by_document(document_id)
+        return [
+            RelationOut(
+                id=relation.id, from_entity=relation.from_entity.name, to=relation.to_entity.name, type=relation.type
+            )
+            for relation in relations
+        ]
 
     async def delete_document(self, collection_id: uuid.UUID, user: RequestContext, document_id: uuid.UUID) -> None:
         await self._get_owned_collection(collection_id, user)

@@ -49,12 +49,14 @@ class QaPairCreate(BaseModel):
 
 
 class EntityCreate(BaseModel):
+    document_id: uuid.UUID
     name: str
     type: str
     mentions_delta: int = 1
 
 
 class RelationCreate(BaseModel):
+    document_id: uuid.UUID | None = None
     from_entity_id: uuid.UUID
     to_entity_id: uuid.UUID
     type: str

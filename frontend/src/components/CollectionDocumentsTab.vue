@@ -140,8 +140,6 @@ const STATUS_LABEL = {
       v-if="openDocument"
       :collection-id="collection.id"
       :document="openDocument"
-      :entities="collection.entities"
-      :relations="collection.relations"
       @close="closeDocumentModal"
     />
   </div>

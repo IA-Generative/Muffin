@@ -42,7 +42,9 @@ async def upsert_entity(
     collection_id: uuid.UUID, body: EntityCreate, db: Annotated[AsyncSession, Depends(get_db)]
 ) -> EntityOut:
     await _ensure_collection(db, collection_id)
-    entity = await EntityRepository(db).upsert(collection_id, body.name, body.type, body.mentions_delta)
+    entity = await EntityRepository(db).upsert(
+        collection_id, body.document_id, body.name, body.type, body.mentions_delta
+    )
     await db.commit()
     return EntityOut(id=entity.id, name=entity.name, type=entity.type, mentions=entity.mentions)
 
@@ -56,6 +58,8 @@ async def create_relation(
     collection_id: uuid.UUID, body: RelationCreate, db: Annotated[AsyncSession, Depends(get_db)]
 ) -> dict[str, str]:
     await _ensure_collection(db, collection_id)
-    await EntityRepository(db).create_relation(collection_id, body.from_entity_id, body.to_entity_id, body.type)
+    await EntityRepository(db).create_relation(
+        collection_id, body.document_id, body.from_entity_id, body.to_entity_id, body.type
+    )
     await db.commit()
     return {"status": "ok"}
