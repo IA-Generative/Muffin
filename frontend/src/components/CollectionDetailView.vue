@@ -12,6 +12,7 @@ import ConfirmDeleteModal from './ConfirmDeleteModal.vue'
 
 const props = defineProps<{
   collection: Collection
+  activeDocumentId?: string
 }>()
 
 const { closeCollection, updateName, updateDescription, updateTags, deleteCollection, isCollectionReady } =
@@ -40,6 +41,16 @@ watch(
   () => [props.collection.id, isReady.value],
   () => {
     if (!isReady.value) activeTab.value = 'settings'
+  },
+  { immediate: true },
+)
+
+// A direct link to /collections/:id/documents/:documentId (see DocumentDetailModal's own
+// navigation) must land on the Documents tab even if something else was last selected.
+watch(
+  () => props.activeDocumentId,
+  (id) => {
+    if (id) activeTab.value = 'documents'
   },
   { immediate: true },
 )
@@ -144,7 +155,11 @@ function confirmDelete() {
       </p>
 
       <div class="collection-detail__panel">
-        <CollectionDocumentsTab v-if="activeTab === 'documents'" :collection="collection" />
+        <CollectionDocumentsTab
+          v-if="activeTab === 'documents'"
+          :collection="collection"
+          :active-document-id="activeDocumentId"
+        />
         <CollectionQaTab v-else-if="activeTab === 'qa'" :collection="collection" />
         <CollectionEvaluationTab v-else-if="activeTab === 'evaluation'" :collection="collection" />
         <CollectionRelationsTab v-else-if="activeTab === 'relations'" :collection="collection" />

@@ -148,19 +148,68 @@ async def test_list_document_pages_paginated_with_screenshot_urls(client):
         session.add(DocumentPage(document_id=created["id"], page_number=2, content="page two"))
         await session.commit()
 
-    with patch(
-        "app.services.document_upload_service.storage.get_presigned_url", return_value="https://example.com/p1.png"
-    ):
-        response = await client.get(
-            f"/api/collections/{collection_id}/documents/{created['id']}/pages", params={"page_size": 1}
-        )
+    response = await client.get(
+        f"/api/collections/{collection_id}/documents/{created['id']}/pages", params={"page_size": 1}
+    )
 
     assert response.status_code == 200
     body = response.json()
     assert body["total"] == 2
     assert len(body["items"]) == 1
     assert body["items"][0]["page_number"] == 1
-    assert body["items"][0]["screenshot_url"] == "https://example.com/p1.png"
+    # A path on this backend, never a direct/public storage URL - see get_page_screenshot.
+    assert body["items"][0]["screenshot_url"] == (
+        f"/api/collections/{collection_id}/documents/{created['id']}/pages/1/screenshot"
+    )
+
+
+async def test_get_page_screenshot_streams_through_the_backend(client):
+    collection_id = await _create_collection(client)
+    with (
+        patch("app.services.document_upload_service.storage.put_object"),
+        patch("app.services.document_upload_service.enqueue_process_document", return_value="celery-task-id"),
+    ):
+        created = (
+            await client.post(
+                f"/api/collections/{collection_id}/documents/file",
+                files={"file": ("report.pdf", b"data", "application/pdf")},
+            )
+        ).json()
+
+    async with async_session_factory() as session:
+        session.add(DocumentPage(document_id=created["id"], page_number=1, content="page one", screenshot="p1.png"))
+        await session.commit()
+
+    with patch(
+        "app.services.document_upload_service.storage.get_object", return_value=(b"fake-png-bytes", "image/png")
+    ) as mock_get_object:
+        response = await client.get(f"/api/collections/{collection_id}/documents/{created['id']}/pages/1/screenshot")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/png"
+    assert response.content == b"fake-png-bytes"
+    mock_get_object.assert_called_once_with("p1.png")
+
+
+async def test_get_page_screenshot_for_page_without_one_returns_404(client):
+    collection_id = await _create_collection(client)
+    with (
+        patch("app.services.document_upload_service.storage.put_object"),
+        patch("app.services.document_upload_service.enqueue_process_document", return_value="celery-task-id"),
+    ):
+        created = (
+            await client.post(
+                f"/api/collections/{collection_id}/documents/file",
+                files={"file": ("report.pdf", b"data", "application/pdf")},
+            )
+        ).json()
+
+    async with async_session_factory() as session:
+        session.add(DocumentPage(document_id=created["id"], page_number=1, content="page one"))
+        await session.commit()
+
+    response = await client.get(f"/api/collections/{collection_id}/documents/{created['id']}/pages/1/screenshot")
+    assert response.status_code == 404
 
 
 async def test_delete_document_removes_its_rustfs_objects(client):
