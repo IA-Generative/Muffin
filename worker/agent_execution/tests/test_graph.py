@@ -45,7 +45,9 @@ def test_simple_query_runs_a_single_task(make_run):
 
     assert result["completed_task_ids"] == ["task-1"]
     assert result["answer"] == "The policy is X [abc]."
-    assert result["grounding_result"]["valid"] is True
+    # A simple single-fact lookup skips the grounding check entirely (§ optimize latency) -
+    # see after_generate_answer.
+    assert result["grounding_result"] is None
 
 
 def test_complex_query_fans_out_independent_tasks_in_parallel(make_run):
@@ -236,8 +238,10 @@ def test_grounding_failure_triggers_targeted_research(make_run):
     calls = {"grounding": 0}
 
     def router(system_prompt: str) -> str:
+        # complexity="complex" - a simple single-fact lookup now skips grounding entirely (§
+        # optimize latency), and this test is specifically about the grounding loop.
         if "Analyze the user" in system_prompt:
-            return _analysis()
+            return _analysis(complexity="complex")
         if "select the ones relevant" in system_prompt.lower():
             return '["hr"]'
         if "Decide whether" in system_prompt:
@@ -310,6 +314,33 @@ def test_list_collections_tool_answers_from_accessible_vdbs_without_searching(ma
         e["content"] == "You have exactly 2 accessible knowledge base collections." for e in result["deduped_evidence"]
     )
     assert result["answer"] == "You have 2 collections: HR and Engineering [x]."
+
+
+def test_meta_query_skips_grounding_check(make_run):
+    """A deterministic knowledge-base lookup (counts, summaries) has nothing to hallucinate a
+    *claim* about - validate_grounding is skipped entirely (§ optimize latency)."""
+    grounding_calls = 0
+
+    def router(system_prompt: str) -> str:
+        nonlocal grounding_calls
+        if "Analyze the user" in system_prompt:
+            return _analysis(intent="meta")
+        if "Break the user's query" in system_prompt:
+            return json.dumps([{"id": "t1", "query": "how many collections do I have", "tool": "list_collections"}])
+        if "Decide whether" in system_prompt:
+            return json.dumps({"status": "sufficient", "missing_information": [], "reasoning": "ok"})
+        if "Check whether every" in system_prompt:
+            grounding_calls += 1
+            return json.dumps({"valid": True, "unsupported_claims": []})
+        return "You have 2 collections [x]."
+
+    graph, fake = make_run(_hr_eng_vdbs(), router)
+    state = initial_state("How many collections do I have?")
+    result = graph.invoke(state, config=_config(state))
+
+    assert grounding_calls == 0, "validate_grounding must not run for a meta-only task"
+    assert result["grounding_result"] is None
+    assert result["answer"] == "You have 2 collections [x]."
 
 
 def test_meta_tool_never_replans_into_a_pointless_search(make_run):
@@ -447,8 +478,10 @@ def test_current_activity_is_updated_at_every_node_not_just_a_generic_placeholde
     UI's placeholder ("Recherche en cours…") then never updated, looking like nothing happened."""
 
     def router(system_prompt: str) -> str:
+        # complexity="complex" - a simple single-fact lookup skips validate_grounding entirely
+        # (§ optimize latency), and this test wants every node exercised at least once.
         if "Analyze the user" in system_prompt:
-            return _analysis()
+            return _analysis(complexity="complex")
         if "select the ones relevant" in system_prompt.lower():
             return '["hr"]'
         if "Decide whether" in system_prompt:

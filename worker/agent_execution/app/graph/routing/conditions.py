@@ -90,6 +90,28 @@ def after_evaluate_coverage(state: AgentState) -> str:
     return "replan_research"
 
 
+def after_generate_answer(state: AgentState) -> str:
+    """Skips the grounding check entirely for answers unlikely to need it (§ optimize latency) -
+    it's a full extra LLM call re-reading the whole answer against the evidence, worth paying
+    for a synthesized/multi-source answer but not for a deterministic knowledge-base lookup
+    (counts, summaries - nothing to hallucinate a *claim* about) or a simple single-fact answer."""
+    if state.get("cancelled") or is_cancelled(state["run_id"]):
+        return "cancelled"
+
+    completed_ids = set(state["completed_task_ids"])
+    completed_tasks = [t for t in state["research_tasks"] if t["id"] in completed_ids]
+    is_meta_only = bool(completed_tasks) and all(t.get("tool", "search") != "search" for t in completed_tasks)
+
+    analysis = state["query_analysis"]
+    is_simple_lookup = (
+        analysis.get("intent") not in ("comparison", "synthesis")
+        and not analysis.get("requires_multiple_sources")
+        and analysis.get("complexity") == "simple"
+    )
+
+    return "end" if is_meta_only or is_simple_lookup else "validate_grounding"
+
+
 def after_validate_grounding(state: AgentState) -> str:
     if state.get("cancelled") or is_cancelled(state["run_id"]):
         return "cancelled"

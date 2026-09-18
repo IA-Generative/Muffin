@@ -19,6 +19,7 @@ from app.graph.nodes.validate_grounding import validate_grounding
 from app.graph.routing.conditions import (
     after_analyze_query,
     after_evaluate_coverage,
+    after_generate_answer,
     after_validate_grounding,
     continue_dag_or_evaluate,
     execute_research_plan,
@@ -94,7 +95,13 @@ def build_graph(checkpointer: BaseCheckpointSaver | None = None):
     # separate execution path, bounded by MAX_REPLANS in after_evaluate_coverage.
     graph.add_conditional_edges("replan_research", execute_research_plan, fan_out_targets)
     _cancellable_edge(graph, "build_answer_context", "generate_answer")
-    _cancellable_edge(graph, "generate_answer", "validate_grounding")
+    # Grounding is skipped for a deterministic knowledge-base lookup or a simple single-fact
+    # answer (§ optimize latency) - see after_generate_answer for exactly which.
+    graph.add_conditional_edges(
+        "generate_answer",
+        after_generate_answer,
+        {"end": END, "validate_grounding": "validate_grounding", "cancelled": "cancelled"},
+    )
     # Grounding loop (§23/§24): a failed check triggers one narrow round of targeted research,
     # then re-generates and re-validates, bounded by MAX_GROUNDING_RESEARCHES.
     graph.add_conditional_edges(
