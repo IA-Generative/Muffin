@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import type { ExecutionEvent } from '../types/chat'
 
 const props = defineProps<{
@@ -19,8 +20,12 @@ function formatTime(iso: string): string {
 }
 
 // Groups consecutive events sharing a task_id under that task, so a fan-out of several parallel
-// research tasks reads as distinct sub-sections instead of one flat interleaved list.
-const groups = (() => {
+// research tasks reads as distinct sub-sections instead of one flat interleaved list. Must be a
+// computed, not a plain IIFE run once at setup - events arrive asynchronously (after the fetch in
+// showExecutionDetails resolves), well after this component already mounted with `events`
+// undefined, so a one-shot computation would freeze on an empty list forever: the panel would
+// render its header fine but the timeline itself would always stay silently blank.
+const groups = computed(() => {
   const result: { taskId?: string; events: ExecutionEvent[] }[] = []
   for (const event of props.events ?? []) {
     const last = result[result.length - 1]
@@ -28,7 +33,7 @@ const groups = (() => {
     else result.push({ taskId: event.taskId, events: [event] })
   }
   return result
-})()
+})
 </script>
 
 <template>
