@@ -32,9 +32,9 @@ function toggleReason(reason: string) {
   else selectedReasons.value.splice(index, 1)
 }
 
-function toggleValidated(url: string) {
-  const index = validatedSources.value.indexOf(url)
-  if (index === -1) validatedSources.value.push(url)
+function toggleValidated(identifier: string) {
+  const index = validatedSources.value.indexOf(identifier)
+  if (index === -1) validatedSources.value.push(identifier)
   else validatedSources.value.splice(index, 1)
 }
 
@@ -47,8 +47,8 @@ function addSource() {
   newSourceUrl.value = ''
 }
 
-function removeAddedSource(url: string) {
-  addedSources.value = addedSources.value.filter((source) => source.url !== url)
+function removeAddedSource(identifier: string) {
+  addedSources.value = addedSources.value.filter((source) => (source.url ?? source.title) !== identifier)
 }
 
 function submit() {
@@ -101,13 +101,13 @@ function submit() {
       <div v-if="sources?.length" class="feedback-modal__field">
         <label>Sources de cette réponse</label>
         <ul class="feedback-modal__sources">
-          <li v-for="source in sources" :key="source.url">
+          <li v-for="source in sources" :key="source.url ?? source.title">
             <a :href="source.url" target="_blank" rel="noopener noreferrer">{{ source.title }}</a>
             <button
               type="button"
               class="feedback-modal__validate"
-              :class="{ 'feedback-modal__validate--active': validatedSources.includes(source.url) }"
-              @click="toggleValidated(source.url)"
+              :class="{ 'feedback-modal__validate--active': validatedSources.includes(source.url ?? source.title) }"
+              @click="toggleValidated(source.url ?? source.title)"
             >
               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                 <path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" />
@@ -121,9 +121,9 @@ function submit() {
       <div class="feedback-modal__field">
         <label>Ajouter une source</label>
         <ul v-if="addedSources.length" class="feedback-modal__sources">
-          <li v-for="source in addedSources" :key="source.url">
+          <li v-for="source in addedSources" :key="source.url ?? source.title">
             <a :href="source.url" target="_blank" rel="noopener noreferrer">{{ source.title }}</a>
-            <button type="button" class="feedback-modal__remove" @click="removeAddedSource(source.url)">
+            <button type="button" class="feedback-modal__remove" @click="removeAddedSource(source.url ?? source.title)">
               Retirer
             </button>
           </li>

@@ -80,6 +80,7 @@ const sourcesLabel = computed(() => {
   if (!sources?.length) return undefined
   const [first, ...rest] = sources
   try {
+    if (!first.url) throw new Error('no url')
     const domain = new URL(first.url).hostname.replace(/^www\./, '')
     return rest.length ? `${domain} +${rest.length}` : domain
   } catch {
