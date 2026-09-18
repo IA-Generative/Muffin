@@ -26,6 +26,12 @@ class FakeBackend:
         self.events: list[tuple[str, str | None]] = []
         self.activities: list[tuple[str, str]] = []  # [(node, activity), ...]
         self.searched_collection_ids: list[list[str]] = []
+        # Empty by default - tests exercising the search tool go straight to tier 3 (chunk
+        # search) unless a test explicitly seeds a QA-cache hit for tier 1.
+        self.qa_hits: list[dict[str, Any]] = []
+        # Empty by default - tests exercising the search tool go straight to tier 3 (chunk
+        # search) unless a test explicitly seeds a summary-cache hit for tier 2.
+        self.summary_hits: list[dict[str, Any]] = []
         # {collection_id: [{"id":..., "name":..., "status":..., "summary":...}, ...]}
         self.documents_by_collection: dict[str, list[dict[str, Any]]] = {}
         # {(document_id, page_number): {"page_number":..., "content":..., "screenshot_url":...}}
@@ -57,6 +63,12 @@ class FakeBackend:
 
     def list_accessible_collections(self, user_id: str) -> list[dict[str, Any]]:
         return self.accessible_vdbs
+
+    def search_qa(self, collection_ids: list[str], query: str, limit: int) -> list[dict[str, Any]]:
+        return self.qa_hits
+
+    def search_summaries(self, collection_ids: list[str], query: str, limit: int) -> list[dict[str, Any]]:
+        return self.summary_hits
 
     def search(self, collection_ids: list[str], query: str, limit: int) -> list[dict[str, Any]]:
         self.searched_collection_ids.append(collection_ids)

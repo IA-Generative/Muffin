@@ -312,6 +312,94 @@ async def test_search_finds_matching_chunk(client, monkeypatch):
     assert results[0]["page_number"] == 3
 
 
+async def test_qa_search_finds_matching_qa_pair(client, monkeypatch):
+    from types import SimpleNamespace
+
+    from app.models.qa import QaOrigin, QaPair
+    from app.services import search_service, vector_store
+
+    async with async_session_factory() as session:
+        collection = Collection(owner_id="dev-user", name="Policies", description="")
+        collection.settings = CollectionSettings(embedding_model="text-embedding-3-small")
+        session.add(collection)
+        await session.flush()
+        qa_pair = QaPair(
+            collection_id=collection.id,
+            question="How much leave do I get?",
+            answer="25 days a year.",
+            origin=QaOrigin.GENERATED,
+        )
+        session.add(qa_pair)
+        await session.commit()
+        collection_id = collection.id
+        qa_pair_id = qa_pair.id
+
+    async def create_embedding(**_kwargs):
+        return SimpleNamespace(data=[SimpleNamespace(embedding=[0.1, 0.2])])
+
+    fake_openai_client = SimpleNamespace(embeddings=SimpleNamespace(create=create_embedding))
+    monkeypatch.setattr(search_service, "_openai_client", fake_openai_client)
+    monkeypatch.setattr(vector_store, "search_qa", lambda collection_id, query_embedding, limit: [(qa_pair_id, 0.93)])
+
+    response = await client.post(
+        "/api/internal/qa-search",
+        headers=_headers(),
+        json={"collection_ids": [str(collection_id)], "query": "how much leave", "limit": 5},
+    )
+
+    assert response.status_code == 200
+    results = response.json()
+    assert len(results) == 1
+    assert results[0]["qa_pair_id"] == str(qa_pair_id)
+    assert results[0]["answer"] == "25 days a year."
+    assert results[0]["score"] == 0.93
+
+
+async def test_summary_search_finds_matching_document(client, monkeypatch):
+    from types import SimpleNamespace
+
+    from app.services import search_service, vector_store
+
+    async with async_session_factory() as session:
+        collection = Collection(owner_id="dev-user", name="Policies", description="")
+        collection.settings = CollectionSettings(embedding_model="text-embedding-3-small")
+        session.add(collection)
+        await session.flush()
+        document = Document(
+            collection_id=collection.id,
+            name="handbook.pdf",
+            type="file",
+            storage_key="k",
+            summary="Covers telework and leave policy.",
+        )
+        session.add(document)
+        await session.commit()
+        collection_id = collection.id
+        document_id = document.id
+
+    async def create_embedding(**_kwargs):
+        return SimpleNamespace(data=[SimpleNamespace(embedding=[0.1, 0.2])])
+
+    fake_openai_client = SimpleNamespace(embeddings=SimpleNamespace(create=create_embedding))
+    monkeypatch.setattr(search_service, "_openai_client", fake_openai_client)
+    monkeypatch.setattr(
+        vector_store, "search_summaries", lambda collection_id, query_embedding, limit: [(document_id, 0.81)]
+    )
+
+    response = await client.post(
+        "/api/internal/summary-search",
+        headers=_headers(),
+        json={"collection_ids": [str(collection_id)], "query": "telework", "limit": 5},
+    )
+
+    assert response.status_code == 200
+    results = response.json()
+    assert len(results) == 1
+    assert results[0]["document_id"] == str(document_id)
+    assert results[0]["summary"] == "Covers telework and leave policy."
+    assert results[0]["score"] == 0.81
+
+
 async def test_search_tolerates_an_embedding_model_that_is_unavailable(client, monkeypatch):
     """A collection's embedding_model can be misconfigured/unavailable on the LLM hub (real
     incident: the hub didn't have "text-embedding-3-small") - that must degrade to empty results

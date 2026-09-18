@@ -277,7 +277,15 @@ def summarize_document(self, document_id: str, collection_id: str) -> None:
                     "\n\n---\n\n".join(partials),
                 )
 
-            backend_client.set_document_summary(document_id, summary)
+            # Best-effort, same fail-soft reasoning as a chunk's own embedding: a summary with no
+            # embedding still exists and still works for everything except the research agent's
+            # tier-2 (summary) retrieval, which just never surfaces it.
+            summary_embedding = None
+            try:
+                summary_embedding = backend_client.embed(settings["embedding_model"], summary)
+            except Exception:
+                logger.exception(f"Failed to embed summary for document {document_id}")
+            backend_client.set_document_summary(document_id, summary, summary_embedding)
             logger.info(f"Summary for document {document_id} saved ({len(summary)} chars)")
 
             parent_id = self.request.id
@@ -355,7 +363,16 @@ def generate_qa_window(self, document_id: str, collection_id: str, start_page: i
 
             logger.info(f"Generated {len(pairs)} QA pair(s) for pages {start_page}-{end_page}")
             for pair in pairs:
-                backend_client.create_qa_pair(collection_id, document_id, str(pair["question"]), str(pair["answer"]))
+                question, answer = str(pair["question"]), str(pair["answer"])
+                # Best-effort, same fail-soft reasoning as a chunk's own embedding above: a QA
+                # pair with no embedding still exists and still answers via the normal QA list,
+                # it's just never surfaced by the research agent's QA-first retrieval tier.
+                embedding = None
+                try:
+                    embedding = backend_client.embed(settings["embedding_model"], question)
+                except Exception:
+                    logger.exception(f"Failed to embed QA question for document {document_id}")
+                backend_client.create_qa_pair(collection_id, document_id, question, answer, embedding)
         except Exception as error:
             _fail(document_id, f"generate QA for pages {start_page}-{end_page}", error)
             raise
@@ -561,7 +578,13 @@ def generate_collection_qa(self, document_id: str, collection_id: str, descripti
                 raise ValueError(f"Expected a JSON array of QA pairs, got: {pairs!r}")
 
             for pair in pairs:
-                backend_client.create_qa_pair(collection_id, None, str(pair["question"]), str(pair["answer"]))
+                question, answer = str(pair["question"]), str(pair["answer"])
+                embedding = None
+                try:
+                    embedding = backend_client.embed(settings["embedding_model"], question)
+                except Exception:
+                    logger.exception(f"Failed to embed collection-level QA question for collection {collection_id}")
+                backend_client.create_qa_pair(collection_id, None, question, answer, embedding)
             logger.info(f"Generated {len(pairs)} collection-level QA pair(s) for collection {collection_id}")
         except Exception as error:
             _fail(document_id, "generate collection-level QA pairs", error)

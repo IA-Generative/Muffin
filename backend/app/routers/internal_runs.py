@@ -19,6 +19,7 @@ from app.schemas.internal_run import (
     DocumentPageContentOut,
     DocumentSummaryOut,
     InternalRunOut,
+    QaSearchResultOut,
     RunErrorUpdate,
     RunEventCreate,
     RunResultUpdate,
@@ -26,6 +27,7 @@ from app.schemas.internal_run import (
     RunStatusUpdate,
     SearchRequest,
     SearchResultOut,
+    SummarySearchResultOut,
 )
 from app.services.search_service import SearchService
 
@@ -250,4 +252,46 @@ async def search(body: SearchRequest, db: Annotated[AsyncSession, Depends(get_db
             page_number=(chunk.extras or {}).get("page_start"),
         )
         for chunk, document_name, collection_id, rank in rows
+    ]
+
+
+@router.post(
+    "/qa-search",
+    summary="Vector search (Qdrant) over the QA pairs of the given collections - the research "
+    "agent's QA-first retrieval tier, tried before falling back to summaries then chunk search",
+    response_model=list[QaSearchResultOut],
+)
+async def qa_search(body: SearchRequest, db: Annotated[AsyncSession, Depends(get_db)]) -> list[QaSearchResultOut]:
+    rows = await SearchService(db).search_qa(body.collection_ids, body.query, body.limit)
+    return [
+        QaSearchResultOut(
+            qa_pair_id=qa_pair.id,
+            collection_id=collection_id,
+            question=qa_pair.question,
+            answer=qa_pair.answer,
+            score=score,
+        )
+        for qa_pair, collection_id, score in rows
+    ]
+
+
+@router.post(
+    "/summary-search",
+    summary="Vector search (Qdrant) over the document summaries of the given collections - the "
+    "research agent's tier-2 retrieval, tried after a QA miss and before a full chunk search",
+    response_model=list[SummarySearchResultOut],
+)
+async def summary_search(
+    body: SearchRequest, db: Annotated[AsyncSession, Depends(get_db)]
+) -> list[SummarySearchResultOut]:
+    rows = await SearchService(db).search_summaries(body.collection_ids, body.query, body.limit)
+    return [
+        SummarySearchResultOut(
+            document_id=document.id,
+            collection_id=document.collection_id,
+            name=document.name,
+            summary=document.summary,
+            score=score,
+        )
+        for document, score in rows
     ]

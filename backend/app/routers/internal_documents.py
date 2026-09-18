@@ -104,7 +104,7 @@ async def update_document_summary(
     document_id: uuid.UUID, update: DocumentSummaryUpdate, service: ServiceDep
 ) -> dict[str, str]:
     try:
-        await service.set_summary(document_id, update.summary)
+        await service.set_summary(document_id, update.summary, update.embedding)
     except DocumentNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found") from error
     return {"status": "ok"}

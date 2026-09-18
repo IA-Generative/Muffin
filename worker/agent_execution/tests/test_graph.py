@@ -539,3 +539,127 @@ def test_cancellation_before_search_stops_the_run_cleanly(make_run):
 
     assert result["execution_status"] == "cancelled"
     assert result["answer"] is None
+
+
+def test_qa_cache_hit_skips_chunk_search(make_run):
+    """Tier 1 of the retrieval cascade (§ QA -> summaries -> chunks): a close-enough match in the
+    QA cache answers the task directly, no vector search over chunks needed at all."""
+
+    def router(system_prompt: str) -> str:
+        if "Analyze the user" in system_prompt:
+            return _analysis()
+        if "select the ones relevant" in system_prompt.lower():
+            return '["hr"]'
+        if "Decide whether" in system_prompt:
+            return json.dumps({"status": "sufficient", "missing_information": [], "reasoning": "ok"})
+        return "Leave is 25 days a year [x]."
+
+    graph, fake = make_run(_hr_eng_vdbs(), router)
+    fake.qa_hits = [
+        {
+            "qa_pair_id": "qa-1",
+            "collection_id": "hr",
+            "question": "How much leave?",
+            "answer": "25 days a year.",
+            "score": 0.93,
+        }
+    ]
+
+    state = initial_state("What is the leave policy?")
+    result = graph.invoke(state, config=_config(state))
+
+    assert fake.searched_collection_ids == []
+    assert len(result["deduped_evidence"]) == 1
+    assert result["deduped_evidence"][0]["content"] == "25 days a year."
+
+
+def test_qa_cache_miss_falls_through_to_chunk_search(make_run):
+    """A QA hit below the match threshold is not close enough - falls through exactly like no
+    hit at all."""
+
+    def router(system_prompt: str) -> str:
+        if "Analyze the user" in system_prompt:
+            return _analysis()
+        if "select the ones relevant" in system_prompt.lower():
+            return '["hr"]'
+        if "Decide whether" in system_prompt:
+            return json.dumps({"status": "sufficient", "missing_information": [], "reasoning": "ok"})
+        return "The policy is X [abc]."
+
+    graph, fake = make_run(_hr_eng_vdbs(), router)
+    fake.qa_hits = [
+        {"qa_pair_id": "qa-1", "collection_id": "hr", "question": "unrelated", "answer": "unrelated", "score": 0.4}
+    ]
+
+    state = initial_state("What is the leave policy?")
+    result = graph.invoke(state, config=_config(state))
+
+    assert fake.searched_collection_ids == [["hr"]]
+    assert result["answer"] == "The policy is X [abc]."
+
+
+def test_document_summaries_suffice_skips_chunk_search(make_run):
+    """Tier 2: no QA hit, but the documents' own summaries already answer the question - still
+    no chunk search needed."""
+
+    def router(system_prompt: str) -> str:
+        if "Analyze the user" in system_prompt:
+            return _analysis()
+        if "select the ones relevant" in system_prompt.lower():
+            return '["hr"]'
+        if "alone (without reading" in system_prompt:
+            return json.dumps({"sufficient": True, "answer": "Telework is allowed two days a week."})
+        if "Decide whether" in system_prompt:
+            return json.dumps({"status": "sufficient", "missing_information": [], "reasoning": "ok"})
+        return "Telework is allowed two days a week [x]."
+
+    graph, fake = make_run(_hr_eng_vdbs(), router)
+    fake.summary_hits = [
+        {
+            "document_id": "doc-1",
+            "collection_id": "hr",
+            "name": "handbook.pdf",
+            "summary": "Covers telework and leave policy.",
+            "score": 0.7,
+        }
+    ]
+
+    state = initial_state("What is the telework policy?")
+    result = graph.invoke(state, config=_config(state))
+
+    assert fake.searched_collection_ids == []
+    assert len(result["deduped_evidence"]) == 1
+    assert result["deduped_evidence"][0]["content"] == "Telework is allowed two days a week."
+
+
+def test_no_qa_hit_no_summary_falls_through_to_chunk_search(make_run):
+    """Neither tier 1 nor tier 2 has anything - falls through to the original chunk search,
+    unchanged from before this cascade existed."""
+
+    def router(system_prompt: str) -> str:
+        if "Analyze the user" in system_prompt:
+            return _analysis()
+        if "select the ones relevant" in system_prompt.lower():
+            return '["hr"]'
+        if "alone (without reading" in system_prompt:
+            return json.dumps({"sufficient": False, "answer": None})
+        if "Decide whether" in system_prompt:
+            return json.dumps({"status": "sufficient", "missing_information": [], "reasoning": "ok"})
+        return "The policy is X [abc]."
+
+    graph, fake = make_run(_hr_eng_vdbs(), router)
+    fake.summary_hits = [
+        {
+            "document_id": "doc-1",
+            "collection_id": "hr",
+            "name": "handbook.pdf",
+            "summary": "An unrelated summary.",
+            "score": 0.3,
+        }
+    ]
+
+    state = initial_state("What is the leave policy?")
+    result = graph.invoke(state, config=_config(state))
+
+    assert fake.searched_collection_ids == [["hr"]]
+    assert result["answer"] == "The policy is X [abc]."
