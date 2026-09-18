@@ -16,10 +16,11 @@ const emit = defineEmits<{
   showExecution: [id: string]
 }>()
 
-// User input stays plain text; only the assistant's markdown gets parsed and
-// sanitized, since it is the only content that can carry it.
+// User input stays plain text; only the assistant's markdown gets parsed and sanitized, since
+// it is the only content that can carry it - a pending placeholder (a step label like "Analyse
+// de votre question") is never markdown either, it's just plain text with animated dots after it.
 const renderedContent = computed(() =>
-  props.message.role === 'assistant'
+  props.message.role === 'assistant' && !props.message.pending
     ? DOMPurify.sanitize(marked.parse(props.message.content, { async: false }))
     : props.message.content,
 )
@@ -98,6 +99,9 @@ onBeforeUnmount(() => {
   <div class="chat-message" :class="`chat-message--${message.role}`">
     <div class="chat-message__bubble">
       <p v-if="message.role === 'user'" class="chat-message__text">{{ renderedContent }}</p>
+      <p v-else-if="message.pending" class="chat-message__text chat-message__pending">
+        {{ renderedContent }}<span class="chat-message__dots" aria-hidden="true"><span>.</span><span>.</span><span>.</span></span>
+      </p>
       <!-- eslint-disable-next-line vue/no-v-html -->
       <div v-else class="chat-message__markdown" v-html="renderedContent" />
 
@@ -113,7 +117,7 @@ onBeforeUnmount(() => {
         {{ sourcesLabel }}
       </button>
 
-      <div v-if="message.role === 'assistant'" class="chat-message__actions">
+      <div v-if="message.role === 'assistant' && !message.pending" class="chat-message__actions">
         <button type="button" class="chat-message__action" title="Copier" @click="copyContent">
           <svg
             v-if="!copied"
@@ -248,6 +252,33 @@ onBeforeUnmount(() => {
   margin: 0;
   white-space: pre-wrap;
   line-height: 1.6;
+}
+
+.chat-message__pending {
+  color: var(--text-mention-grey);
+}
+
+.chat-message__dots span {
+  animation: chat-message-dot-blink 1.4s infinite both;
+}
+
+.chat-message__dots span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.chat-message__dots span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes chat-message-dot-blink {
+  0%,
+  80%,
+  100% {
+    opacity: 0.2;
+  }
+  40% {
+    opacity: 1;
+  }
 }
 
 .chat-message--user .chat-message__bubble {

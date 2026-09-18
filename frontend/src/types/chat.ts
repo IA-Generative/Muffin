@@ -13,6 +13,10 @@ export interface ChatMessage {
   // The research run that produced this message, if any (assistant messages only) - lets the
   // UI fetch that run's step-by-step event trace ("execution detail") on demand.
   runId?: string
+  // True while this message is a run-in-progress placeholder (content is a step label, e.g.
+  // "Analyse de votre question") - ChatMessage.vue shows an animated "…" after it instead of a
+  // static one, and never renders it as markdown.
+  pending?: boolean
 }
 
 export interface ExecutionEvent {
