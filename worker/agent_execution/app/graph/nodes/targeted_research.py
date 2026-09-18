@@ -4,7 +4,6 @@ from app.backend_client import backend_client
 from app.config import settings
 from app.graph.services.events import emit, is_cancelled, set_activity
 from app.graph.services.evidence import normalize_results
-from app.graph.services.llm import default_model
 from app.graph.services.vdb_router import select_relevant_vdbs
 from app.graph.state import AgentState, ResearchTask
 
@@ -24,7 +23,7 @@ def targeted_research(state: AgentState) -> dict[str, Any]:
     set_activity(run_id, "targeted_research", "Looking for additional support for the answer")
     emit(run_id, "grounding_research_started", {"unsupported_claims": claims, "attempt": count})
 
-    model = default_model()
+    model = state["chat_model"]
     new_tasks: list[ResearchTask] = []
     evidence = []
     for i, claim in enumerate(claims):

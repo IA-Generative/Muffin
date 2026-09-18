@@ -85,6 +85,10 @@ class AgentService:
                 "original_query": run["query"],
                 "contextualized_query": run["query"],
                 "messages": [*history, {"role": "user", "content": run["query"]}],
+                # Fetched once here rather than by every node that needs it (see AgentState.chat_model) -
+                # backend_client.get_default_chat_model() is already Redis-cached backend-side, so this
+                # is the only worker<->backend round trip for it in the entire run.
+                "chat_model": backend_client.get_default_chat_model(),
                 "accessible_vdbs": [],
                 "query_analysis": {},
                 "research_plan": {},

@@ -8,7 +8,6 @@ from app.config import settings
 from app.graph.services.document_resolver import resolve_document_page
 from app.graph.services.events import emit, is_cancelled, set_activity
 from app.graph.services.evidence import normalize_results
-from app.graph.services.llm import default_model
 from app.graph.services.vdb_router import select_relevant_vdbs
 from app.graph.state import Evidence, ResearchTaskInput
 
@@ -52,8 +51,10 @@ def _count_fact_evidence(
     )
 
 
-def _run_search(task: dict[str, Any], accessible_vdbs: list[dict[str, Any]]) -> tuple[dict[str, Any], list[Evidence]]:
-    selected_vdbs = select_relevant_vdbs(task["query"], accessible_vdbs, default_model())
+def _run_search(
+    task: dict[str, Any], accessible_vdbs: list[dict[str, Any]], model: str | None
+) -> tuple[dict[str, Any], list[Evidence]]:
+    selected_vdbs = select_relevant_vdbs(task["query"], accessible_vdbs, model)
     if not selected_vdbs:
         return {"selected_vdbs": [], "results": []}, []
 
@@ -78,16 +79,18 @@ def _run_list_collections(task: dict[str, Any], accessible_vdbs: list[dict[str, 
     return {"selected_vdbs": [str(v["id"]) for v in accessible_vdbs]}, evidence
 
 
-def _run_collection_summary(task: dict[str, Any], accessible_vdbs: list[dict[str, Any]]) -> tuple[dict, list[Evidence]]:
-    selected_vdbs = select_relevant_vdbs(task["query"], accessible_vdbs, default_model())
+def _run_collection_summary(
+    task: dict[str, Any], accessible_vdbs: list[dict[str, Any]], model: str | None
+) -> tuple[dict, list[Evidence]]:
+    selected_vdbs = select_relevant_vdbs(task["query"], accessible_vdbs, model)
     evidence = [_collection_evidence(vdb, task["id"], task["query"]) for vdb in selected_vdbs]
     return {"selected_vdbs": [str(v["id"]) for v in selected_vdbs]}, evidence
 
 
 def _run_list_documents(
-    task: dict[str, Any], user_id: str, accessible_vdbs: list[dict[str, Any]]
+    task: dict[str, Any], user_id: str, accessible_vdbs: list[dict[str, Any]], model: str | None
 ) -> tuple[dict, list[Evidence]]:
-    selected_vdbs = select_relevant_vdbs(task["query"], accessible_vdbs, default_model())
+    selected_vdbs = select_relevant_vdbs(task["query"], accessible_vdbs, model)
     evidence: list[Evidence] = []
     for vdb in selected_vdbs:
         documents = backend_client.list_collection_documents(user_id, str(vdb["id"]))
@@ -122,9 +125,9 @@ def _run_list_documents(
 
 
 def _run_page_content(
-    task: dict[str, Any], user_id: str, accessible_vdbs: list[dict[str, Any]]
+    task: dict[str, Any], user_id: str, accessible_vdbs: list[dict[str, Any]], model: str | None
 ) -> tuple[dict, list[Evidence]]:
-    selected_vdbs = select_relevant_vdbs(task["query"], accessible_vdbs, default_model())
+    selected_vdbs = select_relevant_vdbs(task["query"], accessible_vdbs, model)
     if not selected_vdbs:
         return {"selected_vdbs": []}, []
 
@@ -132,7 +135,7 @@ def _run_page_content(
     # documents, same permission-scoped candidate list list_documents itself uses.
     vdb = selected_vdbs[0]
     candidates = backend_client.list_collection_documents(user_id, str(vdb["id"]))
-    document_id, page_number = resolve_document_page(task["query"], candidates, default_model())
+    document_id, page_number = resolve_document_page(task["query"], candidates, model)
     if document_id is None or page_number is None:
         return {"selected_vdbs": [str(vdb["id"])]}, []
 
@@ -158,8 +161,10 @@ def _run_page_content(
 
 
 _RUNNERS = {
-    "list_collections": lambda task, user_id, accessible_vdbs: _run_list_collections(task, accessible_vdbs),
-    "collection_summary": lambda task, user_id, accessible_vdbs: _run_collection_summary(task, accessible_vdbs),
+    "list_collections": lambda task, user_id, accessible_vdbs, model: _run_list_collections(task, accessible_vdbs),
+    "collection_summary": lambda task, user_id, accessible_vdbs, model: _run_collection_summary(
+        task, accessible_vdbs, model
+    ),
     "list_documents": _run_list_documents,
     "page_content": _run_page_content,
 }
@@ -183,8 +188,8 @@ def research_task(state: ResearchTaskInput) -> dict[str, Any]:
     emit(run_id, "task_started", {"query": task["query"], "tool": task["tool"]}, task_id=task_id)
     try:
         emit(run_id, "vdb_routing_started", task_id=task_id)
-        runner = _RUNNERS.get(task["tool"], lambda t, u, v: _run_search(t, v))
-        updates, evidence = runner(task, user_id, state["accessible_vdbs"])
+        runner = _RUNNERS.get(task["tool"], lambda t, u, v, m: _run_search(t, v, m))
+        updates, evidence = runner(task, user_id, state["accessible_vdbs"], state["chat_model"])
         emit(run_id, "vdb_routing_completed", {"selected_ids": updates.get("selected_vdbs", [])}, task_id=task_id)
 
         completed = {**task, "status": "completed", **updates}

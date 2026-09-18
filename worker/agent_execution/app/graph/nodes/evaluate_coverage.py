@@ -1,7 +1,7 @@
 from typing import Any
 
 from app.graph.services.events import emit, is_cancelled, set_activity
-from app.graph.services.llm import default_model, json_chat
+from app.graph.services.llm import json_chat
 from app.graph.state import AgentState, CoverageResult
 
 _SYSTEM_PROMPT = (
@@ -38,7 +38,7 @@ def evaluate_coverage(state: AgentState) -> dict[str, Any]:
             reasoning="No search returned results.",
         )
     else:
-        model = default_model()
+        model = state["chat_model"]
         if model is None:
             coverage = CoverageResult(
                 status="sufficient", missing_information=[], reasoning="No model available to judge."

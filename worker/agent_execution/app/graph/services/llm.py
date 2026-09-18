@@ -17,10 +17,6 @@ def strip_code_fence(text: str) -> str:
     return "\n".join(lines).strip()
 
 
-def default_model() -> str | None:
-    return backend_client.get_default_chat_model()
-
-
 def json_chat(model: str, system_prompt: str, user_content: str, *, fallback: Any) -> Any:
     """Chat call whose response is expected to be a single JSON value. Never lets a malformed
     or refused LLM response take the graph down - callers get `fallback` and log instead, since
