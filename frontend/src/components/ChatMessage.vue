@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import DOMPurify from 'dompurify'
 import { marked } from 'marked'
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { ChatMessage, FeedbackDetails } from '../types/chat'
 import FeedbackModal from './FeedbackModal.vue'
 
@@ -39,6 +39,41 @@ function handleOutsideClick(event: MouseEvent) {
 }
 
 onMounted(() => document.addEventListener('click', handleOutsideClick))
+
+// Elapsed time while this message is pending - kept in this component (not useChat.ts) since
+// the same ChatMessage instance survives every poll-driven content update (ChatWindow keys the
+// v-for on message.id), so a plain local ref/interval here already persists exactly as long as
+// the run does, no need to thread a startedAt timestamp through the composable's state.
+const elapsedSeconds = ref(0)
+let pendingSince: number | undefined
+let elapsedTimer: ReturnType<typeof setInterval> | undefined
+
+function stopElapsedTimer() {
+  clearInterval(elapsedTimer)
+  elapsedTimer = undefined
+}
+
+watch(
+  () => props.message.pending,
+  (pending) => {
+    if (!pending) {
+      stopElapsedTimer()
+      return
+    }
+    pendingSince ??= Date.now()
+    stopElapsedTimer()
+    elapsedTimer = setInterval(() => {
+      elapsedSeconds.value = Math.floor((Date.now() - pendingSince!) / 1000)
+    }, 1000)
+  },
+  { immediate: true },
+)
+
+const elapsedLabel = computed(() => {
+  const total = elapsedSeconds.value
+  if (total < 60) return `${total} s`
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`
+})
 
 async function copyContent() {
   await navigator.clipboard.writeText(props.message.content)
@@ -91,6 +126,7 @@ const sourcesLabel = computed(() => {
 
 onBeforeUnmount(() => {
   clearTimeout(copiedTimeout)
+  stopElapsedTimer()
   document.removeEventListener('click', handleOutsideClick)
 })
 </script>
@@ -101,6 +137,7 @@ onBeforeUnmount(() => {
       <p v-if="message.role === 'user'" class="chat-message__text">{{ renderedContent }}</p>
       <p v-else-if="message.pending" class="chat-message__text chat-message__pending">
         {{ renderedContent }}<span class="chat-message__dots" aria-hidden="true"><span>.</span><span>.</span><span>.</span></span>
+        <span class="chat-message__elapsed">{{ elapsedLabel }}</span>
       </p>
       <!-- eslint-disable-next-line vue/no-v-html -->
       <div v-else class="chat-message__markdown" v-html="renderedContent" />
@@ -256,6 +293,13 @@ onBeforeUnmount(() => {
 
 .chat-message__pending {
   color: var(--text-mention-grey);
+}
+
+.chat-message__elapsed {
+  margin-left: 0.5rem;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-disabled-grey);
 }
 
 .chat-message__dots span {
