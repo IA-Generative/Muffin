@@ -8,8 +8,21 @@ from app.config import settings
 from app.graph.services.document_resolver import resolve_document_page
 from app.graph.services.events import emit, is_cancelled, set_activity
 from app.graph.services.evidence import normalize_results
+from app.graph.services.llm import json_chat
 from app.graph.services.vdb_router import select_relevant_vdbs
 from app.graph.state import Evidence, ResearchTaskInput
+
+# Cosine similarity (Qdrant's COSINE distance) above which a previously answered question counts
+# as "this one, already answered" rather than merely related - conservative on purpose, a false
+# match here means citing a wrong answer, not just a missed shortcut.
+_QA_MATCH_THRESHOLD = 0.85
+
+_SUMMARY_SUFFICIENCY_PROMPT = (
+    "Given a query and the summaries of the documents in a knowledge base, decide whether these summaries "
+    "alone (without reading the documents' full content) are enough to answer it completely and precisely. "
+    'Respond only with JSON: {"sufficient": bool, "answer": string or null - a complete, precise answer '
+    "using only the given summaries, set only when sufficient is true}."
+)
 
 
 def _collection_evidence(vdb: dict[str, Any], task_id: str, retrieval_query: str) -> Evidence:
@@ -51,23 +64,88 @@ def _count_fact_evidence(
     )
 
 
+def _qa_evidence(task_id: str, retrieval_query: str, hit: dict[str, Any]) -> Evidence:
+    return Evidence(
+        id=str(uuid.uuid4()),
+        task_id=task_id,
+        vdb_id=str(hit["collection_id"]),
+        source_id=str(hit["collection_id"]),
+        content=hit["answer"],
+        metadata={"document_name": "Question déjà répondue", "qa_pair_id": str(hit["qa_pair_id"])},
+        relevance_score=hit["score"],
+        retrieval_query=retrieval_query,
+    )
+
+
+def _summary_evidence(task_id: str, retrieval_query: str, vdb: dict[str, Any], answer: str) -> Evidence:
+    return Evidence(
+        id=str(uuid.uuid4()),
+        task_id=task_id,
+        vdb_id=str(vdb["id"]),
+        source_id=str(vdb["id"]),
+        content=answer,
+        metadata={"document_name": vdb["name"]},
+        relevance_score=None,
+        retrieval_query=retrieval_query,
+    )
+
+
+_SUMMARY_MATCH_LIMIT = 5
+
+
+def _summaries_suffice(query: str, summaries: list[dict[str, Any]], model: str | None) -> tuple[bool, str | None]:
+    """Tier 2 of the research agent's retrieval cascade (§ QA -> summaries -> chunks): before
+    ever running a full chunk search, ask whether the top-matching documents' own summaries
+    already answer the query - cheaper and often already precise enough for "what is X
+    about"-style questions. Only the top _SUMMARY_MATCH_LIMIT summaries (found by vector search
+    over summary embeddings, see backend_client.search_summaries), never every document in the
+    collection - that wouldn't scale to a collection with hundreds of them."""
+    if model is None:
+        return False, None
+    listing = "\n\n".join(f"{s['name']}: {s['summary']}" for s in summaries if s.get("summary"))
+    if not listing:
+        return False, None
+    raw = json_chat(
+        model,
+        _SUMMARY_SUFFICIENCY_PROMPT,
+        f"Query: {query}\n\nDocument summaries:\n{listing}",
+        fallback={"sufficient": False, "answer": None},
+    )
+    if not isinstance(raw, dict):
+        return False, None
+    return bool(raw.get("sufficient")), raw.get("answer")
+
+
 def _run_search(
-    task: dict[str, Any], accessible_vdbs: list[dict[str, Any]], model: str | None
+    task: dict[str, Any], _user_id: str, accessible_vdbs: list[dict[str, Any]], model: str | None
 ) -> tuple[dict[str, Any], list[Evidence]]:
     selected_vdbs = select_relevant_vdbs(task["query"], accessible_vdbs, model)
     if not selected_vdbs:
         return {"selected_vdbs": [], "results": []}, []
+    vdb_ids = [str(v["id"]) for v in selected_vdbs]
+    vdb_names = {str(v["id"]): v["name"] for v in selected_vdbs}
+    base_updates = {"selected_vdbs": vdb_ids, "search_queries": [task["query"]]}
 
-    results = backend_client.search(
-        [str(v["id"]) for v in selected_vdbs], task["query"], settings.SEARCH_RESULTS_PER_QUERY
-    )
+    # Tier 1: has this exact question already been answered (a QA pair), in these collections?
+    qa_hits = backend_client.search_qa(vdb_ids, task["query"], limit=1)
+    if qa_hits and qa_hits[0]["score"] >= _QA_MATCH_THRESHOLD:
+        evidence = [_qa_evidence(task["id"], task["query"], qa_hits[0])]
+        return {**base_updates, "results": []}, evidence
+
+    # Tier 2: do the best-matching documents' own summaries already answer it, without reading
+    # full chunks?
+    summary_hits = backend_client.search_summaries(vdb_ids, task["query"], limit=_SUMMARY_MATCH_LIMIT)
+    sufficient, summary_answer = _summaries_suffice(task["query"], summary_hits, model)
+    if sufficient and summary_answer:
+        top_vdb_id = str(summary_hits[0]["collection_id"]) if summary_hits else vdb_ids[0]
+        vdb = {"id": top_vdb_id, "name": vdb_names.get(top_vdb_id, top_vdb_id)}
+        evidence = [_summary_evidence(task["id"], task["query"], vdb, summary_answer)]
+        return {**base_updates, "results": []}, evidence
+
+    # Tier 3: the original, unconditional behavior - full vector search over the chunks.
+    results = backend_client.search(vdb_ids, task["query"], settings.SEARCH_RESULTS_PER_QUERY)
     evidence = normalize_results(task["id"], task["query"], results)
-    updates = {
-        "selected_vdbs": [str(v["id"]) for v in selected_vdbs],
-        "search_queries": [task["query"]],
-        "results": results,
-    }
-    return updates, evidence
+    return {**base_updates, "results": results}, evidence
 
 
 def _run_list_collections(task: dict[str, Any], accessible_vdbs: list[dict[str, Any]]) -> tuple[dict, list[Evidence]]:
@@ -188,7 +266,7 @@ def research_task(state: ResearchTaskInput) -> dict[str, Any]:
     emit(run_id, "task_started", {"query": task["query"], "tool": task["tool"]}, task_id=task_id)
     try:
         emit(run_id, "vdb_routing_started", task_id=task_id)
-        runner = _RUNNERS.get(task["tool"], lambda t, u, v, m: _run_search(t, v, m))
+        runner = _RUNNERS.get(task["tool"], _run_search)
         updates, evidence = runner(task, user_id, state["accessible_vdbs"], state["chat_model"])
         # Stamped centrally here (not in each runner) so every evidence-producing branch tags
         # itself the same way, once - lets a citation say which tool produced it (§ sources

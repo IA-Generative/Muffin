@@ -64,6 +64,22 @@ class SearchRequest(BaseModel):
     limit: int = 10
 
 
+class QaSearchResultOut(BaseModel):
+    qa_pair_id: uuid.UUID
+    collection_id: uuid.UUID
+    question: str
+    answer: str
+    score: float
+
+
+class SummarySearchResultOut(BaseModel):
+    document_id: uuid.UUID
+    collection_id: uuid.UUID
+    name: str
+    summary: str | None
+    score: float
+
+
 class SearchResultOut(BaseModel):
     chunk_id: uuid.UUID
     document_id: uuid.UUID

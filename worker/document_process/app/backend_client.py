@@ -59,8 +59,10 @@ class BackendClient:
         )
         response.raise_for_status()
 
-    def set_document_summary(self, document_id: str, summary: str) -> None:
-        response = self._client.patch(f"/api/internal/documents/{document_id}/summary", json={"summary": summary})
+    def set_document_summary(self, document_id: str, summary: str, embedding: list[float] | None = None) -> None:
+        response = self._client.patch(
+            f"/api/internal/documents/{document_id}/summary", json={"summary": summary, "embedding": embedding}
+        )
         response.raise_for_status()
 
     def set_document_error(self, document_id: str, error: str) -> None:
@@ -76,10 +78,17 @@ class BackendClient:
         response.raise_for_status()
         return response.json()
 
-    def create_qa_pair(self, collection_id: str, document_id: str | None, question: str, answer: str) -> None:
+    def create_qa_pair(
+        self,
+        collection_id: str,
+        document_id: str | None,
+        question: str,
+        answer: str,
+        embedding: list[float] | None = None,
+    ) -> None:
         response = self._client.post(
             f"/api/internal/collections/{collection_id}/qa-pairs",
-            json={"document_id": document_id, "question": question, "answer": answer},
+            json={"document_id": document_id, "question": question, "answer": answer, "embedding": embedding},
         )
         response.raise_for_status()
 

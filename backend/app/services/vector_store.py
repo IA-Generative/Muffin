@@ -5,6 +5,17 @@ from qdrant_client import models as qdrant_models
 
 from app.connectors import qdrant_connector
 
+# Distinguishes a chunk's embedding from a QA pair's question embedding and a document summary's
+# embedding, all within the same Qdrant collection (§ QA -> summaries -> chunks retrieval
+# cascade) - they all live in chunks_<collection_id> and share the same vector space (all
+# embedded with that collection's own embedding_model), only the payload says which kind of
+# point it is, so search()/search_qa()/search_summaries() below just filter on it.
+_KIND_FIELD = "kind"
+_KIND_CHUNK = "chunk"
+_KIND_QA = "qa"
+_KIND_SUMMARY = "summary"
+_NON_CHUNK_KINDS = (_KIND_QA, _KIND_SUMMARY)
+
 
 def _collection_name(collection_id: uuid.UUID) -> str:
     # One Qdrant collection per Muffin Collection (§7/§12 of the research-agent brief:
@@ -13,7 +24,7 @@ def _collection_name(collection_id: uuid.UUID) -> str:
     return f"chunks_{collection_id}"
 
 
-def upsert_chunk_embedding(collection_id: uuid.UUID, chunk_id: uuid.UUID, embedding: list[float]) -> None:
+def _upsert(collection_id: uuid.UUID, point_id: uuid.UUID, embedding: list[float], kind: str) -> None:
     name = _collection_name(collection_id)
     if not qdrant_connector.client.collection_exists(name):
         # Lazily created on first embedding - the vector size is whatever the
@@ -24,16 +35,61 @@ def upsert_chunk_embedding(collection_id: uuid.UUID, chunk_id: uuid.UUID, embedd
         )
     qdrant_connector.client.upsert(
         collection_name=name,
-        points=[qdrant_models.PointStruct(id=str(chunk_id), vector=embedding)],
+        points=[qdrant_models.PointStruct(id=str(point_id), vector=embedding, payload={_KIND_FIELD: kind})],
+    )
+
+
+def upsert_chunk_embedding(collection_id: uuid.UUID, chunk_id: uuid.UUID, embedding: list[float]) -> None:
+    _upsert(collection_id, chunk_id, embedding, _KIND_CHUNK)
+
+
+def upsert_qa_embedding(collection_id: uuid.UUID, qa_pair_id: uuid.UUID, embedding: list[float]) -> None:
+    _upsert(collection_id, qa_pair_id, embedding, _KIND_QA)
+
+
+def upsert_summary_embedding(collection_id: uuid.UUID, document_id: uuid.UUID, embedding: list[float]) -> None:
+    _upsert(collection_id, document_id, embedding, _KIND_SUMMARY)
+
+
+def _search(
+    collection_id: uuid.UUID, query_embedding: list[float], limit: int, query_filter: qdrant_models.Filter
+) -> list[tuple[uuid.UUID, float]]:
+    name = _collection_name(collection_id)
+    if not qdrant_connector.client.collection_exists(name):
+        return []
+    hits = qdrant_connector.client.query_points(
+        collection_name=name, query=query_embedding, limit=limit, query_filter=query_filter
+    ).points
+    return [(uuid.UUID(str(hit.id)), hit.score) for hit in hits]
+
+
+def _kind_filter(kind: str) -> qdrant_models.Filter:
+    return qdrant_models.Filter(
+        must=[qdrant_models.FieldCondition(key=_KIND_FIELD, match=qdrant_models.MatchValue(value=kind))]
     )
 
 
 def search(collection_id: uuid.UUID, query_embedding: list[float], limit: int) -> list[tuple[uuid.UUID, float]]:
-    name = _collection_name(collection_id)
-    if not qdrant_connector.client.collection_exists(name):
-        return []
-    hits = qdrant_connector.client.query_points(collection_name=name, query=query_embedding, limit=limit).points
-    return [(uuid.UUID(str(hit.id)), hit.score) for hit in hits]
+    # Excludes QA/summary points rather than requiring kind == "chunk": every chunk embedded
+    # before this QA/summary-search feature existed has no `kind` payload at all, and must keep
+    # matching here.
+    query_filter = qdrant_models.Filter(
+        must_not=[
+            qdrant_models.FieldCondition(key=_KIND_FIELD, match=qdrant_models.MatchValue(value=kind))
+            for kind in _NON_CHUNK_KINDS
+        ]
+    )
+    return _search(collection_id, query_embedding, limit, query_filter)
+
+
+def search_qa(collection_id: uuid.UUID, query_embedding: list[float], limit: int) -> list[tuple[uuid.UUID, float]]:
+    return _search(collection_id, query_embedding, limit, _kind_filter(_KIND_QA))
+
+
+def search_summaries(
+    collection_id: uuid.UUID, query_embedding: list[float], limit: int
+) -> list[tuple[uuid.UUID, float]]:
+    return _search(collection_id, query_embedding, limit, _kind_filter(_KIND_SUMMARY))
 
 
 def delete_collection(collection_id: uuid.UUID) -> None:

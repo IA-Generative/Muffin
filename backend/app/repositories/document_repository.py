@@ -18,6 +18,12 @@ class DocumentRepository:
         result = await self.db.execute(select(Document).where(Document.id == document_id))
         return result.scalar_one_or_none()
 
+    async def get_by_ids(self, document_ids: list[uuid.UUID]) -> Sequence[Document]:
+        if not document_ids:
+            return []
+        result = await self.db.execute(select(Document).where(Document.id.in_(document_ids)))
+        return result.scalars().all()
+
     async def get_with_collection(self, document_id: uuid.UUID) -> Document | None:
         result = await self.db.execute(
             select(Document).where(Document.id == document_id).options(selectinload(Document.collection))
