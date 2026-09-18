@@ -275,6 +275,7 @@ async def test_search_finds_matching_chunk(client, monkeypatch):
             index=0,
             text="Le télétravail est autorisé deux jours par semaine.",
             token_count=10,
+            extras={"page_start": 3, "page_end": 3},
         )
         session.add(telework_chunk)
         session.add(
@@ -308,6 +309,7 @@ async def test_search_finds_matching_chunk(client, monkeypatch):
     assert len(results) == 1
     assert "télétravail" in results[0]["text"]
     assert results[0]["chunk_id"] == str(telework_chunk_id)
+    assert results[0]["page_number"] == 3
 
 
 async def test_search_tolerates_an_embedding_model_that_is_unavailable(client, monkeypatch):

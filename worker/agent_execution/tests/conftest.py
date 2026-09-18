@@ -68,6 +68,7 @@ class FakeBackend:
                 "collection_id": collection_id,
                 "text": f"evidence about '{query}' from {collection_id}",
                 "rank": 0.5,
+                "page_number": 3,
             }
             for collection_id in collection_ids
         ]

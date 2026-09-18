@@ -14,7 +14,11 @@ def normalize_results(task_id: str, retrieval_query: str, results: list[dict[str
             vdb_id=str(result["collection_id"]),
             source_id=str(result["document_id"]),
             content=result["text"],
-            metadata={"document_name": result["document_name"], "chunk_id": str(result["chunk_id"])},
+            metadata={
+                "document_name": result["document_name"],
+                "chunk_id": str(result["chunk_id"]),
+                "page_number": result.get("page_number"),
+            },
             relevance_score=result.get("rank"),
             retrieval_query=retrieval_query,
         )
