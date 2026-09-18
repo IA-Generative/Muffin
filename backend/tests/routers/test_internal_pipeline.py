@@ -89,12 +89,12 @@ async def test_create_qa_pair(client):
 
 
 async def test_upsert_entity_creates_then_bumps_mentions(client):
-    collection_id, _ = await _create_collection_and_document()
+    collection_id, document_id = await _create_collection_and_document()
 
     first = await client.post(
         f"/api/internal/collections/{collection_id}/entities",
         headers=_headers(),
-        json={"name": "Acme Corp", "type": "organisation", "mentions_delta": 1},
+        json={"document_id": str(document_id), "name": "Acme Corp", "type": "organisation", "mentions_delta": 1},
     )
     assert first.status_code == 200
     assert first.json()["mentions"] == 1
@@ -102,7 +102,7 @@ async def test_upsert_entity_creates_then_bumps_mentions(client):
     second = await client.post(
         f"/api/internal/collections/{collection_id}/entities",
         headers=_headers(),
-        json={"name": "Acme Corp", "type": "organisation", "mentions_delta": 2},
+        json={"document_id": str(document_id), "name": "Acme Corp", "type": "organisation", "mentions_delta": 2},
     )
     assert second.status_code == 200
     assert second.json()["mentions"] == 3
@@ -110,27 +110,32 @@ async def test_upsert_entity_creates_then_bumps_mentions(client):
 
 
 async def test_create_relation_between_two_entities(client):
-    collection_id, _ = await _create_collection_and_document()
+    collection_id, document_id = await _create_collection_and_document()
 
     entity_a = (
         await client.post(
             f"/api/internal/collections/{collection_id}/entities",
             headers=_headers(),
-            json={"name": "Alice", "type": "personne"},
+            json={"document_id": str(document_id), "name": "Alice", "type": "personne"},
         )
     ).json()
     entity_b = (
         await client.post(
             f"/api/internal/collections/{collection_id}/entities",
             headers=_headers(),
-            json={"name": "Acme Corp", "type": "organisation"},
+            json={"document_id": str(document_id), "name": "Acme Corp", "type": "organisation"},
         )
     ).json()
 
     response = await client.post(
         f"/api/internal/collections/{collection_id}/relations",
         headers=_headers(),
-        json={"from_entity_id": entity_a["id"], "to_entity_id": entity_b["id"], "type": "works_at"},
+        json={
+            "document_id": str(document_id),
+            "from_entity_id": entity_a["id"],
+            "to_entity_id": entity_b["id"],
+            "type": "works_at",
+        },
     )
     assert response.status_code == 201
 

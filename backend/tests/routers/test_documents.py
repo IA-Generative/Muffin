@@ -279,3 +279,35 @@ async def test_reindex_resets_status_and_requeues(client):
         chunks = (await session.execute(select(Chunk))).scalars().all()
     assert pages == []
     assert chunks == []
+
+
+async def test_document_entities_and_relations_are_scoped_to_their_own_document(client):
+    from app.repositories.entity_repository import EntityRepository
+
+    collection_id = await _create_collection(client)
+    async with async_session_factory() as session:
+        report = Document(collection_id=collection_id, name="report.pdf", type="url")
+        memo = Document(collection_id=collection_id, name="memo.pdf", type="url")
+        session.add_all([report, memo])
+        await session.flush()
+        report_id, memo_id = report.id, memo.id
+
+        entities = EntityRepository(session)
+        # "Acme Corp" is mentioned in both documents - collection-wide it's one Entity with
+        # mentions=2, but each document's own view must only ever show its own mention(s).
+        acme = await entities.upsert(collection_id, report_id, "Acme Corp", "organisation", 1)
+        await entities.upsert(collection_id, memo_id, "Acme Corp", "organisation", 1)
+        alice = await entities.upsert(collection_id, report_id, "Alice", "personne", 1)
+        await entities.create_relation(collection_id, report_id, alice.id, acme.id, "works_at")
+        await session.commit()
+
+    report_entities = (await client.get(f"/api/collections/{collection_id}/documents/{report_id}/entities")).json()
+    memo_entities = (await client.get(f"/api/collections/{collection_id}/documents/{memo_id}/entities")).json()
+    report_relations = (await client.get(f"/api/collections/{collection_id}/documents/{report_id}/relations")).json()
+    memo_relations = (await client.get(f"/api/collections/{collection_id}/documents/{memo_id}/relations")).json()
+
+    assert {e["name"] for e in report_entities} == {"Acme Corp", "Alice"}
+    assert {e["name"] for e in memo_entities} == {"Acme Corp"}
+    assert len(report_relations) == 1
+    assert report_relations[0]["type"] == "works_at"
+    assert memo_relations == []
