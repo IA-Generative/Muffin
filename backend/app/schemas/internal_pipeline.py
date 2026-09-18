@@ -32,6 +32,11 @@ class TaskLogsUpdate(BaseModel):
 
 class DocumentSummaryUpdate(BaseModel):
     summary: str
+    # Computed worker-side (same pattern as ChunkCreate.embedding/QaPairCreate.embedding) - backs
+    # the research agent's tier-2 retrieval (§ QA -> summaries -> chunks): the top-K most
+    # relevant document summaries are found by vector search, not by reading every summary in
+    # the collection, so it stays cheap regardless of how many documents the collection has.
+    embedding: list[float] | None = None
 
 
 class DocumentErrorUpdate(BaseModel):
@@ -46,6 +51,9 @@ class QaPairCreate(BaseModel):
     document_id: uuid.UUID | None = None
     question: str
     answer: str
+    # Computed worker-side (same pattern as ChunkCreate.embedding) - a QA pair with none is just
+    # never surfaced by the research agent's QA-first retrieval tier, it still exists otherwise.
+    embedding: list[float] | None = None
 
 
 class EntityCreate(BaseModel):

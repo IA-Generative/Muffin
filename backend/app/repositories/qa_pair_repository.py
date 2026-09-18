@@ -36,3 +36,9 @@ class QaPairRepository:
             select(QaPair).where(*where).options(selectinload(QaPair.document)).order_by(QaPair.created_at.desc())
         )
         return result.scalars().all()
+
+    async def get_by_ids(self, qa_pair_ids: list[uuid.UUID]) -> Sequence[QaPair]:
+        if not qa_pair_ids:
+            return []
+        result = await self.db.execute(select(QaPair).where(QaPair.id.in_(qa_pair_ids)))
+        return result.scalars().all()

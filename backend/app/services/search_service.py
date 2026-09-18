@@ -8,8 +8,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import LlmSettings
 from app.models.chunk import Chunk
+from app.models.document import Document
+from app.models.qa import QaPair
 from app.repositories.chunk_repository import ChunkRepository
 from app.repositories.collection_repository import CollectionRepository
+from app.repositories.document_repository import DocumentRepository
+from app.repositories.qa_pair_repository import QaPairRepository
 from app.services import vector_store
 
 # Module attribute (not closed over), same reasoning as app/routers/internal_llm.py: tests
@@ -32,6 +36,8 @@ class SearchService:
         self.db = db
         self.chunks = ChunkRepository(db)
         self.collections = CollectionRepository(db)
+        self.qa_pairs = QaPairRepository(db)
+        self.documents = DocumentRepository(db)
 
     async def search(
         self, collection_ids: list[uuid.UUID], query: str, limit: int
@@ -71,6 +77,76 @@ class SearchService:
             reverse=True,
         )
 
+    async def search_qa(
+        self, collection_ids: list[uuid.UUID], query: str, limit: int
+    ) -> Sequence[tuple[QaPair, uuid.UUID, float]]:
+        """QA-first retrieval tier (§ research agent): a previously answered question, matched by
+        embedding its *question* text the same way a chunk's body text is - same vector space,
+        same collection, just filtered to QA-kind points (see vector_store.search_qa)."""
+        if _openai_client is None:
+            return []
+
+        models_by_collection = await self.collections.get_embedding_models(collection_ids)
+        collections_by_model: dict[str, list[uuid.UUID]] = defaultdict(list)
+        for collection_id, model in models_by_collection.items():
+            collections_by_model[model].append(collection_id)
+
+        scored_by_id: dict[uuid.UUID, tuple[uuid.UUID, float]] = {}
+        for model, collections_for_model in collections_by_model.items():
+            try:
+                query_embedding = await self._embed(model, query)
+            except Exception:
+                logger.exception(f"Failed to embed the QA search query with model '{model}'")
+                continue
+            for collection_id in collections_for_model:
+                for qa_pair_id, score in vector_store.search_qa(collection_id, query_embedding, limit):
+                    if qa_pair_id not in scored_by_id or score > scored_by_id[qa_pair_id][1]:
+                        scored_by_id[qa_pair_id] = (collection_id, score)
+
+        top_ids = sorted(scored_by_id, key=lambda qa_pair_id: scored_by_id[qa_pair_id][1], reverse=True)[:limit]
+        rows = await self.qa_pairs.get_by_ids(top_ids)
+        return sorted(
+            ((qa_pair, scored_by_id[qa_pair.id][0], scored_by_id[qa_pair.id][1]) for qa_pair in rows),
+            key=lambda row: row[2],
+            reverse=True,
+        )
+
+    async def search_summaries(
+        self, collection_ids: list[uuid.UUID], query: str, limit: int
+    ) -> Sequence[tuple[Document, float]]:
+        """Tier 2 of the research agent's retrieval cascade (§ QA -> summaries -> chunks): the
+        top-K documents whose *summary* embedding is closest to the query - never every summary
+        in the collection, which wouldn't scale to a collection with hundreds of documents."""
+        if _openai_client is None:
+            return []
+
+        models_by_collection = await self.collections.get_embedding_models(collection_ids)
+        collections_by_model: dict[str, list[uuid.UUID]] = defaultdict(list)
+        for collection_id, model in models_by_collection.items():
+            collections_by_model[model].append(collection_id)
+
+        scored_ids: dict[uuid.UUID, float] = {}
+        for model, collections_for_model in collections_by_model.items():
+            try:
+                query_embedding = await self._embed(model, query)
+            except Exception:
+                logger.exception(f"Failed to embed the summary search query with model '{model}'")
+                continue
+            for collection_id in collections_for_model:
+                for document_id, score in vector_store.search_summaries(collection_id, query_embedding, limit):
+                    scored_ids[document_id] = max(score, scored_ids.get(document_id, float("-inf")))
+
+        top_ids = sorted(scored_ids, key=lambda document_id: scored_ids[document_id], reverse=True)[:limit]
+        rows = await self.documents.get_by_ids(top_ids)
+        return sorted(((document, scored_ids[document.id]) for document in rows), key=lambda row: row[1], reverse=True)
+
     async def _embed(self, model: str, text: str) -> list[float]:
-        result = await _openai_client.embeddings.create(model=model, input=text)
-        return result.data[0].embedding
+        return await embed_text(model, text)
+
+
+async def embed_text(model: str, text: str) -> list[float]:
+    """Shared by every embedding call site that isn't a chunk (whose embedding is always computed
+    worker-side and sent along, see ChunkCreate.embedding): query embeddings for chunk/QA/summary
+    search all go through this exact same client/call."""
+    result = await _openai_client.embeddings.create(model=model, input=text)
+    return result.data[0].embedding

@@ -10,6 +10,7 @@ from app.repositories.collection_repository import CollectionRepository
 from app.repositories.entity_repository import EntityRepository
 from app.repositories.qa_pair_repository import QaPairRepository
 from app.schemas.internal_pipeline import EntityCreate, EntityOut, QaPairCreate, RelationCreate
+from app.services import vector_store
 
 router = APIRouter(prefix="/internal", tags=["Internal"], dependencies=[Depends(require_worker_api_key)])
 
@@ -28,8 +29,10 @@ async def create_qa_pair(
     collection_id: uuid.UUID, body: QaPairCreate, db: Annotated[AsyncSession, Depends(get_db)]
 ) -> dict[str, str]:
     await _ensure_collection(db, collection_id)
-    await QaPairRepository(db).create(collection_id, body.document_id, body.question, body.answer)
+    qa_pair = await QaPairRepository(db).create(collection_id, body.document_id, body.question, body.answer)
     await db.commit()
+    if body.embedding is not None:
+        vector_store.upsert_qa_embedding(collection_id, qa_pair.id, body.embedding)
     return {"status": "ok"}
 
 
