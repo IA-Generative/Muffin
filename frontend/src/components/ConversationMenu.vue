@@ -1,53 +1,79 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { nextTick, ref, watch } from 'vue'
+
+const props = defineProps<{
+  open: boolean
+}>()
 
 const emit = defineEmits<{
+  toggle: []
+  close: []
   rename: []
   delete: []
 }>()
 
-const open = ref(false)
-const wrapper = ref<HTMLElement>()
+const trigger = ref<HTMLElement>()
+const position = ref({ bottom: 0, right: 0 })
 
-function toggle(event: MouseEvent) {
-  event.stopPropagation() // never trigger the conversation button's own @click underneath
-  open.value = !open.value
+// Teleported to <body> (below), so this can't be clipped by the sidebar's own scrolling list -
+// position is computed from the trigger's real screen position instead of relying on CSS
+// containment, which is what let the first row's dropdown get cut off before.
+async function updatePosition() {
+  await nextTick()
+  const rect = trigger.value?.getBoundingClientRect()
+  if (!rect) return
+  position.value = { bottom: window.innerHeight - rect.top + 4, right: window.innerWidth - rect.right }
+}
+
+watch(
+  () => props.open,
+  (isOpen) => {
+    if (isOpen) updatePosition()
+  },
+)
+
+function onTriggerClick(event: MouseEvent) {
+  event.stopPropagation() // never trigger the conversation row's own @click underneath
+  emit('toggle')
 }
 
 function rename() {
-  open.value = false
+  emit('close')
   emit('rename')
 }
 
 function remove() {
-  open.value = false
+  emit('close')
   emit('delete')
 }
-
-function handleOutsideClick(event: MouseEvent) {
-  if (open.value && !wrapper.value?.contains(event.target as Node)) open.value = false
-}
-
-onMounted(() => document.addEventListener('click', handleOutsideClick))
-onBeforeUnmount(() => document.removeEventListener('click', handleOutsideClick))
 </script>
 
 <template>
-  <div ref="wrapper" class="conversation-menu" :style="{ opacity: open ? 1 : undefined }">
-    <button
-      type="button"
-      class="conversation-menu__trigger"
-      aria-label="Options de la conversation"
-      @click="toggle"
-    >
-      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-        <circle cx="5" cy="12" r="1.75" fill="currentColor" />
-        <circle cx="12" cy="12" r="1.75" fill="currentColor" />
-        <circle cx="19" cy="12" r="1.75" fill="currentColor" />
-      </svg>
-    </button>
+  <button
+    ref="trigger"
+    v-bind="$attrs"
+    type="button"
+    class="conversation-menu__trigger"
+    :class="{ 'conversation-menu__trigger--open': open }"
+    :style="{ opacity: open ? 1 : undefined }"
+    aria-label="Options de la conversation"
+    @click="onTriggerClick"
+  >
+    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+      <circle cx="5" cy="12" r="1.75" fill="currentColor" />
+      <circle cx="12" cy="12" r="1.75" fill="currentColor" />
+      <circle cx="19" cy="12" r="1.75" fill="currentColor" />
+    </svg>
+  </button>
 
-    <div v-if="open" class="conversation-menu__dropdown" role="menu" @click.stop>
+  <Teleport to="body">
+    <div
+      v-if="open"
+      class="conversation-menu__dropdown"
+      role="menu"
+      :style="{ bottom: `${position.bottom}px`, right: `${position.right}px` }"
+      @click.stop
+    >
       <button type="button" class="conversation-menu__item" role="menuitem" @click="rename">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
           <path
@@ -90,19 +116,15 @@ onBeforeUnmount(() => document.removeEventListener('click', handleOutsideClick))
         Supprimer
       </button>
     </div>
-  </div>
+  </Teleport>
 </template>
 
 <style scoped>
-.conversation-menu {
-  position: relative;
-  flex-shrink: 0;
-}
-
 .conversation-menu__trigger {
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
   width: 1.75rem;
   height: 1.75rem;
   padding: 0;
@@ -113,17 +135,19 @@ onBeforeUnmount(() => document.removeEventListener('click', handleOutsideClick))
   cursor: pointer;
 }
 
-.conversation-menu__trigger:hover {
+.conversation-menu__trigger:hover,
+.conversation-menu__trigger--open {
   background: var(--background-alt-grey-hover);
   color: var(--text-default-grey);
 }
+</style>
 
+<style>
+/* Unscoped: teleported to <body>, outside this component's own DOM subtree, so Vue's scoped
+   attribute selectors would never match it. */
 .conversation-menu__dropdown {
-  position: absolute;
-  bottom: 100%;
-  right: 0;
-  margin-bottom: 0.25rem;
-  z-index: 10;
+  position: fixed;
+  z-index: 1000;
   min-width: 10rem;
   padding: 0.25rem;
   background: var(--background-default-grey);
