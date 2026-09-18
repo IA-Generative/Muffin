@@ -254,12 +254,17 @@ function newConversation() {
 }
 
 async function renameConversation(id: string, title: string) {
-  const conversation = conversations.value.find((item) => item.id === id)
+  // Same resolution as deleteConversation - a sidebar row's id can be a pre-migration
+  // placeholder still aliased to the real backend id (see migrateConversationId), and matching
+  // the stale one against conversations.value (already updated to the real id) would silently
+  // find nothing to update, leaving the old title on screen until a reload re-fetches it fresh.
+  const resolvedId = resolveConversationId(id)
+  const conversation = conversations.value.find((item) => item.id === resolvedId)
   if (conversation) conversation.title = title // shown immediately, not held up by the request
 
-  if (!confirmedConversationIds.has(id)) return // a local-only placeholder, nothing to persist yet
+  if (!confirmedConversationIds.has(resolvedId)) return // a local-only placeholder, nothing to persist yet
   try {
-    await fetch(`${API_BASE_URL}/api/conversations/${id}`, {
+    await fetch(`${API_BASE_URL}/api/conversations/${resolvedId}`, {
       method: 'PATCH',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
