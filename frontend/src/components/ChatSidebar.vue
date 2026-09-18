@@ -6,6 +6,8 @@ import ConversationMenu from './ConversationMenu.vue'
 
 defineProps<{
   conversations: Conversation[]
+  conversationsHasMore: boolean
+  loadingMoreConversations: boolean
   activeId: string
   activeView: 'chat' | 'collections' | 'tasks' | 'admin'
   user: User | null
@@ -13,6 +15,7 @@ defineProps<{
 
 const emit = defineEmits<{
   select: [id: string]
+  loadMore: []
   new: []
   rename: [id: string, title: string]
   delete: [id: string]
@@ -23,6 +26,16 @@ const emit = defineEmits<{
   login: []
   logout: []
 }>()
+
+// Infinite scroll: fetch the next page once the list is scrolled within one viewport of its
+// bottom, rather than waiting for the user to hit the exact end (which feels laggy) or polling
+// on a timer (wasteful - this list only changes when the user actually scrolls it).
+function onScrollList(event: Event) {
+  const el = event.target as HTMLElement
+  if (el.scrollHeight - el.scrollTop - el.clientHeight < el.clientHeight) {
+    emit('loadMore')
+  }
+}
 
 const showUserMenu = ref(false)
 const userWrapper = ref<HTMLElement>()
@@ -173,7 +186,7 @@ function initials(name: string) {
       </button>
     </nav>
 
-    <div v-if="!collapsed" class="chat-sidebar__scroll">
+    <div v-if="!collapsed" class="chat-sidebar__scroll" @scroll="onScrollList">
       <h2 class="chat-sidebar__section-title">Récents</h2>
       <nav class="chat-sidebar__list" aria-label="Historique des conversations">
         <div
@@ -215,6 +228,7 @@ function initials(name: string) {
           />
         </div>
       </nav>
+      <p v-if="loadingMoreConversations" class="chat-sidebar__loading-more">Chargement…</p>
     </div>
 
     <div v-if="user" ref="userWrapper" class="chat-sidebar__user-wrapper">
@@ -391,6 +405,14 @@ function initials(name: string) {
   display: flex;
   flex-direction: column;
   gap: 0.125rem;
+}
+
+.chat-sidebar__loading-more {
+  margin: 0.5rem 0 0;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.75rem;
+  color: var(--text-mention-grey);
+  text-align: center;
 }
 
 .chat-sidebar__row {
