@@ -1,7 +1,7 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security.factory import RequestContext, get_current_user
@@ -51,8 +51,24 @@ async def get_document(
 
 
 @router.get(
+    "/collections/{collection_id}/documents/{document_id}/pages/{page_number}/screenshot",
+    summary="Stream a page's screenshot through the backend (never a direct/public storage URL)",
+)
+async def get_page_screenshot(
+    collection_id: uuid.UUID, document_id: uuid.UUID, page_number: int, user: UserDep, service: ServiceDep
+) -> Response:
+    try:
+        content, content_type = await service.get_page_screenshot(collection_id, user, document_id, page_number)
+        return Response(content=content, media_type=content_type)
+    except CollectionNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
+    except DocumentNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Page not found") from error
+
+
+@router.get(
     "/collections/{collection_id}/documents/{document_id}/pages",
-    summary="List a document's pages (content + a presigned screenshot URL, if any), paginated",
+    summary="List a document's pages (content + a same-backend screenshot URL, if any), paginated",
     response_model=Page[DocumentPageOut],
 )
 async def list_document_pages(

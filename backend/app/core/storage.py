@@ -41,6 +41,15 @@ def get_presigned_url(key: str, expires_in: int = 3600) -> str:
     )
 
 
+def get_object(key: str) -> tuple[bytes, str]:
+    """Reads an object's bytes through the backend rather than handing out a presigned RustFS
+    URL - used wherever the caller wants every access re-checked against the user's own
+    ownership/session on each request (e.g. a document's page screenshots in the document detail
+    modal), instead of a link that, once handed out, keeps working on its own until it expires."""
+    result = _client.get_object(Bucket=_settings.RUSTFS_BUCKET, Key=key)
+    return result["Body"].read(), result.get("ContentType") or "application/octet-stream"
+
+
 def delete_objects(keys: list[str]) -> None:
     """Best-effort: called after the rows referencing these keys are already
     deleted from Postgres, so a RustFS/network failure here must not roll
