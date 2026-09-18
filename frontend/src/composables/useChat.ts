@@ -56,6 +56,10 @@ const messagesByConversation = ref<Record<string, ChatMessage[]>>({ default: [] 
 const activeSourcesMessageId = ref<string>()
 const activeExecutionMessageId = ref<string>()
 const executionEventsByMessageId = ref<Record<string, ExecutionEvent[]>>({})
+// Separate from the events map itself so a fetch failure is visibly distinct from "this run
+// genuinely has no events" - both used to collapse into the same empty array, which made a real
+// network/ownership error indistinguishable from an empty result in the UI (and in support).
+const executionErrorMessageIds = ref(new Set<string>())
 // The sidebar starts a conversation under a client-side placeholder id (no
 // GET /api/conversations to fetch a real one from yet); the first run made
 // in it returns the real backend conversation id, which the placeholder is
@@ -107,6 +111,9 @@ const activeSources = computed(
 )
 const activeExecutionEvents = computed(() =>
   activeExecutionMessageId.value ? executionEventsByMessageId.value[activeExecutionMessageId.value] : undefined,
+)
+const activeExecutionError = computed(
+  () => !!activeExecutionMessageId.value && executionErrorMessageIds.value.has(activeExecutionMessageId.value),
 )
 
 // Node name (Run.current_node, set by every node's set_activity() call - see
@@ -180,12 +187,9 @@ function eventLabel(type: string): string {
 }
 
 async function fetchRunEvents(runId: string): Promise<RunEventOut[]> {
-  const response = await fetch(`${API_BASE_URL}/api/runs/${runId}/events?page_size=200`, {
-    credentials: 'include',
-  })
-  if (!response.ok) throw new Error(`${response.status}`)
-  const body: { items: RunEventOut[] } = await response.json()
-  return body.items
+  const response = await fetch(`${API_BASE_URL}/api/runs/${runId}/events`, { credentials: 'include' })
+  if (!response.ok) throw new Error(`${response.status} ${await response.text()}`)
+  return response.json()
 }
 
 const CONVERSATIONS_PAGE_SIZE = 30
@@ -602,8 +606,12 @@ function closeSources() {
 async function showExecutionDetails(id: string) {
   activeSourcesMessageId.value = undefined // the two panels share one slot, mutually exclusive
   activeExecutionMessageId.value = id
+  executionErrorMessageIds.value.delete(id)
   const runId = messages.value.find((message) => message.id === id)?.runId
-  if (!runId) return
+  if (!runId) {
+    executionEventsByMessageId.value[id] = []
+    return
+  }
   if (executionEventsByMessageId.value[id] && !activePolls.has(id)) return
   try {
     const items = await fetchRunEvents(runId)
@@ -613,7 +621,9 @@ async function showExecutionDetails(id: string) {
       taskId: item.task_id ?? undefined,
       createdAt: item.created_at,
     }))
-  } catch {
+  } catch (error) {
+    console.error(`Failed to fetch events for run ${runId}`, error)
+    executionErrorMessageIds.value.add(id)
     executionEventsByMessageId.value[id] = []
   }
 }
@@ -633,6 +643,7 @@ export function useChat() {
     activeSources,
     activeExecutionMessageId,
     activeExecutionEvents,
+    activeExecutionError,
     selectConversation,
     newConversation,
     renameConversation,

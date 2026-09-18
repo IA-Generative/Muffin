@@ -91,7 +91,7 @@ async def test_list_run_events_empty_initially(client):
     created = (await _create_run(client)).json()
     response = await client.get(f"/api/runs/{created['id']}/events")
     assert response.status_code == 200
-    assert response.json()["items"] == []
+    assert response.json() == []
 
 
 async def test_cancel_run_sets_cancel_requested_and_revokes(client):
