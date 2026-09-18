@@ -60,11 +60,11 @@ docker-build-backend:
         echo "Error: Could not extract appVersion from helm/Chart.yaml"
         exit 1
       fi
-      TAGS="backend:$SHORT_SHA"
-      TAGS="$TAGS backend:$CI_COMMIT_REF_SLUG"
-      TAGS="$TAGS backend:$APP_VERSION"
+      TAGS="muffin-backend:$SHORT_SHA"
+      TAGS="$TAGS muffin-backend:$CI_COMMIT_REF_SLUG"
+      TAGS="$TAGS muffin-backend:$APP_VERSION"
       if echo "$APP_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-        TAGS="$TAGS backend:latest"
+        TAGS="$TAGS muffin-backend:latest"
       fi
       export IMAGE_NAMES="$TAGS"
       echo "Building with tags: $IMAGE_NAMES"
@@ -85,11 +85,11 @@ docker-build-frontend:
         echo "Error: Could not extract appVersion from helm/Chart.yaml"
         exit 1
       fi
-      TAGS="frontend:$SHORT_SHA"
-      TAGS="$TAGS frontend:$CI_COMMIT_REF_SLUG"
-      TAGS="$TAGS frontend:$APP_VERSION"
+      TAGS="muffin-frontend:$SHORT_SHA"
+      TAGS="$TAGS muffin-frontend:$CI_COMMIT_REF_SLUG"
+      TAGS="$TAGS muffin-frontend:$APP_VERSION"
       if echo "$APP_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-        TAGS="$TAGS frontend:latest"
+        TAGS="$TAGS muffin-frontend:latest"
       fi
       export IMAGE_NAMES="$TAGS"
       echo "Building with tags: $IMAGE_NAMES"
@@ -110,11 +110,11 @@ docker-build-worker-document-process:
         echo "Error: Could not extract appVersion from helm/Chart.yaml"
         exit 1
       fi
-      TAGS="worker-document-process:$SHORT_SHA"
-      TAGS="$TAGS worker-document-process:$CI_COMMIT_REF_SLUG"
-      TAGS="$TAGS worker-document-process:$APP_VERSION"
+      TAGS="muffin-worker-document-process:$SHORT_SHA"
+      TAGS="$TAGS muffin-worker-document-process:$CI_COMMIT_REF_SLUG"
+      TAGS="$TAGS muffin-worker-document-process:$APP_VERSION"
       if echo "$APP_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-        TAGS="$TAGS worker-document-process:latest"
+        TAGS="$TAGS muffin-worker-document-process:latest"
       fi
       export IMAGE_NAMES="$TAGS"
       echo "Building with tags: $IMAGE_NAMES"
@@ -135,11 +135,11 @@ docker-build-worker-agent-execution:
         echo "Error: Could not extract appVersion from helm/Chart.yaml"
         exit 1
       fi
-      TAGS="worker-agent-execution:$SHORT_SHA"
-      TAGS="$TAGS worker-agent-execution:$CI_COMMIT_REF_SLUG"
-      TAGS="$TAGS worker-agent-execution:$APP_VERSION"
+      TAGS="muffin-worker-agent-execution:$SHORT_SHA"
+      TAGS="$TAGS muffin-worker-agent-execution:$CI_COMMIT_REF_SLUG"
+      TAGS="$TAGS muffin-worker-agent-execution:$APP_VERSION"
       if echo "$APP_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-        TAGS="$TAGS worker-agent-execution:latest"
+        TAGS="$TAGS muffin-worker-agent-execution:latest"
       fi
       export IMAGE_NAMES="$TAGS"
       echo "Building with tags: $IMAGE_NAMES"
