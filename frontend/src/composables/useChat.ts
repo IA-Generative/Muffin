@@ -387,7 +387,7 @@ function formatAnswerWithCitations(answer: string, citations: Citation[] | null 
   // a real citation) - an id that doesn't match anything is never shown raw, it's just dropped,
   // since an unverifiable citation is itself a grounding problem, not a display one.
   const content = answer
-    .replace(/\[([0-9a-f][0-9a-f,;\s-]{6,}[0-9a-f])\]/gi, (match, group: string) => {
+    .replace(/\[([0-9a-f][0-9a-f,;\s-]{6,}[0-9a-f])\]/gi, (_match, group: string) => {
       const numbers = [
         ...new Set(
           group
