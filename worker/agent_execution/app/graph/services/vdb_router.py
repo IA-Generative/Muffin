@@ -11,12 +11,22 @@ _SYSTEM_PROMPT = (
 )
 
 
-def select_relevant_vdbs(query: str, accessible_vdbs: list[dict[str, Any]], model: str | None) -> list[dict[str, Any]]:
+def select_relevant_vdbs(
+    query: str, accessible_vdbs: list[dict[str, Any]], model: str | None, pinned_ids: list[str] | None = None
+) -> list[dict[str, Any]]:
     """VDB relevance (§12) - the LLM only ever narrows `accessible_vdbs`, it can never widen it.
     The intersection below is the actual security boundary; the LLM call is just relevance
-    ranking on top of a set the backend already restricted to what this user can reach."""
+    ranking on top of a set the backend already restricted to what this user can reach.
+
+    `pinned_ids` are collections the user explicitly attached to this message (the chat
+    composer's "+" picker) - always included in the result (still intersected with
+    accessible_vdbs), even if the LLM itself wouldn't have picked them: the user asked for them
+    by name, that overrides a relevance guess."""
     if not accessible_vdbs:
         return []
+
+    pinned = [v for v in accessible_vdbs if str(v["id"]) in set(pinned_ids or [])]
+
     if model is None or len(accessible_vdbs) == 1:
         return accessible_vdbs
 
@@ -32,5 +42,6 @@ def select_relevant_vdbs(query: str, accessible_vdbs: list[dict[str, Any]], mode
         logger.exception("VDB routing failed, falling back to every accessible VDB")
         return accessible_vdbs
 
-    selected = [v for v in accessible_vdbs if str(v["id"]) in selected_ids]
-    return selected or accessible_vdbs
+    selected = [v for v in accessible_vdbs if str(v["id"]) in selected_ids] or accessible_vdbs
+    missing_pinned = [v for v in pinned if v not in selected]
+    return selected + missing_pinned

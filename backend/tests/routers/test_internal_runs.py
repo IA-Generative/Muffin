@@ -64,6 +64,32 @@ async def test_get_run(client):
     assert body["status"] == "queued"
 
 
+async def test_get_run_exposes_pinned_collection_ids(client):
+    collection_id = uuid.uuid4()
+    async with async_session_factory() as session:
+        conversation = Conversation(user_id="dev-user", title="Test")
+        session.add(conversation)
+        await session.flush()
+        message = Message(conversation_id=conversation.id, role=MessageRole.USER, content="What is the policy?")
+        session.add(message)
+        await session.flush()
+        run = Run(
+            user_id="dev-user",
+            message_id=message.id,
+            conversation_id=conversation.id,
+            query="What is the policy?",
+            pinned_collection_ids=[str(collection_id)],
+        )
+        session.add(run)
+        await session.commit()
+        run_id = run.id
+
+    response = await client.get(f"/api/internal/runs/{run_id}", headers=_headers())
+
+    assert response.status_code == 200
+    assert response.json()["pinned_collection_ids"] == [str(collection_id)]
+
+
 async def test_get_run_not_found(client):
     response = await client.get(f"/api/internal/runs/{uuid.uuid4()}", headers=_headers())
     assert response.status_code == 404

@@ -47,6 +47,10 @@ class Run(UUIDMixin, TimestampMixin, Base):
     celery_task_id: Mapped[str | None] = mapped_column(String, unique=True, index=True, nullable=True)
 
     query: Mapped[str] = mapped_column(Text, nullable=False)
+    # Collections explicitly attached via the chat composer's "+" picker (§ user-pinned
+    # collections) - stored as plain strings, same reasoning as citations below: read back
+    # as-is by the worker, never queried/filtered on at the SQL level.
+    pinned_collection_ids: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
     status: Mapped[RunStatus] = mapped_column(
         Enum(RunStatus, name="run_status"), nullable=False, default=RunStatus.QUEUED
     )

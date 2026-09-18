@@ -49,6 +49,7 @@ def _fan_out(state: AgentState, batch: list) -> list[Send]:
                 "accessible_vdbs": state["accessible_vdbs"],
                 "task": task,
                 "chat_model": state["chat_model"],
+                "pinned_vdb_ids": state["pinned_vdb_ids"],
             },
         )
         for task in batch

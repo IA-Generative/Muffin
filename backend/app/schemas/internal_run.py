@@ -23,6 +23,9 @@ class InternalRunOut(BaseModel):
     # message excluded - lets the worker resolve a follow-up like "elle parle de quoi ?" against
     # what was actually said before, instead of analyzing it in total isolation.
     history: list[dict[str, str]]
+    # Collections explicitly attached via the chat composer's "+" picker - see
+    # AgentState.pinned_vdb_ids in the worker.
+    pinned_collection_ids: list[str] | None
 
 
 class RunStatusUpdate(BaseModel):

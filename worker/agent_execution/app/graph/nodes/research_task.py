@@ -117,9 +117,13 @@ def _summaries_suffice(query: str, summaries: list[dict[str, Any]], model: str |
 
 
 def _run_search(
-    task: dict[str, Any], _user_id: str, accessible_vdbs: list[dict[str, Any]], model: str | None
+    task: dict[str, Any],
+    _user_id: str,
+    accessible_vdbs: list[dict[str, Any]],
+    model: str | None,
+    pinned_vdb_ids: list[str],
 ) -> tuple[dict[str, Any], list[Evidence]]:
-    selected_vdbs = select_relevant_vdbs(task["query"], accessible_vdbs, model)
+    selected_vdbs = select_relevant_vdbs(task["query"], accessible_vdbs, model, pinned_vdb_ids)
     if not selected_vdbs:
         return {"selected_vdbs": [], "results": []}, []
     vdb_ids = [str(v["id"]) for v in selected_vdbs]
@@ -158,17 +162,21 @@ def _run_list_collections(task: dict[str, Any], accessible_vdbs: list[dict[str, 
 
 
 def _run_collection_summary(
-    task: dict[str, Any], accessible_vdbs: list[dict[str, Any]], model: str | None
+    task: dict[str, Any], accessible_vdbs: list[dict[str, Any]], model: str | None, pinned_vdb_ids: list[str]
 ) -> tuple[dict, list[Evidence]]:
-    selected_vdbs = select_relevant_vdbs(task["query"], accessible_vdbs, model)
+    selected_vdbs = select_relevant_vdbs(task["query"], accessible_vdbs, model, pinned_vdb_ids)
     evidence = [_collection_evidence(vdb, task["id"], task["query"]) for vdb in selected_vdbs]
     return {"selected_vdbs": [str(v["id"]) for v in selected_vdbs]}, evidence
 
 
 def _run_list_documents(
-    task: dict[str, Any], user_id: str, accessible_vdbs: list[dict[str, Any]], model: str | None
+    task: dict[str, Any],
+    user_id: str,
+    accessible_vdbs: list[dict[str, Any]],
+    model: str | None,
+    pinned_vdb_ids: list[str],
 ) -> tuple[dict, list[Evidence]]:
-    selected_vdbs = select_relevant_vdbs(task["query"], accessible_vdbs, model)
+    selected_vdbs = select_relevant_vdbs(task["query"], accessible_vdbs, model, pinned_vdb_ids)
     evidence: list[Evidence] = []
     for vdb in selected_vdbs:
         documents = backend_client.list_collection_documents(user_id, str(vdb["id"]))
@@ -203,9 +211,13 @@ def _run_list_documents(
 
 
 def _run_page_content(
-    task: dict[str, Any], user_id: str, accessible_vdbs: list[dict[str, Any]], model: str | None
+    task: dict[str, Any],
+    user_id: str,
+    accessible_vdbs: list[dict[str, Any]],
+    model: str | None,
+    pinned_vdb_ids: list[str],
 ) -> tuple[dict, list[Evidence]]:
-    selected_vdbs = select_relevant_vdbs(task["query"], accessible_vdbs, model)
+    selected_vdbs = select_relevant_vdbs(task["query"], accessible_vdbs, model, pinned_vdb_ids)
     if not selected_vdbs:
         return {"selected_vdbs": []}, []
 
@@ -239,9 +251,11 @@ def _run_page_content(
 
 
 _RUNNERS = {
-    "list_collections": lambda task, user_id, accessible_vdbs, model: _run_list_collections(task, accessible_vdbs),
-    "collection_summary": lambda task, user_id, accessible_vdbs, model: _run_collection_summary(
-        task, accessible_vdbs, model
+    "list_collections": lambda task, user_id, accessible_vdbs, model, pinned_vdb_ids: _run_list_collections(
+        task, accessible_vdbs
+    ),
+    "collection_summary": lambda task, user_id, accessible_vdbs, model, pinned_vdb_ids: _run_collection_summary(
+        task, accessible_vdbs, model, pinned_vdb_ids
     ),
     "list_documents": _run_list_documents,
     "page_content": _run_page_content,
@@ -267,7 +281,9 @@ def research_task(state: ResearchTaskInput) -> dict[str, Any]:
     try:
         emit(run_id, "vdb_routing_started", task_id=task_id)
         runner = _RUNNERS.get(task["tool"], _run_search)
-        updates, evidence = runner(task, user_id, state["accessible_vdbs"], state["chat_model"])
+        updates, evidence = runner(
+            task, user_id, state["accessible_vdbs"], state["chat_model"], state["pinned_vdb_ids"]
+        )
         # Stamped centrally here (not in each runner) so every evidence-producing branch tags
         # itself the same way, once - lets a citation say which tool produced it (§ sources
         # panel: a "search" citation links to a real page/chunk, a meta-tool one is just
