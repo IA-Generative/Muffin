@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.1-rc](https://github.com/IA-Generative/Muffin/compare/v0.3.0...v0.3.1-rc) (2026-09-18)
+
+
+### Bug Fixes
+
+* **helm:** bump chart version to 0.2.1 ([6842d67](https://github.com/IA-Generative/Muffin/commit/6842d67872ea57a853a5a490337d04b15b66d10e))
+* **helm:** rename chart from "helm" to "muffin" ([f4297e1](https://github.com/IA-Generative/Muffin/commit/f4297e1189b4285b5c72023c6735f2cac24a24a8))
+
 ## [0.3.0](https://github.com/IA-Generative/Muffin/compare/v0.2.0...v0.3.0) (2026-09-18)
 
 
