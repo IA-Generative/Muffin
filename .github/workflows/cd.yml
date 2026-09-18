@@ -36,7 +36,7 @@ env:
   ENABLE_PRERELEASE: true
   # The chart lives at the repository root as `helm/`; CHART_NAME is the
   # directory under CHARTS_DIR, while the published OCI artifact is named from
-  # Chart.yaml (`helm`) - so it stays ghcr.io/<repo>/helm regardless.
+  # Chart.yaml's `name:` field (`muffin`), not from this directory name.
   CHARTS_DIR: ./
   CHART_NAME: helm
   # Only the plain-HTTP dependencies need declaring; the cloudpirates charts
