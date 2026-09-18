@@ -40,6 +40,7 @@ interface RunOut {
   id: string
   conversation_id: string | null
   status: string
+  current_node: string | null
   current_activity: string | null
   pending_human_action: { question?: string } | null
   answer: string | null
@@ -107,6 +108,33 @@ const activeSources = computed(
 const activeExecutionEvents = computed(() =>
   activeExecutionMessageId.value ? executionEventsByMessageId.value[activeExecutionMessageId.value] : undefined,
 )
+
+// Node name (Run.current_node, set by every node's set_activity() call - see
+// worker/agent_execution/app/graph/services/events.py) -> the French label shown as the chat
+// placeholder while a run is in progress. Run.current_activity itself is worker-internal English
+// (used for logging/debugging), never shown as-is except for "research_task", whose activity
+// *is* the task's own query text - already meaningful on its own, in whatever language the user
+// asked in.
+const NODE_LABELS: Record<string, string> = {
+  load_context: 'Démarrage de la recherche',
+  load_accessible_vdbs: 'Vérification de vos bases de connaissances accessibles',
+  analyze_query: 'Analyse de votre question',
+  decompose_query: 'Découpage de votre question',
+  build_research_plan: 'Planification de la recherche',
+  merge_evidence: 'Fusion des résultats de recherche',
+  evaluate_coverage: 'Vérification de la pertinence des résultats',
+  replan_research: 'Affinement du plan de recherche',
+  build_answer_context: 'Préparation de la réponse',
+  generate_answer: 'Génération de la réponse',
+  validate_grounding: 'Vérification des faits de la réponse',
+  targeted_research: "Recherche d'éléments complémentaires",
+  request_clarification: 'En attente de votre précision',
+}
+
+function activityLabel(run: RunOut): string {
+  if (run.current_node === 'research_task' && run.current_activity) return run.current_activity
+  return (run.current_node && NODE_LABELS[run.current_node]) || run.current_activity || 'Recherche en cours'
+}
 
 // Internal run_events type -> a short label a user can actually read - never the model's own
 // reasoning (the backend never emits that as an event, only these fixed step names, see
@@ -414,7 +442,7 @@ function assistantMessageFor(id: string, run: RunOut): ChatMessage {
     }
   }
   if (!TERMINAL_STATUSES.has(run.status)) {
-    return { id, role: 'assistant', content: run.current_activity ?? 'Recherche en cours…', runId: run.id }
+    return { id, role: 'assistant', content: activityLabel(run), runId: run.id, pending: true }
   }
   if (run.status === 'completed') {
     const [content, sources] = formatAnswerWithCitations(
@@ -513,7 +541,8 @@ function sendMessage(content: string) {
     replaceMessage(conversationId, pending.messageId, {
       id: pending.messageId,
       role: 'assistant',
-      content: 'Recherche en cours…',
+      content: 'Recherche en cours',
+      pending: true,
     })
     resumeAndTrack(conversationId, pending.runId, pending.messageId, content)
     return
@@ -522,7 +551,7 @@ function sendMessage(content: string) {
   const messageId = crypto.randomUUID()
   messagesByConversation.value[conversationId].push(
     { id: crypto.randomUUID(), role: 'user', content },
-    { id: messageId, role: 'assistant', content: 'Recherche en cours…' },
+    { id: messageId, role: 'assistant', content: 'Recherche en cours', pending: true },
   )
   runQuery(conversationId, messageId, content)
 }
@@ -546,7 +575,7 @@ function regenerateMessage(id: string) {
   // Regenerating (e.g. from a clarification bubble) abandons whatever run was pending - a
   // stale entry here would otherwise hijack the next normal sendMessage into "resuming" it.
   delete pendingClarifications[conversationId]
-  list[index] = { id, role: 'assistant', content: 'Recherche en cours…' }
+  list[index] = { id, role: 'assistant', content: 'Recherche en cours', pending: true }
   runQuery(conversationId, id, lastUserMessage.content)
 }
 
