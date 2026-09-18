@@ -249,6 +249,46 @@ async def test_list_qa_pairs_for_unknown_collection_returns_404(client):
     assert response.status_code == 404
 
 
+async def test_list_qa_pairs_filtered_by_document(client):
+    from app.models.qa import QaOrigin, QaPair
+
+    collection_id = (await client.post("/api/collections")).json()["id"]
+    async with async_session_factory() as session:
+        report = Document(collection_id=collection_id, name="report.pdf", type="url")
+        memo = Document(collection_id=collection_id, name="memo.pdf", type="url")
+        session.add_all([report, memo])
+        await session.flush()
+        session.add_all(
+            [
+                QaPair(
+                    collection_id=collection_id,
+                    document_id=report.id,
+                    question="Report question",
+                    answer="Report answer",
+                    origin=QaOrigin.GENERATED,
+                    validated=False,
+                ),
+                QaPair(
+                    collection_id=collection_id,
+                    document_id=memo.id,
+                    question="Memo question",
+                    answer="Memo answer",
+                    origin=QaOrigin.GENERATED,
+                    validated=False,
+                ),
+            ]
+        )
+        await session.commit()
+        report_id = report.id
+
+    response = await client.get(f"/api/collections/{collection_id}/qa-pairs", params={"document_id": str(report_id)})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 1
+    assert body[0]["question"] == "Report question"
+
+
 async def test_list_entities(client):
     from app.models.entity import Entity, EntityType
 

@@ -26,11 +26,13 @@ class QaPairRepository:
         await self.db.flush()
         return qa_pair
 
-    async def list_by_collection(self, collection_id: uuid.UUID) -> Sequence[QaPair]:
+    async def list_by_collection(
+        self, collection_id: uuid.UUID, document_id: uuid.UUID | None = None
+    ) -> Sequence[QaPair]:
+        where = [QaPair.collection_id == collection_id]
+        if document_id is not None:
+            where.append(QaPair.document_id == document_id)
         result = await self.db.execute(
-            select(QaPair)
-            .where(QaPair.collection_id == collection_id)
-            .options(selectinload(QaPair.document))
-            .order_by(QaPair.created_at.desc())
+            select(QaPair).where(*where).options(selectinload(QaPair.document)).order_by(QaPair.created_at.desc())
         )
         return result.scalars().all()
