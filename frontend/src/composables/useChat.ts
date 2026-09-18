@@ -370,7 +370,7 @@ async function loadMoreConversations() {
   }
 }
 
-async function createRun(conversationId: string, query: string): Promise<RunOut> {
+async function createRun(conversationId: string, query: string, collectionIds: string[]): Promise<RunOut> {
   // Only ever send a conversation_id the backend actually confirmed exists - the sidebar's
   // placeholder id would 404 (ConversationNotFoundError), so a brand-new conversation's first
   // run omits it and lets the backend create one instead.
@@ -379,7 +379,11 @@ async function createRun(conversationId: string, query: string): Promise<RunOut>
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query, conversation_id: known }),
+    body: JSON.stringify({
+      query,
+      conversation_id: known,
+      collection_ids: collectionIds.length > 0 ? collectionIds : undefined,
+    }),
   })
   if (!response.ok) throw new Error(`${response.status}`)
   return response.json()
@@ -537,9 +541,9 @@ function trackRun(conversationId: string, messageId: string, run: RunOut) {
   activePolls.set(messageId, interval)
 }
 
-async function runQuery(conversationId: string, messageId: string, query: string) {
+async function runQuery(conversationId: string, messageId: string, query: string, collectionIds: string[]) {
   try {
-    const run = await createRun(conversationId, query)
+    const run = await createRun(conversationId, query, collectionIds)
     const resolvedId = run.conversation_id ? migrateConversationId(conversationId, run.conversation_id) : conversationId
     trackRun(resolvedId, messageId, run)
   } catch {
@@ -564,7 +568,7 @@ async function resumeAndTrack(conversationId: string, runId: string, messageId: 
   }
 }
 
-function sendMessage(content: string) {
+function sendMessage(content: string, collectionIds: string[] = []) {
   const conversationId = activeId.value
 
   const pending = pendingClarifications[conversationId]
@@ -586,7 +590,7 @@ function sendMessage(content: string) {
     { id: crypto.randomUUID(), role: 'user', content },
     { id: messageId, role: 'assistant', content: 'Recherche en cours', pending: true },
   )
-  runQuery(conversationId, messageId, content)
+  runQuery(conversationId, messageId, content, collectionIds)
 }
 
 function regenerateMessage(id: string) {
@@ -609,7 +613,7 @@ function regenerateMessage(id: string) {
   // stale entry here would otherwise hijack the next normal sendMessage into "resuming" it.
   delete pendingClarifications[conversationId]
   list[index] = { id, role: 'assistant', content: 'Recherche en cours', pending: true }
-  runQuery(conversationId, id, lastUserMessage.content)
+  runQuery(conversationId, id, lastUserMessage.content, [])
 }
 
 function sendFeedback(id: string, value: 'up' | 'down', details?: FeedbackDetails) {

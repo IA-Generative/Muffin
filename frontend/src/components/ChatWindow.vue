@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { nextTick, ref, watch } from 'vue'
+import { useCollections } from '../composables/useCollections'
 import type { ChatMessage, FeedbackDetails } from '../types/chat'
 import ChatMessageItem from './ChatMessage.vue'
+import CollectionPicker from './CollectionPicker.vue'
 import ModelSelector from './ModelSelector.vue'
 
 const props = defineProps<{
@@ -9,23 +11,30 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  send: [content: string]
+  send: [content: string, collectionIds: string[]]
   regenerate: [id: string]
   feedback: [id: string, value: 'up' | 'down', details?: FeedbackDetails]
   showSources: [id: string]
   showExecution: [id: string]
 }>()
 
+const { collections } = useCollections()
+
 const draft = ref('')
+const pinnedCollectionIds = ref<string[]>([])
 const textarea = ref<HTMLTextAreaElement>()
 const scrollAnchor = ref<HTMLElement>()
 
 function submit() {
   const content = draft.value.trim()
   if (!content) return
-  emit('send', content)
+  emit('send', content, pinnedCollectionIds.value)
   draft.value = ''
   resizeTextarea()
+}
+
+function unpin(id: string) {
+  pinnedCollectionIds.value = pinnedCollectionIds.value.filter((existing) => existing !== id)
 }
 
 function resizeTextarea() {
@@ -71,7 +80,21 @@ watch(
 
     <form class="chat-window__form" @submit.prevent="submit">
       <div class="chat-window__inner">
+        <ul v-if="pinnedCollectionIds.length > 0" class="chat-window__chips">
+          <li v-for="id in pinnedCollectionIds" :key="id" class="chat-window__chip">
+            <span>{{ collections.find((collection) => collection.id === id)?.name ?? id }}</span>
+            <button type="button" aria-label="Retirer" @click="unpin(id)">
+              <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true">
+                <path
+                  fill="currentColor"
+                  d="M6.4 5L5 6.4 10.6 12 5 17.6 6.4 19 12 13.4 17.6 19 19 17.6 13.4 12 19 6.4 17.6 5 12 10.6z"
+                />
+              </svg>
+            </button>
+          </li>
+        </ul>
         <div class="chat-window__composer">
+          <CollectionPicker v-model="pinnedCollectionIds" />
           <textarea
             ref="textarea"
             v-model="draft"
@@ -141,6 +164,37 @@ watch(
 
 .chat-window__form {
   padding: 0 0 1.5rem;
+}
+
+.chat-window__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  list-style: none;
+  margin-bottom: 0.5rem;
+}
+
+.chat-window__chip {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 1rem;
+  border: 1px solid var(--border-action-high-blue-france);
+  background: var(--background-alt-blue-france);
+  color: var(--text-action-high-blue-france);
+  font-size: 0.75rem;
+}
+
+.chat-window__chip button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
 }
 
 .chat-window__composer {
