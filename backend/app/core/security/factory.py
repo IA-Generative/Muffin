@@ -1,7 +1,8 @@
 import os
 from dataclasses import dataclass
 
-from fastapi import HTTPException, Request, status
+from fastapi import HTTPException, Request, Security, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.config import KeycloakSettings
 from app.core.security.claims import extract_identity
@@ -73,6 +74,21 @@ def get_token_verifier():
 
 TokenVerifier = get_token_verifier()
 
+# Declared purely so Swagger UI shows an "Authorize" button and lets a bearer
+# token be tested from /api/docs - the actual token extraction/verification
+# still happens inside KeycloakToken._from_bearer_token above, unaffected by
+# this dependency. auto_error=False: a request with no/invalid Authorization
+# header must still be able to fall through to the BFF session cookie below,
+# never get rejected here before that check runs.
+bearer_scheme = HTTPBearer(
+    auto_error=False,
+    description="Keycloak access token. Browser clients authenticate via the BFF session "
+    "cookie instead - this is only for testing endpoints directly from Swagger UI.",
+)
+_bearer_security = Security(bearer_scheme)
 
-def get_current_user(request: Request) -> RequestContext:
+
+def get_current_user(
+    request: Request, _credentials: HTTPAuthorizationCredentials | None = _bearer_security
+) -> RequestContext:
     return TokenVerifier(request)
