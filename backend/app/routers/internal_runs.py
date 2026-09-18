@@ -247,6 +247,7 @@ async def search(body: SearchRequest, db: Annotated[AsyncSession, Depends(get_db
             collection_id=collection_id,
             text=chunk.text,
             rank=rank,
+            page_number=(chunk.extras or {}).get("page_start"),
         )
         for chunk, document_name, collection_id, rank in rows
     ]

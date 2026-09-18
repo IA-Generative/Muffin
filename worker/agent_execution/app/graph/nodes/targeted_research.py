@@ -34,7 +34,11 @@ def targeted_research(state: AgentState) -> dict[str, Any]:
             if selected_vdbs
             else []
         )
-        evidence.extend(normalize_results(task_id, claim, results))
+        # Always "search" here (unlike research_task, there's no other tool in the grounding
+        # loop) - tagged the same way as research_task's central stamp, see there for why.
+        evidence.extend(
+            {**e, "metadata": {**e["metadata"], "tool": "search"}} for e in normalize_results(task_id, claim, results)
+        )
         new_tasks.append(
             ResearchTask(
                 id=task_id,

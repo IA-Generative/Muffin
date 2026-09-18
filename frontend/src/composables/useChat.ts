@@ -17,6 +17,14 @@ interface Citation {
   evidence_id: string
   source: string | null
   vdb_id: string
+  // Absent on citations persisted before this field set existed - treated as an old-style
+  // citation with no tool/page/chunk info, never a crash.
+  tool?: string
+  document_id?: string | null
+  chunk_id?: string | null
+  page_number?: number | null
+  query?: string
+  content?: string
 }
 
 interface MessageOut {
@@ -406,6 +414,11 @@ function formatAnswerWithCitations(answer: string, citations: Citation[] | null 
   const footnoteNumberById = new Map<string, number>()
   const sources: Source[] = []
 
+  // Only "search" and "page_content" ever point at a real, openable document page - every other
+  // tool (list_collections, collection_summary, list_documents) is a knowledge-base-level lookup
+  // with nothing to open a page for, just its own input/output.
+  const DOCUMENT_TOOLS = new Set(['search', 'page_content'])
+
   function footnoteFor(evidenceId: string): number | undefined {
     const citation = citationById.get(evidenceId)
     if (!citation) return undefined
@@ -414,7 +427,18 @@ function formatAnswerWithCitations(answer: string, citations: Citation[] | null 
       footnoteNumber = sources.length + 1
       footnoteNumberById.set(evidenceId, footnoteNumber)
       const sourceTitle = citation.source ?? `Source ${citation.vdb_id}`
-      sources.push({ title: `${footnoteNumber}. ${sourceTitle}` })
+      const isDocument = !!citation.tool && DOCUMENT_TOOLS.has(citation.tool)
+      let type: Source['type']
+      if (citation.tool !== undefined) type = isDocument ? 'document' : 'tool'
+      sources.push({
+        title: `${footnoteNumber}. ${sourceTitle}`,
+        type,
+        collectionId: citation.vdb_id,
+        documentId: isDocument ? (citation.document_id ?? undefined) : undefined,
+        pageNumber: isDocument ? (citation.page_number ?? undefined) : undefined,
+        query: citation.query,
+        content: citation.content,
+      })
     }
     return footnoteNumber
   }
