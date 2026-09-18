@@ -115,11 +115,29 @@ class DocumentUploadService:
             DocumentPageOut(
                 page_number=page.page_number,
                 content=page.content,
-                screenshot_url=storage.get_presigned_url(page.screenshot) if page.screenshot else None,
+                # A path on this same backend, not a presigned RustFS URL (§ never a public
+                # storage link the browser talks to directly) - every fetch of it re-runs the
+                # normal auth/ownership check below, instead of a link that keeps working on its
+                # own, for whoever has it, until it expires.
+                screenshot_url=(
+                    f"/api/collections/{collection_id}/documents/{document_id}/pages/{page.page_number}/screenshot"
+                    if page.screenshot
+                    else None
+                ),
             )
             for page in pages
         ]
         return pagination.to_page(items, total)
+
+    async def get_page_screenshot(
+        self, collection_id: uuid.UUID, user: RequestContext, document_id: uuid.UUID, page_number: int
+    ) -> tuple[bytes, str]:
+        await self._get_owned_collection(collection_id, user)
+        await self._get_owned_document(collection_id, document_id)
+        page = await self.documents.get_page(document_id, page_number)
+        if page is None or page.screenshot is None:
+            raise DocumentNotFoundError(f"page {page_number} of document {document_id}")
+        return storage.get_object(page.screenshot)
 
     async def delete_document(self, collection_id: uuid.UUID, user: RequestContext, document_id: uuid.UUID) -> None:
         await self._get_owned_collection(collection_id, user)

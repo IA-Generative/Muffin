@@ -33,7 +33,11 @@ function indexedCount(documents: { status: string }[]) {
 </script>
 
 <template>
-  <CollectionDetailView v-if="activeCollection" :collection="activeCollection" />
+  <CollectionDetailView
+    v-if="activeCollection"
+    :collection="activeCollection"
+    :active-document-id="typeof route.params.documentId === 'string' ? route.params.documentId : undefined"
+  />
 
   <section v-else class="collections-view">
     <div class="collections-view__header">

@@ -36,7 +36,7 @@ interface DocumentPage {
   screenshot_url: string | null
 }
 
-type Tab = 'summary' | 'pages' | 'entities' | 'qa'
+type Tab = 'summary' | 'entities' | 'qa'
 
 const activeTab = ref<Tab>('summary')
 
@@ -105,15 +105,14 @@ async function loadQaPairs() {
   }
 }
 
-// Each tab's data is fetched lazily, the first time it's opened - a document with 200 pages
-// shouldn't cost a pages request just because the user only ever looks at the summary.
+// The right-hand tabs' data is fetched lazily, the first time each is opened; the pages panel on
+// the left is always visible instead, so it loads eagerly on mount alongside the summary.
 const loadedTabs = new Set<Tab>()
 watch(
   activeTab,
   (tab) => {
     if (loadedTabs.has(tab)) return
     loadedTabs.add(tab)
-    if (tab === 'pages') loadPage(1)
     if (tab === 'qa') loadQaPairs()
   },
   { immediate: true },
@@ -121,7 +120,10 @@ watch(
 
 watch(pageNumber, (page) => loadPage(page))
 
-onMounted(loadDetail)
+onMounted(() => {
+  loadDetail()
+  loadPage(1)
+})
 </script>
 
 <template>
@@ -132,57 +134,8 @@ onMounted(loadDetail)
         <button type="button" class="document-modal__close" aria-label="Fermer" @click="emit('close')">✕</button>
       </header>
 
-      <nav class="document-modal__tabs" aria-label="Sections du document">
-        <button
-          type="button"
-          class="document-modal__tab"
-          :class="{ 'document-modal__tab--active': activeTab === 'summary' }"
-          @click="activeTab = 'summary'"
-        >
-          Résumé
-        </button>
-        <button
-          type="button"
-          class="document-modal__tab"
-          :class="{ 'document-modal__tab--active': activeTab === 'pages' }"
-          @click="activeTab = 'pages'"
-        >
-          Pages
-        </button>
-        <button
-          type="button"
-          class="document-modal__tab"
-          :class="{ 'document-modal__tab--active': activeTab === 'entities' }"
-          @click="activeTab = 'entities'"
-        >
-          Entités &amp; relations
-        </button>
-        <button
-          type="button"
-          class="document-modal__tab"
-          :class="{ 'document-modal__tab--active': activeTab === 'qa' }"
-          @click="activeTab = 'qa'"
-        >
-          Questions/réponses
-        </button>
-      </nav>
-
-      <div class="document-modal__body">
-        <section v-if="activeTab === 'summary'">
-          <p v-if="detailError" class="document-modal__error">Impossible de charger ce document.</p>
-          <template v-else-if="detail">
-            <div v-if="detail.tags.length" class="document-modal__tags">
-              <span v-for="tag in detail.tags" :key="tag" class="document-modal__tag">{{ tag }}</span>
-            </div>
-            <p v-if="detail.summary" class="document-modal__summary">{{ detail.summary }}</p>
-            <p v-else class="document-modal__empty">Aucun résumé disponible pour le moment.</p>
-            <p v-if="detail.error" class="document-modal__processing-error">{{ detail.error }}</p>
-            <p class="document-modal__meta">{{ detail.page_count }} page(s)</p>
-          </template>
-          <p v-else class="document-modal__loading">Chargement…</p>
-        </section>
-
-        <section v-else-if="activeTab === 'pages'">
+      <div class="document-modal__content">
+        <aside class="document-modal__pages-panel">
           <p v-if="pagesError" class="document-modal__error">Impossible de charger les pages.</p>
           <template v-else-if="!pagesLoading && pageTotal === 0">
             <p class="document-modal__empty">Aucune page indexée pour le moment.</p>
@@ -192,7 +145,7 @@ onMounted(loadDetail)
             <template v-else-if="pages[0]">
               <img
                 v-if="pages[0].screenshot_url"
-                :src="pages[0].screenshot_url"
+                :src="`${API_BASE_URL}${pages[0].screenshot_url}`"
                 :alt="`Page ${pages[0].page_number}`"
                 class="document-modal__screenshot"
               />
@@ -204,46 +157,91 @@ onMounted(loadDetail)
               <button type="button" :disabled="pageNumber === pageTotal" @click="pageNumber++">Suivant</button>
             </div>
           </template>
-        </section>
+        </aside>
 
-        <section v-else-if="activeTab === 'entities'">
-          <p class="document-modal__scope-note">Entités et relations de l'ensemble de la collection.</p>
-          <h3 class="document-modal__section-title">Entités</h3>
-          <ul v-if="entities.length" class="document-modal__entities">
-            <li v-for="entity in entities" :key="entity.id" class="document-modal__entity">
-              <span class="document-modal__entity-type" :class="`document-modal__entity-type--${entity.type}`">
-                {{ ENTITY_LABEL[entity.type] }}
-              </span>
-              <span>{{ entity.name }}</span>
-              <span class="document-modal__entity-mentions">{{ entity.mentions }} mention(s)</span>
-            </li>
-          </ul>
-          <p v-else class="document-modal__empty">Aucune entité détectée.</p>
+        <div class="document-modal__right">
+          <nav class="document-modal__tabs" aria-label="Sections du document">
+            <button
+              type="button"
+              class="document-modal__tab"
+              :class="{ 'document-modal__tab--active': activeTab === 'summary' }"
+              @click="activeTab = 'summary'"
+            >
+              Résumé
+            </button>
+            <button
+              type="button"
+              class="document-modal__tab"
+              :class="{ 'document-modal__tab--active': activeTab === 'entities' }"
+              @click="activeTab = 'entities'"
+            >
+              Entités &amp; relations
+            </button>
+            <button
+              type="button"
+              class="document-modal__tab"
+              :class="{ 'document-modal__tab--active': activeTab === 'qa' }"
+              @click="activeTab = 'qa'"
+            >
+              Questions/réponses
+            </button>
+          </nav>
 
-          <h3 class="document-modal__section-title">Relations</h3>
-          <ul v-if="relations.length" class="document-modal__relations">
-            <li v-for="relation in relations" :key="relation.id" class="document-modal__relation">
-              <span>{{ relation.from }}</span>
-              <span class="document-modal__relation-type">{{ relation.type }}</span>
-              <span>{{ relation.to }}</span>
-            </li>
-          </ul>
-          <p v-else class="document-modal__empty">Aucune relation détectée.</p>
-        </section>
+          <div class="document-modal__body">
+            <section v-if="activeTab === 'summary'">
+              <p v-if="detailError" class="document-modal__error">Impossible de charger ce document.</p>
+              <template v-else-if="detail">
+                <div v-if="detail.tags.length" class="document-modal__tags">
+                  <span v-for="tag in detail.tags" :key="tag" class="document-modal__tag">{{ tag }}</span>
+                </div>
+                <p v-if="detail.summary" class="document-modal__summary">{{ detail.summary }}</p>
+                <p v-else class="document-modal__empty">Aucun résumé disponible pour le moment.</p>
+                <p v-if="detail.error" class="document-modal__processing-error">{{ detail.error }}</p>
+                <p class="document-modal__meta">{{ detail.page_count }} page(s)</p>
+              </template>
+              <p v-else class="document-modal__loading">Chargement…</p>
+            </section>
 
-        <section v-else-if="activeTab === 'qa'">
-          <p v-if="qaError" class="document-modal__error">Impossible de charger les questions/réponses.</p>
-          <template v-else-if="qaPairs">
-            <ul v-if="qaPairs.length" class="document-modal__qa-list">
-              <li v-for="pair in qaPairs" :key="pair.id" class="document-modal__qa-item">
-                <span class="document-modal__qa-question">{{ pair.question }}</span>
-                <span class="document-modal__qa-answer">{{ pair.answer }}</span>
-              </li>
-            </ul>
-            <p v-else class="document-modal__empty">Aucune question/réponse générée pour ce document.</p>
-          </template>
-          <p v-else class="document-modal__loading">Chargement…</p>
-        </section>
+            <section v-else-if="activeTab === 'entities'">
+              <p class="document-modal__scope-note">Entités et relations de l'ensemble de la collection.</p>
+              <h3 class="document-modal__section-title">Entités</h3>
+              <ul v-if="entities.length" class="document-modal__entities">
+                <li v-for="entity in entities" :key="entity.id" class="document-modal__entity">
+                  <span class="document-modal__entity-type" :class="`document-modal__entity-type--${entity.type}`">
+                    {{ ENTITY_LABEL[entity.type] }}
+                  </span>
+                  <span>{{ entity.name }}</span>
+                  <span class="document-modal__entity-mentions">{{ entity.mentions }} mention(s)</span>
+                </li>
+              </ul>
+              <p v-else class="document-modal__empty">Aucune entité détectée.</p>
+
+              <h3 class="document-modal__section-title">Relations</h3>
+              <ul v-if="relations.length" class="document-modal__relations">
+                <li v-for="relation in relations" :key="relation.id" class="document-modal__relation">
+                  <span>{{ relation.from }}</span>
+                  <span class="document-modal__relation-type">{{ relation.type }}</span>
+                  <span>{{ relation.to }}</span>
+                </li>
+              </ul>
+              <p v-else class="document-modal__empty">Aucune relation détectée.</p>
+            </section>
+
+            <section v-else-if="activeTab === 'qa'">
+              <p v-if="qaError" class="document-modal__error">Impossible de charger les questions/réponses.</p>
+              <template v-else-if="qaPairs">
+                <ul v-if="qaPairs.length" class="document-modal__qa-list">
+                  <li v-for="pair in qaPairs" :key="pair.id" class="document-modal__qa-item">
+                    <span class="document-modal__qa-question">{{ pair.question }}</span>
+                    <span class="document-modal__qa-answer">{{ pair.answer }}</span>
+                  </li>
+                </ul>
+                <p v-else class="document-modal__empty">Aucune question/réponse générée pour ce document.</p>
+              </template>
+              <p v-else class="document-modal__loading">Chargement…</p>
+            </section>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -263,8 +261,8 @@ onMounted(loadDetail)
 
 .document-modal {
   width: 100%;
-  max-width: 42rem;
-  max-height: 85vh;
+  max-width: 64rem;
+  height: 85vh;
   display: flex;
   flex-direction: column;
   background: var(--background-default-grey);
@@ -299,10 +297,31 @@ onMounted(loadDetail)
   font-size: 1rem;
 }
 
+.document-modal__content {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  margin-top: 1rem;
+}
+
+.document-modal__pages-panel {
+  flex: 0 0 40%;
+  padding: 0 1.5rem 1.5rem;
+  overflow-y: auto;
+  border-right: 1px solid var(--border-default-grey);
+}
+
+.document-modal__right {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .document-modal__tabs {
   display: flex;
   gap: 0.25rem;
-  margin: 1rem 1.5rem 0;
+  margin: 0 1.5rem;
   border-bottom: 1px solid var(--border-default-grey);
 }
 
@@ -324,6 +343,7 @@ onMounted(loadDetail)
 }
 
 .document-modal__body {
+  flex: 1;
   padding: 1.25rem 1.5rem 1.5rem;
   overflow-y: auto;
 }

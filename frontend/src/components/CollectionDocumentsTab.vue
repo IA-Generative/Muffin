@@ -1,15 +1,18 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { useCollections } from '../composables/useCollections'
 import { usePagination } from '../composables/usePagination'
-import type { Collection, CollectionDocument } from '../types/collection'
+import type { Collection } from '../types/collection'
 import DocumentDetailModal from './DocumentDetailModal.vue'
 import PaginationControls from './PaginationControls.vue'
 
 const props = defineProps<{
   collection: Collection
+  activeDocumentId?: string
 }>()
 
+const router = useRouter()
 const { addDocuments, addUrl, removeDocument, documentError } = useCollections()
 
 const documents = computed(() => props.collection.documents)
@@ -17,7 +20,19 @@ const { page, pageCount, paged: pagedDocuments } = usePagination(documents)
 
 const urlDraft = ref('')
 const isDragging = ref(false)
-const openDocument = ref<CollectionDocument>()
+
+// Route-driven (see /collections/:id/documents/:documentId) rather than plain local state - a
+// direct link/refresh reopens the same document, and opening/closing pushes the URL rather than
+// just toggling a ref, so the modal is actually shareable/bookmarkable.
+const openDocument = computed(() => documents.value.find((document) => document.id === props.activeDocumentId))
+
+function openDocumentModal(documentId: string) {
+  router.push(`/collections/${props.collection.id}/documents/${documentId}`)
+}
+
+function closeDocumentModal() {
+  router.push(`/collections/${props.collection.id}`)
+}
 
 function submitUrl() {
   if (!urlDraft.value.trim()) return
@@ -80,7 +95,7 @@ const STATUS_LABEL = {
           type="button"
           class="documents-tab__item-open"
           :aria-label="`Voir le détail de ${document.name}`"
-          @click="openDocument = document"
+          @click="openDocumentModal(document.id)"
         >
           <span class="documents-tab__item-icon" aria-hidden="true">
             <svg v-if="document.type === 'file'" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -127,7 +142,7 @@ const STATUS_LABEL = {
       :document="openDocument"
       :entities="collection.entities"
       :relations="collection.relations"
-      @close="openDocument = undefined"
+      @close="closeDocumentModal"
     />
   </div>
 </template>

@@ -11,6 +11,11 @@ export const router = createRouter({
       name: 'collection-detail',
       component: () => import('../components/CollectionsView.vue'),
     },
+    {
+      path: '/collections/:id/documents/:documentId',
+      name: 'collection-document',
+      component: () => import('../components/CollectionsView.vue'),
+    },
     { path: '/tasks', name: 'tasks', component: () => import('../components/TasksView.vue') },
     { path: '/admin', name: 'admin', component: () => import('../components/AdminSettingsView.vue') },
   ],
