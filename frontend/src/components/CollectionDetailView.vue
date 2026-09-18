@@ -30,17 +30,23 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: 'relations', label: 'Entités & Relations' },
   { key: 'chunks', label: 'Chunks' },
 ]
-// Paramètres en premier : on configure le chunking/embedding avant d'ajouter
-// des documents, donc c'est l'onglet le plus utile à l'ouverture.
-const activeTab = ref<TabKey>('settings')
+// Paramètres (chunking, embedding, visibilité, partages) est owner-only côté backend - un
+// visiteur d'une collection publique/partagée ne le voit pas du tout, il n'y a rien qu'il
+// puisse y faire.
+const visibleTabs = computed(() => TABS.filter((tab) => tab.key !== 'settings' || props.collection.isOwner))
+// Paramètres en premier pour un owner : on configure le chunking/embedding avant d'ajouter des
+// documents. Un non-owner n'a pas cet onglet, donc Documents à la place.
+const activeTab = ref<TabKey>(props.collection.isOwner ? 'settings' : 'documents')
 
 // Tant que le nom et les paramètres n'ont pas été confirmés, on reste
 // coincé sur l'onglet Paramètres - y compris si on y revient plus tard
-// (changement de collection active, navigation directe par URL).
+// (changement de collection active, navigation directe par URL). Ne
+// s'applique qu'à l'owner (voir isCollectionReady).
 watch(
   () => [props.collection.id, isReady.value],
   () => {
     if (!isReady.value) activeTab.value = 'settings'
+    else if (activeTab.value === 'settings' && !props.collection.isOwner) activeTab.value = 'documents'
   },
   { immediate: true },
 )
@@ -97,15 +103,31 @@ function confirmDelete() {
 
       <div class="collection-detail__header">
         <input
+          v-if="collection.isOwner"
           class="collection-detail__name"
           :value="collection.name"
           aria-label="Nom de la collection"
           @change="updateName(collection.id, ($event.target as HTMLInputElement).value)"
         />
-        <button type="button" class="collection-detail__delete" @click="showDeleteModal = true">Supprimer</button>
+        <h2 v-else class="collection-detail__name collection-detail__name--readonly">{{ collection.name }}</h2>
+        <span
+          class="collection-detail__visibility-badge"
+          :class="`collection-detail__visibility-badge--${collection.isOwner ? 'owner' : collection.visibility === 'public' ? 'public' : 'shared'}`"
+        >
+          {{ collection.isOwner ? (collection.visibility === 'public' ? 'Publique' : 'Privée') : collection.visibility === 'public' ? 'Publique' : 'Partagée avec vous' }}
+        </span>
+        <button
+          v-if="collection.isOwner"
+          type="button"
+          class="collection-detail__delete"
+          @click="showDeleteModal = true"
+        >
+          Supprimer
+        </button>
       </div>
 
       <textarea
+        v-if="collection.isOwner"
         class="collection-detail__description"
         :value="collection.description"
         placeholder="Décrivez cette collection…"
@@ -113,6 +135,9 @@ function confirmDelete() {
         aria-label="Description de la collection"
         @change="updateDescription(collection.id, ($event.target as HTMLTextAreaElement).value)"
       />
+      <p v-else-if="collection.description" class="collection-detail__description collection-detail__description--readonly">
+        {{ collection.description }}
+      </p>
       <p v-if="collection.descriptionMeta" class="collection-detail__meta">
         {{ formatStamp(collection.descriptionMeta) }}
       </p>
@@ -120,9 +145,12 @@ function confirmDelete() {
       <div class="collection-detail__tags">
         <span v-for="tag in collection.tags" :key="tag" class="collection-detail__tag">
           {{ tag }}
-          <button type="button" :aria-label="`Retirer le tag ${tag}`" @click="removeTag(tag)">✕</button>
+          <button v-if="collection.isOwner" type="button" :aria-label="`Retirer le tag ${tag}`" @click="removeTag(tag)">
+            ✕
+          </button>
         </span>
         <input
+          v-if="collection.isOwner"
           v-model="tagDraft"
           type="text"
           class="collection-detail__tag-input"
@@ -136,7 +164,7 @@ function confirmDelete() {
 
       <nav class="collection-detail__tabs" aria-label="Sections de la collection">
         <button
-          v-for="tab in TABS"
+          v-for="tab in visibleTabs"
           :key="tab.key"
           type="button"
           class="collection-detail__tab"
@@ -242,6 +270,45 @@ function confirmDelete() {
   color: var(--text-default-error);
   cursor: pointer;
   font-size: 0.8125rem;
+}
+
+.collection-detail__name--readonly {
+  flex: 1;
+  margin: 0;
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--text-default-grey);
+  padding: 0.25rem 0;
+}
+
+.collection-detail__description--readonly {
+  width: 100%;
+  margin: 0.75rem 0 0;
+  color: var(--text-mention-grey);
+}
+
+.collection-detail__visibility-badge {
+  flex-shrink: 0;
+  padding: 0.25rem 0.625rem;
+  border-radius: 1rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.collection-detail__visibility-badge--owner {
+  background: var(--background-alt-grey);
+  color: var(--text-mention-grey);
+}
+
+.collection-detail__visibility-badge--public {
+  background: var(--background-alt-blue-france);
+  color: var(--text-action-high-blue-france);
+}
+
+.collection-detail__visibility-badge--shared {
+  background: var(--background-alt-green-emeraude, var(--background-alt-grey));
+  color: var(--text-default-success, var(--text-default-grey));
 }
 
 .collection-detail__description {

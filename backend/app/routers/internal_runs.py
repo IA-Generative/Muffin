@@ -1,7 +1,7 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import storage
@@ -158,10 +158,15 @@ async def create_run_event(
     response_model=list[AccessibleCollectionOut],
 )
 async def list_accessible_collections(
-    user_id: str, db: Annotated[AsyncSession, Depends(get_db)]
+    user_id: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    groups: Annotated[list[str] | None, Query()] = None,
 ) -> list[AccessibleCollectionOut]:
+    # groups defaults to unset rather than required: owner + public + direct user shares already
+    # resolve correctly without it, group-shared collections just won't show up until the caller
+    # (the run that triggered this) is updated to also pass the user's groups along.
     repository = CollectionRepository(db)
-    collections = await repository.list_all_by_owner(user_id)
+    collections = await repository.list_all_accessible(user_id, groups or [])
     document_counts = await repository.count_documents([collection.id for collection in collections])
     return [
         AccessibleCollectionOut(

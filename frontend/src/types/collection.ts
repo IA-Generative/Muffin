@@ -120,6 +120,21 @@ export interface EvaluationRun {
   results: EvaluationResult[]
 }
 
+export type CollectionVisibility = 'private' | 'public'
+
+export type ShareSubjectType = 'user' | 'group'
+export type ShareStatus = 'pending' | 'active'
+
+export interface Share {
+  id: string
+  subjectType: ShareSubjectType
+  status: ShareStatus
+  // Non-reversible ("j***@e***.com") - never the full email/group the owner typed. See
+  // backend/app/core/sharing.py.
+  displayHint: string
+  createdAt: string
+}
+
 export interface Collection {
   id: string
   name: string
@@ -128,6 +143,10 @@ export interface Collection {
   tags: string[]
   tagsMeta: FieldStamp | null
   updatedAt: string
+  visibility: CollectionVisibility
+  // Whether the current user owns this collection - false for a public collection browsed by
+  // someone else, or one shared with them. Gates every write action in the UI.
+  isOwner: boolean
   documents: CollectionDocument[]
   qaPairs: QaPair[]
   entities: Entity[]
@@ -140,4 +159,7 @@ export interface Collection {
   generationModels: GenerationModels
   pipelineWindows: PipelineWindows
   evaluationRuns: EvaluationRun[]
+  // Fetched on demand (owner-only endpoint), like qaPairs/entities - empty until
+  // refreshShares/useCollections has run once for this collection.
+  shares: Share[]
 }

@@ -16,4 +16,8 @@ def extract_identity(claims: dict, client_id: str) -> dict | None:
         "last_name": claims.get("family_name", ""),
         "roles": roles,
         "is_admin": "admin" in roles or "realm-admin" in roles,
+        # Requires a "groups" client scope/mapper on the muffin-backend client (see
+        # docker/keycloak/realm-muffin.json) - defaults to [] rather than failing so a realm
+        # without that mapper just never resolves group-based collection shares.
+        "groups": claims.get("groups", []),
     }

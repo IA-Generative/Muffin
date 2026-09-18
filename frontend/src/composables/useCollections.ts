@@ -5,6 +5,7 @@ import type {
   Chunk,
   Collection,
   CollectionDocument,
+  CollectionVisibility,
   Entity,
   EvaluationResult,
   EvaluationRun,
@@ -14,6 +15,8 @@ import type {
   PipelineWindows,
   QaPair,
   Relation,
+  Share,
+  ShareSubjectType,
 } from '../types/collection'
 
 function qa(
@@ -40,6 +43,8 @@ interface CollectionOut {
   tags: string[]
   tags_meta: { updated_by: string; updated_at: string } | null
   updated_at: string
+  visibility: CollectionVisibility
+  is_owner: boolean
   documents: CollectionDocument[]
   qa_pairs: QaPair[]
   entities: Entity[]
@@ -91,6 +96,8 @@ function toCollection(raw: CollectionOut): Collection {
     tags: raw.tags,
     tagsMeta: toStamp(raw.tags_meta),
     updatedAt: raw.updated_at,
+    visibility: raw.visibility,
+    isOwner: raw.is_owner,
     documents: raw.documents,
     qaPairs: raw.qa_pairs,
     entities: raw.entities,
@@ -107,7 +114,23 @@ function toCollection(raw: CollectionOut): Collection {
     generationModels: raw.generation_models,
     pipelineWindows: toPipelineWindows(raw.pipeline_windows),
     evaluationRuns: raw.evaluation_runs,
+    // Not embedded in CollectionOut (owner-only, would 404/leak nothing useful for a viewer
+    // anyway) - fetched separately by refreshShares, see CollectionSettingsTab.
+    shares: [],
   }
+}
+
+// Backend response is snake_case; matches Share once mapped.
+interface ShareOut {
+  id: string
+  subject_type: ShareSubjectType
+  status: Share['status']
+  display_hint: string
+  created_at: string
+}
+
+function toShare(raw: ShareOut): Share {
+  return { id: raw.id, subjectType: raw.subject_type, status: raw.status, displayHint: raw.display_hint, createdAt: raw.created_at }
 }
 
 interface DocumentOut {
@@ -153,6 +176,9 @@ function markSettingsSaved(collectionId: string) {
 // explicitly confirmed before documents (or anything else) can be added -
 // this is what CollectionDetailView gates its other tabs on.
 function isCollectionReady(collection: Collection): boolean {
+  // A non-owner (public or shared collection) never sees the Settings tab and can't confirm
+  // anything there - the "settings saved" gate only makes sense for the owner's own browser.
+  if (!collection.isOwner) return true
   return collection.name.trim() !== '' && collection.name !== DEFAULT_COLLECTION_NAME && hasSavedSettings(collection.id)
 }
 
@@ -187,9 +213,8 @@ async function fetchCollection(id: string) {
     const response = await fetch(`${API_BASE_URL}/api/collections/${id}`, { credentials: 'include' })
     if (!response.ok) return
     const collection = toCollection(await response.json())
-    const index = collections.value.findIndex((item) => item.id === id)
-    if (index === -1) collections.value.push(collection)
-    else collections.value[index] = collection
+    if (collections.value.some((item) => item.id === id)) replaceCollection(id, collection)
+    else collections.value.push(collection)
   } catch {
     // Ignored: the detail view already handles a missing/unfetchable collection.
   }
@@ -215,6 +240,8 @@ function openCollection(id: string, options: { navigate?: boolean } = {}) {
   })
   refreshQaPairs(id)
   refreshEntitiesAndRelations(id)
+  // Owner-only endpoint - silently no-ops for a public/shared collection browsed by a non-owner.
+  refreshShares(id)
   const target = `/collections/${id}`
   if (options.navigate !== false && router.currentRoute.value.fullPath !== target) {
     router.push(target)
@@ -236,6 +263,24 @@ async function createCollection() {
   openCollection(collection.id)
 }
 
+// CollectionOut doesn't embed documents/qaPairs/entities/relations/chunks/shares (see
+// toCollection's comments) - every PATCH response would otherwise wipe whatever was already
+// loaded for those. Carries the previous entry's sub-resources forward instead of losing them.
+function replaceCollection(id: string, next: Collection) {
+  const index = collections.value.findIndex((item) => item.id === id)
+  if (index === -1) return
+  const previous = collections.value[index]
+  collections.value[index] = {
+    ...next,
+    documents: previous.documents,
+    qaPairs: previous.qaPairs,
+    entities: previous.entities,
+    relations: previous.relations,
+    chunks: previous.chunks,
+    shares: previous.shares,
+  }
+}
+
 async function patchCollection(id: string, body: Record<string, unknown>) {
   const response = await fetch(`${API_BASE_URL}/api/collections/${id}`, {
     method: 'PATCH',
@@ -244,9 +289,7 @@ async function patchCollection(id: string, body: Record<string, unknown>) {
     body: JSON.stringify(body),
   })
   if (!response.ok) return
-  const collection = toCollection(await response.json())
-  const index = collections.value.findIndex((item) => item.id === id)
-  if (index !== -1) collections.value[index] = collection
+  replaceCollection(id, toCollection(await response.json()))
 }
 
 function updateName(id: string, name: string) {
@@ -270,6 +313,76 @@ async function deleteCollection(id: string) {
   if (!response.ok) return
   collections.value = collections.value.filter((item) => item.id !== id)
   if (activeCollectionId.value === id) closeCollection()
+}
+
+const shareError = ref<string | null>(null)
+
+async function updateVisibility(id: string, visibility: CollectionVisibility) {
+  const response = await fetch(`${API_BASE_URL}/api/collections/${id}/visibility`, {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ visibility }),
+  })
+  if (!response.ok) return
+  replaceCollection(id, toCollection(await response.json()))
+}
+
+async function refreshShares(collectionId: string) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/collections/${collectionId}/shares`, {
+      credentials: 'include',
+    })
+    if (!response.ok) return
+    const raw: ShareOut[] = await response.json()
+    const collection = collections.value.find((item) => item.id === collectionId)
+    if (collection) collection.shares = raw.map(toShare)
+  } catch {
+    // Ignored: the panel just keeps whatever it last had.
+  }
+}
+
+// Never confirms whether `identifier` resolves to a real account/group - the invitation is
+// always created PENDING and resolved passively the next time a matching user logs in (see
+// backend/app/core/sharing.py). shareError surfaces only real failures (already invited,
+// sharing not configured), never "does this email exist".
+async function createShare(collectionId: string, subjectType: ShareSubjectType, identifier: string) {
+  shareError.value = null
+  if (!identifier.trim()) return
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/collections/${collectionId}/shares`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ subject_type: subjectType, identifier: identifier.trim() }),
+    })
+    if (response.status === 409) {
+      shareError.value = 'Cet email ou ce groupe est déjà invité sur cette collection.'
+      return
+    }
+    if (response.status === 503) {
+      shareError.value = "Le partage n'est pas configuré sur cet environnement."
+      return
+    }
+    if (!response.ok) {
+      shareError.value = "Échec de l'invitation."
+      return
+    }
+  } catch {
+    shareError.value = "Échec de l'invitation : le serveur est inaccessible."
+    return
+  }
+  await refreshShares(collectionId)
+}
+
+async function deleteShare(collectionId: string, shareId: string) {
+  const response = await fetch(`${API_BASE_URL}/api/collections/${collectionId}/shares/${shareId}`, {
+    method: 'DELETE',
+    credentials: 'include',
+  })
+  if (!response.ok) return
+  const collection = collections.value.find((item) => item.id === collectionId)
+  if (collection) collection.shares = collection.shares.filter((share) => share.id !== shareId)
 }
 
 // One poll loop per collection at most, stopped once nothing is pending/indexing.
@@ -415,9 +528,7 @@ async function patchSettings(id: string, body: Record<string, unknown>) {
     body: JSON.stringify(body),
   })
   if (!response.ok) return
-  const collection = toCollection(await response.json())
-  const index = collections.value.findIndex((item) => item.id === id)
-  if (index !== -1) collections.value[index] = collection
+  replaceCollection(id, toCollection(await response.json()))
 }
 
 async function updateChunkingSettings(collectionId: string, settings: ChunkingSettings) {
@@ -568,6 +679,11 @@ export function useCollections() {
     updateDescription,
     updateTags,
     deleteCollection,
+    shareError,
+    updateVisibility,
+    refreshShares,
+    createShare,
+    deleteShare,
     addDocuments,
     addUrl,
     removeDocument,

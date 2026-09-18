@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -13,6 +13,19 @@ from app.models.base import Base, TimestampMixin, UUIDMixin
 class ShareSubjectType(enum.StrEnum):
     USER = "user"
     GROUP = "group"
+
+
+class ShareStatus(enum.StrEnum):
+    # Created from an email/group identifier the backend never confirmed against Keycloak (no
+    # live lookup - see app/core/sharing.py) - resolved to ACTIVE the next time a matching
+    # user logs in, never by anything the owner who created it can observe.
+    PENDING = "pending"
+    ACTIVE = "active"
+
+
+class CollectionVisibility(enum.StrEnum):
+    PRIVATE = "private"
+    PUBLIC = "public"
 
 
 class ChunkingStrategy(enum.StrEnum):
@@ -27,6 +40,11 @@ class Collection(UUIDMixin, TimestampMixin, Base):
 
     # Keycloak subject (sub) claim; a collection always has exactly one owner.
     owner_id: Mapped[str] = mapped_column(String, index=True, nullable=False)
+    visibility: Mapped[CollectionVisibility] = mapped_column(
+        Enum(CollectionVisibility, name="collection_visibility"),
+        nullable=False,
+        default=CollectionVisibility.PRIVATE,
+    )
     name: Mapped[str] = mapped_column(String, nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
     description_updated_by: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -69,7 +87,12 @@ class CollectionTag(Base):
 
 
 class CollectionShare(UUIDMixin, TimestampMixin, Base):
-    """A collection shared with a person or a group (Keycloak user sub or group id)."""
+    """A collection shared with a person or a group (Keycloak user sub or group id).
+
+    Created PENDING from an email/group identifier the backend never looked up against Keycloak
+    (see app/core/sharing.py) - only invited_identifier_hash is set, subject_id is NULL. Promoted
+    to ACTIVE (subject_id filled with the Keycloak sub/group id, invited_identifier_hash cleared)
+    the next time a user whose token claims hash to the same value logs in."""
 
     __tablename__ = "collection_shares"
 
@@ -79,9 +102,30 @@ class CollectionShare(UUIDMixin, TimestampMixin, Base):
     subject_type: Mapped[ShareSubjectType] = mapped_column(
         Enum(ShareSubjectType, name="share_subject_type"), nullable=False
     )
-    subject_id: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[ShareStatus] = mapped_column(
+        Enum(ShareStatus, name="share_status"), nullable=False, default=ShareStatus.PENDING, index=True
+    )
+    # Keycloak sub (subject_type=user) or group id/path (subject_type=group) - NULL until resolved.
+    subject_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    # HMAC-SHA256 of the normalized email/group identifier the owner typed - NULL once ACTIVE.
+    invited_identifier_hash: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    # Non-reversible display hint (e.g. "j***@e***.com") computed once at creation time from what
+    # the owner just typed in that same request - never reconstituted from the hash afterwards.
+    display_hint: Mapped[str] = mapped_column(String, nullable=False)
 
     collection: Mapped["Collection"] = relationship(back_populates="shares")
+
+    __table_args__ = (
+        # Prevents a second pending invitation for the same not-yet-resolved identifier. NULLs
+        # (every ACTIVE row, once invited_identifier_hash is cleared) are never considered equal
+        # to each other by Postgres, so this only ever constrains PENDING rows against each other.
+        UniqueConstraint(
+            "collection_id", "subject_type", "invited_identifier_hash", name="uq_collection_share_pending_identifier"
+        ),
+        # Prevents a duplicate ACTIVE share once resolved. Same NULL-distinct reasoning lets many
+        # PENDING rows (subject_id NULL) coexist without tripping this one.
+        UniqueConstraint("collection_id", "subject_type", "subject_id", name="uq_collection_share_active_subject"),
+    )
 
 
 class CollectionSettings(Base):
