@@ -3,6 +3,16 @@ export interface Source {
   // Optional: a real run's citations point at a document/knowledge-base id,
   // not a browsable URL - only mocked/user-added sources have one.
   url?: string
+  // The rest are only set for a real citation (never a user-added feedback source) - see
+  // useChat.ts's formatAnswerWithCitations. "document" citations ("search"/"page_content" tools)
+  // link back to a real page + the exact chunk text; every other tool is just input/output,
+  // there's nothing to open a page for.
+  type?: 'document' | 'tool'
+  collectionId?: string
+  documentId?: string
+  pageNumber?: number
+  query?: string
+  content?: string
 }
 
 export interface ChatMessage {

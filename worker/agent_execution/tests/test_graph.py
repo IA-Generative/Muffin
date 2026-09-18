@@ -48,6 +48,15 @@ def test_simple_query_runs_a_single_task(make_run):
     # A simple single-fact lookup skips the grounding check entirely (§ optimize latency) -
     # see after_generate_answer.
     assert result["grounding_result"] is None
+    # Citations carry enough to link back to the source (§ sources panel: document vs tool
+    # cards) - a "search" citation must resolve to a real document page and its exact chunk text.
+    citation = result["citations"][0]
+    assert citation["tool"] == "search"
+    assert citation["page_number"] == 3
+    assert citation["document_id"]
+    assert citation["chunk_id"]
+    assert citation["content"]
+    assert citation["query"] == "What is the leave policy?"
 
 
 def test_complex_query_fans_out_independent_tasks_in_parallel(make_run):
@@ -314,6 +323,11 @@ def test_list_collections_tool_answers_from_accessible_vdbs_without_searching(ma
         e["content"] == "You have exactly 2 accessible knowledge base collections." for e in result["deduped_evidence"]
     )
     assert result["answer"] == "You have 2 collections: HR and Engineering [x]."
+    # Meta-tool citations are input/output only (§ sources panel: tool cards) - no page/chunk to
+    # link to, since nothing was actually searched.
+    assert all(c["tool"] == "list_collections" for c in result["citations"])
+    assert all(c["page_number"] is None for c in result["citations"])
+    assert all(c["query"] == "how many collections do I have" for c in result["citations"])
 
 
 def test_meta_query_skips_grounding_check(make_run):

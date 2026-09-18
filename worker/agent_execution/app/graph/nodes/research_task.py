@@ -190,6 +190,11 @@ def research_task(state: ResearchTaskInput) -> dict[str, Any]:
         emit(run_id, "vdb_routing_started", task_id=task_id)
         runner = _RUNNERS.get(task["tool"], lambda t, u, v, m: _run_search(t, v, m))
         updates, evidence = runner(task, user_id, state["accessible_vdbs"], state["chat_model"])
+        # Stamped centrally here (not in each runner) so every evidence-producing branch tags
+        # itself the same way, once - lets a citation say which tool produced it (§ sources
+        # panel: a "search" citation links to a real page/chunk, a meta-tool one is just
+        # input/output, no page to link to).
+        evidence = [{**e, "metadata": {**e["metadata"], "tool": task["tool"]}} for e in evidence]
         emit(run_id, "vdb_routing_completed", {"selected_ids": updates.get("selected_vdbs", [])}, task_id=task_id)
 
         completed = {**task, "status": "completed", **updates}

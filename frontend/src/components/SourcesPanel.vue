@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import type { Source } from '../types/chat'
+import SourceDocumentModal from './SourceDocumentModal.vue'
 
 defineProps<{
   sources: Source[]
@@ -8,6 +10,8 @@ defineProps<{
 defineEmits<{
   close: []
 }>()
+
+const openSource = ref<Source>()
 </script>
 
 <template>
@@ -21,15 +25,51 @@ defineEmits<{
 
     <ul class="sources-panel__list">
       <li v-for="source in sources" :key="source.url ?? source.title" class="sources-panel__item">
-        <a v-if="source.url" :href="source.url" target="_blank" rel="noopener noreferrer">
+        <!-- Document card: links back to a real page - clickable, opens the page+chunk modal. -->
+        <button
+          v-if="source.type === 'document'"
+          type="button"
+          class="sources-panel__card sources-panel__card--document"
+          @click="openSource = source"
+        >
+          <span class="sources-panel__card-kind">Document</span>
+          <span class="sources-panel__title">{{ source.title }}</span>
+          <span v-if="source.pageNumber" class="sources-panel__meta">Page {{ source.pageNumber }}</span>
+        </button>
+
+        <!-- Tool card: a knowledge-base lookup, not a document - just its input/output, nothing
+             to open a page for. -->
+        <div v-else-if="source.type === 'tool'" class="sources-panel__card sources-panel__card--tool">
+          <span class="sources-panel__card-kind">Outil</span>
+          <span class="sources-panel__title">{{ source.title }}</span>
+          <p v-if="source.query" class="sources-panel__tool-line">
+            <span class="sources-panel__tool-label">Entrée</span>{{ source.query }}
+          </p>
+          <p v-if="source.content" class="sources-panel__tool-line">
+            <span class="sources-panel__tool-label">Sortie</span>{{ source.content }}
+          </p>
+        </div>
+
+        <!-- Older citation with no type info, or a user-added feedback source. -->
+        <a v-else-if="source.url" :href="source.url" target="_blank" rel="noopener noreferrer" class="sources-panel__card">
           <span class="sources-panel__title">{{ source.title }}</span>
           <span class="sources-panel__url">{{ source.url }}</span>
         </a>
-        <div v-else class="sources-panel__item-static">
+        <div v-else class="sources-panel__card">
           <span class="sources-panel__title">{{ source.title }}</span>
         </div>
       </li>
     </ul>
+
+    <SourceDocumentModal
+      v-if="openSource && openSource.collectionId && openSource.documentId"
+      :collection-id="openSource.collectionId"
+      :document-id="openSource.documentId"
+      :document-name="openSource.title"
+      :page-number="openSource.pageNumber"
+      :excerpt="openSource.content"
+      @close="openSource = undefined"
+    />
   </aside>
 </template>
 
@@ -72,34 +112,64 @@ defineEmits<{
   gap: 0.5rem;
 }
 
-.sources-panel__item a {
+.sources-panel__card {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
+  width: 100%;
   padding: 0.75rem;
   border-radius: 0.5rem;
   border: 1px solid var(--border-default-grey);
   background: var(--background-default-grey);
   text-decoration: none;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: default;
+  box-sizing: border-box;
 }
 
-.sources-panel__item a:hover {
+.sources-panel__card--document {
+  cursor: pointer;
+}
+
+.sources-panel__card--document:hover {
   border-color: var(--border-action-high-blue-france);
 }
 
-.sources-panel__item-static {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  padding: 0.75rem;
-  border-radius: 0.5rem;
-  border: 1px solid var(--border-default-grey);
-  background: var(--background-default-grey);
+a.sources-panel__card:hover {
+  border-color: var(--border-action-high-blue-france);
+}
+
+.sources-panel__card-kind {
+  align-self: flex-start;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  padding: 0.0625rem 0.5rem;
+  border-radius: 0.75rem;
+  background: var(--background-alt-grey);
+  color: var(--text-mention-grey);
+}
+
+.sources-panel__card--document .sources-panel__card-kind {
+  background: var(--background-alt-blue-france);
+  color: var(--text-action-high-blue-france);
 }
 
 .sources-panel__title {
   color: var(--text-action-high-blue-france);
   font-weight: 700;
+}
+
+.sources-panel__card--tool .sources-panel__title {
+  color: var(--text-default-grey);
+}
+
+.sources-panel__meta {
+  font-size: 0.75rem;
+  color: var(--text-mention-grey);
 }
 
 .sources-panel__url {
@@ -108,5 +178,19 @@ defineEmits<{
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.sources-panel__tool-line {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--text-mention-grey);
+}
+
+.sources-panel__tool-label {
+  display: inline-block;
+  margin-right: 0.375rem;
+  font-weight: 700;
+  color: var(--text-default-grey);
 }
 </style>

@@ -51,6 +51,19 @@ def generate_answer(state: AgentState) -> dict[str, Any]:
             {"role": "user", "content": user_content},
         ],
     )
-    citations = [{"evidence_id": e["id"], "source": e["source"], "vdb_id": e["vdb_id"]} for e in context["excerpts"]]
+    citations = [
+        {
+            "evidence_id": e["id"],
+            "source": e["source"],
+            "vdb_id": e["vdb_id"],
+            "tool": e["tool"],
+            "document_id": e["document_id"],
+            "chunk_id": e["chunk_id"],
+            "page_number": e["page_number"],
+            "query": e["query"],
+            "content": e["content"],
+        }
+        for e in context["excerpts"]
+    ]
     emit(run_id, "answer_generation_completed", {"citation_count": len(citations)})
     return {"answer": answer, "citations": citations}
