@@ -10,7 +10,8 @@ from app.models.document import Document, DocumentStatus
 from app.repositories.collection_repository import CollectionRepository
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.task_repository import TaskRepository
-from app.schemas.document import DocumentOut
+from app.schemas.document import DocumentDetailOut, DocumentOut, DocumentPageOut
+from app.schemas.pagination import Page, PaginationParams
 
 from .collection_service import CollectionNotFoundError
 
@@ -81,6 +82,44 @@ class DocumentUploadService:
             )
         await self.db.commit()
         return [DocumentOut.model_validate(document) for document in documents]
+
+    async def get_document(
+        self, collection_id: uuid.UUID, user: RequestContext, document_id: uuid.UUID
+    ) -> DocumentDetailOut:
+        await self._get_owned_collection(collection_id, user)
+        document = await self.documents.get_in_collection_with_tags(collection_id, document_id)
+        if document is None:
+            raise DocumentNotFoundError(str(document_id))
+        page_count = await self.documents.count_pages(document_id)
+        return DocumentDetailOut(
+            id=document.id,
+            name=document.name,
+            type=document.type,
+            status=document.status,
+            progress=document.progress,
+            summary=document.summary,
+            error=document.error,
+            tags=[tag.tag for tag in document.tags],
+            page_count=page_count,
+        )
+
+    async def list_pages(
+        self, collection_id: uuid.UUID, user: RequestContext, document_id: uuid.UUID, pagination: PaginationParams
+    ) -> Page[DocumentPageOut]:
+        await self._get_owned_collection(collection_id, user)
+        await self._get_owned_document(collection_id, document_id)
+        pages, total = await self.documents.list_pages_page(
+            document_id, limit=pagination.limit, offset=pagination.offset
+        )
+        items = [
+            DocumentPageOut(
+                page_number=page.page_number,
+                content=page.content,
+                screenshot_url=storage.get_presigned_url(page.screenshot) if page.screenshot else None,
+            )
+            for page in pages
+        ]
+        return pagination.to_page(items, total)
 
     async def delete_document(self, collection_id: uuid.UUID, user: RequestContext, document_id: uuid.UUID) -> None:
         await self._get_owned_collection(collection_id, user)

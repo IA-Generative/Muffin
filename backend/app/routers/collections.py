@@ -86,9 +86,11 @@ async def update_collection_settings(
     summary="List a collection's question/answer pairs (generated and manual)",
     response_model=list[QaPairOut],
 )
-async def list_qa_pairs(collection_id: uuid.UUID, user: UserDep, service: ServiceDep) -> list[QaPairOut]:
+async def list_qa_pairs(
+    collection_id: uuid.UUID, user: UserDep, service: ServiceDep, document_id: uuid.UUID | None = None
+) -> list[QaPairOut]:
     try:
-        return await service.list_qa_pairs(collection_id, user)
+        return await service.list_qa_pairs(collection_id, user, document_id)
     except CollectionNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
 
