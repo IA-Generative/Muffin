@@ -19,6 +19,10 @@ class InternalRunOut(BaseModel):
     pending_human_action: dict[str, Any] | None
     answer: str | None
     citations: list[dict[str, Any]] | None
+    # Prior turns of this same conversation, oldest first, this run's own (just-inserted) user
+    # message excluded - lets the worker resolve a follow-up like "elle parle de quoi ?" against
+    # what was actually said before, instead of analyzing it in total isolation.
+    history: list[dict[str, str]]
 
 
 class RunStatusUpdate(BaseModel):
