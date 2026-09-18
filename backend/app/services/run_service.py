@@ -8,7 +8,6 @@ from app.models.message import MessageRole
 from app.models.run import RunStatus
 from app.repositories.conversation_repository import ConversationRepository
 from app.repositories.run_repository import RunRepository
-from app.schemas.pagination import Page, PaginationParams
 from app.schemas.run import RunCreate, RunEventOut, RunOut
 
 
@@ -59,20 +58,15 @@ class RunService:
         run = await self._get_owned(run_id, user)
         return self._to_out(run)
 
-    async def list_events(
-        self, run_id: uuid.UUID, user: RequestContext, since: uuid.UUID | None, pagination: PaginationParams
-    ) -> Page[RunEventOut]:
+    async def list_events(self, run_id: uuid.UUID, user: RequestContext, since: uuid.UUID | None) -> list[RunEventOut]:
         await self._get_owned(run_id, user)
         events = await self.runs.list_events(run_id, since)
-        items = [
+        return [
             RunEventOut(
                 id=event.id, task_id=event.task_id, type=event.type, data=event.data, created_at=event.created_at
             )
             for event in events
         ]
-        # Events are a bounded append-only log per run, not worth a second
-        # DB round-trip just to count them for `total`.
-        return pagination.to_page(items, len(items))
 
     async def resume_run(self, run_id: uuid.UUID, user: RequestContext, answer: str) -> RunOut:
         run = await self._get_owned(run_id, user)

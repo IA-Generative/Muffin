@@ -6,7 +6,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security.factory import RequestContext, get_current_user
 from app.db import get_db
-from app.schemas.pagination import Page, PaginationParams
 from app.schemas.run import RunCreate, RunEventOut, RunOut, RunResumeRequest
 from app.services.run_service import ConversationNotFoundError, RunNotFoundError, RunNotWaitingError, RunService
 
@@ -45,17 +44,17 @@ async def get_run(run_id: uuid.UUID, user: UserDep, service: ServiceDep) -> RunO
 @router.get(
     "/runs/{run_id}/events",
     summary="List a run's structured progress events, oldest first (poll with `since` for incremental updates)",
-    response_model=Page[RunEventOut],
+    response_model=list[RunEventOut],
 )
 async def list_run_events(
-    run_id: uuid.UUID,
-    user: UserDep,
-    service: ServiceDep,
-    pagination: Annotated[PaginationParams, Depends()],
-    since: uuid.UUID | None = None,
-) -> Page[RunEventOut]:
+    run_id: uuid.UUID, user: UserDep, service: ServiceDep, since: uuid.UUID | None = None
+) -> list[RunEventOut]:
+    # Not actually paginated (§ a run's own event log is a bounded, append-only trace, not a
+    # list to page through) - `page_size` used to be accepted here via the shared
+    # PaginationParams, whose page_size<=100 cap made the frontend's ?page_size=200 always fail
+    # validation (422), silently emptying the execution detail panel for every run.
     try:
-        return await service.list_events(run_id, user, since, pagination)
+        return await service.list_events(run_id, user, since)
     except RunNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found") from error
 
