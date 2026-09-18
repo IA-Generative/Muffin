@@ -83,18 +83,27 @@ class BackendClient:
         )
         response.raise_for_status()
 
-    def upsert_entity(self, collection_id: str, name: str, type_: str, mentions_delta: int = 1) -> dict[str, Any]:
+    def upsert_entity(
+        self, collection_id: str, document_id: str, name: str, type_: str, mentions_delta: int = 1
+    ) -> dict[str, Any]:
         response = self._client.post(
             f"/api/internal/collections/{collection_id}/entities",
-            json={"name": name, "type": type_, "mentions_delta": mentions_delta},
+            json={"document_id": document_id, "name": name, "type": type_, "mentions_delta": mentions_delta},
         )
         response.raise_for_status()
         return response.json()
 
-    def create_relation(self, collection_id: str, from_entity_id: str, to_entity_id: str, type_: str) -> None:
+    def create_relation(
+        self, collection_id: str, document_id: str, from_entity_id: str, to_entity_id: str, type_: str
+    ) -> None:
         response = self._client.post(
             f"/api/internal/collections/{collection_id}/relations",
-            json={"from_entity_id": from_entity_id, "to_entity_id": to_entity_id, "type": type_},
+            json={
+                "document_id": document_id,
+                "from_entity_id": from_entity_id,
+                "to_entity_id": to_entity_id,
+                "type": type_,
+            },
         )
         response.raise_for_status()
 

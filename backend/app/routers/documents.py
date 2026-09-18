@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security.factory import RequestContext, get_current_user
 from app.db import get_db
+from app.schemas.collection import EntityOut, RelationOut
 from app.schemas.document import DocumentDetailOut, DocumentOut, DocumentPageOut, DocumentUrlCreate
 from app.schemas.pagination import Page, PaginationParams
 from app.services.collection_service import CollectionNotFoundError
@@ -80,6 +81,38 @@ async def list_document_pages(
 ) -> Page[DocumentPageOut]:
     try:
         return await service.list_pages(collection_id, user, document_id, pagination)
+    except CollectionNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
+    except DocumentNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found") from error
+
+
+@router.get(
+    "/collections/{collection_id}/documents/{document_id}/entities",
+    summary="List entities actually mentioned in this document (not the whole collection's)",
+    response_model=list[EntityOut],
+)
+async def list_document_entities(
+    collection_id: uuid.UUID, document_id: uuid.UUID, user: UserDep, service: ServiceDep
+) -> list[EntityOut]:
+    try:
+        return await service.list_entities(collection_id, user, document_id)
+    except CollectionNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
+    except DocumentNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found") from error
+
+
+@router.get(
+    "/collections/{collection_id}/documents/{document_id}/relations",
+    summary="List relations extracted from this document (not the whole collection's)",
+    response_model=list[RelationOut],
+)
+async def list_document_relations(
+    collection_id: uuid.UUID, document_id: uuid.UUID, user: UserDep, service: ServiceDep
+) -> list[RelationOut]:
+    try:
+        return await service.list_relations(collection_id, user, document_id)
     except CollectionNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
     except DocumentNotFoundError as error:

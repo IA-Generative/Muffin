@@ -7,11 +7,6 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000
 const props = defineProps<{
   collectionId: string
   document: CollectionDocument
-  // Entities/relations aren't linked to a specific document in the backend today (only to the
-  // collection as a whole) - passed down from the already-loaded collection rather than
-  // refetched, and shown honestly labeled as collection-wide, not "of this document".
-  entities: Entity[]
-  relations: Relation[]
 }>()
 
 const emit = defineEmits<{
@@ -51,6 +46,10 @@ const pagesError = ref(false)
 
 const qaPairs = ref<QaPair[]>()
 const qaError = ref(false)
+
+const entities = ref<Entity[]>()
+const relations = ref<Relation[]>()
+const entitiesError = ref(false)
 
 const ENTITY_LABEL: Record<EntityType, string> = {
   personne: 'Personne',
@@ -105,6 +104,24 @@ async function loadQaPairs() {
   }
 }
 
+async function loadEntitiesAndRelations() {
+  try {
+    const [entitiesResponse, relationsResponse] = await Promise.all([
+      fetch(`${API_BASE_URL}/api/collections/${props.collectionId}/documents/${props.document.id}/entities`, {
+        credentials: 'include',
+      }),
+      fetch(`${API_BASE_URL}/api/collections/${props.collectionId}/documents/${props.document.id}/relations`, {
+        credentials: 'include',
+      }),
+    ])
+    if (!entitiesResponse.ok || !relationsResponse.ok) throw new Error('failed')
+    entities.value = await entitiesResponse.json()
+    relations.value = await relationsResponse.json()
+  } catch {
+    entitiesError.value = true
+  }
+}
+
 // The right-hand tabs' data is fetched lazily, the first time each is opened; the pages panel on
 // the left is always visible instead, so it loads eagerly on mount alongside the summary.
 const loadedTabs = new Set<Tab>()
@@ -114,6 +131,7 @@ watch(
     if (loadedTabs.has(tab)) return
     loadedTabs.add(tab)
     if (tab === 'qa') loadQaPairs()
+    if (tab === 'entities') loadEntitiesAndRelations()
   },
   { immediate: true },
 )
@@ -203,28 +221,33 @@ onMounted(() => {
             </section>
 
             <section v-else-if="activeTab === 'entities'">
-              <p class="document-modal__scope-note">Entités et relations de l'ensemble de la collection.</p>
-              <h3 class="document-modal__section-title">Entités</h3>
-              <ul v-if="entities.length" class="document-modal__entities">
-                <li v-for="entity in entities" :key="entity.id" class="document-modal__entity">
-                  <span class="document-modal__entity-type" :class="`document-modal__entity-type--${entity.type}`">
-                    {{ ENTITY_LABEL[entity.type] }}
-                  </span>
-                  <span>{{ entity.name }}</span>
-                  <span class="document-modal__entity-mentions">{{ entity.mentions }} mention(s)</span>
-                </li>
-              </ul>
-              <p v-else class="document-modal__empty">Aucune entité détectée.</p>
+              <p v-if="entitiesError" class="document-modal__error">
+                Impossible de charger les entités et relations.
+              </p>
+              <template v-else-if="entities && relations">
+                <h3 class="document-modal__section-title">Entités</h3>
+                <ul v-if="entities.length" class="document-modal__entities">
+                  <li v-for="entity in entities" :key="entity.id" class="document-modal__entity">
+                    <span class="document-modal__entity-type" :class="`document-modal__entity-type--${entity.type}`">
+                      {{ ENTITY_LABEL[entity.type] }}
+                    </span>
+                    <span>{{ entity.name }}</span>
+                    <span class="document-modal__entity-mentions">{{ entity.mentions }} mention(s)</span>
+                  </li>
+                </ul>
+                <p v-else class="document-modal__empty">Aucune entité détectée dans ce document.</p>
 
-              <h3 class="document-modal__section-title">Relations</h3>
-              <ul v-if="relations.length" class="document-modal__relations">
-                <li v-for="relation in relations" :key="relation.id" class="document-modal__relation">
-                  <span>{{ relation.from }}</span>
-                  <span class="document-modal__relation-type">{{ relation.type }}</span>
-                  <span>{{ relation.to }}</span>
-                </li>
-              </ul>
-              <p v-else class="document-modal__empty">Aucune relation détectée.</p>
+                <h3 class="document-modal__section-title">Relations</h3>
+                <ul v-if="relations.length" class="document-modal__relations">
+                  <li v-for="relation in relations" :key="relation.id" class="document-modal__relation">
+                    <span>{{ relation.from }}</span>
+                    <span class="document-modal__relation-type">{{ relation.type }}</span>
+                    <span>{{ relation.to }}</span>
+                  </li>
+                </ul>
+                <p v-else class="document-modal__empty">Aucune relation détectée dans ce document.</p>
+              </template>
+              <p v-else class="document-modal__loading">Chargement…</p>
             </section>
 
             <section v-else-if="activeTab === 'qa'">
@@ -349,8 +372,7 @@ onMounted(() => {
 }
 
 .document-modal__loading,
-.document-modal__empty,
-.document-modal__scope-note {
+.document-modal__empty {
   color: var(--text-mention-grey);
   font-size: 0.875rem;
 }
