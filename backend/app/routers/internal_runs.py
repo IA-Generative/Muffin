@@ -31,6 +31,12 @@ from app.services.search_service import SearchService
 
 router = APIRouter(prefix="/internal", tags=["Internal"], dependencies=[Depends(require_worker_api_key)])
 
+# How many prior messages get threaded into a new run's context (see InternalRunOut.history).
+# Unbounded history would make analyze_query's prompt (and its latency) grow with every turn of
+# a conversation - recent turns are what anaphora resolution ("elle", "ça") actually needs, not
+# the entire thread.
+_HISTORY_LIMIT = 8
+
 
 def _to_out(run, history: list[dict[str, str]]) -> InternalRunOut:  # noqa: ANN001
     return InternalRunOut(
@@ -66,7 +72,7 @@ async def get_run(run_id: uuid.UUID, db: Annotated[AsyncSession, Depends(get_db)
         {"role": message.role, "content": message.content}
         for message, _citations in messages
         if message.id != run.message_id
-    ]
+    ][-_HISTORY_LIMIT:]
     return _to_out(run, history)
 
 
