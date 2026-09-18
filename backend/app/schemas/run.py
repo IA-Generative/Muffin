@@ -8,6 +8,9 @@ from pydantic import BaseModel
 class RunCreate(BaseModel):
     query: str
     conversation_id: uuid.UUID | None = None
+    # Collections explicitly attached via the chat composer's "+" picker - always searched
+    # regardless of what the agent's own VDB relevance routing would have picked on its own.
+    collection_ids: list[uuid.UUID] | None = None
 
 
 class RunResumeRequest(BaseModel):

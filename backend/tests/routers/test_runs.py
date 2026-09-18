@@ -54,6 +54,27 @@ async def test_create_run_creates_conversation_message_and_run(client):
     assert run.conversation_id is not None
 
 
+async def test_create_run_persists_pinned_collection_ids(client):
+    collection_id = uuid.uuid4()
+    with patch("app.services.run_service.enqueue_run_agent", return_value="celery-run-1"):
+        response = await client.post(
+            "/api/runs", json={"query": "What is this?", "collection_ids": [str(collection_id)]}
+        )
+    assert response.status_code == 202
+
+    async with async_session_factory() as session:
+        run = await session.get(Run, uuid.UUID(response.json()["id"]))
+    assert run.pinned_collection_ids == [str(collection_id)]
+
+
+async def test_create_run_without_pinned_collections_stores_none(client):
+    response = await _create_run(client)
+
+    async with async_session_factory() as session:
+        run = await session.get(Run, uuid.UUID(response.json()["id"]))
+    assert run.pinned_collection_ids is None
+
+
 async def test_create_run_reuses_an_existing_conversation(client):
     first = (await _create_run(client)).json()
     with patch("app.services.run_service.enqueue_run_agent", return_value="celery-run-2"):

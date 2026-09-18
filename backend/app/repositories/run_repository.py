@@ -12,13 +12,21 @@ class RunRepository:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
-    async def create(self, user_id: str, query: str, message_id: uuid.UUID, conversation_id: uuid.UUID) -> Run:
+    async def create(
+        self,
+        user_id: str,
+        query: str,
+        message_id: uuid.UUID,
+        conversation_id: uuid.UUID,
+        pinned_collection_ids: list[uuid.UUID] | None = None,
+    ) -> Run:
         run = Run(
             user_id=user_id,
             query=query,
             message_id=message_id,
             conversation_id=conversation_id,
             status=RunStatus.QUEUED,
+            pinned_collection_ids=[str(cid) for cid in pinned_collection_ids] if pinned_collection_ids else None,
         )
         self.db.add(run)
         await self.db.flush()

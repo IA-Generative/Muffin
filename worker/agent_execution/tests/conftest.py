@@ -129,7 +129,7 @@ def make_run():
     return _make
 
 
-def initial_state(query: str, user_id: str = "user-1") -> dict[str, Any]:
+def initial_state(query: str, user_id: str = "user-1", pinned_vdb_ids: list[str] | None = None) -> dict[str, Any]:
     return {
         "run_id": str(uuid.uuid4()),
         "user_id": user_id,
@@ -138,6 +138,7 @@ def initial_state(query: str, user_id: str = "user-1") -> dict[str, Any]:
         "contextualized_query": query,
         "messages": [{"role": "user", "content": query}],
         "chat_model": "test-model",
+        "pinned_vdb_ids": pinned_vdb_ids or [],
         "accessible_vdbs": [],
         "query_analysis": {},
         "research_plan": {},

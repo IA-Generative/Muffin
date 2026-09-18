@@ -40,7 +40,7 @@ class RunService:
         # The run's strong link is to this message, not directly to the
         # conversation - see app/models/run.py.
         message = await self.conversations.add_message(conversation.id, MessageRole.USER, body.query)
-        run = await self.runs.create(user.user_id, body.query, message.id, conversation.id)
+        run = await self.runs.create(user.user_id, body.query, message.id, conversation.id, body.collection_ids)
         await self.db.commit()
         # Dispatched after the first commit: the worker's very first read of
         # this run (see worker/agent_execution's idempotency check) must

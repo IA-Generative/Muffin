@@ -89,6 +89,9 @@ class AgentService:
                 # backend_client.get_default_chat_model() is already Redis-cached backend-side, so this
                 # is the only worker<->backend round trip for it in the entire run.
                 "chat_model": backend_client.get_default_chat_model(),
+                # Collections explicitly attached via the chat composer's "+" picker - see
+                # AgentState.pinned_vdb_ids.
+                "pinned_vdb_ids": [str(vdb_id) for vdb_id in (run.get("pinned_collection_ids") or [])],
                 "accessible_vdbs": [],
                 "query_analysis": {},
                 "research_plan": {},
