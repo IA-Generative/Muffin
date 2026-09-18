@@ -132,3 +132,75 @@ async def test_list_conversation_messages_requires_ownership(client):
 async def test_list_conversation_messages_unknown_conversation_returns_404(client):
     response = await client.get(f"/api/conversations/{uuid.uuid4()}/messages")
     assert response.status_code == 404
+
+
+async def test_rename_conversation(client):
+    run = await _create_run(client)
+
+    response = await client.patch(
+        f"/api/conversations/{run['conversation_id']}", json={"title": "Ma conversation renommée"}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["title"] == "Ma conversation renommée"
+
+    listed = await client.get("/api/conversations")
+    assert listed.json()["items"][0]["title"] == "Ma conversation renommée"
+
+
+async def test_rename_conversation_locks_out_auto_titling(client):
+    run = await _create_run(client)
+    await client.patch(f"/api/conversations/{run['conversation_id']}", json={"title": "Mon titre"})
+
+    title_response = await client.patch(
+        f"/api/internal/conversations/{run['conversation_id']}/title",
+        headers={"X-API-Key": WORKER_API_KEY},
+        json={"title": "Titre auto-généré"},
+    )
+    assert title_response.status_code == 200
+
+    listed = await client.get("/api/conversations")
+    assert listed.json()["items"][0]["title"] == "Mon titre"
+
+
+async def test_rename_conversation_requires_ownership(client):
+    app.dependency_overrides[get_current_user] = _as_user("user-a", "a@example.com")
+    run = await _create_run(client)
+
+    app.dependency_overrides[get_current_user] = _as_user("user-b", "b@example.com")
+    response = await client.patch(f"/api/conversations/{run['conversation_id']}", json={"title": "x"})
+
+    assert response.status_code == 404
+
+
+async def test_rename_unknown_conversation_returns_404(client):
+    response = await client.patch(f"/api/conversations/{uuid.uuid4()}", json={"title": "x"})
+    assert response.status_code == 404
+
+
+async def test_delete_conversation(client):
+    run = await _create_run(client)
+
+    response = await client.delete(f"/api/conversations/{run['conversation_id']}")
+    assert response.status_code == 204
+
+    listed = await client.get("/api/conversations")
+    assert listed.json()["items"] == []
+
+    async with async_session_factory() as session:
+        assert await session.get(Run, uuid.UUID(run["id"])) is None
+
+
+async def test_delete_conversation_requires_ownership(client):
+    app.dependency_overrides[get_current_user] = _as_user("user-a", "a@example.com")
+    run = await _create_run(client)
+
+    app.dependency_overrides[get_current_user] = _as_user("user-b", "b@example.com")
+    response = await client.delete(f"/api/conversations/{run['conversation_id']}")
+
+    assert response.status_code == 404
+
+
+async def test_delete_unknown_conversation_returns_404(client):
+    response = await client.delete(f"/api/conversations/{uuid.uuid4()}")
+    assert response.status_code == 404

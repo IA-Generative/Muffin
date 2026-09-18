@@ -11,7 +11,8 @@ const router = useRouter()
 const showSettings = ref(false)
 
 const { user, login, logout } = useCurrentUser()
-const { conversations, activeId, selectConversation, newConversation } = useChat()
+const { conversations, activeId, selectConversation, newConversation, renameConversation, deleteConversation } =
+  useChat()
 
 const activeView = computed(() => {
   if (route.path.startsWith('/collections')) return 'collections'
@@ -30,6 +31,8 @@ const activeView = computed(() => {
       :user="user"
       @select="selectConversation"
       @new="newConversation"
+      @rename="renameConversation"
+      @delete="deleteConversation"
       @open-collections="router.push('/collections')"
       @open-tasks="router.push('/tasks')"
       @open-admin="router.push('/admin')"
