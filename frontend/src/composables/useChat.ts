@@ -160,11 +160,15 @@ async function fetchRunEvents(runId: string): Promise<RunEventOut[]> {
   return body.items
 }
 
-async function fetchConversationsList(): Promise<ConversationOut[]> {
-  const response = await fetch(`${API_BASE_URL}/api/conversations?page_size=100`, { credentials: 'include' })
+const CONVERSATIONS_PAGE_SIZE = 30
+
+async function fetchConversationsList(page: number): Promise<{ items: ConversationOut[]; total: number }> {
+  const response = await fetch(`${API_BASE_URL}/api/conversations?page=${page}&page_size=${CONVERSATIONS_PAGE_SIZE}`, {
+    credentials: 'include',
+  })
   if (!response.ok) throw new Error(`${response.status}`)
-  const body: { items: ConversationOut[] } = await response.json()
-  return body.items
+  const body: { items: ConversationOut[]; total: number } = await response.json()
+  return body
 }
 
 async function fetchMessagesList(conversationId: string): Promise<MessageOut[]> {
@@ -264,12 +268,23 @@ async function deleteConversation(id: string) {
   }
 }
 
+// One page loaded at a time - the sidebar list can grow into the hundreds for an active user,
+// and fetching it all upfront (page_size=100+) would only get worse over time. `loadMoreConversations`
+// (called by the sidebar as it scrolls near the bottom) fetches the next page instead.
+let conversationsNextPage = 1
+const conversationsTotal = ref(0)
+const conversationsHasMore = ref(true)
+const loadingMoreConversations = ref(false)
+
 // Populates the sidebar with real past conversations on load, and - only if the app opened on
 // "/" with nothing typed yet, never for a bookmarked /c/<id> already being restored - takes over
 // the placeholder with the most recently active one instead of starting on an empty new chat.
 async function initializeConversations() {
   try {
-    const items = await fetchConversationsList()
+    const { items, total } = await fetchConversationsList(1)
+    conversationsNextPage = 2
+    conversationsTotal.value = total
+    conversationsHasMore.value = items.length < total
     if (items.length === 0) return
 
     conversations.value = items.map((item) => ({ id: item.id, title: item.title || 'Nouvelle conversation' }))
@@ -288,6 +303,27 @@ async function initializeConversations() {
 }
 
 initializeConversations()
+
+async function loadMoreConversations() {
+  if (loadingMoreConversations.value || !conversationsHasMore.value) return
+  loadingMoreConversations.value = true
+  try {
+    const { items, total } = await fetchConversationsList(conversationsNextPage)
+    conversationsNextPage += 1
+    conversationsTotal.value = total
+
+    const existingIds = new Set(conversations.value.map((item) => item.id))
+    const newOnes = items.filter((item) => !existingIds.has(item.id))
+    conversations.value.push(...newOnes.map((item) => ({ id: item.id, title: item.title || 'Nouvelle conversation' })))
+    for (const item of items) confirmedConversationIds.add(item.id)
+
+    conversationsHasMore.value = conversations.value.length < conversationsTotal.value
+  } catch {
+    // Best-effort - leave conversationsHasMore as-is, the next scroll-triggered call retries.
+  } finally {
+    loadingMoreConversations.value = false
+  }
+}
 
 async function createRun(conversationId: string, query: string): Promise<RunOut> {
   // Only ever send a conversation_id the backend actually confirmed exists - the sidebar's
@@ -555,6 +591,9 @@ function closeExecutionDetails() {
 export function useChat() {
   return {
     conversations,
+    conversationsHasMore,
+    loadingMoreConversations,
+    loadMoreConversations,
     activeId,
     messages,
     activeSources,

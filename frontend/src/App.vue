@@ -11,8 +11,17 @@ const router = useRouter()
 const showSettings = ref(false)
 
 const { user, login, logout } = useCurrentUser()
-const { conversations, activeId, selectConversation, newConversation, renameConversation, deleteConversation } =
-  useChat()
+const {
+  conversations,
+  conversationsHasMore,
+  loadingMoreConversations,
+  loadMoreConversations,
+  activeId,
+  selectConversation,
+  newConversation,
+  renameConversation,
+  deleteConversation,
+} = useChat()
 
 const activeView = computed(() => {
   if (route.path.startsWith('/collections')) return 'collections'
@@ -26,10 +35,13 @@ const activeView = computed(() => {
   <div class="chat-layout">
     <ChatSidebar
       :conversations="conversations"
+      :conversations-has-more="conversationsHasMore"
+      :loading-more-conversations="loadingMoreConversations"
       :active-id="activeId"
       :active-view="activeView"
       :user="user"
       @select="selectConversation"
+      @load-more="loadMoreConversations"
       @new="newConversation"
       @rename="renameConversation"
       @delete="deleteConversation"
