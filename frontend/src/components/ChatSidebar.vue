@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import type { Conversation } from '../types/chat'
 import type { User } from '../types/user'
+import ConversationMenu from './ConversationMenu.vue'
 
 defineProps<{
   conversations: Conversation[]
@@ -13,6 +14,8 @@ defineProps<{
 const emit = defineEmits<{
   select: [id: string]
   new: []
+  rename: [id: string, title: string]
+  delete: [id: string]
   openCollections: []
   openTasks: []
   openAdmin: []
@@ -23,6 +26,35 @@ const emit = defineEmits<{
 
 const showUserMenu = ref(false)
 const userWrapper = ref<HTMLElement>()
+
+const renamingId = ref<string>()
+const renameDraft = ref('')
+const renameInput = ref<HTMLInputElement | null>(null)
+
+async function startRename(conversation: Conversation) {
+  renamingId.value = conversation.id
+  renameDraft.value = conversation.title
+  await nextTick()
+  renameInput.value?.focus()
+  renameInput.value?.select()
+}
+
+function confirmRename() {
+  const id = renamingId.value
+  const title = renameDraft.value.trim()
+  renamingId.value = undefined
+  if (id && title) emit('rename', id, title)
+}
+
+function cancelRename() {
+  renamingId.value = undefined
+}
+
+function deleteConversation(conversation: Conversation) {
+  if (window.confirm(`Supprimer « ${conversation.title} » ? Cette action est irréversible.`)) {
+    emit('delete', conversation.id)
+  }
+}
 
 function openSettings() {
   showUserMenu.value = false
@@ -99,16 +131,40 @@ function initials(name: string) {
     <div class="chat-sidebar__scroll">
       <h2 class="chat-sidebar__section-title">Récents</h2>
       <nav class="chat-sidebar__list" aria-label="Historique des conversations">
-        <button
+        <div
           v-for="conversation in conversations"
           :key="conversation.id"
-          type="button"
-          class="chat-sidebar__item"
-          :class="{ 'chat-sidebar__item--active': activeView === 'chat' && conversation.id === activeId }"
-          @click="emit('select', conversation.id)"
+          class="chat-sidebar__row"
+          :class="{ 'chat-sidebar__row--active': activeView === 'chat' && conversation.id === activeId }"
         >
-          {{ conversation.title }}
-        </button>
+          <input
+            v-if="renamingId === conversation.id"
+            :ref="(el) => (renameInput = el as HTMLInputElement | null)"
+            v-model="renameDraft"
+            type="text"
+            class="chat-sidebar__rename-input"
+            aria-label="Renommer la conversation"
+            @keydown.enter="confirmRename"
+            @keydown.escape="cancelRename"
+            @blur="confirmRename"
+            @click.stop
+          />
+          <button
+            v-else
+            type="button"
+            class="chat-sidebar__item"
+            @click="emit('select', conversation.id)"
+          >
+            {{ conversation.title }}
+          </button>
+
+          <ConversationMenu
+            v-if="renamingId !== conversation.id"
+            class="chat-sidebar__row-menu"
+            @rename="startRename(conversation)"
+            @delete="deleteConversation(conversation)"
+          />
+        </div>
       </nav>
     </div>
 
@@ -197,7 +253,6 @@ function initials(name: string) {
 
 .chat-sidebar__new,
 .chat-sidebar__nav-item,
-.chat-sidebar__item,
 .chat-sidebar__user {
   display: flex;
   align-items: center;
@@ -216,13 +271,11 @@ function initials(name: string) {
 
 .chat-sidebar__new:hover,
 .chat-sidebar__nav-item:hover,
-.chat-sidebar__item:hover,
 .chat-sidebar__user:hover {
   background: var(--background-alt-grey-hover);
 }
 
-.chat-sidebar__nav-item--active,
-.chat-sidebar__item--active {
+.chat-sidebar__nav-item--active {
   background: var(--background-alt-blue-france);
   font-weight: 600;
 }
@@ -255,10 +308,67 @@ function initials(name: string) {
   gap: 0.125rem;
 }
 
+.chat-sidebar__row {
+  display: flex;
+  align-items: center;
+  border-radius: 0.5rem;
+}
+
+.chat-sidebar__row:hover,
+.chat-sidebar__row:focus-within {
+  background: var(--background-alt-grey-hover);
+}
+
+.chat-sidebar__row--active {
+  background: var(--background-alt-blue-france);
+}
+
+.chat-sidebar__row--active .chat-sidebar__item {
+  font-weight: 600;
+}
+
 .chat-sidebar__item {
+  flex: 1;
+  min-width: 0;
+  padding: 0.625rem 0.75rem;
+  border: none;
+  background: transparent;
+  color: var(--text-default-grey);
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-family: inherit;
+  text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.chat-sidebar__row-menu {
+  flex-shrink: 0;
+  margin-right: 0.25rem;
+  opacity: 0;
+}
+
+.chat-sidebar__row:hover .chat-sidebar__row-menu,
+.chat-sidebar__row:focus-within .chat-sidebar__row-menu {
+  opacity: 1;
+}
+
+.chat-sidebar__rename-input {
+  flex: 1;
+  min-width: 0;
+  margin: 0.3125rem 0.75rem;
+  padding: 0.3125rem 0.5rem;
+  border-radius: 0.375rem;
+  border: 1px solid var(--border-action-high-blue-france);
+  background: var(--background-default-grey);
+  color: var(--text-default-grey);
+  font: inherit;
+  box-sizing: border-box;
+}
+
+.chat-sidebar__rename-input:focus {
+  outline: none;
 }
 
 .chat-sidebar__user-wrapper {

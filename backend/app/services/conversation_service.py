@@ -25,10 +25,8 @@ class ConversationService:
         return pagination.to_page(out, total)
 
     async def list_messages(self, conversation_id: uuid.UUID, user: RequestContext) -> list[MessageOut]:
-        conversation = await self.conversations.get(conversation_id, user.user_id)
-        if conversation is None:
-            raise ConversationNotFoundError(str(conversation_id))
-        rows = await self.conversations.list_messages(conversation_id)
+        conversation = await self._get_owned(conversation_id, user)
+        rows = await self.conversations.list_messages(conversation.id)
         return [
             MessageOut(
                 id=message.id,
@@ -40,3 +38,25 @@ class ConversationService:
             )
             for message, citations in rows
         ]
+
+    async def rename_conversation(
+        self, conversation_id: uuid.UUID, user: RequestContext, title: str
+    ) -> ConversationOut:
+        conversation = await self._get_owned(conversation_id, user)
+        # Also marks title_generated: a manual rename must never be clobbered by a later run's
+        # auto-titling (see PATCH /api/internal/conversations/{id}/title's own guard).
+        await self.conversations.set_generated_title(conversation, title)
+        await self.db.commit()
+        await self.db.refresh(conversation, attribute_names=["updated_at"])
+        return ConversationOut(id=conversation.id, title=conversation.title, updated_at=conversation.updated_at)
+
+    async def delete_conversation(self, conversation_id: uuid.UUID, user: RequestContext) -> None:
+        conversation = await self._get_owned(conversation_id, user)
+        await self.conversations.delete(conversation)
+        await self.db.commit()
+
+    async def _get_owned(self, conversation_id: uuid.UUID, user: RequestContext):  # noqa: ANN202
+        conversation = await self.conversations.get(conversation_id, user.user_id)
+        if conversation is None:
+            raise ConversationNotFoundError(str(conversation_id))
+        return conversation

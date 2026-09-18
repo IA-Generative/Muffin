@@ -221,6 +221,49 @@ function newConversation() {
   router.push(`/c/${id}`)
 }
 
+async function renameConversation(id: string, title: string) {
+  const conversation = conversations.value.find((item) => item.id === id)
+  if (conversation) conversation.title = title // shown immediately, not held up by the request
+
+  if (!confirmedConversationIds.has(id)) return // a local-only placeholder, nothing to persist yet
+  try {
+    await fetch(`${API_BASE_URL}/api/conversations/${id}`, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title }),
+    })
+  } catch {
+    // Best-effort: the rename already shows locally even if it failed to persist - a later
+    // reload would just show the old title again, not worth a visible error for.
+  }
+}
+
+async function deleteConversation(id: string) {
+  const resolvedId = resolveConversationId(id)
+  const wasConfirmed = confirmedConversationIds.has(resolvedId)
+  const wasActive = activeId.value === resolvedId
+
+  conversations.value = conversations.value.filter((item) => item.id !== resolvedId)
+  delete messagesByConversation.value[resolvedId]
+  loadedConversationIds.delete(resolvedId)
+  confirmedConversationIds.delete(resolvedId)
+
+  if (wasActive) {
+    const next = conversations.value[0]
+    if (next) selectConversation(next.id)
+    else newConversation()
+  }
+
+  if (!wasConfirmed) return // a local-only placeholder was never a real backend conversation
+  try {
+    await fetch(`${API_BASE_URL}/api/conversations/${resolvedId}`, { method: 'DELETE', credentials: 'include' })
+  } catch {
+    // Best-effort: already removed from the sidebar regardless - a stale row would only
+    // reappear on the next full reload, not worth a visible error for.
+  }
+}
+
 // Populates the sidebar with real past conversations on load, and - only if the app opened on
 // "/" with nothing typed yet, never for a bookmarked /c/<id> already being restored - takes over
 // the placeholder with the most recently active one instead of starting on an empty new chat.
@@ -519,6 +562,8 @@ export function useChat() {
     activeExecutionEvents,
     selectConversation,
     newConversation,
+    renameConversation,
+    deleteConversation,
     sendMessage,
     regenerateMessage,
     sendFeedback,
