@@ -30,6 +30,10 @@ const userWrapper = ref<HTMLElement>()
 const renamingId = ref<string>()
 const renameDraft = ref('')
 const renameInput = ref<HTMLInputElement | null>(null)
+// At most one conversation's "..." menu open at a time - single shared state rather than each
+// ConversationMenu tracking its own, so opening one always closes whichever other was open, and
+// a single outside-click handler (below) can manage all of them.
+const openMenuId = ref<string>()
 
 async function startRename(conversation: Conversation) {
   renamingId.value = conversation.id
@@ -56,6 +60,10 @@ function deleteConversation(conversation: Conversation) {
   }
 }
 
+function toggleMenu(id: string) {
+  openMenuId.value = openMenuId.value === id ? undefined : id
+}
+
 function openSettings() {
   showUserMenu.value = false
   emit('openSettings')
@@ -79,6 +87,13 @@ function logout() {
 function handleOutsideClick(event: MouseEvent) {
   if (showUserMenu.value && !userWrapper.value?.contains(event.target as Node)) {
     showUserMenu.value = false
+  }
+  // The dropdown itself is teleported to <body> (see ConversationMenu.vue), so it's never a DOM
+  // descendant of anything here to check via .contains() - matched by class instead, which
+  // still identifies it correctly regardless of where it actually renders.
+  const target = event.target as HTMLElement
+  if (openMenuId.value && !target.closest('.conversation-menu__trigger, .conversation-menu__dropdown')) {
+    openMenuId.value = undefined
   }
 }
 
@@ -161,6 +176,9 @@ function initials(name: string) {
           <ConversationMenu
             v-if="renamingId !== conversation.id"
             class="chat-sidebar__row-menu"
+            :open="openMenuId === conversation.id"
+            @toggle="toggleMenu(conversation.id)"
+            @close="openMenuId = undefined"
             @rename="startRename(conversation)"
             @delete="deleteConversation(conversation)"
           />
