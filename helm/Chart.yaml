@@ -1,8 +1,8 @@
 apiVersion: v2
 name: helm
 type: application
-version: 0.2.0-rc
-appVersion: "0.3.0-rc"
+version: 0.2.0
+appVersion: "0.3.0"
 description: A Helm chart to deploy helm.
 # Floor set by the core APIs the chart renders (autoscaling/v2, policy/v1). The Gateway API
 # resources additionally need the gateway.networking.k8s.io CRDs installed in the cluster.
