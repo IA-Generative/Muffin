@@ -77,6 +77,11 @@ class AgentState(TypedDict):
     conversation_id: str
 
     original_query: str
+    # The user's literal message, rewritten by analyze_query to stand on its own when it refers
+    # back to the conversation (e.g. "elle" -> "the AgentControl collection") - what every node
+    # doing actual research work searches/reasons over instead of original_query, so a follow-up
+    # question in the same conversation isn't treated as a cold, context-free string.
+    contextualized_query: str
     messages: list[dict[str, Any]]
 
     # --- permission barrier (§4) ---

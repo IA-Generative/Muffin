@@ -90,7 +90,7 @@ def decompose_query(state: AgentState) -> dict[str, Any]:
     set_activity(run_id, "decompose_query", "Breaking down your question")
     emit(run_id, "query_decomposition_started")
     analysis = state["query_analysis"]
-    query = state["original_query"]
+    query = state["contextualized_query"]
 
     is_simple_search = (
         analysis.get("intent") != "meta"

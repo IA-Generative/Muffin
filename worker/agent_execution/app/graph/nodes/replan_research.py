@@ -26,13 +26,13 @@ def replan_research(state: AgentState) -> dict[str, Any]:
     model = default_model()
     if model is None or not missing:
         new_queries = [{"query": gap, "intent": None} for gap in missing] or [
-            {"query": state["original_query"], "intent": None}
+            {"query": state["contextualized_query"], "intent": None}
         ]
     else:
         new_queries = json_chat(
             model,
             _SYSTEM_PROMPT,
-            f"Original query: {state['original_query']}\n\nMissing information: {missing}",
+            f"Original query: {state['contextualized_query']}\n\nMissing information: {missing}",
             fallback=[{"query": gap, "intent": None} for gap in missing],
         )
         if not isinstance(new_queries, list) or not new_queries:
@@ -41,7 +41,7 @@ def replan_research(state: AgentState) -> dict[str, Any]:
     new_tasks = [
         ResearchTask(
             id=f"replan-{next_version}-{i}",
-            query=str(item.get("query", missing[i] if i < len(missing) else state["original_query"])),
+            query=str(item.get("query", missing[i] if i < len(missing) else state["contextualized_query"])),
             intent=item.get("intent"),
             tool="search",
             dependencies=[],
