@@ -68,6 +68,7 @@ class ResearchTaskInput(TypedDict):
     user_id: str
     accessible_vdbs: list[dict[str, Any]]
     task: ResearchTask
+    chat_model: str | None
 
 
 class AgentState(TypedDict):
@@ -83,6 +84,12 @@ class AgentState(TypedDict):
     # question in the same conversation isn't treated as a cold, context-free string.
     contextualized_query: str
     messages: list[dict[str, Any]]
+
+    # Resolved once by AgentService.run() and threaded through every node from here on, instead
+    # of each of them separately calling GET /api/internal/llm/default-chat-model - the model
+    # doesn't change mid-run, so doing that per node was a pure latency tax (one extra
+    # worker<->backend round trip before every single LLM call, on the critical path).
+    chat_model: str | None
 
     # --- permission barrier (§4) ---
     accessible_vdbs: list[dict[str, Any]]

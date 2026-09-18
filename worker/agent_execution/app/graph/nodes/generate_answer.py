@@ -2,7 +2,6 @@ from typing import Any
 
 from app.backend_client import backend_client
 from app.graph.services.events import emit, is_cancelled, set_activity
-from app.graph.services.llm import default_model
 from app.graph.state import AgentState
 
 _SYSTEM_PROMPT = (
@@ -26,7 +25,7 @@ def generate_answer(state: AgentState) -> dict[str, Any]:
     set_activity(run_id, "generate_answer", "Generating the answer")
     emit(run_id, "answer_generation_started")
     context = state["answer_context"]
-    model = default_model()
+    model = state["chat_model"]
 
     if model is None:
         return {"answer": "No language model is available to answer this query right now.", "citations": []}
