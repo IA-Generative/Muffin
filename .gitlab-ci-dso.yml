@@ -31,17 +31,22 @@ read_secret:
   extends:
     - .vault:read_secret
 
-docker-build-ocr-api:
+.docker-build-common:
   stage: docker-build
   extends:
     - .kaniko:build-push
   variables:
-    DOCKERFILE: "apps/server/ocr_backend/Dockerfile"
-    WORKING_DIR: "."
     IMAGE_NAMES: ""  # Overridden in before_script
     EXTRA_BUILD_ARGS: "--build-arg DOCKERHUB_MIRROR_URL=${DOCKERHUB_MIRROR_URL}"
   rules:
     - when: always
+
+docker-build-backend:
+  extends:
+    - .docker-build-common
+  variables:
+    DOCKERFILE: "backend/Dockerfile"
+    WORKING_DIR: "backend"
   before_script:
     - |
       SHORT_SHA=$(echo $CI_COMMIT_SHA | cut -c1-7)
@@ -55,71 +60,86 @@ docker-build-ocr-api:
         echo "Error: Could not extract appVersion from helm/Chart.yaml"
         exit 1
       fi
-      TAGS="ocr-api:$SHORT_SHA"
-      TAGS="$TAGS ocr-api:$CI_COMMIT_REF_SLUG"
-      TAGS="$TAGS ocr-api:$APP_VERSION"
+      TAGS="backend:$SHORT_SHA"
+      TAGS="$TAGS backend:$CI_COMMIT_REF_SLUG"
+      TAGS="$TAGS backend:$APP_VERSION"
       if echo "$APP_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-        TAGS="$TAGS ocr-api:latest"
+        TAGS="$TAGS backend:latest"
       fi
       export IMAGE_NAMES="$TAGS"
       echo "Building with tags: $IMAGE_NAMES"
 
-docker-build-ocr-worker:
-  stage: docker-build
+docker-build-frontend:
   extends:
-    - .kaniko:build-push
+    - .docker-build-common
   variables:
-    DOCKERFILE: "apps/server/business/paddleocr2/Dockerfile"
-    WORKING_DIR: "."
-    IMAGE_NAMES: ""  # Overridden in before_script
-    EXTRA_BUILD_ARGS: "--build-arg DOCKERHUB_MIRROR_URL=${DOCKERHUB_MIRROR_URL}"
-  rules:
-    - when: always
+    DOCKERFILE: "frontend/Dockerfile"
+    WORKING_DIR: "frontend"
   before_script:
     - |
       SHORT_SHA=$(echo $CI_COMMIT_SHA | cut -c1-7)
-      # See docker-build-ocr-api: this pipeline never runs as a GitLab tag pipeline,
+      # See docker-build-backend: this pipeline never runs as a GitLab tag pipeline,
       # so the version tag comes from the appVersion already committed to Chart.yaml.
       APP_VERSION=$(grep '^appVersion:' helm/Chart.yaml | awk '{print $2}' | tr -d '"')
       if [ -z "$APP_VERSION" ]; then
         echo "Error: Could not extract appVersion from helm/Chart.yaml"
         exit 1
       fi
-      TAGS="ocr-service-paddle-2.10.0:$SHORT_SHA ocr-worker:$SHORT_SHA"
-      TAGS="$TAGS ocr-service-paddle-2.10.0:$CI_COMMIT_REF_SLUG ocr-worker:$CI_COMMIT_REF_SLUG"
-      TAGS="$TAGS ocr-service-paddle-2.10.0:$APP_VERSION ocr-worker:$APP_VERSION"
+      TAGS="frontend:$SHORT_SHA"
+      TAGS="$TAGS frontend:$CI_COMMIT_REF_SLUG"
+      TAGS="$TAGS frontend:$APP_VERSION"
       if echo "$APP_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-        TAGS="$TAGS ocr-service-paddle-2.10.0:latest ocr-worker:latest"
+        TAGS="$TAGS frontend:latest"
       fi
       export IMAGE_NAMES="$TAGS"
       echo "Building with tags: $IMAGE_NAMES"
 
-docker-build-ocr-frontend:
-  stage: docker-build
+docker-build-worker-document-process:
   extends:
-    - .kaniko:build-push
+    - .docker-build-common
   variables:
-    DOCKERFILE: "./apps/client/Dockerfile"
-    WORKING_DIR: "./apps/client"
-    IMAGE_NAMES: ""  # Overridden in before_script
-    EXTRA_BUILD_ARGS: "--build-arg DOCKERHUB_MIRROR_URL=${DOCKERHUB_MIRROR_URL}"
-  rules:
-    - when: always
+    DOCKERFILE: "worker/document_process/Dockerfile"
+    WORKING_DIR: "worker/document_process"
   before_script:
     - |
       SHORT_SHA=$(echo $CI_COMMIT_SHA | cut -c1-7)
-      # See docker-build-ocr-api: this pipeline never runs as a GitLab tag pipeline,
+      # See docker-build-backend: this pipeline never runs as a GitLab tag pipeline,
       # so the version tag comes from the appVersion already committed to Chart.yaml.
       APP_VERSION=$(grep '^appVersion:' helm/Chart.yaml | awk '{print $2}' | tr -d '"')
       if [ -z "$APP_VERSION" ]; then
         echo "Error: Could not extract appVersion from helm/Chart.yaml"
         exit 1
       fi
-      TAGS="ocr-frontend:$SHORT_SHA"
-      TAGS="$TAGS ocr-frontend:$CI_COMMIT_REF_SLUG"
-      TAGS="$TAGS ocr-frontend:$APP_VERSION"
+      TAGS="worker-document-process:$SHORT_SHA"
+      TAGS="$TAGS worker-document-process:$CI_COMMIT_REF_SLUG"
+      TAGS="$TAGS worker-document-process:$APP_VERSION"
       if echo "$APP_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-        TAGS="$TAGS ocr-frontend:latest"
+        TAGS="$TAGS worker-document-process:latest"
+      fi
+      export IMAGE_NAMES="$TAGS"
+      echo "Building with tags: $IMAGE_NAMES"
+
+docker-build-worker-agent-execution:
+  extends:
+    - .docker-build-common
+  variables:
+    DOCKERFILE: "worker/agent_execution/Dockerfile"
+    WORKING_DIR: "worker/agent_execution"
+  before_script:
+    - |
+      SHORT_SHA=$(echo $CI_COMMIT_SHA | cut -c1-7)
+      # See docker-build-backend: this pipeline never runs as a GitLab tag pipeline,
+      # so the version tag comes from the appVersion already committed to Chart.yaml.
+      APP_VERSION=$(grep '^appVersion:' helm/Chart.yaml | awk '{print $2}' | tr -d '"')
+      if [ -z "$APP_VERSION" ]; then
+        echo "Error: Could not extract appVersion from helm/Chart.yaml"
+        exit 1
+      fi
+      TAGS="worker-agent-execution:$SHORT_SHA"
+      TAGS="$TAGS worker-agent-execution:$CI_COMMIT_REF_SLUG"
+      TAGS="$TAGS worker-agent-execution:$APP_VERSION"
+      if echo "$APP_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+        TAGS="$TAGS worker-agent-execution:latest"
       fi
       export IMAGE_NAMES="$TAGS"
       echo "Building with tags: $IMAGE_NAMES"
