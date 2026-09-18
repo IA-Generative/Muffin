@@ -32,7 +32,7 @@ from app.services.search_service import SearchService
 router = APIRouter(prefix="/internal", tags=["Internal"], dependencies=[Depends(require_worker_api_key)])
 
 
-def _to_out(run) -> InternalRunOut:  # noqa: ANN001
+def _to_out(run, history: list[dict[str, str]]) -> InternalRunOut:  # noqa: ANN001
     return InternalRunOut(
         id=run.id,
         user_id=run.user_id,
@@ -48,6 +48,7 @@ def _to_out(run) -> InternalRunOut:  # noqa: ANN001
         pending_human_action=run.pending_human_action,
         answer=run.answer,
         citations=run.citations,
+        history=history,
     )
 
 
@@ -58,7 +59,15 @@ async def get_run(run_id: uuid.UUID, db: Annotated[AsyncSession, Depends(get_db)
     run = await RunRepository(db).get_by_id(run_id)
     if run is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
-    return _to_out(run)
+    # Oldest first, this run's own just-inserted user message excluded (see InternalRunOut.history)
+    # - AgentService.run() appends it itself, right after this history, as the current question.
+    messages = await ConversationRepository(db).list_messages(run.conversation_id)
+    history = [
+        {"role": message.role, "content": message.content}
+        for message, _citations in messages
+        if message.id != run.message_id
+    ]
+    return _to_out(run, history)
 
 
 @router.patch("/runs/{run_id}/status", summary="Report a run's status/current node/activity")

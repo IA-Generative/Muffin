@@ -44,7 +44,7 @@ def generate_answer(state: AgentState) -> dict[str, Any]:
         if context["coverage_insufficient"]
         else ""
     )
-    user_content = f"Query: {state['original_query']}\n\nEvidence:{missing_note}\n\n{evidence_block}"
+    user_content = f"Query: {state['contextualized_query']}\n\nEvidence:{missing_note}\n\n{evidence_block}"
     answer = backend_client.llm_chat(
         model,
         [

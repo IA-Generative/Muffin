@@ -74,12 +74,17 @@ class AgentService:
             return
 
         try:
+            # Prior turns of this same conversation (oldest first, the run's own query excluded -
+            # see GET /api/internal/runs/{run_id}) - without these, a follow-up like "elle parle
+            # de quoi ?" has no way to resolve what "elle" refers to; see analyze_query.
+            history = [{"role": item["role"], "content": item["content"]} for item in run.get("history") or []]
             initial_state: AgentState = {
                 "run_id": run_id,
                 "user_id": run["user_id"],
                 "conversation_id": run["conversation_id"],
                 "original_query": run["query"],
-                "messages": [{"role": "user", "content": run["query"]}],
+                "contextualized_query": run["query"],
+                "messages": [*history, {"role": "user", "content": run["query"]}],
                 "accessible_vdbs": [],
                 "query_analysis": {},
                 "research_plan": {},

@@ -48,7 +48,7 @@ def evaluate_coverage(state: AgentState) -> dict[str, Any]:
             raw = json_chat(
                 model,
                 _SYSTEM_PROMPT,
-                f"Original query: {state['original_query']}\n\nEvidence:\n{excerpts}",
+                f"Original query: {state['contextualized_query']}\n\nEvidence:\n{excerpts}",
                 fallback={"status": "sufficient", "missing_information": [], "reasoning": None},
             )
             if not isinstance(raw, dict) or raw.get("status") not in ("sufficient", "insufficient"):
