@@ -19,6 +19,7 @@
       ]
     }
   },
+  "groups": [{ "name": "muffin-dev-team", "path": "/muffin-dev-team" }],
   "clients": [
     {
       "clientId": "muffin-backend",
@@ -47,6 +48,19 @@
             "claim.name": "resource_access.muffin-backend.roles",
             "jsonType.label": "String",
             "multivalued": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "consentRequired": false,
+          "config": {
+            "claim.name": "groups",
+            "full.path": "true",
             "id.token.claim": "true",
             "access.token.claim": "true",
             "userinfo.token.claim": "true"
@@ -80,7 +94,8 @@
       "realmRoles": ["user"],
       "clientRoles": {
         "muffin-backend": ["user"]
-      }
+      },
+      "groups": ["/muffin-dev-team"]
     }
   ]
 }

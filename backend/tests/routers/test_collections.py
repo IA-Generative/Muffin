@@ -26,9 +26,9 @@ async def client():
         await session.commit()
 
 
-def _as_user(user_id: str, email: str):
+def _as_user(user_id: str, email: str, groups: list[str] | None = None):
     def override() -> RequestContext:
-        return RequestContext(user_id=user_id, email=email, roles=["user"], is_admin=False)
+        return RequestContext(user_id=user_id, email=email, roles=["user"], is_admin=False, groups=groups or [])
 
     return override
 

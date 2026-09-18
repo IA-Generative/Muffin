@@ -4,8 +4,11 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.models.collection import CollectionVisibility, ShareStatus, ShareSubjectType
+
 if TYPE_CHECKING:
     from app.models.collection import Collection as CollectionModel
+    from app.models.collection import CollectionShare as CollectionShareModel
 
 
 class FieldStamp(BaseModel):
@@ -102,6 +105,11 @@ class CollectionOut(BaseModel):
     tags: list[str]
     tags_meta: FieldStamp | None
     updated_at: datetime
+    visibility: CollectionVisibility
+    # How the caller can see this collection at all - owner (full read/write), public (anyone,
+    # read-only) or shared (an ACTIVE CollectionShare, read-only). Drives which actions the UI
+    # offers (settings/reindex/delete/sharing are owner-only, see CollectionService._get_owned).
+    is_owner: bool
 
     # Not wired yet - documents come first, then QA/entities/relations/chunks/evaluation.
     # Always empty for now so the response already matches the shape those phases need.
@@ -120,7 +128,7 @@ class CollectionOut(BaseModel):
     pipeline_windows: PipelineWindowsOut
 
     @classmethod
-    def from_model(cls, collection: "CollectionModel") -> "CollectionOut":
+    def from_model(cls, collection: "CollectionModel", viewer_id: str) -> "CollectionOut":
         settings = collection.settings
         return cls(
             id=collection.id,
@@ -138,6 +146,8 @@ class CollectionOut(BaseModel):
                 else None
             ),
             updated_at=collection.updated_at,
+            visibility=collection.visibility,
+            is_owner=collection.owner_id == viewer_id,
             chunking_settings=ChunkingSettings(
                 strategy=settings.chunking_strategy,
                 chunk_size=settings.chunk_size,
@@ -171,3 +181,37 @@ class CollectionSettingsUpdate(BaseModel):
     instructions: PipelineInstructions | None = None
     generation_models: GenerationModels | None = None
     pipeline_windows: PipelineWindowsUpdate | None = None
+
+
+class VisibilityUpdate(BaseModel):
+    visibility: CollectionVisibility
+
+
+class ShareCreate(BaseModel):
+    subject_type: ShareSubjectType
+    # An email (subject_type=user) or the exact group path/name as it appears in the Keycloak
+    # token's `groups` claim (subject_type=group) - never looked up, never stored as-is, see
+    # app/core/sharing.py. Not re-exposed anywhere after this request.
+    identifier: str
+
+
+class ShareOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    subject_type: ShareSubjectType
+    status: ShareStatus
+    # Non-reversible ("j***@e***.com") - see app/core/sharing.py:mask_email/mask_group. Never the
+    # full email/group identifier the owner originally typed.
+    display_hint: str
+    created_at: datetime
+
+    @classmethod
+    def from_model(cls, share: "CollectionShareModel") -> "ShareOut":
+        return cls(
+            id=share.id,
+            subject_type=share.subject_type,
+            status=share.status,
+            display_hint=share.display_hint,
+            created_at=share.created_at,
+        )

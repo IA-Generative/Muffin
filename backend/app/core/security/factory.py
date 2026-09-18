@@ -1,5 +1,5 @@
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from fastapi import HTTPException, Request, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -17,6 +17,7 @@ class RequestContext:
     is_admin: bool
     first_name: str = ""
     last_name: str = ""
+    groups: list[str] = field(default_factory=list)
 
 
 class KeycloakToken:

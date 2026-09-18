@@ -35,6 +35,10 @@ services:
       OPENAI_API_BASE_URL: ${OPENAI_API_BASE_URL:-}
       # Shared secret checked on every /api/internal/* call from a worker.
       WORKER_API_KEY: ${WORKER_API_KEY:-dev-only-worker-key-not-for-prod}
+      # HMAC pepper for pending collection-share invitations (see app/core/sharing.py). Unset in
+      # a real deployment and POST /api/collections/{id}/shares responds 503 instead of hashing
+      # without one.
+      SHARE_INVITE_PEPPER: ${SHARE_INVITE_PEPPER:-dev-only-pepper-not-for-prod}
       # Without these, RustFsSettings falls back to its localhost:9000
       # default, which inside this container resolves to nothing - file
       # uploads fail silently before a Document row is even created.

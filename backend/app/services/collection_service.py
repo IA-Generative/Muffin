@@ -1,10 +1,12 @@
 import uuid
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import storage
 from app.core.security.factory import RequestContext
-from app.models.collection import Collection
+from app.core.sharing import hash_identifier, mask_email, mask_group, normalize_email, normalize_group
+from app.models.collection import Collection, CollectionVisibility, ShareSubjectType
 from app.repositories.collection_repository import CollectionRepository
 from app.repositories.entity_repository import EntityRepository
 from app.repositories.qa_pair_repository import QaPairRepository
@@ -15,6 +17,8 @@ from app.schemas.collection import (
     EntityOut,
     QaPairOut,
     RelationOut,
+    ShareCreate,
+    ShareOut,
 )
 from app.schemas.pagination import Page, PaginationParams
 from app.services import embedding_model_lookup, vector_store
@@ -27,6 +31,16 @@ DEFAULT_COLLECTION_NAME = "Nouvelle collection"
 
 class CollectionNotFoundError(Exception):
     pass
+
+
+class ShareNotFoundError(Exception):
+    pass
+
+
+class AlreadyInvitedError(Exception):
+    """A share for this exact identifier already exists on this collection - the owner's own
+    prior action, not information about a third party, so it's fine to surface as-is (unlike the
+    live email-existence lookup this design deliberately avoids)."""
 
 
 def _display_name(user: RequestContext) -> str:
@@ -42,10 +56,12 @@ class CollectionService:
         self.entities = EntityRepository(db)
 
     async def list_collections(self, user: RequestContext, pagination: PaginationParams) -> Page[CollectionOut]:
-        collections, total = await self.repository.list_by_owner(
-            user.user_id, limit=pagination.limit, offset=pagination.offset
+        collections, total = await self.repository.list_accessible(
+            user.user_id, user.groups, limit=pagination.limit, offset=pagination.offset
         )
-        return pagination.to_page([CollectionOut.from_model(collection) for collection in collections], total)
+        return pagination.to_page(
+            [CollectionOut.from_model(collection, user.user_id) for collection in collections], total
+        )
 
     async def create_collection(self, user: RequestContext) -> CollectionOut:
         embedding_model = await embedding_model_lookup.default_embedding_model(self.db) or FALLBACK_EMBEDDING_MODEL
@@ -53,11 +69,11 @@ class CollectionService:
             owner_id=user.user_id, name=DEFAULT_COLLECTION_NAME, embedding_model=embedding_model
         )
         await self.db.commit()
-        return CollectionOut.from_model(collection)
+        return CollectionOut.from_model(collection, user.user_id)
 
     async def get_collection(self, collection_id: uuid.UUID, user: RequestContext) -> CollectionOut:
-        collection = await self._get_owned(collection_id, user)
-        return CollectionOut.from_model(collection)
+        collection = await self._get_accessible(collection_id, user)
+        return CollectionOut.from_model(collection, user.user_id)
 
     async def update_collection(
         self, collection_id: uuid.UUID, user: RequestContext, update: CollectionUpdate
@@ -78,7 +94,7 @@ class CollectionService:
         # after the UPDATE, and accessing it later outside an active await
         # crashes with MissingGreenlet instead of lazy-loading like sync ORM would.
         await self.db.refresh(collection, attribute_names=["updated_at"])
-        return CollectionOut.from_model(collection)
+        return CollectionOut.from_model(collection, user.user_id)
 
     async def update_settings(
         self, collection_id: uuid.UUID, user: RequestContext, update: CollectionSettingsUpdate
@@ -108,12 +124,12 @@ class CollectionService:
         # No refresh needed: only collection_settings columns changed (none
         # with a server-side onupdate), so nothing on `collection` is expired.
         await self.db.commit()
-        return CollectionOut.from_model(collection)
+        return CollectionOut.from_model(collection, user.user_id)
 
     async def list_qa_pairs(
         self, collection_id: uuid.UUID, user: RequestContext, document_id: uuid.UUID | None = None
     ) -> list[QaPairOut]:
-        await self._get_owned(collection_id, user)
+        await self._get_accessible(collection_id, user)
         pairs = await self.qa_pairs.list_by_collection(collection_id, document_id)
         return [
             QaPairOut(
@@ -128,14 +144,14 @@ class CollectionService:
         ]
 
     async def list_entities(self, collection_id: uuid.UUID, user: RequestContext) -> list[EntityOut]:
-        await self._get_owned(collection_id, user)
+        await self._get_accessible(collection_id, user)
         entities = await self.entities.list_by_collection(collection_id)
         return [
             EntityOut(id=entity.id, name=entity.name, type=entity.type, mentions=entity.mentions) for entity in entities
         ]
 
     async def list_relations(self, collection_id: uuid.UUID, user: RequestContext) -> list[RelationOut]:
-        await self._get_owned(collection_id, user)
+        await self._get_accessible(collection_id, user)
         relations = await self.entities.list_relations_by_collection(collection_id)
         return [
             RelationOut(
@@ -156,8 +172,62 @@ class CollectionService:
         storage.delete_objects(rustfs_keys)
         vector_store.delete_collection(collection_id)
 
+    async def update_visibility(
+        self, collection_id: uuid.UUID, user: RequestContext, visibility: CollectionVisibility
+    ) -> CollectionOut:
+        collection = await self._get_owned(collection_id, user)
+        await self.repository.update_visibility(collection, visibility)
+        await self.db.commit()
+        # Same reasoning as update_collection: onupdate=func.now() expires updated_at after the
+        # UPDATE regardless of expire_on_commit, so it needs an explicit reload before use.
+        await self.db.refresh(collection, attribute_names=["updated_at"])
+        return CollectionOut.from_model(collection, user.user_id)
+
+    async def create_share(self, collection_id: uuid.UUID, user: RequestContext, create: ShareCreate) -> ShareOut:
+        """Never looks the identifier up anywhere (Keycloak or otherwise) - only ever creates a
+        PENDING row from its hash. See app/core/sharing.py for why: confirming or denying that an
+        identifier resolves to a real account/group is exactly the enumeration risk this design
+        avoids, and the response here must never depend on whether it does."""
+        await self._get_owned(collection_id, user)
+
+        if create.subject_type == ShareSubjectType.USER:
+            normalized = normalize_email(create.identifier)
+            display_hint = mask_email(normalized)
+        else:
+            normalized = normalize_group(create.identifier)
+            display_hint = mask_group(normalized)
+
+        try:
+            share = await self.repository.create_share(
+                collection_id, create.subject_type, hash_identifier(normalized), display_hint
+            )
+            await self.db.commit()
+        except IntegrityError as error:
+            await self.db.rollback()
+            raise AlreadyInvitedError(str(collection_id)) from error
+        return ShareOut.from_model(share)
+
+    async def list_shares(self, collection_id: uuid.UUID, user: RequestContext) -> list[ShareOut]:
+        await self._get_owned(collection_id, user)
+        shares = await self.repository.list_shares(collection_id)
+        return [ShareOut.from_model(share) for share in shares]
+
+    async def delete_share(self, collection_id: uuid.UUID, user: RequestContext, share_id: uuid.UUID) -> None:
+        await self._get_owned(collection_id, user)
+        share = await self.repository.get_share(collection_id, share_id)
+        if share is None:
+            raise ShareNotFoundError(str(share_id))
+        await self.repository.delete_share(share)
+        await self.db.commit()
+
     async def _get_owned(self, collection_id: uuid.UUID, user: RequestContext) -> Collection:
         collection = await self.repository.get(collection_id, user.user_id)
+        if collection is None:
+            raise CollectionNotFoundError(str(collection_id))
+        return collection
+
+    async def _get_accessible(self, collection_id: uuid.UUID, user: RequestContext) -> Collection:
+        collection = await self.repository.get_accessible(collection_id, user.user_id, user.groups)
         if collection is None:
             raise CollectionNotFoundError(str(collection_id))
         return collection
