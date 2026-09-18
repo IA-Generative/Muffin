@@ -2,7 +2,7 @@ import uuid
 from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -30,11 +30,41 @@ class DocumentRepository:
         )
         return result.scalar_one_or_none()
 
+    async def get_in_collection_with_tags(self, collection_id: uuid.UUID, document_id: uuid.UUID) -> Document | None:
+        result = await self.db.execute(
+            select(Document)
+            .where(Document.id == document_id, Document.collection_id == collection_id)
+            .options(selectinload(Document.tags))
+        )
+        return result.scalar_one_or_none()
+
     async def list_pages(self, document_id: uuid.UUID) -> Sequence[DocumentPage]:
         result = await self.db.execute(
             select(DocumentPage).where(DocumentPage.document_id == document_id).order_by(DocumentPage.page_number)
         )
         return result.scalars().all()
+
+    async def list_pages_page(
+        self, document_id: uuid.UUID, *, limit: int, offset: int
+    ) -> tuple[Sequence[DocumentPage], int]:
+        total = await self.db.scalar(
+            select(func.count()).select_from(DocumentPage).where(DocumentPage.document_id == document_id)
+        )
+        result = await self.db.execute(
+            select(DocumentPage)
+            .where(DocumentPage.document_id == document_id)
+            .order_by(DocumentPage.page_number)
+            .limit(limit)
+            .offset(offset)
+        )
+        return result.scalars().all(), total or 0
+
+    async def count_pages(self, document_id: uuid.UUID) -> int:
+        return (
+            await self.db.scalar(
+                select(func.count()).select_from(DocumentPage).where(DocumentPage.document_id == document_id)
+            )
+        ) or 0
 
     async def get_page(self, document_id: uuid.UUID, page_number: int) -> DocumentPage | None:
         result = await self.db.execute(

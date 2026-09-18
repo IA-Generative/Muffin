@@ -6,7 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security.factory import RequestContext, get_current_user
 from app.db import get_db
-from app.schemas.document import DocumentOut, DocumentUrlCreate
+from app.schemas.document import DocumentDetailOut, DocumentOut, DocumentPageOut, DocumentUrlCreate
+from app.schemas.pagination import Page, PaginationParams
 from app.services.collection_service import CollectionNotFoundError
 from app.services.document_upload_service import DocumentNotFoundError, DocumentUploadService
 
@@ -31,6 +32,42 @@ async def list_documents(collection_id: uuid.UUID, user: UserDep, service: Servi
         return await service.list_documents(collection_id, user)
     except CollectionNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
+
+
+@router.get(
+    "/collections/{collection_id}/documents/{document_id}",
+    summary="Get one document's detail - summary, tags, page count",
+    response_model=DocumentDetailOut,
+)
+async def get_document(
+    collection_id: uuid.UUID, document_id: uuid.UUID, user: UserDep, service: ServiceDep
+) -> DocumentDetailOut:
+    try:
+        return await service.get_document(collection_id, user, document_id)
+    except CollectionNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
+    except DocumentNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found") from error
+
+
+@router.get(
+    "/collections/{collection_id}/documents/{document_id}/pages",
+    summary="List a document's pages (content + a presigned screenshot URL, if any), paginated",
+    response_model=Page[DocumentPageOut],
+)
+async def list_document_pages(
+    collection_id: uuid.UUID,
+    document_id: uuid.UUID,
+    user: UserDep,
+    service: ServiceDep,
+    pagination: Annotated[PaginationParams, Depends()],
+) -> Page[DocumentPageOut]:
+    try:
+        return await service.list_pages(collection_id, user, document_id, pagination)
+    except CollectionNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
+    except DocumentNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found") from error
 
 
 @router.post(

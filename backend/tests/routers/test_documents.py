@@ -9,7 +9,7 @@ from app.db import async_session_factory
 from app.main import app
 from app.models.chunk import Chunk
 from app.models.collection import Collection
-from app.models.document import DocumentPage
+from app.models.document import Document, DocumentPage, DocumentTag
 from app.models.task import Task
 
 
@@ -92,6 +92,75 @@ async def test_create_document_for_unknown_collection_returns_404(client):
             f"/api/collections/{uuid.uuid4()}/documents/url", json={"url": "https://example.com"}
         )
     assert response.status_code == 404
+
+
+async def test_get_document_returns_detail_with_tags_and_page_count(client):
+    collection_id = await _create_collection(client)
+    with (
+        patch("app.services.document_upload_service.storage.put_object"),
+        patch("app.services.document_upload_service.enqueue_process_document", return_value="celery-task-id"),
+    ):
+        created = (
+            await client.post(
+                f"/api/collections/{collection_id}/documents/file",
+                files={"file": ("report.pdf", b"data", "application/pdf")},
+            )
+        ).json()
+
+    async with async_session_factory() as session:
+        document = await session.get(Document, uuid.UUID(created["id"]))
+        document.summary = "A short summary."
+        session.add(DocumentTag(document_id=document.id, tag="hr"))
+        session.add(DocumentPage(document_id=document.id, page_number=1, content="page one"))
+        session.add(DocumentPage(document_id=document.id, page_number=2, content="page two"))
+        await session.commit()
+
+    response = await client.get(f"/api/collections/{collection_id}/documents/{created['id']}")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["summary"] == "A short summary."
+    assert body["tags"] == ["hr"]
+    assert body["page_count"] == 2
+
+
+async def test_get_unknown_document_returns_404(client):
+    collection_id = await _create_collection(client)
+    response = await client.get(f"/api/collections/{collection_id}/documents/{uuid.uuid4()}")
+    assert response.status_code == 404
+
+
+async def test_list_document_pages_paginated_with_screenshot_urls(client):
+    collection_id = await _create_collection(client)
+    with (
+        patch("app.services.document_upload_service.storage.put_object"),
+        patch("app.services.document_upload_service.enqueue_process_document", return_value="celery-task-id"),
+    ):
+        created = (
+            await client.post(
+                f"/api/collections/{collection_id}/documents/file",
+                files={"file": ("report.pdf", b"data", "application/pdf")},
+            )
+        ).json()
+
+    async with async_session_factory() as session:
+        session.add(DocumentPage(document_id=created["id"], page_number=1, content="page one", screenshot="p1.png"))
+        session.add(DocumentPage(document_id=created["id"], page_number=2, content="page two"))
+        await session.commit()
+
+    with patch(
+        "app.services.document_upload_service.storage.get_presigned_url", return_value="https://example.com/p1.png"
+    ):
+        response = await client.get(
+            f"/api/collections/{collection_id}/documents/{created['id']}/pages", params={"page_size": 1}
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 2
+    assert len(body["items"]) == 1
+    assert body["items"][0]["page_number"] == 1
+    assert body["items"][0]["screenshot_url"] == "https://example.com/p1.png"
 
 
 async def test_delete_document_removes_its_rustfs_objects(client):

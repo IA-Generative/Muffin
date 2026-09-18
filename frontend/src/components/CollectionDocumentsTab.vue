@@ -2,7 +2,8 @@
 import { computed, ref } from 'vue'
 import { useCollections } from '../composables/useCollections'
 import { usePagination } from '../composables/usePagination'
-import type { Collection } from '../types/collection'
+import type { Collection, CollectionDocument } from '../types/collection'
+import DocumentDetailModal from './DocumentDetailModal.vue'
 import PaginationControls from './PaginationControls.vue'
 
 const props = defineProps<{
@@ -16,6 +17,7 @@ const { page, pageCount, paged: pagedDocuments } = usePagination(documents)
 
 const urlDraft = ref('')
 const isDragging = ref(false)
+const openDocument = ref<CollectionDocument>()
 
 function submitUrl() {
   if (!urlDraft.value.trim()) return
@@ -74,29 +76,36 @@ const STATUS_LABEL = {
 
     <ul v-if="collection.documents.length" class="documents-tab__list">
       <li v-for="document in pagedDocuments" :key="document.id" class="documents-tab__item">
-        <span class="documents-tab__item-icon" aria-hidden="true">
-          <svg v-if="document.type === 'file'" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6M13.5 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8.5L13.5 3Z" />
-          </svg>
-          <svg v-else viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244" />
-          </svg>
-        </span>
+        <button
+          type="button"
+          class="documents-tab__item-open"
+          :aria-label="`Voir le détail de ${document.name}`"
+          @click="openDocument = document"
+        >
+          <span class="documents-tab__item-icon" aria-hidden="true">
+            <svg v-if="document.type === 'file'" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6M13.5 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8.5L13.5 3Z" />
+            </svg>
+            <svg v-else viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244" />
+            </svg>
+          </span>
 
-        <div class="documents-tab__item-body">
-          <span class="documents-tab__item-name">{{ document.name }}</span>
-          <div class="documents-tab__progress-track">
-            <div
-              class="documents-tab__progress-bar"
-              :class="`documents-tab__progress-bar--${document.status}`"
-              :style="{ width: `${document.progress}%` }"
-            />
-          </div>
-        </div>
+          <span class="documents-tab__item-body">
+            <span class="documents-tab__item-name">{{ document.name }}</span>
+            <span class="documents-tab__progress-track">
+              <span
+                class="documents-tab__progress-bar"
+                :class="`documents-tab__progress-bar--${document.status}`"
+                :style="{ width: `${document.progress}%` }"
+              />
+            </span>
+          </span>
 
-        <span class="documents-tab__item-status" :class="`documents-tab__item-status--${document.status}`">
-          {{ STATUS_LABEL[document.status] }}
-        </span>
+          <span class="documents-tab__item-status" :class="`documents-tab__item-status--${document.status}`">
+            {{ STATUS_LABEL[document.status] }}
+          </span>
+        </button>
 
         <button
           type="button"
@@ -111,6 +120,15 @@ const STATUS_LABEL = {
     <p v-else class="documents-tab__empty">Aucun document pour le moment.</p>
 
     <PaginationControls v-model:page="page" :page-count="pageCount" />
+
+    <DocumentDetailModal
+      v-if="openDocument"
+      :collection-id="collection.id"
+      :document="openDocument"
+      :entities="collection.entities"
+      :relations="collection.relations"
+      @close="openDocument = undefined"
+    />
   </div>
 </template>
 
@@ -188,6 +206,21 @@ const STATUS_LABEL = {
   border-radius: 0.5rem;
 }
 
+.documents-tab__item-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  padding: 0;
+}
+
 .documents-tab__item-icon {
   flex-shrink: 0;
   display: flex;
@@ -203,6 +236,7 @@ const STATUS_LABEL = {
 }
 
 .documents-tab__item-name {
+  display: block;
   font-size: 0.875rem;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -210,6 +244,7 @@ const STATUS_LABEL = {
 }
 
 .documents-tab__progress-track {
+  display: block;
   height: 0.25rem;
   border-radius: 0.125rem;
   background: var(--background-alt-grey);
@@ -217,6 +252,7 @@ const STATUS_LABEL = {
 }
 
 .documents-tab__progress-bar {
+  display: block;
   height: 100%;
   border-radius: 0.125rem;
   background: var(--background-action-high-blue-france);

@@ -110,9 +110,11 @@ class CollectionService:
         await self.db.commit()
         return CollectionOut.from_model(collection)
 
-    async def list_qa_pairs(self, collection_id: uuid.UUID, user: RequestContext) -> list[QaPairOut]:
+    async def list_qa_pairs(
+        self, collection_id: uuid.UUID, user: RequestContext, document_id: uuid.UUID | None = None
+    ) -> list[QaPairOut]:
         await self._get_owned(collection_id, user)
-        pairs = await self.qa_pairs.list_by_collection(collection_id)
+        pairs = await self.qa_pairs.list_by_collection(collection_id, document_id)
         return [
             QaPairOut(
                 id=pair.id,
