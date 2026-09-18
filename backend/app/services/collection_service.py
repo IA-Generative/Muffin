@@ -17,9 +17,11 @@ from app.schemas.collection import (
     RelationOut,
 )
 from app.schemas.pagination import Page, PaginationParams
-from app.services import vector_store
+from app.services import embedding_model_lookup, vector_store
 
-DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small"
+# Last resort only, when the hub is unreachable/unconfigured and there's nothing else to go on -
+# see create_collection, which otherwise resolves the admin-configured or hub-discovered model.
+FALLBACK_EMBEDDING_MODEL = "text-embedding-3-small"
 DEFAULT_COLLECTION_NAME = "Nouvelle collection"
 
 
@@ -46,8 +48,9 @@ class CollectionService:
         return pagination.to_page([CollectionOut.from_model(collection) for collection in collections], total)
 
     async def create_collection(self, user: RequestContext) -> CollectionOut:
+        embedding_model = await embedding_model_lookup.default_embedding_model(self.db) or FALLBACK_EMBEDDING_MODEL
         collection = await self.repository.create(
-            owner_id=user.user_id, name=DEFAULT_COLLECTION_NAME, embedding_model=DEFAULT_EMBEDDING_MODEL
+            owner_id=user.user_id, name=DEFAULT_COLLECTION_NAME, embedding_model=embedding_model
         )
         await self.db.commit()
         return CollectionOut.from_model(collection)
