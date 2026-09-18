@@ -3,7 +3,13 @@ import { computed, reactive, ref, watch } from 'vue'
 import { useCollections } from '../composables/useCollections'
 import { useEmbeddingModels } from '../composables/useEmbeddingModels'
 import { useModels } from '../composables/useModels'
-import type { ChunkingSettings, Collection, GenerationModels, PipelineWindows } from '../types/collection'
+import type {
+  ChunkingSettings,
+  Collection,
+  GenerationModels,
+  PipelineWindows,
+  ShareSubjectType,
+} from '../types/collection'
 
 const props = defineProps<{
   collection: Collection
@@ -17,6 +23,10 @@ const {
   reindexCollection,
   updateInstructionField,
   markSettingsSaved,
+  updateVisibility,
+  createShare,
+  deleteShare,
+  shareError,
 } = useCollections()
 const { models: embeddingModels, isLoading: isLoadingEmbeddingModels, error: embeddingModelsError } =
   useEmbeddingModels()
@@ -143,6 +153,38 @@ const STRATEGY_HINT: Record<ChunkingSettings['strategy'], string> = {
 // déjà leurs frontières pour préserver le sens, un chevauchement forcé n'y
 // ajoute rien.
 const showChunkSize = () => chunkingForm.strategy === 'paragraph' || chunkingForm.strategy === 'fixed'
+
+const visibilityDraft = ref(props.collection.visibility)
+watch(
+  () => props.collection.id,
+  () => {
+    visibilityDraft.value = props.collection.visibility
+  },
+)
+
+function saveVisibility() {
+  if (visibilityDraft.value === props.collection.visibility) return
+  if (
+    visibilityDraft.value === 'public' &&
+    !confirm(
+      'Rendre cette collection publique la rend visible et cherchable par tous les utilisateurs authentifiés. Confirmer ?',
+    )
+  ) {
+    visibilityDraft.value = props.collection.visibility
+    return
+  }
+  updateVisibility(props.collection.id, visibilityDraft.value)
+}
+
+const shareSubjectType = ref<ShareSubjectType>('user')
+const shareIdentifier = ref('')
+
+function submitShare() {
+  createShare(props.collection.id, shareSubjectType.value, shareIdentifier.value)
+  shareIdentifier.value = ''
+}
+
+const SHARE_STATUS_LABEL: Record<'pending' | 'active', string> = { pending: 'En attente', active: 'Actif' }
 </script>
 
 <template>
@@ -518,6 +560,107 @@ const showChunkSize = () => chunkingForm.strategy === 'paragraph' || chunkingFor
         <button type="submit" class="fr-btn fr-btn--sm">Enregistrer</button>
       </div>
     </form>
+
+    <form class="settings-tab__section" @submit.prevent="saveVisibility">
+      <div class="settings-tab__header">
+        <span class="settings-tab__icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"
+            />
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+          </svg>
+        </span>
+        <h3 class="settings-tab__title">Visibilité</h3>
+      </div>
+
+      <div class="settings-tab__body">
+        <div class="settings-tab__field">
+          <label for="visibility">Visibilité de la collection</label>
+          <select id="visibility" v-model="visibilityDraft" class="fr-select">
+            <option value="private">Privée (owner et personnes/groupes invités)</option>
+            <option value="public">Publique (tous les utilisateurs authentifiés)</option>
+          </select>
+          <p class="settings-tab__hint">
+            Une collection publique est visible et cherchable par n'importe quel utilisateur authentifié, en
+            lecture seule.
+          </p>
+        </div>
+      </div>
+
+      <div class="settings-tab__footer">
+        <button type="submit" class="fr-btn fr-btn--sm">Enregistrer</button>
+      </div>
+    </form>
+
+    <form class="settings-tab__section" @submit.prevent="submitShare">
+      <div class="settings-tab__header">
+        <span class="settings-tab__icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z"
+            />
+          </svg>
+        </span>
+        <h3 class="settings-tab__title">Partages</h3>
+      </div>
+
+      <div class="settings-tab__body">
+        <div class="settings-tab__field">
+          <label for="share-identifier">Inviter un utilisateur ou un groupe</label>
+          <div class="settings-tab__share-form">
+            <select
+              id="share-subject-type"
+              v-model="shareSubjectType"
+              class="fr-select"
+              aria-label="Type de destinataire"
+            >
+              <option value="user">Email</option>
+              <option value="group">Groupe Keycloak</option>
+            </select>
+            <div class="settings-tab__share-form-row">
+              <input
+                id="share-identifier"
+                v-model="shareIdentifier"
+                type="text"
+                :placeholder="shareSubjectType === 'user' ? 'personne@exemple.fr' : '/nom-du-groupe'"
+              />
+              <button type="submit" class="fr-btn fr-btn--sm">Inviter</button>
+            </div>
+          </div>
+          <p class="settings-tab__hint">
+            Aucune vérification n'est faite ici : l'invitation est créée et s'activera automatiquement à la
+            prochaine connexion de la personne ou d'un membre du groupe.
+          </p>
+          <p v-if="shareError" class="settings-tab__hint settings-tab__hint--error">{{ shareError }}</p>
+        </div>
+
+        <ul v-if="collection.shares.length" class="settings-tab__share-list">
+          <li v-for="share in collection.shares" :key="share.id" class="settings-tab__share-row">
+            <span class="settings-tab__share-hint">{{ share.displayHint }}</span>
+            <span
+              class="settings-tab__share-status"
+              :class="`settings-tab__share-status--${share.status}`"
+            >
+              {{ SHARE_STATUS_LABEL[share.status] }}
+            </span>
+            <button
+              type="button"
+              class="fr-btn fr-btn--sm fr-btn--tertiary-no-outline"
+              :aria-label="`Révoquer ce partage`"
+              @click="deleteShare(collection.id, share.id)"
+            >
+              Révoquer
+            </button>
+          </li>
+        </ul>
+        <p v-else class="settings-tab__hint">Aucun partage sur cette collection.</p>
+      </div>
+    </form>
   </div>
 </template>
 
@@ -622,6 +765,74 @@ const showChunkSize = () => chunkingForm.strategy === 'paragraph' || chunkingFor
   margin: 0;
   font-size: 0.75rem;
   color: var(--text-mention-grey);
+}
+
+.settings-tab__hint--error {
+  color: var(--text-default-error);
+}
+
+.settings-tab__share-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.settings-tab__share-form-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.settings-tab__share-form input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.5rem 0.625rem;
+  border-radius: 0.375rem;
+  border: 1px solid var(--border-default-grey);
+  background: var(--background-default-grey);
+  color: var(--text-default-grey);
+  font: inherit;
+}
+
+.settings-tab__share-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.settings-tab__share-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.625rem;
+  border-radius: 0.375rem;
+  background: var(--background-alt-grey);
+}
+
+.settings-tab__share-hint {
+  flex: 1;
+  font-size: 0.8125rem;
+  font-family: monospace;
+}
+
+.settings-tab__share-status {
+  flex-shrink: 0;
+  padding: 0.125rem 0.5rem;
+  border-radius: 1rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+}
+
+.settings-tab__share-status--pending {
+  background: var(--background-alt-orange-terre-battue, var(--background-alt-grey));
+  color: var(--text-default-grey);
+}
+
+.settings-tab__share-status--active {
+  background: var(--background-alt-green-emeraude, var(--background-alt-grey));
+  color: var(--text-default-success, var(--text-default-grey));
 }
 
 .settings-tab__reindex {

@@ -5,6 +5,7 @@ from .logging import LoggingSettings
 from .qdrant import QdrantSettings
 from .redis import RedisSettings
 from .rustfs import RustFsSettings
+from .sharing import SharingSettings
 from .worker import WorkerSettings
 
 __all__ = [
@@ -15,5 +16,6 @@ __all__ = [
     "QdrantSettings",
     "RedisSettings",
     "RustFsSettings",
+    "SharingSettings",
     "WorkerSettings",
 ]

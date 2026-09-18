@@ -2,11 +2,20 @@ import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, exists, false, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.collection import Collection, CollectionDescriptionEmbedding, CollectionSettings, CollectionTag
+from app.models.collection import (
+    Collection,
+    CollectionDescriptionEmbedding,
+    CollectionSettings,
+    CollectionShare,
+    CollectionTag,
+    CollectionVisibility,
+    ShareStatus,
+    ShareSubjectType,
+)
 from app.models.document import Document, DocumentPage
 
 
@@ -17,12 +26,37 @@ class CollectionRepository:
     def _base_query(self):
         return select(Collection).options(selectinload(Collection.tags), selectinload(Collection.settings))
 
-    async def list_by_owner(self, owner_id: str, *, limit: int, offset: int) -> tuple[Sequence[Collection], int]:
-        # Owner only for now, not CollectionShare: a collection shared with this
-        # user (or one of their groups) won't show up yet. Deliberately deferred -
-        # group-based sharing also needs Keycloak groups added to RequestContext,
-        # which isn't there yet either.
-        where = Collection.owner_id == owner_id
+    def _accessible_where(self, user_id: str, group_ids: Sequence[str]):
+        """owner OR public OR an ACTIVE direct share OR an ACTIVE share to one of the caller's
+        groups - the single permission barrier both the UI listing and the research agent's VDB
+        routing (GET /internal/users/{user_id}/accessible-collections) must agree on."""
+        direct_share = exists().where(
+            CollectionShare.collection_id == Collection.id,
+            CollectionShare.subject_type == ShareSubjectType.USER,
+            CollectionShare.status == ShareStatus.ACTIVE,
+            CollectionShare.subject_id == user_id,
+        )
+        group_share = (
+            exists().where(
+                CollectionShare.collection_id == Collection.id,
+                CollectionShare.subject_type == ShareSubjectType.GROUP,
+                CollectionShare.status == ShareStatus.ACTIVE,
+                CollectionShare.subject_id.in_(group_ids),
+            )
+            if group_ids
+            else false()
+        )
+        return or_(
+            Collection.owner_id == user_id,
+            Collection.visibility == CollectionVisibility.PUBLIC,
+            direct_share,
+            group_share,
+        )
+
+    async def list_accessible(
+        self, user_id: str, group_ids: Sequence[str], *, limit: int, offset: int
+    ) -> tuple[Sequence[Collection], int]:
+        where = self._accessible_where(user_id, group_ids)
 
         total = await self.db.scalar(select(func.count()).select_from(Collection).where(where))
 
@@ -31,16 +65,27 @@ class CollectionRepository:
         )
         return result.scalars().all(), total or 0
 
-    async def list_all_by_owner(self, owner_id: str) -> Sequence[Collection]:
+    async def list_all_accessible(self, user_id: str, group_ids: Sequence[str]) -> Sequence[Collection]:
         """Unpaginated - for server-side permission checks (e.g. the research
         agent's "which collections can this user's query even reach"), not
         for a UI listing."""
-        result = await self.db.execute(self._base_query().where(Collection.owner_id == owner_id))
+        result = await self.db.execute(self._base_query().where(self._accessible_where(user_id, group_ids)))
         return result.scalars().all()
 
     async def get(self, collection_id: uuid.UUID, owner_id: str) -> Collection | None:
         result = await self.db.execute(
             self._base_query().where(Collection.id == collection_id, Collection.owner_id == owner_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_accessible(
+        self, collection_id: uuid.UUID, user_id: str, group_ids: Sequence[str]
+    ) -> Collection | None:
+        """Same permission barrier as list_accessible/list_all_accessible, for a single
+        collection - read access for owner/public/shared, not just the "is it mine" check `get`
+        does for owner-only write operations."""
+        result = await self.db.execute(
+            self._base_query().where(Collection.id == collection_id, self._accessible_where(user_id, group_ids))
         )
         return result.scalar_one_or_none()
 
@@ -161,3 +206,67 @@ class CollectionRepository:
 
     async def delete(self, collection: Collection) -> None:
         await self.db.delete(collection)
+
+    async def update_visibility(self, collection: Collection, visibility: CollectionVisibility) -> None:
+        collection.visibility = visibility
+
+    async def create_share(
+        self, collection_id: uuid.UUID, subject_type: ShareSubjectType, identifier_hash: str, display_hint: str
+    ) -> CollectionShare:
+        share = CollectionShare(
+            collection_id=collection_id,
+            subject_type=subject_type,
+            status=ShareStatus.PENDING,
+            invited_identifier_hash=identifier_hash,
+            display_hint=display_hint,
+        )
+        self.db.add(share)
+        await self.db.flush()
+        return share
+
+    async def list_shares(self, collection_id: uuid.UUID) -> Sequence[CollectionShare]:
+        result = await self.db.execute(
+            select(CollectionShare)
+            .where(CollectionShare.collection_id == collection_id)
+            .order_by(CollectionShare.created_at.desc())
+        )
+        return result.scalars().all()
+
+    async def get_share(self, collection_id: uuid.UUID, share_id: uuid.UUID) -> CollectionShare | None:
+        result = await self.db.execute(
+            select(CollectionShare).where(
+                CollectionShare.id == share_id, CollectionShare.collection_id == collection_id
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def delete_share(self, share: CollectionShare) -> None:
+        await self.db.delete(share)
+
+    async def resolve_pending_user_shares(self, email_hash: str, user_id: str) -> None:
+        """Promotes every PENDING user-share invited under email_hash to ACTIVE, pointed at
+        user_id - called once per login with the just-verified token's own email, never on
+        anything an owner can trigger on demand (that's exactly the live-lookup this design
+        avoids, see app/core/sharing.py)."""
+        await self.db.execute(
+            update(CollectionShare)
+            .where(
+                CollectionShare.subject_type == ShareSubjectType.USER,
+                CollectionShare.status == ShareStatus.PENDING,
+                CollectionShare.invited_identifier_hash == email_hash,
+            )
+            .values(status=ShareStatus.ACTIVE, subject_id=user_id, invited_identifier_hash=None)
+        )
+
+    async def resolve_pending_group_shares(self, group_hash: str, group_id: str) -> None:
+        """Same as resolve_pending_user_shares, one call per group in the token's `groups`
+        claim (see RequestContext.groups)."""
+        await self.db.execute(
+            update(CollectionShare)
+            .where(
+                CollectionShare.subject_type == ShareSubjectType.GROUP,
+                CollectionShare.status == ShareStatus.PENDING,
+                CollectionShare.invited_identifier_hash == group_hash,
+            )
+            .values(status=ShareStatus.ACTIVE, subject_id=group_id, invited_identifier_hash=None)
+        )

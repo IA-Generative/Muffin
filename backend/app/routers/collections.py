@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security.factory import RequestContext, get_current_user
+from app.core.sharing import SharingNotConfiguredError
 from app.db import get_db
 from app.schemas.collection import (
     CollectionOut,
@@ -13,9 +14,17 @@ from app.schemas.collection import (
     EntityOut,
     QaPairOut,
     RelationOut,
+    ShareCreate,
+    ShareOut,
+    VisibilityUpdate,
 )
 from app.schemas.pagination import Page, PaginationParams
-from app.services.collection_service import CollectionNotFoundError, CollectionService
+from app.services.collection_service import (
+    AlreadyInvitedError,
+    CollectionNotFoundError,
+    CollectionService,
+    ShareNotFoundError,
+)
 
 router = APIRouter(tags=["Collections"])
 
@@ -125,3 +134,64 @@ async def delete_collection(collection_id: uuid.UUID, user: UserDep, service: Se
         await service.delete_collection(collection_id, user)
     except CollectionNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
+
+
+@router.patch(
+    "/collections/{collection_id}/visibility",
+    summary="Make a collection private (default) or public - owner only",
+    response_model=CollectionOut,
+)
+async def update_visibility(
+    collection_id: uuid.UUID, update: VisibilityUpdate, user: UserDep, service: ServiceDep
+) -> CollectionOut:
+    try:
+        return await service.update_visibility(collection_id, user, update.visibility)
+    except CollectionNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
+
+
+@router.post(
+    "/collections/{collection_id}/shares",
+    summary="Invite a user (by email) or a Keycloak group to a collection - owner only. Never "
+    "confirms whether the identifier matches a real account/group: it's always created PENDING "
+    "and resolved the next time a matching user logs in (see app/core/sharing.py).",
+    status_code=status.HTTP_201_CREATED,
+    response_model=ShareOut,
+)
+async def create_share(collection_id: uuid.UUID, create: ShareCreate, user: UserDep, service: ServiceDep) -> ShareOut:
+    try:
+        return await service.create_share(collection_id, user, create)
+    except CollectionNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
+    except AlreadyInvitedError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Already invited") from error
+    except SharingNotConfiguredError as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Sharing is not configured"
+        ) from error
+
+
+@router.get(
+    "/collections/{collection_id}/shares",
+    summary="List a collection's pending and active shares - owner only",
+    response_model=list[ShareOut],
+)
+async def list_shares(collection_id: uuid.UUID, user: UserDep, service: ServiceDep) -> list[ShareOut]:
+    try:
+        return await service.list_shares(collection_id, user)
+    except CollectionNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
+
+
+@router.delete(
+    "/collections/{collection_id}/shares/{share_id}",
+    summary="Revoke a pending or active share - owner only",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_share(collection_id: uuid.UUID, share_id: uuid.UUID, user: UserDep, service: ServiceDep) -> None:
+    try:
+        await service.delete_share(collection_id, user, share_id)
+    except CollectionNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
+    except ShareNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Share not found") from error

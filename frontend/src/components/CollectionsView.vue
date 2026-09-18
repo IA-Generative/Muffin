@@ -91,7 +91,16 @@ function indexedCount(documents: { status: string }[]) {
           </svg>
         </span>
 
-        <span class="collection-card__name">{{ collection.name }}</span>
+        <div class="collection-card__name-row">
+          <span class="collection-card__name">{{ collection.name }}</span>
+          <span
+            v-if="!collection.isOwner || collection.visibility === 'public'"
+            class="collection-card__badge"
+            :class="`collection-card__badge--${collection.isOwner ? 'public' : collection.visibility === 'public' ? 'public' : 'shared'}`"
+          >
+            {{ !collection.isOwner ? (collection.visibility === 'public' ? 'Publique' : 'Partagée') : 'Publique' }}
+          </span>
+        </div>
         <span class="collection-card__description">{{ collection.description }}</span>
 
         <div v-if="collection.tags.length" class="collection-card__tags">
@@ -217,9 +226,33 @@ function indexedCount(documents: { status: string }[]) {
   color: var(--text-action-high-blue-france);
 }
 
+.collection-card__name-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .collection-card__name {
   font-size: 1.0625rem;
   font-weight: 700;
+}
+
+.collection-card__badge {
+  flex-shrink: 0;
+  padding: 0.125rem 0.5rem;
+  border-radius: 1rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+}
+
+.collection-card__badge--public {
+  background: var(--background-alt-blue-france);
+  color: var(--text-action-high-blue-france);
+}
+
+.collection-card__badge--shared {
+  background: var(--background-alt-green-emeraude, var(--background-alt-grey));
+  color: var(--text-default-success, var(--text-default-grey));
 }
 
 .collection-card__description {

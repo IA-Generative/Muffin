@@ -111,6 +111,12 @@ les endpoints internes du backend (`/internal/search`, `/internal/qa-search`,
 |---|---|---|---|
 | `WORKER_API_KEY` | Secret partagé, vérifié sur chaque appel `/internal/*` par `app/core/security/worker_auth.py` (dépendance `require_worker_api_key`) | `""` côté backend / `""` côté workers | **backend** (`app/config/worker.py`), **worker/document_process**, **worker/agent_execution` — doit être identique des deux côtés, sinon tout appel interne échoue en 401 |
 
+## Partage de collections (invitations hashées)
+
+| Variable | Définition | Défaut | Utilisée par |
+|---|---|---|---|
+| `SHARE_INVITE_PEPPER` | Secret serveur pour le HMAC-SHA256 des identifiants (email/groupe) d'une invitation de partage en attente (`app/core/sharing.py`) - **jamais** un hash nu : un email a trop peu d'entropie pour résister à une attaque par dictionnaire sur une base fuitée sans ce pepper | `""` (partage désactivé tant qu'il n'est pas défini - `POST /api/collections/{id}/shares` répond 503) | **backend** (`app/config/sharing.py`, `app/core/sharing.py`) — un secret fort, généré par environnement, jamais commité ; sa perte ou sa rotation invalide silencieusement toutes les invitations `pending` non encore résolues |
+
 ## Backend ↔ workers (URLs)
 
 | Variable | Définition | Défaut | Utilisée par |
