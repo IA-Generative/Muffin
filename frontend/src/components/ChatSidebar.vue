@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { Conversation } from '../types/chat'
 import type { User } from '../types/user'
 import ConversationMenu from './ConversationMenu.vue'
@@ -26,6 +26,24 @@ const emit = defineEmits<{
 
 const showUserMenu = ref(false)
 const userWrapper = ref<HTMLElement>()
+
+// Per-viewer convenience only, never read back by anything else - collapsed just controls what
+// this one browser shows, so localStorage is the right place for it (not a state the backend or
+// another device needs to know about).
+const COLLAPSE_STORAGE_KEY = 'muffin-sidebar-collapsed'
+const collapsed = ref(false)
+try {
+  collapsed.value = localStorage.getItem(COLLAPSE_STORAGE_KEY) === 'true'
+} catch {
+  // Private browsing / storage blocked - just default to expanded.
+}
+watch(collapsed, (value) => {
+  try {
+    localStorage.setItem(COLLAPSE_STORAGE_KEY, String(value))
+  } catch {
+    // Ignored - worst case the preference doesn't survive a reload.
+  }
+})
 
 const renamingId = ref<string>()
 const renameDraft = ref('')
@@ -111,19 +129,30 @@ function initials(name: string) {
 </script>
 
 <template>
-  <aside class="chat-sidebar">
+  <aside class="chat-sidebar" :class="{ 'chat-sidebar--collapsed': collapsed }">
     <div class="chat-sidebar__brand">
-      <p class="fr-logo chat-sidebar__logo">Muffin</p>
+      <p class="fr-logo chat-sidebar__logo"><span v-if="!collapsed">Muffin</span></p>
+      <button
+        type="button"
+        class="chat-sidebar__collapse-toggle"
+        :aria-label="collapsed ? 'Ouvrir la barre latérale' : 'Réduire la barre latérale'"
+        @click="collapsed = !collapsed"
+      >
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+          <rect x="3" y="4" width="18" height="16" rx="2" />
+          <path d="M9 4v16" />
+        </svg>
+      </button>
     </div>
 
-    <button type="button" class="chat-sidebar__new" @click="emit('new')">
+    <button type="button" class="chat-sidebar__new" :title="collapsed ? 'Nouveau chat' : undefined" @click="emit('new')">
       <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
         <path
           fill="currentColor"
           d="M17.7 3.3a1 1 0 0 1 1.4 0l1.6 1.6a1 1 0 0 1 0 1.4L9.5 17.5l-4.2 1 1-4.2L17.7 3.3z"
         />
       </svg>
-      Nouveau chat
+      <span v-if="!collapsed">Nouveau chat</span>
     </button>
 
     <nav class="chat-sidebar__nav" aria-label="Navigation principale">
@@ -131,6 +160,7 @@ function initials(name: string) {
         type="button"
         class="chat-sidebar__nav-item"
         :class="{ 'chat-sidebar__nav-item--active': activeView === 'collections' }"
+        :title="collapsed ? 'Collections' : undefined"
         @click="emit('openCollections')"
       >
         <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
@@ -139,11 +169,11 @@ function initials(name: string) {
             d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6z"
           />
         </svg>
-        Collections
+        <span v-if="!collapsed">Collections</span>
       </button>
     </nav>
 
-    <div class="chat-sidebar__scroll">
+    <div v-if="!collapsed" class="chat-sidebar__scroll">
       <h2 class="chat-sidebar__section-title">Récents</h2>
       <nav class="chat-sidebar__list" aria-label="Historique des conversations">
         <div
@@ -168,6 +198,7 @@ function initials(name: string) {
             v-else
             type="button"
             class="chat-sidebar__item"
+            :title="conversation.title"
             @click="emit('select', conversation.id)"
           >
             {{ conversation.title }}
@@ -225,16 +256,27 @@ function initials(name: string) {
         </button>
       </div>
 
-      <button type="button" class="chat-sidebar__user" @click="showUserMenu = !showUserMenu">
+      <button
+        type="button"
+        class="chat-sidebar__user"
+        :title="collapsed ? user.name : undefined"
+        @click="showUserMenu = !showUserMenu"
+      >
         <span class="chat-sidebar__avatar" aria-hidden="true">{{ initials(user.name) }}</span>
-        <div class="chat-sidebar__user-info">
+        <div v-if="!collapsed" class="chat-sidebar__user-info">
           <span class="chat-sidebar__user-name">{{ user.name }}</span>
           <span class="chat-sidebar__user-email">{{ user.email }}</span>
         </div>
       </button>
     </div>
 
-    <button v-else type="button" class="chat-sidebar__user chat-sidebar__login" @click="emit('login')">
+    <button
+      v-else
+      type="button"
+      class="chat-sidebar__user chat-sidebar__login"
+      :title="collapsed ? 'Se connecter' : undefined"
+      @click="emit('login')"
+    >
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
         <path
           stroke-linecap="round"
@@ -242,7 +284,7 @@ function initials(name: string) {
           d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15M21 12H8.25m0 0 3 3m-3-3 3-3"
         />
       </svg>
-      Se connecter
+      <span v-if="!collapsed">Se connecter</span>
     </button>
   </aside>
 </template>
@@ -262,11 +304,36 @@ function initials(name: string) {
 }
 
 .chat-sidebar__brand {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
   padding: 0.5rem 0.75rem 1rem;
 }
 
 .chat-sidebar__logo {
   font-size: 1.05rem;
+  min-width: 0;
+}
+
+.chat-sidebar__collapse-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  border: none;
+  border-radius: 0.375rem;
+  background: transparent;
+  color: var(--text-mention-grey);
+  cursor: pointer;
+}
+
+.chat-sidebar__collapse-toggle:hover {
+  background: var(--background-alt-grey-hover);
+  color: var(--text-default-grey);
 }
 
 .chat-sidebar__new,
@@ -468,5 +535,27 @@ function initials(name: string) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Collapsed rail: icon-only, just wide enough for the Marianne mark and nav icons. The DSFR
+   ".fr-logo" caption ("RÉPUBLIQUE FRANÇAISE") is suppressed so only the mark itself remains
+   visible, per the request to keep "le logo marianne visible" in the collapsed state. */
+.chat-sidebar--collapsed {
+  width: 4.5rem;
+}
+
+.chat-sidebar--collapsed .chat-sidebar__brand {
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.chat-sidebar--collapsed .fr-logo::after {
+  display: none;
+}
+
+.chat-sidebar--collapsed .chat-sidebar__new,
+.chat-sidebar--collapsed .chat-sidebar__nav-item,
+.chat-sidebar--collapsed .chat-sidebar__user {
+  justify-content: center;
 }
 </style>
