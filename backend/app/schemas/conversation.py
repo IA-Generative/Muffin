@@ -11,6 +11,10 @@ class ConversationOut(BaseModel):
     updated_at: datetime
 
 
+class ConversationUpdate(BaseModel):
+    title: str
+
+
 class MessageOut(BaseModel):
     id: uuid.UUID
     role: str

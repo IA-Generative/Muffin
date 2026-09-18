@@ -62,6 +62,9 @@ class ConversationRepository:
         conversation.title = title
         conversation.title_generated = True
 
+    async def delete(self, conversation: Conversation) -> None:
+        await self.db.delete(conversation)
+
     async def create(self, user_id: str, title: str | None = None) -> Conversation:
         conversation = Conversation(user_id=user_id, title=title)
         self.db.add(conversation)
