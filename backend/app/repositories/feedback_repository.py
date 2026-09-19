@@ -3,6 +3,7 @@ from typing import Any
 
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.models.feedback import (
     Feedback,
@@ -29,15 +30,35 @@ class FeedbackRepository:
         self, message_ids: list[uuid.UUID], user_id: str
     ) -> dict[uuid.UUID, FeedbackValue]:
         """Returns a {message_id: value} map for the given messages and user - used to restore
-        thumbs-up/down highlighting after a page reload."""
+        thumbs-up/down highlighting after a page reload. Takes the most recent feedback per
+        message (a user can update their feedback, creating multiple rows over time)."""
         if not message_ids:
             return {}
         result = await self.db.execute(
-            select(Feedback.message_id, Feedback.value).where(
-                Feedback.message_id.in_(message_ids), Feedback.user_id == user_id
-            )
+            select(Feedback.message_id, Feedback.value)
+            .where(Feedback.message_id.in_(message_ids), Feedback.user_id == user_id)
+            .order_by(Feedback.created_at.desc())
         )
-        return {row.message_id: row.value for row in result.all()}
+        latest: dict[uuid.UUID, FeedbackValue] = {}
+        for row in result.all():
+            # Only keep the first (most recent) per message_id
+            if row.message_id not in latest:
+                latest[row.message_id] = row.value
+        return latest
+
+    async def get_user_feedback_for_message(self, message_id: uuid.UUID, user_id: str) -> Feedback | None:
+        """Returns the full feedback (with reasons, sources) a user left on a message, or None.
+        Used to pre-fill the feedback modal when editing an existing negative feedback.
+        Takes the most recent one in case duplicates exist (legacy data before upsert).
+        """
+        result = await self.db.execute(
+            select(Feedback)
+            .where(Feedback.message_id == message_id, Feedback.user_id == user_id)
+            .order_by(Feedback.created_at.desc())
+            .options(selectinload(Feedback.reasons), selectinload(Feedback.sources))
+            .limit(1)
+        )
+        return result.scalars().first()
 
     async def create(
         self,

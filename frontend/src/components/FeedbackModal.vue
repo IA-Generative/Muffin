@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import type { FeedbackDetails, Source } from '../types/chat'
 
-defineProps<{
+const props = defineProps<{
   sources?: Source[]
+  initialDetails?: FeedbackDetails | null
 }>()
 
 const emit = defineEmits<{
@@ -21,12 +22,20 @@ const REASONS = [
   { code: 'other', label: 'Autre' },
 ]
 
-const selectedReasons = ref<string[]>([])
-const comment = ref('')
-const validatedSourceIds = ref<string[]>([])
-const addedSources = ref<Source[]>([])
+const selectedReasons = ref<string[]>(props.initialDetails?.reasons ?? [])
+const comment = ref(props.initialDetails?.comment ?? '')
+const validatedSourceIds = ref<string[]>(props.initialDetails?.validatedSourceIds ?? [])
+const addedSources = ref<Source[]>(props.initialDetails?.addedSources ?? [])
 const newSourceTitle = ref('')
 const newSourceUrl = ref('')
+
+// Reset fields when initialDetails changes (e.g. reopening the modal for a different message)
+watch(() => props.initialDetails, (details) => {
+  selectedReasons.value = details?.reasons ?? []
+  comment.value = details?.comment ?? ''
+  validatedSourceIds.value = details?.validatedSourceIds ?? []
+  addedSources.value = details?.addedSources ?? []
+})
 
 function toggleReason(code: string) {
   const index = selectedReasons.value.indexOf(code)

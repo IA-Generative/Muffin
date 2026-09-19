@@ -3,11 +3,14 @@ import DOMPurify from 'dompurify'
 import { marked } from 'marked'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { ChatMessage, FeedbackDetails } from '../types/chat'
+import { useChat } from '../composables/useChat'
 import FeedbackModal from './FeedbackModal.vue'
 
 const props = defineProps<{
   message: ChatMessage
 }>()
+
+const { fetchFeedback } = useChat()
 
 const emit = defineEmits<{
   regenerate: [id: string]
@@ -27,6 +30,7 @@ const renderedContent = computed(() =>
 
 const copied = ref(false)
 const feedback = ref<'up' | 'down' | null>(props.message.feedback ?? null)
+const feedbackDetails = ref<FeedbackDetails | null>(null)
 const showMenu = ref(false)
 const showFeedbackModal = ref(false)
 const menuWrapper = ref<HTMLElement>()
@@ -97,8 +101,21 @@ function thumbDown() {
 
 function submitFeedback(details: FeedbackDetails) {
   feedback.value = 'down'
+  feedbackDetails.value = details
   showFeedbackModal.value = false
   emit('feedback', props.message.id, 'down', details)
+}
+
+async function editFeedback() {
+  showMenu.value = false
+  if (props.message.runId) {
+    try {
+      feedbackDetails.value = await fetchFeedback(props.message.runId)
+    } catch {
+      feedbackDetails.value = null
+    }
+  }
+  showFeedbackModal.value = true
 }
 
 function openSources() {
@@ -271,6 +288,15 @@ onBeforeUnmount(() => {
             >
               Détail de l'exécution
             </button>
+            <button
+              v-if="feedback === 'down'"
+              type="button"
+              class="chat-message__menu-item"
+              role="menuitem"
+              @click="editFeedback"
+            >
+              Modifier le feedback
+            </button>
           </div>
         </div>
       </div>
@@ -279,6 +305,7 @@ onBeforeUnmount(() => {
     <FeedbackModal
       v-if="showFeedbackModal"
       :sources="message.sources"
+      :initial-details="feedbackDetails"
       @close="showFeedbackModal = false"
       @submit="submitFeedback"
     />
