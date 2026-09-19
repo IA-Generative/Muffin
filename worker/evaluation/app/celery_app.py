@@ -6,7 +6,10 @@ celery_app = Celery("muffin_evaluation", broker=settings.REDIS_URL, backend=sett
 
 celery_app.conf.update(
     task_default_queue=settings.CELERY_QUEUE_NAME,
-    task_routes={"app.tasks.run_evaluation": {"queue": settings.CELERY_QUEUE_NAME}},
+    task_routes={
+        "app.tasks.run_evaluation": {"queue": settings.CELERY_QUEUE_NAME},
+        "app.tasks.score_discussion": {"queue": settings.CELERY_QUEUE_NAME},
+    },
     # An evaluation replays every validated QA pair of a collection through search + generation -
     # potentially long for a large collection, so no hard time limit like document_process's
     # (corrupt-file parsing isn't interruptible; this is just a lot of ordinary LLM calls).
