@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.6.0](https://github.com/IA-Generative/Muffin/compare/v0.5.0...v0.6.0) (2026-09-19)
+
+
+### Features
+
+* add conversation feedback ([f82da54](https://github.com/IA-Generative/Muffin/commit/f82da547c9bb1becdb690412da0c246f75a73fba))
+* add new worker ([6b3cd2d](https://github.com/IA-Generative/Muffin/commit/6b3cd2d02461008ac20e4dc38cb4d526db3c4561))
+* connect evaluation to collections ([b1638e6](https://github.com/IA-Generative/Muffin/commit/b1638e6a4e2cfbe81cd5e467e16c5945c5a403c1))
+* connection with evaluation ([27c4f5e](https://github.com/IA-Generative/Muffin/commit/27c4f5e7bdce2bcdf6d04fffbc4f080e2d559054))
+* differentiate source types visually in sources panel ([dda0b98](https://github.com/IA-Generative/Muffin/commit/dda0b985c46e9bfc22ef8714d9a43ac529075414))
+* lazy loading des onglets collection avec routes explicites ([4b728db](https://github.com/IA-Generative/Muffin/commit/4b728dbe80da049238eeee4a4f51f3658ce0a727))
+* persist feedback state across page reloads ([221ab03](https://github.com/IA-Generative/Muffin/commit/221ab039a57e98e1691932007b4c14877cba5d77))
+* **quality:** filter scores by model and skip already-scored conversations ([1ab097a](https://github.com/IA-Generative/Muffin/commit/1ab097aaf6f986315c29eee136f9d2aed5007273))
+* refonte de la page Tâches en tableau dépliable avec pagination ([def054d](https://github.com/IA-Generative/Muffin/commit/def054df9d2efe2af87bddb2a0a78d0ac458afc8))
+* restore and edit feedback after page reload ([7ce0896](https://github.com/IA-Generative/Muffin/commit/7ce089672f995563ef99e673b8aeb88c43ad118d))
+* stream conversation titles with ChatGPT-style animation ([db15b10](https://github.com/IA-Generative/Muffin/commit/db15b1029eda696e277dc2504de966786b5c9a9b))
+* **worker:** add time tool for LLM temporal context ([#56](https://github.com/IA-Generative/Muffin/issues/56)) ([96ea7f6](https://github.com/IA-Generative/Muffin/commit/96ea7f69fc50a241fc76b9be31277c907e68b1be))
+
+
+### Bug Fixes
+
+* add migration jobs into docker compose ([4253dff](https://github.com/IA-Generative/Muffin/commit/4253dffb96d4823613c2771c57b1637eb131eb47))
+* **backend:** delete Meilisearch embeddings when deleting/reindexing a document ([b879c1c](https://github.com/IA-Generative/Muffin/commit/b879c1cd8596138c2f14f82afaec3135bde24b8e))
+* **frontend:** show clean error messages instead of technical backend errors ([8d80c9b](https://github.com/IA-Generative/Muffin/commit/8d80c9b6b6ce311a3f0bb210cbd2bd6893f0747d))
+* get run after leaving conversation ([7a2c1bc](https://github.com/IA-Generative/Muffin/commit/7a2c1bc7c2f0e9d02c6e99b936386bb6094e6354))
+* lint front ([63fa45a](https://github.com/IA-Generative/Muffin/commit/63fa45a7c941d14753028714551a64b5fc0b241d))
+* llm interaction bug with collection_id, document_id ([5107cbe](https://github.com/IA-Generative/Muffin/commit/5107cbeb5064bbcf9019effd0710bf9ca385f471))
+* re play when it's on error ([fb491fa](https://github.com/IA-Generative/Muffin/commit/fb491fa761900bf0f937cecd93af09b916acfe8c))
+* tests and lint ([65ce674](https://github.com/IA-Generative/Muffin/commit/65ce674fc8ca6b790939a4fe870188623a830703))
+* visual fix on message ... that go upper now ([6c97ff7](https://github.com/IA-Generative/Muffin/commit/6c97ff799f831efb6c30cb5b65017764f0cb3135))
+* web search 500 error and planner short-circuit ([805d043](https://github.com/IA-Generative/Muffin/commit/805d0437103e87b777d327b82bd56a838777c723))
+
 ## [0.6.0-rc.4](https://github.com/IA-Generative/Muffin/compare/v0.6.0-rc.3...v0.6.0-rc.4) (2026-09-19)
 
 
