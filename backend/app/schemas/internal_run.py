@@ -30,6 +30,9 @@ class InternalRunOut(BaseModel):
     # Run.user_groups. The worker threads this into list_accessible_collections so
     # group-shared collections are part of the VDB routing set, not just owner/public/direct.
     user_groups: list[str] | None
+    # Opt-in, per message (chat composer toggle, off by default) - see Run.web_search_enabled.
+    # Gates whether the planner is even told a "web_search" tool exists.
+    web_search_enabled: bool
 
 
 class RunStatusUpdate(BaseModel):

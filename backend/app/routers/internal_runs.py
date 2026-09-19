@@ -59,6 +59,7 @@ def _to_out(run, history: list[dict[str, str]]) -> InternalRunOut:  # noqa: ANN0
         history=history,
         pinned_collection_ids=run.pinned_collection_ids,
         user_groups=run.user_groups,
+        web_search_enabled=run.web_search_enabled,
     )
 
 

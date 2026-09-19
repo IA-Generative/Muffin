@@ -115,6 +115,31 @@ async def test_get_run_exposes_user_groups(client):
     assert response.json()["user_groups"] == ["/hr-team"]
 
 
+async def test_get_run_exposes_web_search_enabled(client):
+    async with async_session_factory() as session:
+        conversation = Conversation(user_id="dev-user", title="Test")
+        session.add(conversation)
+        await session.flush()
+        message = Message(conversation_id=conversation.id, role=MessageRole.USER, content="What's the weather?")
+        session.add(message)
+        await session.flush()
+        run = Run(
+            user_id="dev-user",
+            message_id=message.id,
+            conversation_id=conversation.id,
+            query="What's the weather?",
+            web_search_enabled=True,
+        )
+        session.add(run)
+        await session.commit()
+        run_id = run.id
+
+    response = await client.get(f"/api/internal/runs/{run_id}", headers=_headers())
+
+    assert response.status_code == 200
+    assert response.json()["web_search_enabled"] is True
+
+
 async def test_get_run_not_found(client):
     response = await client.get(f"/api/internal/runs/{uuid.uuid4()}", headers=_headers())
     assert response.status_code == 404
