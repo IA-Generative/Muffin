@@ -13,6 +13,7 @@ from app.repositories.collection_repository import CollectionRepository
 from app.repositories.conversation_repository import ConversationRepository
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.run_repository import RunRepository
+from app.repositories.source_repository import SourceRepository
 from app.schemas.internal_run import (
     AccessibleCollectionOut,
     ConversationTitleUpdate,
@@ -117,19 +118,24 @@ async def update_run_result(
     run = await repository.get_by_id(run_id)
     if run is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
-    await repository.set_result(
-        run,
-        update.answer,
-        update.citations,
-        update.grounding_valid,
-        update.grounding_unsupported_claims,
-        update.grounding_research_count,
-    )
     # Persisted as a real Message, not just Run.answer, so GET /conversations/{id}/messages can
     # restore the full thread (§ conversation persistence) - Run stays about execution/status,
     # Message is the single source of truth for what the user actually sees in the chat history.
-    await ConversationRepository(db).add_message(
+    message = await ConversationRepository(db).add_message(
         run.conversation_id, MessageRole.ASSISTANT, update.answer, run_id=run.id
+    )
+    # Materializes the citable subset of update.citations as Source rows, so a feedback on this
+    # message later has stable ids to validate/add (see SourceRepository, FeedbackSource) - the
+    # enriched citations (with source_id merged in) are what gets stored, not the raw input, so
+    # that id is actually visible to whoever reads this run/message back.
+    enriched_citations = await SourceRepository(db).link_citations(message.id, update.citations)
+    await repository.set_result(
+        run,
+        update.answer,
+        enriched_citations,
+        update.grounding_valid,
+        update.grounding_unsupported_claims,
+        update.grounding_research_count,
     )
     await db.commit()
     return {"status": "ok"}
