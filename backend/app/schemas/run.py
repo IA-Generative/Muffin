@@ -11,6 +11,10 @@ class RunCreate(BaseModel):
     # Collections explicitly attached via the chat composer's "+" picker - always searched
     # regardless of what the agent's own VDB relevance routing would have picked on its own.
     collection_ids: list[uuid.UUID] | None = None
+    # Opt-in, per message (the chat composer's web-search toggle, off by default) - never
+    # implied by anything else. Gates both whether the planner is even told a "web_search" tool
+    # exists and whether research_task will actually run it (see worker/agent_execution).
+    web_search_enabled: bool = False
 
 
 class RunResumeRequest(BaseModel):

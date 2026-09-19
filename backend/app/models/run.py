@@ -57,6 +57,10 @@ class Run(UUIDMixin, TimestampMixin, Base):
     # not a live lookup, same tradeoff as pinned_collection_ids above: a group membership change
     # mid-run is not expected to retroactively change what an already-running query can reach.
     user_groups: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
+    # Opt-in per message (chat composer toggle, see RunCreate.web_search_enabled) - snapshotted
+    # here for the same reason as the two fields above: the worker only ever reads this run row,
+    # never a live per-request flag, so whatever was true when the run was created is what it acts on.
+    web_search_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     status: Mapped[RunStatus] = mapped_column(
         Enum(RunStatus, name="run_status"), nullable=False, default=RunStatus.QUEUED
     )
