@@ -17,6 +17,7 @@ export const router = createRouter({
       component: () => import('../components/CollectionsView.vue'),
     },
     { path: '/tasks', name: 'tasks', component: () => import('../components/TasksView.vue') },
+    { path: '/quality', name: 'quality', component: () => import('../components/QualityDashboardView.vue') },
     { path: '/admin', name: 'admin', component: () => import('../components/AdminSettingsView.vue') },
   ],
 })
