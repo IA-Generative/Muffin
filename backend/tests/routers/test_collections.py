@@ -11,7 +11,12 @@ from app.main import app
 from app.models.collection import Collection
 from app.models.conversation import Conversation
 from app.models.document import Document, DocumentPage
-from app.models.feedback import Feedback, FeedbackReason, FeedbackReasonCode, FeedbackValue
+from app.models.feedback import (
+    Feedback,
+    FeedbackReason,
+    FeedbackReasonCode,
+    FeedbackValue,
+)
 from app.models.message import Message, MessageRole
 from app.models.run import Run
 from app.models.task import Task
@@ -50,14 +55,17 @@ async def _create_run_with_citation(collection_id: str, grounding_valid: bool | 
                 query=query,
                 citations=[{"vdb_id": collection_id, "source": "doc-1"}],
                 grounding_valid=grounding_valid,
-                grounding_unsupported_claims=["a claim"] if grounding_valid is False else None,
+                grounding_unsupported_claims=(["a claim"] if grounding_valid is False else None),
             )
         )
         await session.commit()
 
 
 async def _create_run_with_feedback(
-    collection_id: str, value: FeedbackValue, reasons: list[FeedbackReasonCode] | None = None, query: str = "query"
+    collection_id: str,
+    value: FeedbackValue,
+    reasons: list[FeedbackReasonCode] | None = None,
+    query: str = "query",
 ) -> None:
     async with async_session_factory() as session:
         conversation = Conversation(user_id="dev-user", title="Test")
@@ -76,7 +84,10 @@ async def _create_run_with_feedback(
         session.add(run)
         await session.flush()
         assistant_message = Message(
-            conversation_id=conversation.id, role=MessageRole.ASSISTANT, content="answer", run_id=run.id
+            conversation_id=conversation.id,
+            role=MessageRole.ASSISTANT,
+            content="answer",
+            run_id=run.id,
         )
         session.add(assistant_message)
         await session.flush()
@@ -90,7 +101,13 @@ async def _create_run_with_feedback(
 
 def _as_user(user_id: str, email: str, groups: list[str] | None = None):
     def override() -> RequestContext:
-        return RequestContext(user_id=user_id, email=email, roles=["user"], is_admin=False, groups=groups or [])
+        return RequestContext(
+            user_id=user_id,
+            email=email,
+            roles=["user"],
+            is_admin=False,
+            groups=groups or [],
+        )
 
     return override
 
@@ -117,7 +134,11 @@ async def test_update_collection_name_description_and_tags(client):
 
     response = await client.patch(
         f"/api/collections/{created['id']}",
-        json={"name": "Projets", "description": "Notes de projet", "tags": ["a", "b", "a"]},
+        json={
+            "name": "Projets",
+            "description": "Notes de projet",
+            "tags": ["a", "b", "a"],
+        },
     )
 
     assert response.status_code == 200
@@ -138,14 +159,24 @@ async def test_update_settings_persists_chunking_instructions_and_models(client)
             "chunking_strategy": "fixed",
             "chunk_size": 800,
             "chunk_overlap": 100,
-            "instructions": {"qa": "Sois concis", "extraction": "", "chunking": "", "tagging": "", "summary": ""},
+            "instructions": {
+                "qa": "Sois concis",
+                "extraction": "",
+                "chunking": "",
+                "tagging": "",
+                "summary": "",
+            },
             "generation_models": {"qa": "gpt-4o-mini"},
         },
     )
 
     assert response.status_code == 200
     body = response.json()
-    assert body["chunking_settings"] == {"strategy": "fixed", "chunk_size": 800, "chunk_overlap": 100}
+    assert body["chunking_settings"] == {
+        "strategy": "fixed",
+        "chunk_size": 800,
+        "chunk_overlap": 100,
+    }
     assert body["instructions"]["qa"] == "Sois concis"
     assert body["generation_models"]["qa"] == "gpt-4o-mini"
     assert body["generation_models"]["tagging"] is None
@@ -158,7 +189,8 @@ async def test_update_settings_changing_embedding_model_requires_reindex(client)
     assert created["embedding_model"] == "text-embedding-3-small"
 
     response = await client.patch(
-        f"/api/collections/{created['id']}/settings", json={"embedding_model": "text-embedding-3-large"}
+        f"/api/collections/{created['id']}/settings",
+        json={"embedding_model": "text-embedding-3-large"},
     )
 
     assert response.status_code == 200
@@ -169,10 +201,14 @@ async def test_update_settings_changing_embedding_model_requires_reindex(client)
 
 async def test_update_settings_generation_models_merge_not_replace(client):
     created = (await client.post("/api/collections")).json()
-    await client.patch(f"/api/collections/{created['id']}/settings", json={"generation_models": {"qa": "model-a"}})
+    await client.patch(
+        f"/api/collections/{created['id']}/settings",
+        json={"generation_models": {"qa": "model-a"}},
+    )
 
     response = await client.patch(
-        f"/api/collections/{created['id']}/settings", json={"generation_models": {"tagging": "model-b"}}
+        f"/api/collections/{created['id']}/settings",
+        json={"generation_models": {"tagging": "model-b"}},
     )
 
     assert response.status_code == 200
@@ -205,7 +241,8 @@ async def test_update_settings_pipeline_windows_merge_not_replace(client):
         json={"pipeline_windows": {"qa_window_pages": 3, "qa_slide_pages": 2}},
     )
     response = await client.patch(
-        f"/api/collections/{created['id']}/settings", json={"pipeline_windows": {"summary_pages_per_map": 8}}
+        f"/api/collections/{created['id']}/settings",
+        json={"pipeline_windows": {"summary_pages_per_map": 8}},
     )
 
     assert response.status_code == 200
@@ -219,7 +256,8 @@ async def test_update_settings_pipeline_windows_merge_not_replace(client):
 
 async def test_update_settings_for_unknown_collection_returns_404(client):
     response = await client.patch(
-        f"/api/collections/{uuid.uuid4()}/settings", json={"embedding_model": "text-embedding-3-large"}
+        f"/api/collections/{uuid.uuid4()}/settings",
+        json={"embedding_model": "text-embedding-3-large"},
     )
     assert response.status_code == 404
 
@@ -235,10 +273,22 @@ async def test_delete_collection_removes_rustfs_objects(client):
     created = (await client.post("/api/collections")).json()
 
     async with async_session_factory() as session:
-        document = Document(collection_id=created["id"], name="report.pdf", type="file", storage_key="docs/report.pdf")
+        document = Document(
+            collection_id=created["id"],
+            name="report.pdf",
+            type="file",
+            storage_key="docs/report.pdf",
+        )
         session.add(document)
         await session.flush()
-        session.add(DocumentPage(document_id=document.id, page_number=1, content="hi", screenshot="screens/p1.png"))
+        session.add(
+            DocumentPage(
+                document_id=document.id,
+                page_number=1,
+                content="hi",
+                screenshot="screens/p1.png",
+            )
+        )
         await session.commit()
 
     with patch("app.services.collection_service.storage.delete_objects") as mock_delete:
@@ -343,7 +393,10 @@ async def test_list_qa_pairs_filtered_by_document(client):
         await session.commit()
         report_id = report.id
 
-    response = await client.get(f"/api/collections/{collection_id}/qa-pairs", params={"document_id": str(report_id)})
+    response = await client.get(
+        f"/api/collections/{collection_id}/qa-pairs",
+        params={"document_id": str(report_id)},
+    )
 
     assert response.status_code == 200
     body = response.json()
@@ -382,12 +435,15 @@ async def test_groundedness_stats_for_unknown_collection_returns_404(client):
 async def test_trigger_evaluation_enqueues_and_returns_celery_task_id(client):
     collection_id = (await client.post("/api/collections")).json()["id"]
 
-    with patch("app.services.evaluation_service.enqueue_run_evaluation", return_value="celery-eval-1") as mock_enqueue:
+    with patch(
+        "app.services.evaluation_service.enqueue_run_evaluation",
+        return_value="celery-eval-1",
+    ) as mock_enqueue:
         response = await client.post(f"/api/collections/{collection_id}/evaluations", json={"k": 8})
 
     assert response.status_code == 202
     assert response.json() == {"celery_task_id": "celery-eval-1"}
-    mock_enqueue.assert_called_once_with(collection_id, 8)
+    mock_enqueue.assert_called_once_with(collection_id, 8, False)
 
     # The Task row (progress/logs tracking) is created directly here, not by a worker round-trip
     # - see EvaluationService.trigger's docstring.
@@ -402,11 +458,14 @@ async def test_trigger_evaluation_enqueues_and_returns_celery_task_id(client):
 async def test_trigger_evaluation_defaults_k(client):
     collection_id = (await client.post("/api/collections")).json()["id"]
 
-    with patch("app.services.evaluation_service.enqueue_run_evaluation", return_value="celery-eval-2") as mock_enqueue:
+    with patch(
+        "app.services.evaluation_service.enqueue_run_evaluation",
+        return_value="celery-eval-2",
+    ) as mock_enqueue:
         response = await client.post(f"/api/collections/{collection_id}/evaluations", json={})
 
     assert response.status_code == 202
-    mock_enqueue.assert_called_once_with(collection_id, 5)
+    mock_enqueue.assert_called_once_with(collection_id, 5, False)
 
 
 async def test_trigger_evaluation_for_unknown_collection_returns_404(client):
@@ -459,7 +518,14 @@ async def test_list_entities(client):
 
     collection_id = (await client.post("/api/collections")).json()["id"]
     async with async_session_factory() as session:
-        session.add(Entity(collection_id=collection_id, name="Acme Corp", type=EntityType.ORGANISATION, mentions=3))
+        session.add(
+            Entity(
+                collection_id=collection_id,
+                name="Acme Corp",
+                type=EntityType.ORGANISATION,
+                mentions=3,
+            )
+        )
         await session.commit()
 
     response = await client.get(f"/api/collections/{collection_id}/entities")
@@ -477,12 +543,27 @@ async def test_list_relations_uses_entity_names_for_from_and_to(client):
 
     collection_id = (await client.post("/api/collections")).json()["id"]
     async with async_session_factory() as session:
-        alice = Entity(collection_id=collection_id, name="Alice", type=EntityType.PERSONNE, mentions=1)
-        acme = Entity(collection_id=collection_id, name="Acme Corp", type=EntityType.ORGANISATION, mentions=1)
+        alice = Entity(
+            collection_id=collection_id,
+            name="Alice",
+            type=EntityType.PERSONNE,
+            mentions=1,
+        )
+        acme = Entity(
+            collection_id=collection_id,
+            name="Acme Corp",
+            type=EntityType.ORGANISATION,
+            mentions=1,
+        )
         session.add_all([alice, acme])
         await session.flush()
         session.add(
-            Relation(collection_id=collection_id, from_entity_id=alice.id, to_entity_id=acme.id, type="works_at")
+            Relation(
+                collection_id=collection_id,
+                from_entity_id=alice.id,
+                to_entity_id=acme.id,
+                type="works_at",
+            )
         )
         await session.commit()
 

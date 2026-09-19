@@ -44,6 +44,7 @@ def _run_payload(**overrides) -> dict:
         "k": 5,
         "pair_count": 0,
         "llm_model": "test-model",
+        "content_hash": "abc123",
         "snapshot_chunking_strategy": "paragraph",
         "snapshot_chunk_size": 500,
         "snapshot_chunk_overlap": 50,
@@ -74,7 +75,12 @@ async def _create_collection_with_document() -> tuple[uuid.UUID, uuid.UUID]:
         collection.settings = CollectionSettings(embedding_model="text-embedding-3-small")
         session.add(collection)
         await session.flush()
-        document = Document(collection_id=collection.id, name="handbook.pdf", type="file", storage_key="k")
+        document = Document(
+            collection_id=collection.id,
+            name="handbook.pdf",
+            type="file",
+            storage_key="k",
+        )
         session.add(document)
         await session.commit()
         return collection.id, document.id
@@ -213,11 +219,16 @@ async def test_create_evaluation_run_persists_run_and_results(client):
             .scalars()
             .all()
         )
-        assert {source.source for source in sources} == {"handbook.pdf#0", "handbook.pdf#1"}
+        assert {source.source for source in sources} == {
+            "handbook.pdf#0",
+            "handbook.pdf#1",
+        }
 
 
 async def test_create_evaluation_run_for_unknown_collection_returns_404(client):
     response = await client.post(
-        f"/api/internal/collections/{uuid.uuid4()}/evaluation-runs", headers=_headers(), json=_run_payload()
+        f"/api/internal/collections/{uuid.uuid4()}/evaluation-runs",
+        headers=_headers(),
+        json=_run_payload(),
     )
     assert response.status_code == 404

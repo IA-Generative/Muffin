@@ -382,6 +382,7 @@
     "frontend": { "$ref": "#/definitions/workloadComponent" },
     "document_process": { "$ref": "#/definitions/workloadComponent" },
     "agent_execution": { "$ref": "#/definitions/workloadComponent" },
+    "worker_evaluation": { "$ref": "#/definitions/workloadComponent" },
     "jobs": {
       "type": ["object", "null"],
       "additionalProperties": { "$ref": "#/definitions/batchEntry" }

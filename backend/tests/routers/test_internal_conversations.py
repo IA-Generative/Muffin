@@ -103,6 +103,7 @@ async def test_create_discussion_score_persists_it(client):
         json={
             "message_count": 4,
             "llm_model": "test-model",
+            "content_hash": "abc123",
             "coherent": False,
             "coherence_issues": ["Second answer contradicts the first."],
             "context_usage_score": 0.5,
@@ -131,6 +132,7 @@ async def test_create_discussion_score_unknown_conversation_returns_404(client):
         json={
             "message_count": 0,
             "llm_model": "test-model",
+            "content_hash": "abc123",
             "coherent": True,
             "context_usage_score": 1.0,
         },

@@ -35,12 +35,17 @@ def _headers() -> dict[str, str]:
 
 
 def _fake_openai_client(
-    all_ids: list[str], chat_capable_ids: set[str] = frozenset(), embedding_capable_ids: set[str] = frozenset()
+    all_ids: list[str],
+    chat_capable_ids: set[str] = frozenset(),
+    embedding_capable_ids: set[str] = frozenset(),
 ) -> SimpleNamespace:
     async def create_chat(model: str, **_kwargs):
         if model not in chat_capable_ids:
             raise RuntimeError(f"model '{model}' does not support chat completions")
-        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="ok"))])
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="ok"))],
+            usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5),
+        )
 
     async def create_embedding(model: str, **_kwargs):
         if model not in embedding_capable_ids:
@@ -81,7 +86,11 @@ async def test_chat_returns_completion_content(client, monkeypatch):
     )
 
     assert response.status_code == 200
-    assert response.json() == {"content": "ok"}
+    assert response.json() == {
+        "content": "ok",
+        "prompt_tokens": 10,
+        "completion_tokens": 5,
+    }
 
 
 async def test_default_chat_model_discovers_and_caches(client, monkeypatch):
@@ -124,7 +133,9 @@ async def test_embed_returns_vector(client, monkeypatch):
     monkeypatch.setattr(internal_llm, "_openai_client", fake_client)
 
     response = await client.post(
-        "/api/internal/llm/embed", headers=_headers(), json={"model": "text-embedding-3-small", "input": "hello"}
+        "/api/internal/llm/embed",
+        headers=_headers(),
+        json={"model": "text-embedding-3-small", "input": "hello"},
     )
 
     assert response.status_code == 200
@@ -147,7 +158,8 @@ async def test_default_embedding_model_prefers_admin_setting(client, monkeypatch
 
 async def test_default_embedding_model_falls_back_to_hub_discovery(client, monkeypatch):
     fake_client = _fake_openai_client(
-        ["gpt-4o", "text-embedding-3-small"], embedding_capable_ids={"text-embedding-3-small"}
+        ["gpt-4o", "text-embedding-3-small"],
+        embedding_capable_ids={"text-embedding-3-small"},
     )
     monkeypatch.setattr(internal_llm, "_openai_client", fake_client)
 
