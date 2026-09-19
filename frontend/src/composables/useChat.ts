@@ -1,6 +1,6 @@
 import { computed, ref } from 'vue'
 import { router } from '../router'
-import type { ChatMessage, Conversation, ExecutionEvent, FeedbackDetails, Source } from '../types/chat'
+import type { ChatMessage, Conversation, DiscussionFeedback, DiscussionScore, ExecutionEvent, FeedbackDetails, Source } from '../types/chat'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
 
@@ -829,6 +829,155 @@ function closeExecutionDetails() {
   activeExecutionMessageId.value = undefined
 }
 
+// --- Discussion scoring (worker/evaluation → score_discussion task) ---
+
+// Backend response shape (snake_case) - see backend/app/schemas/discussion_score.py.
+interface DiscussionScoreOut {
+  id: string
+  conversation_id: string
+  created_at: string
+  message_count: number
+  llm_model: string
+  coherent: boolean
+  coherence_issues: string[]
+  context_usage_score: number
+  context_usage_issues: string[]
+  reasoning: string | null
+}
+
+// Discussion scores per conversation, loaded on demand (like messages).
+const discussionScoresByConversation = ref<Record<string, DiscussionScore[]>>({})
+const discussionScorePolls = new Map<string, ReturnType<typeof setInterval>>()
+
+async function refreshDiscussionScores(conversationId: string) {
+  const resolvedId = resolveConversationId(conversationId)
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/conversations/${resolvedId}/discussion-scores`, {
+      credentials: 'include',
+    })
+    if (!response.ok) return
+    const scores: DiscussionScoreOut[] = await response.json()
+    discussionScoresByConversation.value[resolvedId] = scores.map((score) => ({
+      id: score.id,
+      conversationId: score.conversation_id,
+      createdAt: score.created_at,
+      messageCount: score.message_count,
+      llmModel: score.llm_model,
+      coherent: score.coherent,
+      coherenceIssues: score.coherence_issues,
+      contextUsageScore: score.context_usage_score,
+      contextUsageIssues: score.context_usage_issues,
+      reasoning: score.reasoning,
+    }))
+  } catch {
+    // Ignored: same pattern as refreshEvaluation in useCollections.
+  }
+}
+
+async function triggerDiscussionScore(conversationId: string) {
+  const resolvedId = resolveConversationId(conversationId)
+  if (!confirmedConversationIds.has(resolvedId)) return // local-only placeholder, nothing to score
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/conversations/${resolvedId}/discussion-score`, {
+      method: 'POST',
+      credentials: 'include',
+    })
+    if (!response.ok) return
+  } catch {
+    return
+  }
+  // The worker runs asynchronously (Celery queue "evaluation"); poll until a
+  // new score appears, mirroring pollEvaluationWhileRunning in useCollections.
+  const previousCount = discussionScoresByConversation.value[resolvedId]?.length ?? 0
+  let attempts = 0
+  const maxAttempts = 150 // 5 min at 2s intervals
+  if (discussionScorePolls.has(resolvedId)) return
+  discussionScorePolls.set(
+    resolvedId,
+    setInterval(async () => {
+      attempts++
+      await refreshDiscussionScores(resolvedId)
+      const currentCount = discussionScoresByConversation.value[resolvedId]?.length ?? 0
+      if (currentCount > previousCount || attempts >= maxAttempts) {
+        const handle = discussionScorePolls.get(resolvedId)
+        if (handle) {
+          clearInterval(handle)
+          discussionScorePolls.delete(resolvedId)
+        }
+      }
+    }, 2000),
+  )
+}
+
+const activeDiscussionScores = computed(
+  () => discussionScoresByConversation.value[resolveConversationId(activeId.value)] ?? [],
+)
+
+// --- Human discussion feedback (the manual counterpart to the LLM-generated score) ---
+
+// Backend response shape (snake_case) - see backend/app/schemas/discussion_feedback.py.
+interface DiscussionFeedbackOut {
+  id: string
+  conversation_id: string
+  user_id: string
+  rating: number
+  coherent: boolean
+  context_usage_score: number | null
+  comment: string | null
+  created_at: string
+  updated_at: string
+}
+
+const discussionFeedbackByConversation = ref<Record<string, DiscussionFeedback[]>>({})
+
+async function refreshDiscussionFeedback(conversationId: string) {
+  const resolvedId = resolveConversationId(conversationId)
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/conversations/${resolvedId}/discussion-feedback`, {
+      credentials: 'include',
+    })
+    if (!response.ok) return
+    const items: DiscussionFeedbackOut[] = await response.json()
+    discussionFeedbackByConversation.value[resolvedId] = items.map((fb) => ({
+      id: fb.id,
+      conversationId: fb.conversation_id,
+      userId: fb.user_id,
+      rating: fb.rating,
+      coherent: fb.coherent,
+      contextUsageScore: fb.context_usage_score,
+      comment: fb.comment,
+      createdAt: fb.created_at,
+      updatedAt: fb.updated_at,
+    }))
+  } catch {
+    // Ignored: same pattern as refreshDiscussionScores.
+  }
+}
+
+async function submitDiscussionFeedback(
+  conversationId: string,
+  data: { rating: number; coherent: boolean; contextUsageScore?: number | null; comment?: string | null },
+) {
+  const resolvedId = resolveConversationId(conversationId)
+  if (!confirmedConversationIds.has(resolvedId)) return
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/conversations/${resolvedId}/discussion-feedback`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    })
+    if (!response.ok) return
+    await refreshDiscussionFeedback(resolvedId)
+  } catch {
+    // Ignored.
+  }
+}
+
+const activeDiscussionFeedback = computed(
+  () => discussionFeedbackByConversation.value[resolveConversationId(activeId.value)] ?? [],
+)
+
 export function useChat() {
   return {
     conversations,
@@ -853,5 +1002,11 @@ export function useChat() {
     closeSources,
     showExecutionDetails,
     closeExecutionDetails,
+    activeDiscussionScores,
+    triggerDiscussionScore,
+    refreshDiscussionScores,
+    activeDiscussionFeedback,
+    submitDiscussionFeedback,
+    refreshDiscussionFeedback,
   }
 }

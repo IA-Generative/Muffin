@@ -37,14 +37,16 @@ class BackendClient:
 
     def search(self, collection_ids: list[str], query: str, limit: int) -> list[dict[str, Any]]:
         response = self._client.post(
-            "/api/internal/search", json={"collection_ids": collection_ids, "query": query, "limit": limit}
+            "/api/internal/search",
+            json={"collection_ids": collection_ids, "query": query, "limit": limit},
         )
         response.raise_for_status()
         return response.json()
 
     def llm_chat(self, model: str, messages: list[dict[str, str]], max_tokens: int | None = None) -> str:
         response = self._client.post(
-            "/api/internal/llm/chat", json={"model": model, "messages": messages, "max_tokens": max_tokens}
+            "/api/internal/llm/chat",
+            json={"model": model, "messages": messages, "max_tokens": max_tokens},
         )
         response.raise_for_status()
         return response.json()["content"]
@@ -66,7 +68,21 @@ class BackendClient:
         return response.json()
 
     def create_discussion_score(self, conversation_id: str, payload: dict[str, Any]) -> str:
-        response = self._client.post(f"/api/internal/conversations/{conversation_id}/discussion-scores", json=payload)
+        response = self._client.post(
+            f"/api/internal/conversations/{conversation_id}/discussion-scores",
+            json=payload,
+        )
+        response.raise_for_status()
+        return response.json()["id"]
+
+    def find_discussion_score(self, conversation_id: str, content_hash: str, llm_model: str) -> str | None:
+        """Returns the id of an already-persisted score for this exact (conversation, transcript,
+        model) triple, or None - so score_discussion can skip re-judging an unchanged
+        conversation with the same model (see content_hash on DiscussionScore)."""
+        response = self._client.get(
+            f"/api/internal/conversations/{conversation_id}/discussion-scores/exists",
+            params={"content_hash": content_hash, "llm_model": llm_model},
+        )
         response.raise_for_status()
         return response.json()["id"]
 

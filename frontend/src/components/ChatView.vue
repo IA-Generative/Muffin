@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { watch } from 'vue'
+import { ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useChat } from '../composables/useChat'
 import ChatWindow from './ChatWindow.vue'
+import DiscussionScorePanel from './DiscussionScorePanel.vue'
 import ExecutionPanel from './ExecutionPanel.vue'
 import SourcesPanel from './SourcesPanel.vue'
 
@@ -25,6 +26,8 @@ const {
   showExecutionDetails,
   closeExecutionDetails,
 } = useChat()
+
+const showDiscussionPanel = ref(false)
 
 // "/" has no conversation id: normalize it to the active one so the URL
 // always reflects which conversation is open, without adding a history entry.
@@ -49,6 +52,7 @@ watch(
     @feedback="sendFeedback"
     @show-sources="showSources"
     @show-execution="showExecutionDetails"
+    @show-discussion-score="showDiscussionPanel = true"
   />
   <SourcesPanel v-if="activeSources?.length" :sources="activeSources" @close="closeSources" />
   <ExecutionPanel
@@ -56,5 +60,9 @@ watch(
     :events="activeExecutionEvents"
     :error="activeExecutionError"
     @close="closeExecutionDetails"
+  />
+  <DiscussionScorePanel
+    v-else-if="showDiscussionPanel"
+    @close="showDiscussionPanel = false"
   />
 </template>
