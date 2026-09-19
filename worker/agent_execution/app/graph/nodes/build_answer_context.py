@@ -33,6 +33,10 @@ def build_answer_context(state: AgentState) -> dict[str, Any]:
                 "document_id": e["source_id"],
                 "chunk_id": e["metadata"].get("chunk_id"),
                 "page_number": e["metadata"].get("page_number"),
+                # Only ever set on a web_search result (see research_task._web_result_evidence) -
+                # what lets the frontend render a clickable external link instead of a
+                # document/tool card (§ sources panel).
+                "url": e["metadata"].get("url"),
                 "query": e["retrieval_query"],
             }
             for e in selected

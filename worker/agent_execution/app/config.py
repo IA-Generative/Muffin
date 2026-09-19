@@ -7,6 +7,12 @@ class WorkerSettings(BaseSettings):
 
     BACKEND_API_URL: str = "http://localhost:8000"
     WORKER_API_KEY: str = ""
+    # Only ever called when a run's own web_search_enabled is true (see AgentState) - never
+    # reachable by default, matching how the chat composer's web-search toggle itself defaults
+    # to off (§ security: the issue this ships for explicitly calls out never leaking private
+    # document content into a web query - see research_task.py's web_search runner).
+    SEARXNG_URL: str = "http://localhost:8080"
+    WEB_SEARCH_RESULTS_PER_QUERY: int = 5
 
     # Execution budgets (§28 of the architecture brief) - checked before any
     # fan-out/replan/targeted-research so a pathological query can't spin the

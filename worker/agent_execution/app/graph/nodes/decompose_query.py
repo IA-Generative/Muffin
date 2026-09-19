@@ -4,35 +4,59 @@ from app.graph.services.events import emit, is_cancelled, set_activity
 from app.graph.services.llm import json_chat
 from app.graph.state import AgentState, ResearchTask, TaskTool
 
-_VALID_TOOLS: frozenset[str] = frozenset(
-    {"search", "list_collections", "collection_summary", "list_documents", "page_content"}
-)
+_BASE_TOOLS: tuple[str, ...] = ("search", "list_collections", "collection_summary", "list_documents", "page_content")
 
-_SYSTEM_PROMPT = (
-    "Break the user's query into research tasks. Respond only with a JSON array of objects with keys: "
-    '"id" (short slug, unique), "query" (the question this task answers), "intent" (short string or null), '
-    '"tool" (one of "search", "list_collections", "collection_summary", "list_documents", "page_content"), '
-    '"dependencies" (array of task ids this task needs completed first, e.g. a comparison task depends on '
-    "the tasks covering each side of the comparison).\n\n"
+_BASE_TOOL_GUIDE = (
     "Tool guide:\n"
     '- "search": look for information inside document content - the default for most questions.\n'
     '- "list_collections": the user asks how many knowledge bases/collections they have, or wants them listed.\n'
     '- "collection_summary": the user wants a summary/description of one specific collection.\n'
     '- "list_documents": the user asks how many documents are in a collection, or wants a document\'s summary.\n'
-    '- "page_content": the user wants the text and/or screenshot of one specific page of one document.\n\n'
-    "A simple query stays a single task. Independent tasks must have an empty dependencies array so they can "
-    "run in parallel."
+    '- "page_content": the user wants the text and/or screenshot of one specific page of one document.\n'
 )
+
+# Only ever appended when the run opted in (chat composer toggle, off by default - see
+# AgentState.web_search_enabled) - the planner must never even be told this tool exists
+# otherwise, since offering it is itself the opt-in the issue this ships for requires.
+_WEB_SEARCH_TOOL_GUIDE = (
+    '- "web_search": the accessible knowledge bases are insufficient, or the question is explicitly about '
+    "something outside the user's own documents (current events, general knowledge). The query sent to this "
+    "tool must stay the user's own question - never paste in excerpts from private documents.\n"
+)
+
+
+def _valid_tools(web_search_enabled: bool) -> frozenset[str]:
+    tools = (*_BASE_TOOLS, "web_search") if web_search_enabled else _BASE_TOOLS
+    return frozenset(tools)
+
+
+def _system_prompt(web_search_enabled: bool) -> str:
+    # Iterates _BASE_TOOLS directly (not _valid_tools' frozenset) so the listed order is
+    # deterministic between calls - purely cosmetic (prompt readability), never load-bearing.
+    tools = (*_BASE_TOOLS, "web_search") if web_search_enabled else _BASE_TOOLS
+    tool_names = ", ".join(f'"{tool}"' for tool in tools)
+    guide = _BASE_TOOL_GUIDE + (_WEB_SEARCH_TOOL_GUIDE if web_search_enabled else "")
+    return (
+        "Break the user's query into research tasks. Respond only with a JSON array of objects with keys: "
+        '"id" (short slug, unique), "query" (the question this task answers), "intent" (short string or null), '
+        f'"tool" (one of {tool_names}), '
+        '"dependencies" (array of task ids this task needs completed first, e.g. a comparison task depends on '
+        "the tasks covering each side of the comparison).\n\n"
+        f"{guide}\n"
+        "A simple query stays a single task. Independent tasks must have an empty dependencies array so they can "
+        "run in parallel."
+    )
 
 
 def _fallback_task(query: str, tool: TaskTool = "search") -> list[dict[str, Any]]:
     return [{"id": "task-1", "query": query, "intent": None, "tool": tool, "dependencies": []}]
 
 
-def _sanitize(raw: list[Any], original_query: str) -> list[ResearchTask]:
+def _sanitize(raw: list[Any], original_query: str, web_search_enabled: bool) -> list[ResearchTask]:
     if not isinstance(raw, list) or not raw:
         raw = _fallback_task(original_query)
 
+    valid_tools = _valid_tools(web_search_enabled)
     valid_ids = {str(item.get("id")) for item in raw if isinstance(item, dict) and item.get("id")}
     tasks: list[ResearchTask] = []
     for item in raw:
@@ -44,7 +68,9 @@ def _sanitize(raw: list[Any], original_query: str) -> list[ResearchTask]:
         dependencies = [
             str(dep) for dep in item.get("dependencies", []) if str(dep) in valid_ids and str(dep) != task_id
         ]
-        tool = item.get("tool") if item.get("tool") in _VALID_TOOLS else "search"
+        # Second, independent gate against "web_search" reaching a task when the run never
+        # opted in - not just relying on the prompt never offering it (§ security).
+        tool = item.get("tool") if item.get("tool") in valid_tools else "search"
         tasks.append(
             ResearchTask(
                 id=task_id,
@@ -91,6 +117,7 @@ def decompose_query(state: AgentState) -> dict[str, Any]:
     emit(run_id, "query_decomposition_started")
     analysis = state["query_analysis"]
     query = state["contextualized_query"]
+    web_search_enabled = state["web_search_enabled"]
 
     is_simple_search = (
         analysis.get("intent") != "meta"
@@ -98,19 +125,19 @@ def decompose_query(state: AgentState) -> dict[str, Any]:
         and analysis.get("complexity") == "simple"
     )
     if is_simple_search:
-        tasks = _sanitize(_fallback_task(query), query)
+        tasks = _sanitize(_fallback_task(query), query, web_search_enabled)
     else:
         model = state["chat_model"]
         if model is None:
-            tasks = _sanitize(_fallback_task(query), query)
+            tasks = _sanitize(_fallback_task(query), query, web_search_enabled)
         else:
             raw = json_chat(
                 model,
-                _SYSTEM_PROMPT,
+                _system_prompt(web_search_enabled),
                 f"Query: {query}\n\nAnalysis: {analysis}",
                 fallback=_fallback_task(query),
             )
-            tasks = _sanitize(raw, query)
+            tasks = _sanitize(raw, query, web_search_enabled)
 
     emit(run_id, "query_decomposition_completed", {"task_count": len(tasks), "task_ids": [t["id"] for t in tasks]})
     return {"research_tasks": tasks}
