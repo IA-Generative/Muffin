@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0-rc.2](https://github.com/IA-Generative/Muffin/compare/v0.6.0-rc.1...v0.6.0-rc.2) (2026-09-19)
+
+
+### Features
+
+* add new worker ([c2a9add](https://github.com/IA-Generative/Muffin/commit/c2a9add7847f01fce94c2570d1234a4347deb092))
+
 ## [0.6.0-rc.1](https://github.com/IA-Generative/Muffin/compare/v0.6.0-rc...v0.6.0-rc.1) (2026-09-19)
 
 
