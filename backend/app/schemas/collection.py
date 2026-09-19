@@ -16,6 +16,23 @@ class FieldStamp(BaseModel):
     updated_at: datetime
 
 
+class GroundednessRunOut(BaseModel):
+    run_id: uuid.UUID
+    query: str
+    created_at: datetime
+    unsupported_claims: list[str]
+
+
+class GroundednessStatsOut(BaseModel):
+    # Runs with a grounding verdict at all (i.e. completed with an answer) that cited this
+    # collection - see Run.grounding_valid. Zero doesn't mean "perfect", it means "no data yet".
+    evaluated_count: int
+    ungrounded_count: int
+    # Most recent runs whose answer contained at least one unsupported claim, for a human to
+    # actually look at rather than just a raw ratio - see RunRepository.get_groundedness_stats.
+    recent_ungrounded: list[GroundednessRunOut]
+
+
 class QaPairOut(BaseModel):
     id: uuid.UUID
     question: str

@@ -10,11 +10,14 @@ from app.models.collection import Collection, CollectionVisibility, ShareSubject
 from app.repositories.collection_repository import CollectionRepository
 from app.repositories.entity_repository import EntityRepository
 from app.repositories.qa_pair_repository import QaPairRepository
+from app.repositories.run_repository import RunRepository
 from app.schemas.collection import (
     CollectionOut,
     CollectionSettingsUpdate,
     CollectionUpdate,
     EntityOut,
+    GroundednessRunOut,
+    GroundednessStatsOut,
     QaPairOut,
     RelationOut,
     ShareCreate,
@@ -54,6 +57,7 @@ class CollectionService:
         self.repository = CollectionRepository(db)
         self.qa_pairs = QaPairRepository(db)
         self.entities = EntityRepository(db)
+        self.runs = RunRepository(db)
 
     async def list_collections(self, user: RequestContext, pagination: PaginationParams) -> Page[CollectionOut]:
         collections, total = await self.repository.list_accessible(
@@ -142,6 +146,15 @@ class CollectionService:
             )
             for pair in pairs
         ]
+
+    async def get_groundedness_stats(self, collection_id: uuid.UUID, user: RequestContext) -> GroundednessStatsOut:
+        await self._get_accessible(collection_id, user)
+        stats = await self.runs.get_groundedness_stats(collection_id)
+        return GroundednessStatsOut(
+            evaluated_count=stats["evaluated_count"],
+            ungrounded_count=stats["ungrounded_count"],
+            recent_ungrounded=[GroundednessRunOut(**run) for run in stats["recent_ungrounded"]],
+        )
 
     async def list_entities(self, collection_id: uuid.UUID, user: RequestContext) -> list[EntityOut]:
         await self._get_accessible(collection_id, user)

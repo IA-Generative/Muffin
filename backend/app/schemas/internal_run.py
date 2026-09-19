@@ -56,6 +56,11 @@ class RunStateUpdate(BaseModel):
 class RunResultUpdate(BaseModel):
     answer: str
     citations: list[dict[str, Any]] = []
+    # Final verdict from worker/agent_execution/app/graph/nodes/validate_grounding.py - optional
+    # so a worker build that predates this field keeps working against a newer backend.
+    grounding_valid: bool | None = None
+    grounding_unsupported_claims: list[str] | None = None
+    grounding_research_count: int | None = None
 
 
 class RunErrorUpdate(BaseModel):

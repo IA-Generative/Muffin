@@ -152,7 +152,15 @@ class AgentService:
             backend_client.add_run_event(run_id, "run_cancelled")
             return
 
-        backend_client.set_run_result(run_id, final_state["answer"] or "", final_state["citations"])
+        grounding_result = final_state.get("grounding_result")
+        backend_client.set_run_result(
+            run_id,
+            final_state["answer"] or "",
+            final_state["citations"],
+            grounding_valid=grounding_result["valid"] if grounding_result else None,
+            grounding_unsupported_claims=grounding_result["unsupported_claims"] if grounding_result else None,
+            grounding_research_count=final_state.get("grounding_research_count"),
+        )
         backend_client.update_run_status(run_id, "completed")
         backend_client.add_run_event(run_id, "run_completed", {"citation_count": len(final_state["citations"])})
         _generate_conversation_title(

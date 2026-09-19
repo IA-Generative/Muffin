@@ -190,6 +190,46 @@ async def test_update_run_result(client):
     assert body["citations"] == [{"source_id": "doc-1"}]
 
 
+async def test_update_run_result_persists_grounding_verdict(client):
+    run_id = await _create_run()
+    response = await client.patch(
+        f"/api/internal/runs/{run_id}/result",
+        headers=_headers(),
+        json={
+            "answer": "Telework is allowed 2 days/week.",
+            "citations": [{"source_id": "doc-1"}],
+            "grounding_valid": False,
+            "grounding_unsupported_claims": ["exactly 2 days/week"],
+            "grounding_research_count": 1,
+        },
+    )
+    assert response.status_code == 200
+
+    async with async_session_factory() as session:
+        run = await session.get(Run, run_id)
+        assert run.grounding_valid is False
+        assert run.grounding_unsupported_claims == ["exactly 2 days/week"]
+        assert run.grounding_research_count == 1
+
+
+async def test_update_run_result_defaults_grounding_to_none(client):
+    """A run that skipped validate_grounding entirely (no evidence to check - see
+    after_generate_answer in the worker's graph) reports no grounding fields at all."""
+    run_id = await _create_run()
+    response = await client.patch(
+        f"/api/internal/runs/{run_id}/result",
+        headers=_headers(),
+        json={"answer": "I don't have enough information to answer that.", "citations": []},
+    )
+    assert response.status_code == 200
+
+    async with async_session_factory() as session:
+        run = await session.get(Run, run_id)
+        assert run.grounding_valid is None
+        assert run.grounding_unsupported_claims is None
+        assert run.grounding_research_count is None
+
+
 async def test_update_run_error(client):
     run_id = await _create_run()
     response = await client.patch(
