@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from app.core.security.factory import RequestContext, get_current_user
 from app.db import async_session_factory
@@ -193,16 +193,30 @@ async def test_resume_unknown_run_returns_404(client):
     assert response.status_code == 404
 
 
-async def _add_assistant_message(run_id: str, content: str = "The answer.") -> None:
+async def _add_assistant_message(run_id: str, content: str = "The answer.") -> uuid.UUID:
     from app.models.message import Message, MessageRole
     from app.models.run import Run
 
     async with async_session_factory() as session:
         run = await session.get(Run, uuid.UUID(run_id))
-        session.add(
-            Message(conversation_id=run.conversation_id, role=MessageRole.ASSISTANT, content=content, run_id=run.id)
+        message = Message(
+            conversation_id=run.conversation_id, role=MessageRole.ASSISTANT, content=content, run_id=run.id
         )
+        session.add(message)
         await session.commit()
+        return message.id
+
+
+async def _link_source(message_id: uuid.UUID, title: str = "policy.pdf", url: str | None = None) -> uuid.UUID:
+    from app.models.source import MessageSource, Source
+
+    async with async_session_factory() as session:
+        source = Source(title=title, url=url)
+        session.add(source)
+        await session.flush()
+        session.add(MessageSource(message_id=message_id, source_id=source.id))
+        await session.commit()
+        return source.id
 
 
 async def test_submit_feedback_persists_value_reasons_and_comment(client):
@@ -250,6 +264,85 @@ async def test_submit_feedback_is_scoped_to_owner(client):
     app.dependency_overrides[get_current_user] = _as_user("user-b", "b@example.com")
     response = await client.post(f"/api/runs/{created['id']}/feedback", json={"value": "up"})
     assert response.status_code == 404
+
+
+async def test_submit_feedback_validates_a_source_actually_cited_on_the_message(client):
+    from app.models.feedback import FeedbackSource, FeedbackSourceRole
+
+    created = (await _create_run(client)).json()
+    message_id = await _add_assistant_message(created["id"])
+    source_id = await _link_source(message_id)
+
+    response = await client.post(
+        f"/api/runs/{created['id']}/feedback", json={"value": "down", "validated_source_ids": [str(source_id)]}
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["validated_source_ids"] == [str(source_id)]
+
+    async with async_session_factory() as session:
+        rows = (await session.execute(select(FeedbackSource))).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].source_id == source_id
+    assert rows[0].role == FeedbackSourceRole.VALIDATED
+
+
+async def test_submit_feedback_drops_a_source_id_not_cited_on_the_message(client):
+    """A validated_source_ids the client supplies is never trusted at face value - only what's
+    actually linked to this message via message_sources gets attached (see
+    SourceRepository.filter_linked)."""
+    created = (await _create_run(client)).json()
+    await _add_assistant_message(created["id"])
+    # A real Source, but never linked to *this* message - e.g. cited on a different run.
+    unrelated_source_id = uuid.uuid4()
+    async with async_session_factory() as session:
+        from app.models.source import Source
+
+        session.add(Source(id=unrelated_source_id, title="Elsewhere", url="https://example.com"))
+        await session.commit()
+
+    response = await client.post(
+        f"/api/runs/{created['id']}/feedback",
+        json={"value": "down", "validated_source_ids": [str(unrelated_source_id)]},
+    )
+
+    assert response.status_code == 201
+    assert response.json()["validated_source_ids"] == []
+
+    async with async_session_factory() as session:
+        from app.models.feedback import FeedbackSource
+
+        rows = (await session.execute(select(FeedbackSource))).scalars().all()
+    assert rows == []
+
+
+async def test_submit_feedback_creates_a_source_for_an_added_url(client):
+    from app.models.feedback import FeedbackSource, FeedbackSourceRole
+    from app.models.source import Source
+
+    created = (await _create_run(client)).json()
+    await _add_assistant_message(created["id"])
+
+    response = await client.post(
+        f"/api/runs/{created['id']}/feedback",
+        json={
+            "value": "down",
+            "added_sources": [{"title": "Better source", "url": "https://example.com/better"}],
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert len(body["added_source_ids"]) == 1
+
+    async with async_session_factory() as session:
+        source = await session.get(Source, uuid.UUID(body["added_source_ids"][0]))
+        assert source.title == "Better source"
+        assert source.url == "https://example.com/better"
+        rows = (await session.execute(select(FeedbackSource))).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].role == FeedbackSourceRole.ADDED
 
 
 async def test_run_out_exposes_pending_human_action(client):

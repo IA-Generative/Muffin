@@ -44,6 +44,20 @@ class SourceRepository:
         await self.db.flush()
         return source
 
+    async def filter_linked(self, message_id: uuid.UUID, source_ids: list[uuid.UUID]) -> list[uuid.UUID]:
+        """Narrows a caller-supplied list of source ids down to the ones actually linked to this
+        message (via message_sources) - never trust a "validated_source_ids" a feedback request
+        supplies without checking it against what was really cited, same reasoning as every other
+        client-supplied id in this codebase."""
+        if not source_ids:
+            return []
+        result = await self.db.execute(
+            select(MessageSource.source_id).where(
+                MessageSource.message_id == message_id, MessageSource.source_id.in_(source_ids)
+            )
+        )
+        return list(result.scalars().all())
+
     async def link_citations(self, message_id: uuid.UUID, citations: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Materializes and links every citable citation (see _CITABLE_TOOLS) of a just-persisted
         assistant message - called once, right after ConversationRepository.add_message, from

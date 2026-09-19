@@ -27,6 +27,10 @@ interface Citation {
   url?: string | null
   query?: string
   content?: string
+  // The backend Source row this citation was materialized into (see the backend's
+  // SourceRepository.link_citations) - absent on a "tool" citation or one persisted before this
+  // existed. See Source.id in types/chat.ts.
+  source_id?: string | null
 }
 
 interface MessageOut {
@@ -414,6 +418,22 @@ async function resumeRun(runId: string, answer: string): Promise<RunOut> {
   return response.json()
 }
 
+async function submitFeedback(runId: string, value: 'up' | 'down', details?: FeedbackDetails): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/runs/${runId}/feedback`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      value,
+      reasons: details?.reasons ?? [],
+      comment: details?.comment || null,
+      validated_source_ids: details?.validatedSourceIds ?? [],
+      added_sources: details?.addedSources.map((source) => ({ title: source.title, url: source.url })) ?? [],
+    }),
+  })
+  if (!response.ok) throw new Error(`${response.status}`)
+}
+
 // The backend cites each claim with its evidence excerpt's raw id in brackets (e.g.
 // "[f8109fc0-88cc-...]" - see generate_answer.py's system prompt), so the model's grounding
 // stays verifiable server-side. Showing that literal uuid to the user is meaningless, though -
@@ -447,6 +467,7 @@ function formatAnswerWithCitations(answer: string, citations: Citation[] | null 
       else if (citation.tool !== undefined) type = isDocument ? 'document' : 'tool'
       sources.push({
         title: `${footnoteNumber}. ${sourceTitle}`,
+        id: citation.source_id ?? undefined,
         type,
         url: isWeb ? (citation.url ?? undefined) : undefined,
         collectionId: citation.vdb_id,
@@ -638,7 +659,14 @@ function regenerateMessage(id: string) {
 }
 
 function sendFeedback(id: string, value: 'up' | 'down', details?: FeedbackDetails) {
-  console.log('Feedback', id, value, details)
+  const runId = messages.value.find((message) => message.id === id)?.runId
+  // No run means nothing was ever persisted for this message (shouldn't happen - the feedback
+  // buttons only render on a completed assistant message, which always has one) - silently
+  // drop rather than crash the UI over a feedback click.
+  if (!runId) return
+  submitFeedback(runId, value, details).catch((error) => {
+    console.error('Failed to submit feedback', error)
+  })
 }
 
 function showSources(id: string) {

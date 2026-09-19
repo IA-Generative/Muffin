@@ -9,6 +9,7 @@ from app.models.run import RunStatus
 from app.repositories.conversation_repository import ConversationRepository
 from app.repositories.feedback_repository import FeedbackRepository
 from app.repositories.run_repository import RunRepository
+from app.repositories.source_repository import SourceRepository
 from app.schemas.feedback import FeedbackCreate, FeedbackOut
 from app.schemas.run import RunCreate, RunEventOut, RunOut
 
@@ -38,6 +39,7 @@ class RunService:
         self.runs = RunRepository(db)
         self.conversations = ConversationRepository(db)
         self.feedbacks = FeedbackRepository(db)
+        self.sources = SourceRepository(db)
 
     async def create_run(self, user: RequestContext, body: RunCreate) -> RunOut:
         if body.conversation_id is not None:
@@ -119,7 +121,20 @@ class RunService:
         message = await self.conversations.get_assistant_message_by_run_id(run_id)
         if message is None:
             raise RunHasNoAnswerError(str(run_id))
-        feedback = await self.feedbacks.create(message.id, user.user_id, body.value, body.reasons, body.comment)
+
+        # Never trust validated_source_ids at face value - only the subset actually cited on
+        # this message (via message_sources) gets attached (see SourceRepository.filter_linked).
+        verified_source_ids = await self.sources.filter_linked(message.id, body.validated_source_ids)
+        # An added source is a brand-new suggestion, not an existing citation - always gets its
+        # own Source row (deduped by url like any other, see SourceRepository.get_or_create).
+        added_source_ids = [
+            (await self.sources.get_or_create(added.title, added.url, None, None, None)).id
+            for added in body.added_sources
+        ]
+
+        feedback = await self.feedbacks.create(
+            message.id, user.user_id, body.value, body.reasons, body.comment, verified_source_ids, added_source_ids
+        )
         await self.db.commit()
         return FeedbackOut(
             id=feedback.id,
@@ -127,6 +142,8 @@ class RunService:
             value=feedback.value,
             reasons=body.reasons,
             comment=feedback.comment,
+            validated_source_ids=verified_source_ids,
+            added_source_ids=added_source_ids,
             created_at=feedback.created_at,
         )
 
