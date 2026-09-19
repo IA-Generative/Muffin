@@ -26,6 +26,7 @@ const {
 const activeView = computed(() => {
   if (route.path.startsWith('/collections')) return 'collections'
   if (route.path.startsWith('/tasks')) return 'tasks'
+  if (route.path.startsWith('/quality')) return 'quality'
   if (route.path.startsWith('/admin')) return 'admin'
   return 'chat'
 })
@@ -47,6 +48,7 @@ const activeView = computed(() => {
       @delete="deleteConversation"
       @open-collections="router.push('/collections')"
       @open-tasks="router.push('/tasks')"
+      @open-quality="router.push('/quality')"
       @open-admin="router.push('/admin')"
       @open-settings="showSettings = true"
       @login="login()"
