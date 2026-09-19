@@ -53,6 +53,21 @@ async def list_conversations(
 
 
 @router.get(
+    "/conversations/{conversation_id}",
+    summary="Get a single conversation - used by the frontend to pick up an auto-generated title "
+    "after a run completes without waiting for a full page reload",
+    response_model=ConversationOut,
+)
+async def get_conversation(
+    conversation_id: uuid.UUID, user: UserDep, service: ConversationServiceDep
+) -> ConversationOut:
+    try:
+        return await service.get_conversation(conversation_id, user)
+    except ConversationNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found") from error
+
+
+@router.get(
     "/conversations/{conversation_id}/messages",
     summary="List a conversation's messages, oldest first - used to restore a chat thread",
     response_model=list[MessageOut],

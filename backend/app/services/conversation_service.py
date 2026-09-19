@@ -32,6 +32,14 @@ class ConversationService:
         out = [ConversationOut(id=c.id, title=c.title, updated_at=c.updated_at) for c in items]
         return pagination.to_page(out, total)
 
+    async def get_conversation(self, conversation_id: uuid.UUID, user: RequestContext) -> ConversationOut:
+        conversation = await self._get_owned(conversation_id, user)
+        return ConversationOut(
+            id=conversation.id,
+            title=conversation.title,
+            updated_at=conversation.updated_at,
+        )
+
     async def list_messages(self, conversation_id: uuid.UUID, user: RequestContext) -> list[MessageOut]:
         conversation = await self._get_owned(conversation_id, user)
         rows = await self.conversations.list_messages(conversation.id)

@@ -223,6 +223,14 @@ async function fetchConversationsList(page: number): Promise<{ items: Conversati
   return body
 }
 
+async function fetchConversation(conversationId: string): Promise<ConversationOut> {
+  const response = await fetch(`${API_BASE_URL}/api/conversations/${conversationId}`, {
+    credentials: 'include',
+  })
+  if (!response.ok) throw new Error(`${response.status}`)
+  return response.json()
+}
+
 async function fetchMessagesList(conversationId: string): Promise<MessageOut[]> {
   const response = await fetch(`${API_BASE_URL}/api/conversations/${conversationId}/messages`, {
     credentials: 'include',
@@ -292,6 +300,48 @@ function newConversation() {
   router.push(`/c/${id}`)
 }
 
+// Animates a conversation title character-by-character (ChatGPT-style "streaming" reveal).
+// Clears any previous animation still running on the same conversation so a rapid second rename
+// doesn't fight the first. The interval is stored in a module-level Map keyed by conversation id.
+const titleAnimationInterval = new Map<string, ReturnType<typeof setInterval>>()
+
+function animateTitle(conversation: Conversation, finalTitle: string) {
+  const previous = titleAnimationInterval.get(conversation.id)
+  if (previous) clearInterval(previous)
+
+  // If the title is already the target (or empty), no animation needed.
+  if (!finalTitle || conversation.title === finalTitle) {
+    conversation.title = finalTitle
+    return
+  }
+
+  // Start from the common prefix length so we don't "untype" characters that are already correct.
+  let i = 0
+  while (i < conversation.title.length && i < finalTitle.length && conversation.title[i] === finalTitle[i]) {
+    i++
+  }
+  // If the current title is longer than the final one, reset to the prefix to avoid leftover chars.
+  if (i < conversation.title.length) conversation.title = finalTitle.slice(0, i)
+
+  const step = () => {
+    if (i >= finalTitle.length) {
+      const interval = titleAnimationInterval.get(conversation.id)
+      if (interval) {
+        clearInterval(interval)
+        titleAnimationInterval.delete(conversation.id)
+      }
+      return
+    }
+    conversation.title = finalTitle.slice(0, i + 1)
+    i++
+  }
+
+  // Reveal at ~30 chars/sec (one char every ~33ms) — fast enough for short titles, visible
+  // enough to feel like a stream.
+  const interval = setInterval(step, 33)
+  titleAnimationInterval.set(conversation.id, interval)
+}
+
 async function renameConversation(id: string, title: string) {
   // Same resolution as deleteConversation - a sidebar row's id can be a pre-migration
   // placeholder still aliased to the real backend id (see migrateConversationId), and matching
@@ -299,7 +349,7 @@ async function renameConversation(id: string, title: string) {
   // find nothing to update, leaving the old title on screen until a reload re-fetches it fresh.
   const resolvedId = resolveConversationId(id)
   const conversation = conversations.value.find((item) => item.id === resolvedId)
-  if (conversation) conversation.title = title // shown immediately, not held up by the request
+  if (conversation) animateTitle(conversation, title) // streaming reveal, not held up by the request
 
   if (!confirmedConversationIds.has(resolvedId)) return // a local-only placeholder, nothing to persist yet
   try {
@@ -594,7 +644,25 @@ function applyRunUpdate(conversationId: string, messageId: string, run: RunOut):
     pendingClarifications[resolveConversationId(conversationId)] = { runId: run.id, messageId }
     return true
   }
-  return TERMINAL_STATUSES.has(run.status)
+  const terminal = TERMINAL_STATUSES.has(run.status)
+  // When the run completes, the worker generates a conversation title *after* marking the run
+  // as completed (see agent_service._finalize) - so the title isn't available in this very
+  // response. Poll the conversation once after a short delay to pick it up and animate it in.
+  if (terminal && run.status === 'completed' && run.conversation_id) {
+    const resolvedId = resolveConversationId(conversationId)
+    setTimeout(async () => {
+      try {
+        const updated = await fetchConversation(resolvedId)
+        const conversation = conversations.value.find((item) => item.id === resolvedId)
+        if (conversation && updated.title && conversation.title !== updated.title) {
+          animateTitle(conversation, updated.title)
+        }
+      } catch {
+        // Best-effort - the title will show up on next page load.
+      }
+    }, 2000)
+  }
+  return terminal
 }
 
 // Polls a run until it reaches a terminal status (or pauses for a clarification), updating the
