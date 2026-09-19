@@ -2,7 +2,7 @@ import { computed, ref } from 'vue'
 import { router } from '../router'
 import type {
   ChunkingSettings,
-  ChunkingStrategy,
+  ChunkStrategy,
   Chunk,
   Collection,
   CollectionDocument,
@@ -534,7 +534,7 @@ async function refreshEvaluation(collectionId: string) {
       pairCount: run.pair_count,
       llmModel: run.llm_model,
       chunkingSnapshot: {
-        strategy: run.snapshot_chunking_strategy as ChunkingStrategy,
+        strategy: run.snapshot_chunking_strategy as ChunkStrategy,
         chunkSize: run.snapshot_chunk_size,
         chunkOverlap: run.snapshot_chunk_overlap,
         embeddingModel: run.snapshot_embedding_model,
