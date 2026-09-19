@@ -245,6 +245,20 @@ async function ensureMessagesLoaded(conversationId: string) {
       }
     })
     confirmedConversationIds.add(conversationId)
+    // A running run's assistant message only exists in memory, not in DB (it's persisted
+    // when the run completes via update_run_result). After a page refresh, the user message
+    // is there but the assistant placeholder is gone - fetch active runs and resume polling
+    // so the user sees the run finish instead of a dangling question with no answer.
+    try {
+      const activeRuns = await fetchActiveRuns(conversationId)
+      for (const run of activeRuns) {
+        const messageId = crypto.randomUUID()
+        messagesByConversation.value[conversationId].push(assistantMessageFor(messageId, run))
+        trackRun(conversationId, messageId, run)
+      }
+    } catch {
+      // Best-effort - the messages are already loaded, active run recovery is a bonus.
+    }
   } catch {
     if (!messagesByConversation.value[conversationId]) messagesByConversation.value[conversationId] = []
   }
@@ -403,6 +417,14 @@ async function createRun(
 
 async function fetchRun(runId: string): Promise<RunOut> {
   const response = await fetch(`${API_BASE_URL}/api/runs/${runId}`, { credentials: 'include' })
+  if (!response.ok) throw new Error(`${response.status}`)
+  return response.json()
+}
+
+async function fetchActiveRuns(conversationId: string): Promise<RunOut[]> {
+  const response = await fetch(`${API_BASE_URL}/api/conversations/${conversationId}/active-runs`, {
+    credentials: 'include',
+  })
   if (!response.ok) throw new Error(`${response.status}`)
   return response.json()
 }

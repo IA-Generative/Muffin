@@ -9,16 +9,33 @@ from app.db import get_db
 from app.schemas.conversation import ConversationOut, ConversationUpdate, MessageOut
 from app.schemas.discussion_score import DiscussionScoreOut
 from app.schemas.pagination import Page, PaginationParams
-from app.services.conversation_service import ConversationNotFoundError, ConversationService
+from app.schemas.run import RunOut
+from app.services.conversation_service import (
+    ConversationNotFoundError,
+    ConversationService,
+)
+from app.services.run_service import (
+    ConversationNotFoundError as RunConversationNotFoundError,
+)
+from app.services.run_service import (
+    RunService,
+)
 
 router = APIRouter(tags=["Conversations"])
 
 
-def get_conversation_service(db: Annotated[AsyncSession, Depends(get_db)]) -> ConversationService:
+def get_conversation_service(
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> ConversationService:
     return ConversationService(db)
 
 
-ServiceDep = Annotated[ConversationService, Depends(get_conversation_service)]
+def get_run_service(db: Annotated[AsyncSession, Depends(get_db)]) -> RunService:
+    return RunService(db)
+
+
+ConversationServiceDep = Annotated[ConversationService, Depends(get_conversation_service)]
+RunServiceDep = Annotated[RunService, Depends(get_run_service)]
 UserDep = Annotated[RequestContext, Depends(get_current_user)]
 
 
@@ -28,7 +45,9 @@ UserDep = Annotated[RequestContext, Depends(get_current_user)]
     response_model=Page[ConversationOut],
 )
 async def list_conversations(
-    user: UserDep, service: ServiceDep, pagination: Annotated[PaginationParams, Depends()]
+    user: UserDep,
+    service: ConversationServiceDep,
+    pagination: Annotated[PaginationParams, Depends()],
 ) -> Page[ConversationOut]:
     return await service.list_conversations(user, pagination)
 
@@ -39,11 +58,23 @@ async def list_conversations(
     response_model=list[MessageOut],
 )
 async def list_conversation_messages(
-    conversation_id: uuid.UUID, user: UserDep, service: ServiceDep
+    conversation_id: uuid.UUID, user: UserDep, service: ConversationServiceDep
 ) -> list[MessageOut]:
     try:
         return await service.list_messages(conversation_id, user)
     except ConversationNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found") from error
+
+
+@router.get(
+    "/conversations/{conversation_id}/active-runs",
+    summary="List non-terminal runs for a conversation - used after a page refresh to resume polling",
+    response_model=list[RunOut],
+)
+async def list_active_runs(conversation_id: uuid.UUID, user: UserDep, service: RunServiceDep) -> list[RunOut]:
+    try:
+        return await service.list_active_runs(conversation_id, user)
+    except RunConversationNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found") from error
 
 
@@ -53,7 +84,9 @@ async def list_conversation_messages(
     "worker/evaluation - see #31)",
     status_code=status.HTTP_202_ACCEPTED,
 )
-async def trigger_discussion_score(conversation_id: uuid.UUID, user: UserDep, service: ServiceDep) -> dict[str, str]:
+async def trigger_discussion_score(
+    conversation_id: uuid.UUID, user: UserDep, service: ConversationServiceDep
+) -> dict[str, str]:
     try:
         celery_task_id = await service.trigger_discussion_score(conversation_id, user)
     except ConversationNotFoundError as error:
@@ -67,7 +100,7 @@ async def trigger_discussion_score(conversation_id: uuid.UUID, user: UserDep, se
     response_model=list[DiscussionScoreOut],
 )
 async def list_discussion_scores(
-    conversation_id: uuid.UUID, user: UserDep, service: ServiceDep
+    conversation_id: uuid.UUID, user: UserDep, service: ConversationServiceDep
 ) -> list[DiscussionScoreOut]:
     try:
         return await service.list_discussion_scores(conversation_id, user)
@@ -81,7 +114,10 @@ async def list_discussion_scores(
     response_model=ConversationOut,
 )
 async def rename_conversation(
-    conversation_id: uuid.UUID, body: ConversationUpdate, user: UserDep, service: ServiceDep
+    conversation_id: uuid.UUID,
+    body: ConversationUpdate,
+    user: UserDep,
+    service: ConversationServiceDep,
 ) -> ConversationOut:
     try:
         return await service.rename_conversation(conversation_id, user, body.title)
@@ -94,7 +130,7 @@ async def rename_conversation(
     summary="Delete a conversation and everything in it (messages, runs, run events)",
     status_code=status.HTTP_204_NO_CONTENT,
 )
-async def delete_conversation(conversation_id: uuid.UUID, user: UserDep, service: ServiceDep) -> None:
+async def delete_conversation(conversation_id: uuid.UUID, user: UserDep, service: ConversationServiceDep) -> None:
     try:
         await service.delete_conversation(conversation_id, user)
     except ConversationNotFoundError as error:
