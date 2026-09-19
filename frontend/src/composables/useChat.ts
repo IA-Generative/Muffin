@@ -458,6 +458,19 @@ async function submitFeedback(runId: string, value: 'up' | 'down', details?: Fee
   if (!response.ok) throw new Error(`${response.status}`)
 }
 
+async function fetchFeedback(runId: string): Promise<FeedbackDetails | null> {
+  const response = await fetch(`${API_BASE_URL}/api/runs/${runId}/feedback`, { credentials: 'include' })
+  if (!response.ok) throw new Error(`${response.status}`)
+  const data = await response.json()
+  if (!data) return null
+  return {
+    reasons: data.reasons ?? [],
+    comment: data.comment ?? '',
+    validatedSourceIds: data.validated_source_ids ?? [],
+    addedSources: data.added_source_ids ?? [],
+  }
+}
+
 // The backend cites each claim with its evidence excerpt's raw id in brackets (e.g.
 // "[f8109fc0-88cc-...]" - see generate_answer.py's system prompt), so the model's grounding
 // stays verifiable server-side. Showing that literal uuid to the user is meaningless, though -
@@ -756,6 +769,7 @@ export function useChat() {
     sendMessage,
     regenerateMessage,
     sendFeedback,
+    fetchFeedback,
     showSources,
     closeSources,
     showExecutionDetails,

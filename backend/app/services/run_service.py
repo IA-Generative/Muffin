@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security.factory import RequestContext
 from app.core.tasks import enqueue_resume_agent, enqueue_run_agent, revoke_task
+from app.models.feedback import FeedbackSourceRole
 from app.models.message import MessageRole
 from app.models.run import RunStatus
 from app.repositories.conversation_repository import ConversationRepository
@@ -165,6 +166,29 @@ class RunService:
             comment=feedback.comment,
             validated_source_ids=verified_source_ids,
             added_source_ids=added_source_ids,
+            created_at=feedback.created_at,
+        )
+
+    async def get_feedback(self, run_id: uuid.UUID, user: RequestContext) -> FeedbackOut | None:
+        """Returns the feedback the current user left on a run's answer, or None - used to
+        pre-fill the feedback modal when editing an existing negative feedback."""
+        await self._get_owned(run_id, user)
+        message = await self.conversations.get_assistant_message_by_run_id(run_id)
+        if message is None:
+            return None
+        feedback = await self.feedbacks.get_user_feedback_for_message(message.id, user.user_id)
+        if feedback is None:
+            return None
+        validated = [fs.source_id for fs in feedback.sources if fs.role == FeedbackSourceRole.VALIDATED]
+        added = [fs.source_id for fs in feedback.sources if fs.role == FeedbackSourceRole.ADDED]
+        return FeedbackOut(
+            id=feedback.id,
+            message_id=feedback.message_id,
+            value=feedback.value,
+            reasons=[r.reason for r in feedback.reasons],
+            comment=feedback.comment,
+            validated_source_ids=validated,
+            added_source_ids=added,
             created_at=feedback.created_at,
         )
 

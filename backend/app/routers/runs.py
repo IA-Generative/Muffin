@@ -54,7 +54,10 @@ async def get_run(run_id: uuid.UUID, user: UserDep, service: ServiceDep) -> RunO
     response_model=list[RunEventOut],
 )
 async def list_run_events(
-    run_id: uuid.UUID, user: UserDep, service: ServiceDep, since: uuid.UUID | None = None
+    run_id: uuid.UUID,
+    user: UserDep,
+    service: ServiceDep,
+    since: uuid.UUID | None = None,
 ) -> list[RunEventOut]:
     # Not actually paginated (§ a run's own event log is a bounded, append-only trace, not a
     # list to page through) - `page_size` used to be accepted here via the shared
@@ -79,7 +82,8 @@ async def resume_run(run_id: uuid.UUID, body: RunResumeRequest, user: UserDep, s
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found") from error
     except RunNotWaitingError as error:
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail="Run is not waiting for a clarification"
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Run is not waiting for a clarification",
         ) from error
 
 
@@ -97,8 +101,21 @@ async def submit_feedback(run_id: uuid.UUID, body: FeedbackCreate, user: UserDep
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found") from error
     except RunHasNoAnswerError as error:
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail="Run has no answer to give feedback on yet"
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Run has no answer to give feedback on yet",
         ) from error
+
+
+@router.get(
+    "/runs/{run_id}/feedback",
+    summary="Get the current user's feedback on a run's answer - used to pre-fill the modal when editing",
+    response_model=FeedbackOut | None,
+)
+async def get_feedback(run_id: uuid.UUID, user: UserDep, service: ServiceDep) -> FeedbackOut | None:
+    try:
+        return await service.get_feedback(run_id, user)
+    except RunNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found") from error
 
 
 @router.post(
