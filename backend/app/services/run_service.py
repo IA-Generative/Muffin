@@ -78,12 +78,27 @@ class RunService:
         run = await self._get_owned(run_id, user)
         return self._to_out(run)
 
+    async def list_active_runs(self, conversation_id: uuid.UUID, user: RequestContext) -> list[RunOut]:
+        """Non-terminal runs for a conversation - the frontend calls this after a page
+        refresh to resume polling runs that were still in progress (the assistant message
+        for a running run only exists in memory, not in DB, so ensureMessagesLoaded
+        can't see it). Ownership is checked via the conversation, not per-run."""
+        conversation = await self.conversations.get(conversation_id, user.user_id)
+        if conversation is None:
+            raise ConversationNotFoundError(str(conversation_id))
+        active_runs = await self.runs.list_active_for_conversation(conversation.id)
+        return [self._to_out(run) for run in active_runs]
+
     async def list_events(self, run_id: uuid.UUID, user: RequestContext, since: uuid.UUID | None) -> list[RunEventOut]:
         await self._get_owned(run_id, user)
         events = await self.runs.list_events(run_id, since)
         return [
             RunEventOut(
-                id=event.id, task_id=event.task_id, type=event.type, data=event.data, created_at=event.created_at
+                id=event.id,
+                task_id=event.task_id,
+                type=event.type,
+                data=event.data,
+                created_at=event.created_at,
             )
             for event in events
         ]
@@ -133,7 +148,13 @@ class RunService:
         ]
 
         feedback = await self.feedbacks.create(
-            message.id, user.user_id, body.value, body.reasons, body.comment, verified_source_ids, added_source_ids
+            message.id,
+            user.user_id,
+            body.value,
+            body.reasons,
+            body.comment,
+            verified_source_ids,
+            added_source_ids,
         )
         await self.db.commit()
         return FeedbackOut(
