@@ -34,6 +34,11 @@ def build_answer_context(state: AgentState) -> dict[str, Any]:
                 # "search"/"page_content" evidence links to a real document page, everything else
                 # (list_collections, collection_summary, list_documents) is just input/output.
                 "tool": e["metadata"].get("tool", "search"),
+                # evidence_kind is the precise provenance of this excerpt (document, qa, summary,
+                # collection, web) - stamped by each evidence producer in research_task.py. The
+                # frontend uses it to pick the right card variant + badge instead of guessing from
+                # tool + document_id.
+                "evidence_kind": e["metadata"].get("evidence_kind", "document"),
                 # source_id is empty for QA/summary evidence (no specific document to cite) -
                 # don't pass it as document_id, or link_citations would FK-violate.
                 "document_id": e["source_id"] or None,
