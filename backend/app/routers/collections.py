@@ -8,6 +8,7 @@ from app.core.security.factory import RequestContext, get_current_user
 from app.core.sharing import SharingNotConfiguredError
 from app.db import get_db
 from app.schemas.collection import (
+    ChunkOut,
     CollectionOut,
     CollectionSettingsUpdate,
     CollectionUpdate,
@@ -28,17 +29,23 @@ from app.services.collection_service import (
     CollectionService,
     ShareNotFoundError,
 )
-from app.services.evaluation_service import CollectionNotFoundError as EvaluationCollectionNotFoundError
+from app.services.evaluation_service import (
+    CollectionNotFoundError as EvaluationCollectionNotFoundError,
+)
 from app.services.evaluation_service import EvaluationService
 
 router = APIRouter(tags=["Collections"])
 
 
-def get_collection_service(db: Annotated[AsyncSession, Depends(get_db)]) -> CollectionService:
+def get_collection_service(
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> CollectionService:
     return CollectionService(db)
 
 
-def get_evaluation_service(db: Annotated[AsyncSession, Depends(get_db)]) -> EvaluationService:
+def get_evaluation_service(
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> EvaluationService:
     return EvaluationService(db)
 
 
@@ -47,9 +54,15 @@ EvaluationServiceDep = Annotated[EvaluationService, Depends(get_evaluation_servi
 UserDep = Annotated[RequestContext, Depends(get_current_user)]
 
 
-@router.get("/collections", summary="List the current user's collections", response_model=Page[CollectionOut])
+@router.get(
+    "/collections",
+    summary="List the current user's collections",
+    response_model=Page[CollectionOut],
+)
 async def list_collections(
-    user: UserDep, service: ServiceDep, pagination: Annotated[PaginationParams, Depends()]
+    user: UserDep,
+    service: ServiceDep,
+    pagination: Annotated[PaginationParams, Depends()],
 ) -> Page[CollectionOut]:
     return await service.list_collections(user, pagination)
 
@@ -64,7 +77,11 @@ async def create_collection(user: UserDep, service: ServiceDep) -> CollectionOut
     return await service.create_collection(user)
 
 
-@router.get("/collections/{collection_id}", summary="Get a collection", response_model=CollectionOut)
+@router.get(
+    "/collections/{collection_id}",
+    summary="Get a collection",
+    response_model=CollectionOut,
+)
 async def get_collection(collection_id: uuid.UUID, user: UserDep, service: ServiceDep) -> CollectionOut:
     try:
         return await service.get_collection(collection_id, user)
@@ -78,7 +95,10 @@ async def get_collection(collection_id: uuid.UUID, user: UserDep, service: Servi
     response_model=CollectionOut,
 )
 async def update_collection(
-    collection_id: uuid.UUID, update: CollectionUpdate, user: UserDep, service: ServiceDep
+    collection_id: uuid.UUID,
+    update: CollectionUpdate,
+    user: UserDep,
+    service: ServiceDep,
 ) -> CollectionOut:
     try:
         return await service.update_collection(collection_id, user, update)
@@ -92,7 +112,10 @@ async def update_collection(
     response_model=CollectionOut,
 )
 async def update_collection_settings(
-    collection_id: uuid.UUID, update: CollectionSettingsUpdate, user: UserDep, service: ServiceDep
+    collection_id: uuid.UUID,
+    update: CollectionSettingsUpdate,
+    user: UserDep,
+    service: ServiceDep,
 ) -> CollectionOut:
     try:
         return await service.update_settings(collection_id, user, update)
@@ -106,7 +129,10 @@ async def update_collection_settings(
     response_model=list[QaPairOut],
 )
 async def list_qa_pairs(
-    collection_id: uuid.UUID, user: UserDep, service: ServiceDep, document_id: uuid.UUID | None = None
+    collection_id: uuid.UUID,
+    user: UserDep,
+    service: ServiceDep,
+    document_id: uuid.UUID | None = None,
 ) -> list[QaPairOut]:
     try:
         return await service.list_qa_pairs(collection_id, user, document_id)
@@ -147,7 +173,10 @@ async def get_feedback_stats(collection_id: uuid.UUID, user: UserDep, service: S
     status_code=status.HTTP_202_ACCEPTED,
 )
 async def trigger_evaluation(
-    collection_id: uuid.UUID, body: EvaluationTriggerRequest, user: UserDep, service: EvaluationServiceDep
+    collection_id: uuid.UUID,
+    body: EvaluationTriggerRequest,
+    user: UserDep,
+    service: EvaluationServiceDep,
 ) -> dict[str, str]:
     try:
         celery_task_id = await service.trigger(collection_id, user, body.k)
@@ -167,6 +196,23 @@ async def list_evaluations(
     try:
         return await service.list_runs(collection_id, user)
     except EvaluationCollectionNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
+
+
+@router.get(
+    "/collections/{collection_id}/chunks",
+    summary="List a collection's chunks (paginated) - the extracted text segments used for retrieval",
+    response_model=Page[ChunkOut],
+)
+async def list_chunks(
+    collection_id: uuid.UUID,
+    user: UserDep,
+    service: ServiceDep,
+    pagination: Annotated[PaginationParams, Depends()],
+) -> Page[ChunkOut]:
+    try:
+        return await service.list_chunks(collection_id, user, pagination)
+    except CollectionNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
 
 
@@ -194,7 +240,11 @@ async def list_relations(collection_id: uuid.UUID, user: UserDep, service: Servi
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
 
 
-@router.delete("/collections/{collection_id}", summary="Delete a collection", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/collections/{collection_id}",
+    summary="Delete a collection",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
 async def delete_collection(collection_id: uuid.UUID, user: UserDep, service: ServiceDep) -> None:
     try:
         await service.delete_collection(collection_id, user)
@@ -208,7 +258,10 @@ async def delete_collection(collection_id: uuid.UUID, user: UserDep, service: Se
     response_model=CollectionOut,
 )
 async def update_visibility(
-    collection_id: uuid.UUID, update: VisibilityUpdate, user: UserDep, service: ServiceDep
+    collection_id: uuid.UUID,
+    update: VisibilityUpdate,
+    user: UserDep,
+    service: ServiceDep,
 ) -> CollectionOut:
     try:
         return await service.update_visibility(collection_id, user, update.visibility)
@@ -233,7 +286,8 @@ async def create_share(collection_id: uuid.UUID, create: ShareCreate, user: User
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Already invited") from error
     except SharingNotConfiguredError as error:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Sharing is not configured"
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Sharing is not configured",
         ) from error
 
 

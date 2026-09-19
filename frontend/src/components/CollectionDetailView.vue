@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useCollections } from '../composables/useCollections'
 import type { Collection } from '../types/collection'
 import CollectionChunksTab from './CollectionChunksTab.vue'
@@ -15,7 +16,9 @@ const props = defineProps<{
   activeDocumentId?: string
 }>()
 
-const { closeCollection, updateName, updateDescription, updateTags, deleteCollection, isCollectionReady } =
+const route = useRoute()
+const router = useRouter()
+const { closeCollection, updateName, updateDescription, updateTags, deleteCollection, isCollectionReady, loadTabData } =
   useCollections()
 
 const tagDraft = ref('')
@@ -30,13 +33,24 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: 'relations', label: 'Entités & Relations' },
   { key: 'chunks', label: 'Chunks' },
 ]
+const VALID_TABS = new Set(TABS.map((tab) => tab.key))
 // Paramètres (chunking, embedding, visibilité, partages) est owner-only côté backend - un
 // visiteur d'une collection publique/partagée ne le voit pas du tout, il n'y a rien qu'il
 // puisse y faire.
 const visibleTabs = computed(() => TABS.filter((tab) => tab.key !== 'settings' || props.collection.isOwner))
-// Paramètres en premier pour un owner : on configure le chunking/embedding avant d'ajouter des
-// documents. Un non-owner n'a pas cet onglet, donc Documents à la place.
-const activeTab = ref<TabKey>(props.collection.isOwner ? 'settings' : 'documents')
+
+// Resolve the initial tab from the URL (:tab param), falling back to the owner/default logic.
+function resolveInitialTab(): TabKey {
+  const urlTab = route.params.tab as string | undefined
+  if (urlTab && VALID_TABS.has(urlTab as TabKey)) {
+    // A non-owner can never land on "settings" - it's not in their visible tabs.
+    if (urlTab === 'settings' && !props.collection.isOwner) return 'documents'
+    return urlTab as TabKey
+  }
+  return props.collection.isOwner ? 'settings' : 'documents'
+}
+
+const activeTab = ref<TabKey>(resolveInitialTab())
 
 // Tant que le nom et les paramètres n'ont pas été confirmés, on reste
 // coincé sur l'onglet Paramètres - y compris si on y revient plus tard
@@ -59,6 +73,30 @@ watch(
     if (id) activeTab.value = 'documents'
   },
   { immediate: true },
+)
+
+// When the active tab changes, load its data lazily (only the first time) and
+// update the URL so the tab is shareable and survives back/forward navigation.
+watch(
+  activeTab,
+  (tab) => {
+    loadTabData(props.collection.id, tab)
+    const target = `/collections/${props.collection.id}/${tab}`
+    if (route.path !== target) router.replace(target)
+  },
+  { immediate: true },
+)
+
+// Sync from URL on back/forward navigation (route.params.tab changes without
+// selectTab being called).
+watch(
+  () => route.params.tab,
+  (tab) => {
+    if (typeof tab === 'string' && VALID_TABS.has(tab as TabKey)) {
+      if (tab === 'settings' && !props.collection.isOwner) return
+      if (tab !== activeTab.value) activeTab.value = tab as TabKey
+    }
+  },
 )
 
 function selectTab(key: TabKey) {

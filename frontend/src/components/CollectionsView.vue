@@ -13,10 +13,12 @@ const { search, sortKey, page, pageCount, results: sorted, paged } = useCollecti
 
 // Keeps the open/closed collection state in sync with direct URL navigation
 // (typed URL, back/forward) - clicks already go through openCollection/closeCollection.
+// Watches both id and tab so that navigating between tabs on the same collection
+// (e.g. /collections/:id/settings → /collections/:id/documents) also triggers the load.
 watch(
-  () => route.params.id,
-  (id) => {
-    if (typeof id === 'string') openCollection(id, { navigate: false })
+  () => [route.params.id, route.params.tab],
+  ([id, tab]) => {
+    if (typeof id === 'string') openCollection(id, { navigate: false, tab: tab as string | undefined })
     else closeCollection({ navigate: false })
   },
   { immediate: true },
