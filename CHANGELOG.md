@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.6.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.5.0...v0.6.0-rc) (2026-09-19)
+
+
+### Features
+
+* differentiate source types visually in sources panel ([5e6f671](https://github.com/IA-Generative/Muffin/commit/5e6f6711f1d9ae6465c7945882988418a155800e))
+* lazy loading des onglets collection avec routes explicites ([165ad0f](https://github.com/IA-Generative/Muffin/commit/165ad0f851dd588f598f829da31434edadeb042f))
+* persist feedback state across page reloads ([005283e](https://github.com/IA-Generative/Muffin/commit/005283e426875a93f33e84b71fb936003d521016))
+* refonte de la page Tâches en tableau dépliable avec pagination ([b0263e6](https://github.com/IA-Generative/Muffin/commit/b0263e6f9ba14da3a6c87e5e5c7d18d6f773868d))
+* restore and edit feedback after page reload ([c3a1398](https://github.com/IA-Generative/Muffin/commit/c3a13987a0078d84d638d3eb9347ec178c352428))
+* stream conversation titles with ChatGPT-style animation ([c804bf1](https://github.com/IA-Generative/Muffin/commit/c804bf1a4dcc134fad9e8d7dfca54259e6e3fe30))
+
+
+### Bug Fixes
+
+* add migration jobs into docker compose ([ed28d15](https://github.com/IA-Generative/Muffin/commit/ed28d15863985c321212d800f2f447ba6938993c))
+* **backend:** delete Meilisearch embeddings when deleting/reindexing a document ([81d426b](https://github.com/IA-Generative/Muffin/commit/81d426b7e4788492964d7f222df7859e90152306))
+* **frontend:** show clean error messages instead of technical backend errors ([92f73f8](https://github.com/IA-Generative/Muffin/commit/92f73f8adb09266a5aa17c0daa820e02224c4d19))
+* get run after leaving conversation ([009f3c1](https://github.com/IA-Generative/Muffin/commit/009f3c1b3f5257d281c5200aaa567a92b3e1a135))
+* lint front ([b7d2680](https://github.com/IA-Generative/Muffin/commit/b7d2680566b7285667a3418c8cbf44cdb3d2f652))
+* llm interaction bug with collection_id, document_id ([7ff2776](https://github.com/IA-Generative/Muffin/commit/7ff2776a1516a4eab4ce33930abf7ec21b1e4d0c))
+* re play when it's on error ([a555d23](https://github.com/IA-Generative/Muffin/commit/a555d231de334a0f5a6ef29a56191bce22239ef5))
+* visual fix on message ... that go upper now ([e6371f2](https://github.com/IA-Generative/Muffin/commit/e6371f2d59fbea66edd311274cc060629833baf8))
+* web search 500 error and planner short-circuit ([df0f8d7](https://github.com/IA-Generative/Muffin/commit/df0f8d7cd6a1527af392a2a69e61b9027e1478ac))
+
 ## [0.5.0](https://github.com/IA-Generative/Muffin/compare/v0.4.0...v0.5.0) (2026-09-19)
 
 
