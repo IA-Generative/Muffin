@@ -39,6 +39,9 @@ export interface ChatMessage {
   // The technical error from the backend (run.error) is never shown to the user - only a clean
   // French message is, so a 500 with a stack trace or FK violation detail doesn't leak through.
   error?: boolean
+  // The feedback value (up/down) the current user left on this message, if any - restored
+  // from the backend after a page reload so the thumbs-up/down button stays highlighted.
+  feedback?: 'up' | 'down' | null
 }
 
 export interface ExecutionEvent {

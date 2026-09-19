@@ -26,7 +26,7 @@ const renderedContent = computed(() =>
 )
 
 const copied = ref(false)
-const feedback = ref<'up' | 'down' | null>(null)
+const feedback = ref<'up' | 'down' | null>(props.message.feedback ?? null)
 const showMenu = ref(false)
 const showFeedbackModal = ref(false)
 const menuWrapper = ref<HTMLElement>()
