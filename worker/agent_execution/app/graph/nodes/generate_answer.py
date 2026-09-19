@@ -28,7 +28,10 @@ def generate_answer(state: AgentState) -> dict[str, Any]:
     model = state["chat_model"]
 
     if model is None:
-        return {"answer": "No language model is available to answer this query right now.", "citations": []}
+        return {
+            "answer": "No language model is available to answer this query right now.",
+            "citations": [],
+        }
 
     if not context["excerpts"]:
         return {
@@ -57,6 +60,7 @@ def generate_answer(state: AgentState) -> dict[str, Any]:
             "source": e["source"],
             "vdb_id": e["vdb_id"],
             "tool": e["tool"],
+            "evidence_kind": e["evidence_kind"],
             "document_id": e["document_id"],
             "chunk_id": e["chunk_id"],
             "page_number": e["page_number"],
