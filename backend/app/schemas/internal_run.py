@@ -26,6 +26,10 @@ class InternalRunOut(BaseModel):
     # Collections explicitly attached via the chat composer's "+" picker - see
     # AgentState.pinned_vdb_ids in the worker.
     pinned_collection_ids: list[str] | None
+    # Snapshot of the requesting user's Keycloak groups at run creation time - see
+    # Run.user_groups. The worker threads this into list_accessible_collections so
+    # group-shared collections are part of the VDB routing set, not just owner/public/direct.
+    user_groups: list[str] | None
 
 
 class RunStatusUpdate(BaseModel):

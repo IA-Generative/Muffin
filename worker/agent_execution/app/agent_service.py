@@ -81,6 +81,7 @@ class AgentService:
             initial_state: AgentState = {
                 "run_id": run_id,
                 "user_id": run["user_id"],
+                "user_groups": run.get("user_groups") or [],
                 "conversation_id": run["conversation_id"],
                 "original_query": run["query"],
                 "contextualized_query": run["query"],

@@ -26,6 +26,7 @@ class FakeBackend:
         self.events: list[tuple[str, str | None]] = []
         self.activities: list[tuple[str, str]] = []  # [(node, activity), ...]
         self.searched_collection_ids: list[list[str]] = []
+        self.accessible_collections_groups_requested: list[list[str]] = []
         # Empty by default - tests exercising the search tool go straight to tier 3 (chunk
         # search) unless a test explicitly seeds a QA-cache hit for tier 1.
         self.qa_hits: list[dict[str, Any]] = []
@@ -61,7 +62,8 @@ class FakeBackend:
     def set_run_error(self, *args: Any, **kwargs: Any) -> None:
         pass
 
-    def list_accessible_collections(self, user_id: str) -> list[dict[str, Any]]:
+    def list_accessible_collections(self, user_id: str, groups: list[str] | None = None) -> list[dict[str, Any]]:
+        self.accessible_collections_groups_requested.append(groups or [])
         return self.accessible_vdbs
 
     def search_qa(self, collection_ids: list[str], query: str, limit: int) -> list[dict[str, Any]]:
@@ -129,10 +131,16 @@ def make_run():
     return _make
 
 
-def initial_state(query: str, user_id: str = "user-1", pinned_vdb_ids: list[str] | None = None) -> dict[str, Any]:
+def initial_state(
+    query: str,
+    user_id: str = "user-1",
+    pinned_vdb_ids: list[str] | None = None,
+    user_groups: list[str] | None = None,
+) -> dict[str, Any]:
     return {
         "run_id": str(uuid.uuid4()),
         "user_id": user_id,
+        "user_groups": user_groups or [],
         "conversation_id": "conv-1",
         "original_query": query,
         "contextualized_query": query,

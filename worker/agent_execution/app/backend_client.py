@@ -70,8 +70,13 @@ class BackendClient:
         )
         response.raise_for_status()
 
-    def list_accessible_collections(self, user_id: str) -> list[dict[str, Any]]:
-        response = self._client.get(f"/api/internal/users/{user_id}/accessible-collections")
+    def list_accessible_collections(self, user_id: str, groups: list[str] | None = None) -> list[dict[str, Any]]:
+        # groups: this user's Keycloak groups at run creation time (Run.user_groups) - without
+        # it, a collection shared to a group the user belongs to (see CollectionRepository.
+        # list_all_accessible) would be invisible to the agent's VDB routing.
+        response = self._client.get(
+            f"/api/internal/users/{user_id}/accessible-collections", params={"groups": groups or []}
+        )
         response.raise_for_status()
         return response.json()
 
