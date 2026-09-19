@@ -83,6 +83,8 @@ class LlmChatRequest(BaseModel):
 
 class LlmChatResponse(BaseModel):
     content: str
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
 
 
 class EntityOut(BaseModel):

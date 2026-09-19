@@ -1,7 +1,7 @@
 import enum
 import uuid
 
-from sqlalchemy import Enum, ForeignKey, Text
+from sqlalchemy import Enum, ForeignKey, Integer, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDMixin
@@ -27,6 +27,15 @@ class Message(UUIDMixin, TimestampMixin, Base):
     run_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("runs.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    # Agent response latency in milliseconds - only set on ASSISTANT messages, measured by
+    # the agent worker around the generate_answer LLM call. Used by the quality dashboard
+    # to compute average response latency.
+    latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Token usage from the LLM call that produced this message - only set on ASSISTANT messages.
+    # prompt_tokens = tokens sent to the LLM, completion_tokens = tokens received back.
+    # Used by the quality dashboard for cost estimation (0.75 × total tokens).
+    prompt_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    completion_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     conversation: Mapped["Conversation"] = relationship(back_populates="messages")  # noqa: F821
     sources: Mapped[list["Source"]] = relationship(  # noqa: F821

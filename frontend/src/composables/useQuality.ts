@@ -27,6 +27,9 @@ export interface DiscussionMetric {
   coherentCount: number
   avgContextUsageScore: number | null
   avgRating: number | null
+  avgMessageCount: number | null
+  avgLatencyMs: number | null
+  estimatedCost: number | null
 }
 
 export interface GroundednessMetric {
@@ -103,6 +106,9 @@ function mapOverview(data: any): QualityOverview {
       coherentCount: data.discussion?.coherent_count ?? 0,
       avgContextUsageScore: data.discussion?.avg_context_usage_score ?? null,
       avgRating: data.discussion?.avg_rating ?? null,
+      avgMessageCount: data.discussion?.avg_message_count ?? null,
+      avgLatencyMs: data.discussion?.avg_latency_ms ?? null,
+      estimatedCost: data.discussion?.estimated_cost ?? null,
     },
     groundedness: {
       evaluatedCount: data.groundedness?.evaluated_count ?? 0,

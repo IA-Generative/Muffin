@@ -23,11 +23,19 @@ class BackendClient:
         return response.json()
 
     def update_run_status(
-        self, run_id: str, status: str, current_node: str | None = None, current_activity: str | None = None
+        self,
+        run_id: str,
+        status: str,
+        current_node: str | None = None,
+        current_activity: str | None = None,
     ) -> None:
         response = self._client.patch(
             f"/api/internal/runs/{run_id}/status",
-            json={"status": status, "current_node": current_node, "current_activity": current_activity},
+            json={
+                "status": status,
+                "current_node": current_node,
+                "current_activity": current_activity,
+            },
         )
         response.raise_for_status()
 
@@ -60,6 +68,9 @@ class BackendClient:
         grounding_valid: bool | None = None,
         grounding_unsupported_claims: list[str] | None = None,
         grounding_research_count: int | None = None,
+        latency_ms: int | None = None,
+        prompt_tokens: int | None = None,
+        completion_tokens: int | None = None,
     ) -> None:
         response = self._client.patch(
             f"/api/internal/runs/{run_id}/result",
@@ -69,6 +80,9 @@ class BackendClient:
                 "grounding_valid": grounding_valid,
                 "grounding_unsupported_claims": grounding_unsupported_claims,
                 "grounding_research_count": grounding_research_count,
+                "latency_ms": latency_ms,
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
             },
         )
         response.raise_for_status()
@@ -78,10 +92,15 @@ class BackendClient:
         response.raise_for_status()
 
     def add_run_event(
-        self, run_id: str, type_: str, data: dict[str, Any] | None = None, task_id: str | None = None
+        self,
+        run_id: str,
+        type_: str,
+        data: dict[str, Any] | None = None,
+        task_id: str | None = None,
     ) -> None:
         response = self._client.post(
-            f"/api/internal/runs/{run_id}/events", json={"type": type_, "data": data, "task_id": task_id}
+            f"/api/internal/runs/{run_id}/events",
+            json={"type": type_, "data": data, "task_id": task_id},
         )
         response.raise_for_status()
 
@@ -90,38 +109,61 @@ class BackendClient:
         # it, a collection shared to a group the user belongs to (see CollectionRepository.
         # list_all_accessible) would be invisible to the agent's VDB routing.
         response = self._client.get(
-            f"/api/internal/users/{user_id}/accessible-collections", params={"groups": groups or []}
+            f"/api/internal/users/{user_id}/accessible-collections",
+            params={"groups": groups or []},
         )
         response.raise_for_status()
         return response.json()
 
     def search(self, collection_ids: list[str], query: str, limit: int) -> list[dict[str, Any]]:
         response = self._client.post(
-            "/api/internal/search", json={"collection_ids": collection_ids, "query": query, "limit": limit}
+            "/api/internal/search",
+            json={"collection_ids": collection_ids, "query": query, "limit": limit},
         )
         response.raise_for_status()
         return response.json()
 
     def search_qa(self, collection_ids: list[str], query: str, limit: int) -> list[dict[str, Any]]:
         response = self._client.post(
-            "/api/internal/qa-search", json={"collection_ids": collection_ids, "query": query, "limit": limit}
+            "/api/internal/qa-search",
+            json={"collection_ids": collection_ids, "query": query, "limit": limit},
         )
         response.raise_for_status()
         return response.json()
 
     def search_summaries(self, collection_ids: list[str], query: str, limit: int) -> list[dict[str, Any]]:
         response = self._client.post(
-            "/api/internal/summary-search", json={"collection_ids": collection_ids, "query": query, "limit": limit}
+            "/api/internal/summary-search",
+            json={"collection_ids": collection_ids, "query": query, "limit": limit},
         )
         response.raise_for_status()
         return response.json()
 
     def llm_chat(self, model: str, messages: list[dict[str, str]], max_tokens: int | None = None) -> str:
         response = self._client.post(
-            "/api/internal/llm/chat", json={"model": model, "messages": messages, "max_tokens": max_tokens}
+            "/api/internal/llm/chat",
+            json={"model": model, "messages": messages, "max_tokens": max_tokens},
         )
         response.raise_for_status()
         return response.json()["content"]
+
+    def llm_chat_with_usage(
+        self, model: str, messages: list[dict[str, str]], max_tokens: int | None = None
+    ) -> dict[str, Any]:
+        """Same as llm_chat but also returns token usage (prompt_tokens, completion_tokens).
+        Used by generate_answer to record per-message token stats on the assistant message.
+        """
+        response = self._client.post(
+            "/api/internal/llm/chat",
+            json={"model": model, "messages": messages, "max_tokens": max_tokens},
+        )
+        response.raise_for_status()
+        data = response.json()
+        return {
+            "content": data["content"],
+            "prompt_tokens": data.get("prompt_tokens"),
+            "completion_tokens": data.get("completion_tokens"),
+        }
 
     def get_default_chat_model(self) -> str | None:
         response = self._client.get("/api/internal/llm/default-chat-model")
@@ -139,7 +181,10 @@ class BackendClient:
         return response.json()
 
     def update_conversation_title(self, conversation_id: str, title: str) -> None:
-        response = self._client.patch(f"/api/internal/conversations/{conversation_id}/title", json={"title": title})
+        response = self._client.patch(
+            f"/api/internal/conversations/{conversation_id}/title",
+            json={"title": title},
+        )
         response.raise_for_status()
 
 

@@ -22,7 +22,7 @@ from app.models.conversation import Conversation
 from app.models.discussion_feedback import DiscussionFeedback
 from app.models.discussion_score import DiscussionScore
 from app.models.evaluation import EvaluationRun
-from app.models.message import Message
+from app.models.message import Message, MessageRole
 from app.models.run import Run
 from app.schemas.quality import (
     ConversationWithScoreOut,
@@ -226,6 +226,9 @@ class QualityService:
                 coherent_count=0,
                 avg_context_usage_score=None,
                 avg_rating=None,
+                avg_message_count=None,
+                avg_latency_ms=None,
+                estimated_cost=None,
             )
 
         # When filtering by model, only consider scores from that model.
@@ -262,6 +265,23 @@ class QualityService:
         context_scores = [s.context_usage_score for s in scores]
         avg_context = sum(context_scores) / len(context_scores) if context_scores else None
 
+        # Per-message metrics from the messages table: avg message count per conversation,
+        # avg agent response latency, and estimated cost (0.75 × total tokens).
+        msg_stats_query = select(
+            func.count(Message.id).label("msg_count"),
+            func.avg(Message.latency_ms).label("avg_latency"),
+            func.coalesce(func.sum(Message.prompt_tokens), 0).label("total_prompt_tokens"),
+            func.coalesce(func.sum(Message.completion_tokens), 0).label("total_completion_tokens"),
+        ).where(Message.conversation_id.in_(conv_ids) & (Message.role == MessageRole.ASSISTANT))
+        msg_stats = (await self.db.execute(msg_stats_query)).one()
+        # Average messages per conversation (all roles, not just assistant)
+        all_msg_count_query = select(func.count(Message.id)).where(Message.conversation_id.in_(conv_ids))
+        all_msg_count = (await self.db.execute(all_msg_count_query)).scalar() or 0
+        avg_message_count = all_msg_count / len(conv_ids) if conv_ids else None
+        avg_latency_ms = float(msg_stats.avg_latency) if msg_stats.avg_latency is not None else None
+        total_tokens = int(msg_stats.total_prompt_tokens or 0) + int(msg_stats.total_completion_tokens or 0)
+        estimated_cost = 0.75 * total_tokens if total_tokens > 0 else None
+
         # Human feedback: latest per conversation
         latest_feedback_sq = (
             select(
@@ -288,6 +308,9 @@ class QualityService:
             coherent_count=coherent_count,
             avg_context_usage_score=avg_context,
             avg_rating=avg_rating,
+            avg_message_count=avg_message_count,
+            avg_latency_ms=avg_latency_ms,
+            estimated_cost=estimated_cost,
         )
 
     async def _get_groundedness_metrics(

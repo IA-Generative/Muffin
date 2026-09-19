@@ -99,6 +99,18 @@ function pct(value: number | null): string {
   return `${Math.round(value * 100)} %`
 }
 
+function formatLatency(ms: number | null): string {
+  if (ms === null) return '—'
+  if (ms < 1000) return `${Math.round(ms)} ms`
+  return `${(ms / 1000).toFixed(1)} s`
+}
+
+function formatCost(cost: number | null): string {
+  if (cost === null) return '—'
+  if (cost < 1) return `${(cost * 100).toFixed(1)} cts`
+  return `${cost.toFixed(2)} €`
+}
+
 function ratio(value: number | null): string {
   if (value === null) return '—'
   return value.toFixed(2)
@@ -322,6 +334,33 @@ function toggleConversationExpand(id: string) {
             <p class="quality-metric__label">Satisfaction moyenne (humain)</p>
             <p class="quality-metric__sample">n = {{ discussion?.totalConversations ?? 0 }}</p>
             <p class="quality-metric__description">Note moyenne donnée par les utilisateurs (1-5).</p>
+          </article>
+
+          <article class="quality-metric">
+            <p class="quality-metric__value">{{ discussion?.avgMessageCount?.toFixed(1) ?? '—' }}</p>
+            <p class="quality-metric__label">Messages / discussion</p>
+            <p class="quality-metric__sample">n = {{ discussion?.totalConversations ?? 0 }}</p>
+            <p class="quality-metric__description">
+              Nombre moyen de messages par conversation scorée.
+            </p>
+          </article>
+
+          <article class="quality-metric">
+            <p class="quality-metric__value">{{ formatLatency(discussion?.avgLatencyMs ?? null) }}</p>
+            <p class="quality-metric__label">Latence moyenne</p>
+            <p class="quality-metric__sample">n = {{ discussion?.totalConversations ?? 0 }}</p>
+            <p class="quality-metric__description">
+              Temps moyen d'appel LLM pour le scoring d'une discussion.
+            </p>
+          </article>
+
+          <article class="quality-metric">
+            <p class="quality-metric__value">{{ formatCost(discussion?.estimatedCost ?? null) }}</p>
+            <p class="quality-metric__label">Coût estimé</p>
+            <p class="quality-metric__sample">n = {{ discussion?.totalConversations ?? 0 }}</p>
+            <p class="quality-metric__description">
+              0,75 × nombre total de tokens (tokens ≈ mots).
+            </p>
           </article>
         </div>
 
