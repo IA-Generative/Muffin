@@ -100,6 +100,22 @@ Les workers n'accèdent jamais directement à Meilisearch : toute recherche/écr
 passe par les endpoints internes du backend (`/internal/search`, `/internal/qa-search`,
 `/internal/summary-search`, `/internal/pipeline/*`).
 
+## Recherche web (SearXNG)
+
+| Variable | Définition | Défaut | Utilisée par |
+|---|---|---|---|
+| `SEARXNG_URL` | URL de l'instance SearXNG | `http://localhost:8080` | **worker/agent_execution** (`app/config.py` → `app/searxng_client.py`) |
+
+Contrairement à Meilisearch/Postgres, c'est le worker `agent_execution` qui appelle SearXNG
+directement (pas via le backend) - aucune donnée utilisateur n'y transite en base, l'appel est
+un aller-retour HTTP simple, sans authentification (SearXNG n'en a pas par défaut). L'outil
+`web_search` de l'agent n'est appelé que si le run a explicitement activé la recherche web
+(toggle du composer de chat, désactivé par défaut - voir `Run.web_search_enabled` côté backend) ;
+sans ça, `SEARXNG_URL` n'est jamais sollicité. L'API JSON de SearXNG (`format=json`) est
+désactivée par défaut en amont et doit être explicitement activée côté serveur - voir
+`docker/searxng/settings.yml` (`search.formats`), monté dans le service `searxng` de
+`docker-compose.yaml`.
+
 ## Stratégie d'authentification (lue directement depuis `os.environ`, pas via une classe `Settings`)
 
 | Variable | Définition | Défaut | Utilisée par |

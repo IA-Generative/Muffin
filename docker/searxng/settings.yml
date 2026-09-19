@@ -1,0 +1,15 @@
+use_default_settings: true
+
+server:
+  # SEARXNG_SECRET_KEY (an env var many SearXNG guides mention) is not read by this image for
+  # this key - it must live here. A dev-only placeholder: a real deployment must override this
+  # file (or bake in its own secret) rather than reuse it, same reasoning as any other
+  # dev-only secret in this repo (see docker/keycloak/realm-muffin.json's client secret).
+  secret_key: "dev-only-searxng-secret-not-for-prod"
+
+search:
+  # json is disabled by default upstream (lets any caller scrape results programmatically) -
+  # explicitly enabled here since worker/agent_execution/app/searxng_client.py needs it.
+  formats:
+    - html
+    - json

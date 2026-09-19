@@ -9,7 +9,8 @@ dans les collections auxquelles il a accès, avec citations vérifiables vers la
 
 ## Architecture
 
-Quatre services applicatifs, plus l'infrastructure (Postgres, Redis, Meilisearch, Keycloak, RustFS) :
+Quatre services applicatifs, plus l'infrastructure (Postgres, Redis, Meilisearch, Keycloak, RustFS,
+SearXNG) :
 
 | Service | Rôle | README |
 |---|---|---|
@@ -33,13 +34,15 @@ backend ──Celery/Redis──▶ worker/document_process  (ingestion)
 backend ──Celery/Redis──▶ worker/agent_execution    (recherche)
 
 les deux workers ──HTTP──▶ backend (/internal/*)
+worker/agent_execution ──HTTP──▶ SearXNG (outil web_search, seule exception au point ci-dessus -
+                                  jamais via le backend, aucune donnée utilisateur stockée là)
 ```
 
 ## Démarrer
 
 ```bash
 make install   # uv, hooks git, dépendances backend
-make up        # lance toute la stack en Docker (frontend, backend, workers, Postgres, Redis, Keycloak, Meilisearch, RustFS)
+make up        # lance toute la stack en Docker (frontend, backend, workers, Postgres, Redis, Keycloak, Meilisearch, RustFS, SearXNG)
 ```
 
 Pendant le développement, il est courant de lancer le frontend et/ou le backend hors Docker avec
