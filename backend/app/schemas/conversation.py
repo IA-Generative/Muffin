@@ -4,6 +4,8 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from app.models.feedback import FeedbackValue
+
 
 class ConversationOut(BaseModel):
     id: uuid.UUID
@@ -24,3 +26,6 @@ class MessageOut(BaseModel):
     # still in memory) render citation footnotes and fetch its execution detail.
     run_id: uuid.UUID | None = None
     citations: list[dict[str, Any]] | None = None
+    # The feedback value (up/down) the current user left on this message, if any - restored
+    # after a page reload so the thumbs-up/down button stays highlighted.
+    feedback: FeedbackValue | None = None
