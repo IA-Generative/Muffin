@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.0-rc.1](https://github.com/IA-Generative/Muffin/compare/v0.5.0-rc...v0.5.0-rc.1) (2026-09-19)
+
+
+### Features
+
+* **backend:** materialize agent citations as Source rows ([8221da1](https://github.com/IA-Generative/Muffin/commit/8221da12acfd56417a732f78a0c3c09cf9607eee)), closes [#39](https://github.com/IA-Generative/Muffin/issues/39)
+* wire source ids into the frontend and feedback into FeedbackSource ([48de759](https://github.com/IA-Generative/Muffin/commit/48de759ab45cc1dd4d670ad068ed262d52410c6c)), closes [#41](https://github.com/IA-Generative/Muffin/issues/41)
+
 ## [0.5.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.4.0...v0.5.0-rc) (2026-09-19)
 
 
