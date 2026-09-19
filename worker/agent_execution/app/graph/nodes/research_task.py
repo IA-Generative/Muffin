@@ -35,19 +35,28 @@ def _collection_evidence(vdb: dict[str, Any], task_id: str, retrieval_query: str
         id=str(uuid.uuid4()),
         task_id=task_id,
         vdb_id=str(vdb["id"]),
-        source_id=str(vdb["id"]),
+        # No document_id to cite - this is a collection-level meta-fact, not a document page.
+        source_id="",
         content=content,
         # "document_name" is what build_answer_context reads as a citation's display label
         # (§15) - reused here for a collection's own name so the sources panel shows "AgentControl"
         # rather than a bare vdb id.
-        metadata={"document_name": vdb["name"], "document_count": vdb.get("document_count", 0)},
+        metadata={
+            "document_name": vdb["name"],
+            "document_count": vdb.get("document_count", 0),
+        },
         relevance_score=None,
         retrieval_query=retrieval_query,
     )
 
 
 def _count_fact_evidence(
-    task_id: str, retrieval_query: str, noun: str, count: int, vdb_id: str = "", label: str | None = None
+    task_id: str,
+    retrieval_query: str,
+    noun: str,
+    count: int,
+    vdb_id: str = "",
+    label: str | None = None,
 ) -> Evidence:
     # A literal, unambiguous sentence rather than relying on generate_answer's LLM to count
     # excerpts itself - tested against a real local model, it sometimes refused to (treating a
@@ -58,9 +67,13 @@ def _count_fact_evidence(
         id=str(uuid.uuid4()),
         task_id=task_id,
         vdb_id=vdb_id,
-        source_id=vdb_id,
+        # No document_id to cite - this is a count fact, not a document page.
+        source_id="",
         content=content,
-        metadata={"document_name": label or "Accessible knowledge bases", "count": count},
+        metadata={
+            "document_name": label or "Accessible knowledge bases",
+            "count": count,
+        },
         relevance_score=None,
         retrieval_query=retrieval_query,
     )
@@ -71,9 +84,15 @@ def _qa_evidence(task_id: str, retrieval_query: str, hit: dict[str, Any]) -> Evi
         id=str(uuid.uuid4()),
         task_id=task_id,
         vdb_id=str(hit["collection_id"]),
-        source_id=str(hit["collection_id"]),
+        # No document_id to cite - a QA hit is a previously answered question, not a document
+        # page. source_id=None prevents build_answer_context from passing collection_id as
+        # document_id to link_citations (which would FK-violate on sources.document_id).
+        source_id="",
         content=hit["answer"],
-        metadata={"document_name": "Question déjà répondue", "qa_pair_id": str(hit["qa_pair_id"])},
+        metadata={
+            "document_name": "Question déjà répondue",
+            "qa_pair_id": str(hit["qa_pair_id"]),
+        },
         relevance_score=hit["score"],
         retrieval_query=retrieval_query,
     )
@@ -84,7 +103,8 @@ def _summary_evidence(task_id: str, retrieval_query: str, vdb: dict[str, Any], a
         id=str(uuid.uuid4()),
         task_id=task_id,
         vdb_id=str(vdb["id"]),
-        source_id=str(vdb["id"]),
+        # Same as _qa_evidence: a summary-derived answer has no specific document_id to cite.
+        source_id="",
         content=answer,
         metadata={"document_name": vdb["name"]},
         relevance_score=None,
@@ -104,7 +124,11 @@ def _web_result_evidence(task_id: str, retrieval_query: str, result: dict[str, A
         vdb_id="",
         source_id=result["url"],
         content=f"{title}\n\n{snippet}" if snippet else title,
-        metadata={"document_name": title, "url": result["url"], "engine": result.get("engine", "")},
+        metadata={
+            "document_name": title,
+            "url": result["url"],
+            "engine": result.get("engine", ""),
+        },
         relevance_score=result.get("score"),
         retrieval_query=retrieval_query,
     )
@@ -183,7 +207,10 @@ def _run_list_collections(task: dict[str, Any], accessible_vdbs: list[dict[str, 
 
 
 def _run_collection_summary(
-    task: dict[str, Any], accessible_vdbs: list[dict[str, Any]], model: str | None, pinned_vdb_ids: list[str]
+    task: dict[str, Any],
+    accessible_vdbs: list[dict[str, Any]],
+    model: str | None,
+    pinned_vdb_ids: list[str],
 ) -> tuple[dict, list[Evidence]]:
     selected_vdbs = select_relevant_vdbs(task["query"], accessible_vdbs, model, pinned_vdb_ids)
     evidence = [_collection_evidence(vdb, task["id"], task["query"]) for vdb in selected_vdbs]
@@ -211,7 +238,10 @@ def _run_list_documents(
                     vdb_id=str(vdb["id"]),
                     source_id=str(document["id"]),
                     content=content,
-                    metadata={"document_name": document["name"], "status": document["status"]},
+                    metadata={
+                        "document_name": document["name"],
+                        "status": document["status"],
+                    },
                     relevance_score=None,
                     retrieval_query=task["query"],
                 )
@@ -316,15 +346,24 @@ def research_task(state: ResearchTaskInput) -> dict[str, Any]:
     which of those services actually runs - content search by default, or a knowledge-base
     introspection lookup (collection/document counts and summaries, page content) chosen by
     decompose_query. Every lookup still goes through the same accessible_vdbs permission
-    barrier (§4/§12): a tool never reaches a collection or document this user can't access."""
+    barrier (§4/§12): a tool never reaches a collection or document this user can't access.
+    """
     run_id, task, user_id = state["run_id"], state["task"], state["user_id"]
     task_id = task["id"]
 
     if is_cancelled(run_id):
-        return {"research_tasks": [{**task, "status": "failed", "error": "cancelled"}], "failed_task_ids": [task_id]}
+        return {
+            "research_tasks": [{**task, "status": "failed", "error": "cancelled"}],
+            "failed_task_ids": [task_id],
+        }
 
     set_activity(run_id, "research_task", task["query"])
-    emit(run_id, "task_started", {"query": task["query"], "tool": task["tool"]}, task_id=task_id)
+    emit(
+        run_id,
+        "task_started",
+        {"query": task["query"], "tool": task["tool"]},
+        task_id=task_id,
+    )
     try:
         emit(run_id, "vdb_routing_started", task_id=task_id)
         runner = _RUNNERS.get(task["tool"], _run_search)
@@ -341,14 +380,26 @@ def research_task(state: ResearchTaskInput) -> dict[str, Any]:
         # panel: a "search" citation links to a real page/chunk, a meta-tool one is just
         # input/output, no page to link to).
         evidence = [{**e, "metadata": {**e["metadata"], "tool": task["tool"]}} for e in evidence]
-        emit(run_id, "vdb_routing_completed", {"selected_ids": updates.get("selected_vdbs", [])}, task_id=task_id)
+        emit(
+            run_id,
+            "vdb_routing_completed",
+            {"selected_ids": updates.get("selected_vdbs", [])},
+            task_id=task_id,
+        )
 
         completed = {**task, "status": "completed", **updates}
         emit(run_id, "task_completed", {"evidence_count": len(evidence)}, task_id=task_id)
-        return {"research_tasks": [completed], "completed_task_ids": [task_id], "evidence": evidence}
+        return {
+            "research_tasks": [completed],
+            "completed_task_ids": [task_id],
+            "evidence": evidence,
+        }
     except Exception as error:
         # One branch failing must not take the whole run down (§29) - evaluate_coverage decides
         # afterwards whether the surviving tasks are enough to answer with.
         logger.exception(f"Research task {task_id} failed (run {run_id})")
         emit(run_id, "task_failed", {"error": str(error)}, task_id=task_id)
-        return {"research_tasks": [{**task, "status": "failed", "error": str(error)}], "failed_task_ids": [task_id]}
+        return {
+            "research_tasks": [{**task, "status": "failed", "error": str(error)}],
+            "failed_task_ids": [task_id],
+        }
