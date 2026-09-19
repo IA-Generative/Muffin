@@ -2,6 +2,7 @@ import uuid
 from collections.abc import Sequence
 
 from sqlalchemy import func, select
+from sqlalchemy.engine import Row
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.chunk import Chunk
@@ -16,12 +17,13 @@ class ChunkRepository:
         """The retrieval-evaluation worker's recall@k denominator (see worker/evaluation): with
         no chunk-level relevance judgment available (a QaPair only ever points at a document, not
         a specific chunk - see app/models/qa.py), every chunk of the QA pair's source document is
-        treated as a relevant one, the best proxy available without hand-annotated ground truth."""
+        treated as a relevant one, the best proxy available without hand-annotated ground truth.
+        """
         return (
             await self.db.scalar(select(func.count()).select_from(Chunk).where(Chunk.document_id == document_id)) or 0
         )
 
-    async def get_by_ids(self, chunk_ids: list[uuid.UUID]) -> Sequence[tuple[Chunk, str, uuid.UUID]]:
+    async def get_by_ids(self, chunk_ids: list[uuid.UUID]) -> Sequence[Row[tuple[Chunk, str, uuid.UUID]]]:
         """Hydrates the chunk ids a vector search returned (see
         app/services/search_service.py) back into rows with their document name and collection
         id - Meilisearch only ever stores the vector, a lexical copy of the text, and filterable
@@ -35,3 +37,28 @@ class ChunkRepository:
         )
         result = await self.db.execute(stmt)
         return result.all()
+
+    async def list_by_collection(
+        self, collection_id: uuid.UUID, limit: int | None = None, offset: int = 0
+    ) -> tuple[Sequence[Row[tuple[Chunk, str]]], int]:
+        """All chunks for a collection, joined with their document name - used by the
+        collection detail view's Chunks tab. Returns (rows, total) so the route can
+        build a Page response."""
+        count_stmt = (
+            select(func.count())
+            .select_from(Chunk)
+            .join(Document, Chunk.document_id == Document.id)
+            .where(Document.collection_id == collection_id)
+        )
+        total = await self.db.scalar(count_stmt) or 0
+
+        stmt = (
+            select(Chunk, Document.name)
+            .join(Document, Chunk.document_id == Document.id)
+            .where(Document.collection_id == collection_id)
+            .order_by(Document.name, Chunk.index)
+        )
+        if limit is not None:
+            stmt = stmt.limit(limit).offset(offset)
+        result = await self.db.execute(stmt)
+        return result.all(), total

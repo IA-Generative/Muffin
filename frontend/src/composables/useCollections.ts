@@ -2,6 +2,7 @@ import { computed, ref } from 'vue'
 import { router } from '../router'
 import type {
   ChunkingSettings,
+  ChunkingStrategy,
   Chunk,
   Collection,
   CollectionDocument,
@@ -222,27 +223,48 @@ async function fetchCollection(id: string) {
 
 fetchCollections()
 
-// `navigate: false` is used when a route change already triggered this (see
-// CollectionsView's route watcher) - pushing again there would just double the entry.
-function openCollection(id: string, options: { navigate?: boolean } = {}) {
-  activeCollectionId.value = id
-  if (!collections.value.some((item) => item.id === id)) fetchCollection(id)
-  // CollectionOut doesn't embed documents/qa_pairs/entities/relations (avoids
-  // an N+1 on every list/get) - all fetched separately here, and polling
-  // resumes for documents in case processing was still running when the
-  // collection was last closed.
-  refreshDocuments(id).then(() => {
+// Maps a tab key to the function that loads its data. Each tab is fetched on
+// demand (when first opened) instead of all at once on openCollection - avoids
+// hammering the backend with 5 parallel requests when the user only looks at
+// the Settings tab.
+const TAB_LOADERS: Record<string, (id: string) => void | Promise<void>> = {
+  documents: (id) => refreshDocuments(id).then(() => {
     const collection = collections.value.find((item) => item.id === id)
     const stillProcessing = collection?.documents.some(
       (document) => document.status === 'pending' || document.status === 'indexing',
     )
     if (stillProcessing) pollDocumentsWhileProcessing(id)
-  })
-  refreshQaPairs(id)
-  refreshEntitiesAndRelations(id)
-  // Owner-only endpoint - silently no-ops for a public/shared collection browsed by a non-owner.
-  refreshShares(id)
-  const target = `/collections/${id}`
+  }),
+  qa: refreshQaPairs,
+  chunks: refreshChunks,
+  relations: refreshEntitiesAndRelations,
+  evaluation: refreshEvaluation,
+  settings: refreshShares,
+}
+
+// Tracks which tabs have already been loaded for the active collection, so
+// switching back to a tab doesn't refetch (a manual refresh button can be
+// added later if stale data becomes an issue).
+const loadedTabs = ref<Set<string>>(new Set())
+
+function loadTabData(collectionId: string, tab: string) {
+  const key = `${collectionId}:${tab}`
+  if (loadedTabs.value.has(key)) return
+  loadedTabs.value.add(key)
+  const loader = TAB_LOADERS[tab]
+  if (loader) loader(collectionId)
+}
+
+// `navigate: false` is used when a route change already triggered this (see
+// CollectionsView's route watcher) - pushing again there would just double the entry.
+function openCollection(id: string, options: { navigate?: boolean; tab?: string } = {}) {
+  activeCollectionId.value = id
+  if (!collections.value.some((item) => item.id === id)) fetchCollection(id)
+  // Load only the data for the active tab - the rest is fetched lazily as the
+  // user navigates between tabs (see loadTabData / selectTab in the detail view).
+  const tab = options.tab ?? (router.currentRoute.value.params.tab as string | undefined) ?? 'settings'
+  loadTabData(id, tab)
+  const target = `/collections/${id}/${tab}`
   if (options.navigate !== false && router.currentRoute.value.fullPath !== target) {
     router.push(target)
   }
@@ -427,6 +449,29 @@ async function refreshQaPairs(collectionId: string) {
   }
 }
 
+async function refreshChunks(collectionId: string) {
+  try {
+    const response = await fetch(
+      `${API_BASE_URL}/api/collections/${collectionId}/chunks?page_size=100`,
+      { credentials: 'include' },
+    )
+    if (!response.ok) return
+    const body: { items: Chunk[] } = await response.json()
+    const collection = collections.value.find((item) => item.id === collectionId)
+    if (collection) {
+      collection.chunks = body.items.map((item) => ({
+        id: item.id,
+        documentName: (item as unknown as { document_name: string }).document_name,
+        index: item.index,
+        text: item.text,
+        tokenCount: (item as unknown as { token_count: number }).token_count,
+      }))
+    }
+  } catch {
+    // Ignored: same as refreshQaPairs above.
+  }
+}
+
 async function refreshEntitiesAndRelations(collectionId: string) {
   try {
     const [entitiesResponse, relationsResponse] = await Promise.all([
@@ -438,6 +483,80 @@ async function refreshEntitiesAndRelations(collectionId: string) {
     // Field names already match Entity (id/name/type/mentions) and Relation (id/from/to/type) - no mapping needed.
     if (entitiesResponse.ok) collection.entities = await entitiesResponse.json()
     if (relationsResponse.ok) collection.relations = await relationsResponse.json()
+  } catch {
+    // Ignored: same as refreshQaPairs above.
+  }
+}
+
+// Backend EvaluationRunOut is snake_case and has validated/unvalidated breakdowns the
+// frontend doesn't use yet - we map to the simpler EvaluationRun shape the UI expects.
+interface EvaluationRunOut {
+  id: string
+  created_at: string
+  k: number
+  pair_count: number
+  llm_model: string
+  snapshot_chunking_strategy: string
+  snapshot_chunk_size: number
+  snapshot_chunk_overlap: number
+  snapshot_embedding_model: string
+  precision_at_k: number
+  recall_at_k: number
+  mrr: number
+  ndcg: number
+  results: {
+    qa_pair_id: string | null
+    question: string
+    expected_answer: string
+    generated_answer: string
+    precision_at_k: number
+    recall_at_k: number
+    reciprocal_rank: number
+    ndcg: number
+    retrieved_sources: string[]
+  }[]
+}
+
+async function refreshEvaluation(collectionId: string) {
+  try {
+    const response = await fetch(
+      `${API_BASE_URL}/api/collections/${collectionId}/evaluations`,
+      { credentials: 'include' },
+    )
+    if (!response.ok) return
+    const runs: EvaluationRunOut[] = await response.json()
+    const collection = collections.value.find((item) => item.id === collectionId)
+    if (!collection) return
+    collection.evaluationRuns = runs.map((run) => ({
+      id: run.id,
+      runAt: run.created_at,
+      k: run.k,
+      pairCount: run.pair_count,
+      llmModel: run.llm_model,
+      chunkingSnapshot: {
+        strategy: run.snapshot_chunking_strategy as ChunkingStrategy,
+        chunkSize: run.snapshot_chunk_size,
+        chunkOverlap: run.snapshot_chunk_overlap,
+        embeddingModel: run.snapshot_embedding_model,
+      },
+      metrics: {
+        precisionAtK: run.precision_at_k,
+        recallAtK: run.recall_at_k,
+        mrr: run.mrr,
+        ndcg: run.ndcg,
+      },
+      results: run.results.map((result) => ({
+        qaPairId: result.qa_pair_id ?? '',
+        question: result.question,
+        expectedAnswer: result.expected_answer,
+        generatedAnswer: result.generated_answer,
+        retrievedSources: result.retrieved_sources,
+        precisionAtK: result.precision_at_k,
+        recallAtK: result.recall_at_k,
+        reciprocalRank: result.reciprocal_rank,
+        ndcg: result.ndcg,
+      })),
+    }))
   } catch {
     // Ignored: same as refreshQaPairs above.
   }
@@ -691,7 +810,10 @@ export function useCollections() {
     removeQaPair,
     toggleQaValidation,
     refreshQaPairs,
+    refreshChunks,
     refreshEntitiesAndRelations,
+    refreshEvaluation,
+    loadTabData,
     updateChunkingSettings,
     updateEmbeddingModel,
     updateGenerationModel,

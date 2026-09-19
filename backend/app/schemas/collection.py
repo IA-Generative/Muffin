@@ -16,6 +16,14 @@ class FieldStamp(BaseModel):
     updated_at: datetime
 
 
+class ChunkOut(BaseModel):
+    id: uuid.UUID
+    document_name: str
+    index: int
+    text: str
+    token_count: int
+
+
 class GroundednessRunOut(BaseModel):
     run_id: uuid.UUID
     query: str
@@ -152,13 +160,19 @@ class CollectionOut(BaseModel):
             name=collection.name,
             description=collection.description,
             description_meta=(
-                FieldStamp(updated_by=collection.description_updated_by, updated_at=collection.description_updated_at)
+                FieldStamp(
+                    updated_by=collection.description_updated_by,
+                    updated_at=collection.description_updated_at,
+                )
                 if collection.description_updated_by and collection.description_updated_at
                 else None
             ),
             tags=[tag.tag for tag in collection.tags],
             tags_meta=(
-                FieldStamp(updated_by=collection.tags_updated_by, updated_at=collection.tags_updated_at)
+                FieldStamp(
+                    updated_by=collection.tags_updated_by,
+                    updated_at=collection.tags_updated_at,
+                )
                 if collection.tags_updated_by and collection.tags_updated_at
                 else None
             ),
