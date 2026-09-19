@@ -6,8 +6,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security.factory import RequestContext, get_current_user
 from app.db import get_db
+from app.schemas.feedback import FeedbackCreate, FeedbackOut
 from app.schemas.run import RunCreate, RunEventOut, RunOut, RunResumeRequest
-from app.services.run_service import ConversationNotFoundError, RunNotFoundError, RunNotWaitingError, RunService
+from app.services.run_service import (
+    ConversationNotFoundError,
+    RunHasNoAnswerError,
+    RunNotFoundError,
+    RunNotWaitingError,
+    RunService,
+)
 
 router = APIRouter(tags=["Runs"])
 
@@ -73,6 +80,24 @@ async def resume_run(run_id: uuid.UUID, body: RunResumeRequest, user: UserDep, s
     except RunNotWaitingError as error:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Run is not waiting for a clarification"
+        ) from error
+
+
+@router.post(
+    "/runs/{run_id}/feedback",
+    summary="Leave a thumbs up/down (and optionally reasons/a comment) on a run's answer - the "
+    "only identifier an external caller (chat, MCP, A2A) needs to have in hand is the run_id",
+    status_code=status.HTTP_201_CREATED,
+    response_model=FeedbackOut,
+)
+async def submit_feedback(run_id: uuid.UUID, body: FeedbackCreate, user: UserDep, service: ServiceDep) -> FeedbackOut:
+    try:
+        return await service.submit_feedback(run_id, user, body)
+    except RunNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found") from error
+    except RunHasNoAnswerError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Run has no answer to give feedback on yet"
         ) from error
 
 

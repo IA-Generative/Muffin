@@ -193,6 +193,65 @@ async def test_resume_unknown_run_returns_404(client):
     assert response.status_code == 404
 
 
+async def _add_assistant_message(run_id: str, content: str = "The answer.") -> None:
+    from app.models.message import Message, MessageRole
+    from app.models.run import Run
+
+    async with async_session_factory() as session:
+        run = await session.get(Run, uuid.UUID(run_id))
+        session.add(
+            Message(conversation_id=run.conversation_id, role=MessageRole.ASSISTANT, content=content, run_id=run.id)
+        )
+        await session.commit()
+
+
+async def test_submit_feedback_persists_value_reasons_and_comment(client):
+    created = (await _create_run(client)).json()
+    await _add_assistant_message(created["id"])
+
+    response = await client.post(
+        f"/api/runs/{created['id']}/feedback",
+        json={"value": "down", "reasons": ["incorrect_answer", "not_useful"], "comment": "Wrong date."},
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["value"] == "down"
+    assert sorted(body["reasons"]) == ["incorrect_answer", "not_useful"]
+    assert body["comment"] == "Wrong date."
+
+
+async def test_submit_feedback_up_needs_no_reasons(client):
+    created = (await _create_run(client)).json()
+    await _add_assistant_message(created["id"])
+
+    response = await client.post(f"/api/runs/{created['id']}/feedback", json={"value": "up"})
+
+    assert response.status_code == 201
+    assert response.json()["reasons"] == []
+
+
+async def test_submit_feedback_on_unknown_run_returns_404(client):
+    response = await client.post(f"/api/runs/{uuid.uuid4()}/feedback", json={"value": "up"})
+    assert response.status_code == 404
+
+
+async def test_submit_feedback_on_a_run_without_an_answer_yet_returns_409(client):
+    created = (await _create_run(client)).json()
+    response = await client.post(f"/api/runs/{created['id']}/feedback", json={"value": "up"})
+    assert response.status_code == 409
+
+
+async def test_submit_feedback_is_scoped_to_owner(client):
+    app.dependency_overrides[get_current_user] = _as_user("user-a", "a@example.com")
+    created = (await _create_run(client)).json()
+    await _add_assistant_message(created["id"])
+
+    app.dependency_overrides[get_current_user] = _as_user("user-b", "b@example.com")
+    response = await client.post(f"/api/runs/{created['id']}/feedback", json={"value": "up"})
+    assert response.status_code == 404
+
+
 async def test_run_out_exposes_pending_human_action(client):
     from app.models.run import RunStatus
 

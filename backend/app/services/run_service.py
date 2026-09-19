@@ -7,7 +7,9 @@ from app.core.tasks import enqueue_resume_agent, enqueue_run_agent, revoke_task
 from app.models.message import MessageRole
 from app.models.run import RunStatus
 from app.repositories.conversation_repository import ConversationRepository
+from app.repositories.feedback_repository import FeedbackRepository
 from app.repositories.run_repository import RunRepository
+from app.schemas.feedback import FeedbackCreate, FeedbackOut
 from app.schemas.run import RunCreate, RunEventOut, RunOut
 
 
@@ -23,11 +25,19 @@ class RunNotWaitingError(Exception):
     pass
 
 
+class RunHasNoAnswerError(Exception):
+    """The run hasn't completed with an assistant answer yet - there's nothing to attach
+    feedback to (see ConversationRepository.get_assistant_message_by_run_id)."""
+
+    pass
+
+
 class RunService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
         self.runs = RunRepository(db)
         self.conversations = ConversationRepository(db)
+        self.feedbacks = FeedbackRepository(db)
 
     async def create_run(self, user: RequestContext, body: RunCreate) -> RunOut:
         if body.conversation_id is not None:
@@ -101,6 +111,24 @@ class RunService:
         await self.db.commit()
         await self.db.refresh(run, attribute_names=["created_at", "updated_at"])
         return self._to_out(run)
+
+    async def submit_feedback(self, run_id: uuid.UUID, user: RequestContext, body: FeedbackCreate) -> FeedbackOut:
+        # Same ownership check as every other /runs/{id} route - a reviewer giving feedback on
+        # someone else's run (e.g. a support agent) isn't supported yet, see #30.
+        await self._get_owned(run_id, user)
+        message = await self.conversations.get_assistant_message_by_run_id(run_id)
+        if message is None:
+            raise RunHasNoAnswerError(str(run_id))
+        feedback = await self.feedbacks.create(message.id, user.user_id, body.value, body.reasons, body.comment)
+        await self.db.commit()
+        return FeedbackOut(
+            id=feedback.id,
+            message_id=feedback.message_id,
+            value=feedback.value,
+            reasons=body.reasons,
+            comment=feedback.comment,
+            created_at=feedback.created_at,
+        )
 
     async def _get_owned(self, run_id: uuid.UUID, user: RequestContext):  # noqa: ANN202
         run = await self.runs.get(run_id, user.user_id)

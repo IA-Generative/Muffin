@@ -9,6 +9,7 @@ from app.core.sharing import hash_identifier, mask_email, mask_group, normalize_
 from app.models.collection import Collection, CollectionVisibility, ShareSubjectType
 from app.repositories.collection_repository import CollectionRepository
 from app.repositories.entity_repository import EntityRepository
+from app.repositories.feedback_repository import FeedbackRepository
 from app.repositories.qa_pair_repository import QaPairRepository
 from app.repositories.run_repository import RunRepository
 from app.schemas.collection import (
@@ -23,6 +24,7 @@ from app.schemas.collection import (
     ShareCreate,
     ShareOut,
 )
+from app.schemas.feedback import FeedbackStatsOut
 from app.schemas.pagination import Page, PaginationParams
 from app.services import embedding_model_lookup, vector_store
 
@@ -58,6 +60,7 @@ class CollectionService:
         self.qa_pairs = QaPairRepository(db)
         self.entities = EntityRepository(db)
         self.runs = RunRepository(db)
+        self.feedbacks = FeedbackRepository(db)
 
     async def list_collections(self, user: RequestContext, pagination: PaginationParams) -> Page[CollectionOut]:
         collections, total = await self.repository.list_accessible(
@@ -155,6 +158,11 @@ class CollectionService:
             ungrounded_count=stats["ungrounded_count"],
             recent_ungrounded=[GroundednessRunOut(**run) for run in stats["recent_ungrounded"]],
         )
+
+    async def get_feedback_stats(self, collection_id: uuid.UUID, user: RequestContext) -> FeedbackStatsOut:
+        await self._get_accessible(collection_id, user)
+        stats = await self.feedbacks.get_stats(collection_id)
+        return FeedbackStatsOut(**stats)
 
     async def list_entities(self, collection_id: uuid.UUID, user: RequestContext) -> list[EntityOut]:
         await self._get_accessible(collection_id, user)

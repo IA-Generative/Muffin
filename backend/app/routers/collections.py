@@ -19,6 +19,7 @@ from app.schemas.collection import (
     ShareOut,
     VisibilityUpdate,
 )
+from app.schemas.feedback import FeedbackStatsOut
 from app.schemas.pagination import Page, PaginationParams
 from app.services.collection_service import (
     AlreadyInvitedError,
@@ -114,6 +115,19 @@ async def list_qa_pairs(
 async def get_groundedness_stats(collection_id: uuid.UUID, user: UserDep, service: ServiceDep) -> GroundednessStatsOut:
     try:
         return await service.get_groundedness_stats(collection_id, user)
+    except CollectionNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
+
+
+@router.get(
+    "/collections/{collection_id}/feedback",
+    summary="Aggregate this collection's user feedback - thumbs up/down counts and reason "
+    "breakdown across every run that cited it",
+    response_model=FeedbackStatsOut,
+)
+async def get_feedback_stats(collection_id: uuid.UUID, user: UserDep, service: ServiceDep) -> FeedbackStatsOut:
+    try:
+        return await service.get_feedback_stats(collection_id, user)
     except CollectionNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
 

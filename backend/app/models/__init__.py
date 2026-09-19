@@ -30,6 +30,7 @@ from app.models.feedback import (
     FeedbackReasonCode,
     FeedbackSource,
     FeedbackSourceRole,
+    FeedbackValue,
 )
 from app.models.message import Message, MessageRole
 from app.models.qa import QaOrigin, QaPair
@@ -63,6 +64,7 @@ __all__ = [
     "FeedbackReasonCode",
     "FeedbackSource",
     "FeedbackSourceRole",
+    "FeedbackValue",
     "Message",
     "MessageRole",
     "MessageSource",

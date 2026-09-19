@@ -53,6 +53,15 @@ class ConversationRepository:
         )
         return result.all()
 
+    async def get_assistant_message_by_run_id(self, run_id: uuid.UUID) -> Message | None:
+        """The assistant's answer message for a run - not Run.message_id, which is the *user*
+        message that triggered it (see Run.message_id's docstring). This is what a feedback
+        (always given on the answer, never the question) attaches to."""
+        result = await self.db.execute(
+            select(Message).where(Message.run_id == run_id, Message.role == MessageRole.ASSISTANT)
+        )
+        return result.scalar_one_or_none()
+
     async def get_by_id(self, conversation_id: uuid.UUID) -> Conversation | None:
         """No owner check - internal/worker use only, never exposed on a user-facing route."""
         result = await self.db.execute(select(Conversation).where(Conversation.id == conversation_id))
