@@ -90,11 +90,16 @@ services:
       REDIS_URL: redis://redis:6379/0
       BACKEND_API_URL: http://backend:8000
       WORKER_API_KEY: ${WORKER_API_KEY:-dev-only-worker-key-not-for-prod}
+      # Only ever called when a run opted in (chat composer's web-search toggle, off by
+      # default) - see worker/agent_execution/app/searxng_client.py.
+      SEARXNG_URL: http://searxng:8080
     depends_on:
       redis:
         condition: service_healthy
       backend:
         condition: service_started
+      searxng:
+        condition: service_healthy
     restart: unless-stopped
 
   # RustFS's image runs as non-root (uid 10001); named Docker volumes default
@@ -156,6 +161,22 @@ services:
       # The image is Alpine-based (has curl, no bash) - unlike qdrant's/keycloak's raw
       # /dev/tcp healthcheck elsewhere in this file, which their images can't run either.
       test: ["CMD", "curl", "-f", "http://localhost:7700/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 10s
+
+  searxng:
+    image: searxng/searxng:latest
+    environment:
+      SEARXNG_BASE_URL: http://localhost:8085/
+    volumes:
+      - ./docker/searxng/settings.yml:/etc/searxng/settings.yml:ro
+    ports:
+      - "8085:8080"
+    healthcheck:
+      # No curl in this image (Debian-slim + Python, not Alpine) - wget is.
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/"]
       interval: 10s
       timeout: 5s
       retries: 15
