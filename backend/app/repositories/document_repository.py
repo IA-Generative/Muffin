@@ -7,7 +7,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.chunk import Chunk
-from app.models.document import Document, DocumentPage, DocumentStatus, DocumentTag, DocumentType
+from app.models.document import (
+    Document,
+    DocumentPage,
+    DocumentStatus,
+    DocumentTag,
+    DocumentType,
+)
 
 
 class DocumentRepository:
@@ -74,7 +80,10 @@ class DocumentRepository:
 
     async def get_page(self, document_id: uuid.UUID, page_number: int) -> DocumentPage | None:
         result = await self.db.execute(
-            select(DocumentPage).where(DocumentPage.document_id == document_id, DocumentPage.page_number == page_number)
+            select(DocumentPage).where(
+                DocumentPage.document_id == document_id,
+                DocumentPage.page_number == page_number,
+            )
         )
         return result.scalar_one_or_none()
 
@@ -93,7 +102,12 @@ class DocumentRepository:
         return result.all()
 
     async def create_file(self, collection_id: uuid.UUID, name: str, storage_key: str) -> Document:
-        document = Document(collection_id=collection_id, name=name, type=DocumentType.FILE, storage_key=storage_key)
+        document = Document(
+            collection_id=collection_id,
+            name=name,
+            type=DocumentType.FILE,
+            storage_key=storage_key,
+        )
         self.db.add(document)
         await self.db.flush()
         return document
@@ -109,11 +123,19 @@ class DocumentRepository:
         keys = [document.storage_key] if document and document.storage_key else []
         screenshots = await self.db.scalars(
             select(DocumentPage.screenshot).where(
-                DocumentPage.document_id == document_id, DocumentPage.screenshot.is_not(None)
+                DocumentPage.document_id == document_id,
+                DocumentPage.screenshot.is_not(None),
             )
         )
         keys.extend(screenshots.all())
         return keys
+
+    async def list_chunk_ids(self, document_id: uuid.UUID) -> list[uuid.UUID]:
+        """Returns the chunk ids of a document - needed to delete their Meilisearch embeddings
+        alongside the document itself (see vector_store.delete_document_embeddings), before the
+        Postgres rows go away and those ids can't be looked up anymore."""
+        result = await self.db.scalars(select(Chunk.id).where(Chunk.document_id == document_id))
+        return list(result.all())
 
     async def delete(self, document: Document) -> None:
         await self.db.delete(document)
@@ -125,7 +147,8 @@ class DocumentRepository:
         cleared, so the caller can delete those now-orphaned RustFS objects."""
         screenshots = await self.db.scalars(
             select(DocumentPage.screenshot).where(
-                DocumentPage.document_id == document_id, DocumentPage.screenshot.is_not(None)
+                DocumentPage.document_id == document_id,
+                DocumentPage.screenshot.is_not(None),
             )
         )
         keys = list(screenshots.all())
@@ -134,7 +157,11 @@ class DocumentRepository:
         return keys
 
     async def update_status(
-        self, document: Document, status: DocumentStatus, progress: int | None, summary: str | None
+        self,
+        document: Document,
+        status: DocumentStatus,
+        progress: int | None,
+        summary: str | None,
     ) -> None:
         document.status = status
         if progress is not None:
@@ -157,17 +184,37 @@ class DocumentRepository:
         self.db.add_all([DocumentTag(document_id=document.id, tag=tag) for tag in dict.fromkeys(tags)])
 
     async def add_page(
-        self, document_id: uuid.UUID, page_number: int, content: str, screenshot: str | None
+        self,
+        document_id: uuid.UUID,
+        page_number: int,
+        content: str,
+        screenshot: str | None,
     ) -> DocumentPage:
-        page = DocumentPage(document_id=document_id, page_number=page_number, content=content, screenshot=screenshot)
+        page = DocumentPage(
+            document_id=document_id,
+            page_number=page_number,
+            content=content,
+            screenshot=screenshot,
+        )
         self.db.add(page)
         await self.db.flush()
         return page
 
     async def add_chunk(
-        self, document_id: uuid.UUID, index: int, text: str, token_count: int, extras: dict[str, Any] | None
+        self,
+        document_id: uuid.UUID,
+        index: int,
+        text: str,
+        token_count: int,
+        extras: dict[str, Any] | None,
     ) -> Chunk:
-        chunk = Chunk(document_id=document_id, index=index, text=text, token_count=token_count, extras=extras)
+        chunk = Chunk(
+            document_id=document_id,
+            index=index,
+            text=text,
+            token_count=token_count,
+            extras=extras,
+        )
         self.db.add(chunk)
         await self.db.flush()
         return chunk

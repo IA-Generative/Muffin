@@ -79,7 +79,13 @@ def _create_index(name: str, embedding: list[float]) -> None:
     )
 
 
-def _upsert(collection_id: uuid.UUID, point_id: uuid.UUID, embedding: list[float], kind: str, text: str = "") -> None:
+def _upsert(
+    collection_id: uuid.UUID,
+    point_id: uuid.UUID,
+    embedding: list[float],
+    kind: str,
+    text: str = "",
+) -> None:
     name = _index_name(collection_id)
     if not _index_exists(name):
         _create_index(name, embedding)
@@ -97,25 +103,38 @@ def _upsert(collection_id: uuid.UUID, point_id: uuid.UUID, embedding: list[float
 
 
 def upsert_chunk_embedding(
-    collection_id: uuid.UUID, chunk_id: uuid.UUID, embedding: list[float], text: str = ""
+    collection_id: uuid.UUID,
+    chunk_id: uuid.UUID,
+    embedding: list[float],
+    text: str = "",
 ) -> None:
     _upsert(collection_id, chunk_id, embedding, _KIND_CHUNK, text)
 
 
 def upsert_qa_embedding(
-    collection_id: uuid.UUID, qa_pair_id: uuid.UUID, embedding: list[float], text: str = ""
+    collection_id: uuid.UUID,
+    qa_pair_id: uuid.UUID,
+    embedding: list[float],
+    text: str = "",
 ) -> None:
     _upsert(collection_id, qa_pair_id, embedding, _KIND_QA, text)
 
 
 def upsert_summary_embedding(
-    collection_id: uuid.UUID, document_id: uuid.UUID, embedding: list[float], text: str = ""
+    collection_id: uuid.UUID,
+    document_id: uuid.UUID,
+    embedding: list[float],
+    text: str = "",
 ) -> None:
     _upsert(collection_id, document_id, embedding, _KIND_SUMMARY, text)
 
 
 def _search(
-    collection_id: uuid.UUID, query: str, query_embedding: list[float], limit: int, kind_filter: str
+    collection_id: uuid.UUID,
+    query: str,
+    query_embedding: list[float],
+    limit: int,
+    kind_filter: str,
 ) -> list[tuple[uuid.UUID, float]]:
     name = _index_name(collection_id)
     if not _index_exists(name):
@@ -151,10 +170,27 @@ def search_summaries(
     return _search(collection_id, query, query_embedding, limit, f"{_KIND_FIELD} = {_KIND_SUMMARY}")
 
 
+def delete_document_embeddings(collection_id: uuid.UUID, document_id: uuid.UUID, chunk_ids: list[uuid.UUID]) -> None:
+    """Best-effort cleanup of every Meilisearch point tied to one document - the chunk
+    embeddings (keyed by chunk_id) and the summary embedding (keyed by document_id itself,
+    see upsert_summary_embedding). Called from delete_document/reindex_collection *before* the
+    Postgres rows go away, so a Meilisearch/network failure here only leaves orphaned vectors
+    (never stale references the search path can still hit)."""
+    name = _index_name(collection_id)
+    if not _index_exists(name):
+        return
+    try:
+        ids = [str(document_id)] + [str(chunk_id) for chunk_id in chunk_ids]
+        _client.index(name).delete_documents(ids)
+    except Exception:
+        logger.exception(f"Failed to delete document {document_id} embeddings from index '{name}'")
+
+
 def delete_collection(collection_id: uuid.UUID) -> None:
     """Best-effort, same reasoning as app/core/storage.py's delete_objects: called after the
     Collection row is already gone, so a Meilisearch/network failure here must not roll that
-    back - it just leaves an orphaned index under a collection id nothing references anymore."""
+    back - it just leaves an orphaned index under a collection id nothing references anymore.
+    """
     name = _index_name(collection_id)
     try:
         if _index_exists(name):

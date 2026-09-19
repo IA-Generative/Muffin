@@ -14,6 +14,7 @@ from app.repositories.task_repository import TaskRepository
 from app.schemas.collection import EntityOut, RelationOut
 from app.schemas.document import DocumentDetailOut, DocumentOut, DocumentPageOut
 from app.schemas.pagination import Page, PaginationParams
+from app.services import vector_store
 
 from .collection_service import CollectionNotFoundError
 
@@ -36,7 +37,12 @@ class DocumentUploadService:
         return [DocumentOut.model_validate(document) for document in documents]
 
     async def create_file_document(
-        self, collection_id: uuid.UUID, user: RequestContext, filename: str, content: bytes, content_type: str
+        self,
+        collection_id: uuid.UUID,
+        user: RequestContext,
+        filename: str,
+        content: bytes,
+        content_type: str,
     ) -> DocumentOut:
         await self._get_owned_collection(collection_id, user)
         safe_name = os.path.basename(filename) or "document"
@@ -47,7 +53,11 @@ class DocumentUploadService:
         await self.db.commit()
         celery_task_id = enqueue_process_document(str(document.id))
         await self.tasks.create(
-            celery_task_id, PROCESS_DOCUMENT_TASK, user.user_id, document_id=document.id, collection_id=collection_id
+            celery_task_id,
+            PROCESS_DOCUMENT_TASK,
+            user.user_id,
+            document_id=document.id,
+            collection_id=collection_id,
         )
         await self.db.commit()
         return DocumentOut.model_validate(document)
@@ -58,7 +68,11 @@ class DocumentUploadService:
         await self.db.commit()
         celery_task_id = enqueue_process_document(str(document.id))
         await self.tasks.create(
-            celery_task_id, PROCESS_DOCUMENT_TASK, user.user_id, document_id=document.id, collection_id=collection_id
+            celery_task_id,
+            PROCESS_DOCUMENT_TASK,
+            user.user_id,
+            document_id=document.id,
+            collection_id=collection_id,
         )
         await self.db.commit()
         return DocumentOut.model_validate(document)
@@ -69,6 +83,11 @@ class DocumentUploadService:
 
         orphaned_screenshot_keys: list[str] = []
         for document in documents:
+            # Same reasoning as delete_document: clear_content wipes the Postgres chunks/pages,
+            # so their Meilisearch embeddings must be deleted first or they'd survive as stale
+            # vectors pointing at chunk ids that no longer exist.
+            chunk_ids = await self.documents.list_chunk_ids(document.id)
+            vector_store.delete_document_embeddings(collection_id, document.id, chunk_ids)
             orphaned_screenshot_keys.extend(await self.documents.clear_content(document.id))
             await self.documents.update_status(document, DocumentStatus.PENDING, progress=0, summary=None)
         await self.db.commit()
@@ -107,7 +126,11 @@ class DocumentUploadService:
         )
 
     async def list_pages(
-        self, collection_id: uuid.UUID, user: RequestContext, document_id: uuid.UUID, pagination: PaginationParams
+        self,
+        collection_id: uuid.UUID,
+        user: RequestContext,
+        document_id: uuid.UUID,
+        pagination: PaginationParams,
     ) -> Page[DocumentPageOut]:
         await self._get_owned_collection(collection_id, user)
         await self._get_owned_document(collection_id, document_id)
@@ -133,7 +156,11 @@ class DocumentUploadService:
         return pagination.to_page(items, total)
 
     async def get_page_screenshot(
-        self, collection_id: uuid.UUID, user: RequestContext, document_id: uuid.UUID, page_number: int
+        self,
+        collection_id: uuid.UUID,
+        user: RequestContext,
+        document_id: uuid.UUID,
+        page_number: int,
     ) -> tuple[bytes, str]:
         await self._get_owned_collection(collection_id, user)
         await self._get_owned_document(collection_id, document_id)
@@ -149,7 +176,13 @@ class DocumentUploadService:
         await self._get_owned_document(collection_id, document_id)
         entities = await self.entities.list_by_document(document_id)
         return [
-            EntityOut(id=entity.id, name=entity.name, type=entity.type, mentions=entity.mentions) for entity in entities
+            EntityOut(
+                id=entity.id,
+                name=entity.name,
+                type=entity.type,
+                mentions=entity.mentions,
+            )
+            for entity in entities
         ]
 
     async def list_relations(
@@ -160,7 +193,10 @@ class DocumentUploadService:
         relations = await self.entities.list_relations_by_document(document_id)
         return [
             RelationOut(
-                id=relation.id, from_entity=relation.from_entity.name, to=relation.to_entity.name, type=relation.type
+                id=relation.id,
+                from_entity=relation.from_entity.name,
+                to=relation.to_entity.name,
+                type=relation.type,
             )
             for relation in relations
         ]
@@ -169,6 +205,12 @@ class DocumentUploadService:
         await self._get_owned_collection(collection_id, user)
         document = await self._get_owned_document(collection_id, document_id)
         rustfs_keys = await self.documents.list_rustfs_keys_for_document(document_id)
+        chunk_ids = await self.documents.list_chunk_ids(document_id)
+        # Delete the Meilisearch embeddings *before* the Postgres rows go away - otherwise the
+        # chunk ids can't be looked up anymore, and stale vectors would keep surfacing in search
+        # results pointing at a document_id that no longer exists (FK violation at citation
+        # materialization time, see SourceRepository.link_citations).
+        vector_store.delete_document_embeddings(collection_id, document_id, chunk_ids)
         await self.documents.delete(document)
         await self.db.commit()
         storage.delete_objects(rustfs_keys)
