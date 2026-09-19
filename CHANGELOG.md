@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.0-rc.2](https://github.com/IA-Generative/Muffin/compare/v0.5.0-rc.1...v0.5.0-rc.2) (2026-09-19)
+
+
+### Features
+
+* **frontend:** add a Qualité dashboard for the 4 quality metric families ([ff94228](https://github.com/IA-Generative/Muffin/commit/ff94228a615c29cfac62ee6187b834ec0f7447d7))
+* **frontend:** sample sizes, eval-run picker, cost/latency, discussion length ([5f8fd16](https://github.com/IA-Generative/Muffin/commit/5f8fd16fd0adf905a501455bb774e6113fed1131))
+
 ## [0.5.0-rc.1](https://github.com/IA-Generative/Muffin/compare/v0.5.0-rc...v0.5.0-rc.1) (2026-09-19)
 
 
