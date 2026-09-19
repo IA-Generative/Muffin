@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.4.0...v0.5.0-rc) (2026-09-19)
+
+
+### Features
+
+* **backend:** persist and aggregate user feedback ([88c4b09](https://github.com/IA-Generative/Muffin/commit/88c4b093276e66172b7134040cf2d6997dd59ce5)), closes [#30](https://github.com/IA-Generative/Muffin/issues/30)
+
 ## [0.4.0](https://github.com/IA-Generative/Muffin/compare/v0.3.1...v0.4.0) (2026-09-19)
 
 
