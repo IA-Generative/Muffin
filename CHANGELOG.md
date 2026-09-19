@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.4.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.3.1...v0.4.0-rc) (2026-09-19)
+
+
+### Features
+
+* **agent:** add web_search tool backed by SearXNG ([bb2f090](https://github.com/IA-Generative/Muffin/commit/bb2f09079b916e74aa5b87dec46e7dbdbdcd689c))
+* **agent:** route group-shared collections into the agent's VDB search ([c35e6b1](https://github.com/IA-Generative/Muffin/commit/c35e6b1876638d06ea8e535315e18f15ce4be147))
+* **auth:** declare OpenAPI security schemes for Swagger UI ([083d806](https://github.com/IA-Generative/Muffin/commit/083d806c1dabfdff2098930a6c5d07bc944e7869))
+* **backend:** add web_search_enabled flag to runs ([da2b35f](https://github.com/IA-Generative/Muffin/commit/da2b35f553731a5bef68ee3ddd994fc86aab7635))
+* **backend:** persist and expose the agent's groundedness verdict ([8b08e0e](https://github.com/IA-Generative/Muffin/commit/8b08e0efb22373d093582c10ba9ca31e35eedbe7)), closes [#32](https://github.com/IA-Generative/Muffin/issues/32)
+* **collections:** private/public visibility and hashed collection sharing ([411d8e8](https://github.com/IA-Generative/Muffin/commit/411d8e86cfb501ac6828ca2c6922807272872955))
+* **frontend:** add a web-search toggle to the composer's Outils menu ([ea538df](https://github.com/IA-Generative/Muffin/commit/ea538df47894028534187c4d17ac444ed418036b))
+* **helm:** add searxng as a chart dependency ([62d67dc](https://github.com/IA-Generative/Muffin/commit/62d67dcb7010ce9f9b87dab3100465fef0691df1))
+* **search:** replace Qdrant with Meilisearch for hybrid search ([3d5c1c7](https://github.com/IA-Generative/Muffin/commit/3d5c1c79a281d425f3b1fa8ab2cbb91388769a98))
+
+
+### Bug Fixes
+
+* **helm:** bump chart version to 0.2.3 ([42a71b1](https://github.com/IA-Generative/Muffin/commit/42a71b1b4f72519e83c0b1feef1f5223cf7e1c82))
+
 ## [0.3.1](https://github.com/IA-Generative/Muffin/compare/v0.3.0...v0.3.1) (2026-09-18)
 
 
