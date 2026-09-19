@@ -144,6 +144,11 @@ class AgentState(TypedDict):
     answer_context: dict[str, Any] | None
     answer: str | None
     citations: list[dict[str, Any]]
+    # Per-message metrics from generate_answer's LLM call - recorded on the assistant Message
+    # row by the backend (see RunResultUpdate), used by the quality dashboard for latency/cost.
+    answer_latency_ms: int | None
+    answer_prompt_tokens: int | None
+    answer_completion_tokens: int | None
 
     # --- grounding loop (§23-§24) ---
     grounding_result: GroundingResult | None

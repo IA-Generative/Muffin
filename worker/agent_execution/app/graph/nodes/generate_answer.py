@@ -1,3 +1,4 @@
+import time
 from typing import Any
 
 from app.backend_client import backend_client
@@ -47,13 +48,18 @@ def generate_answer(state: AgentState) -> dict[str, Any]:
         else ""
     )
     user_content = f"Query: {state['contextualized_query']}\n\nEvidence:{missing_note}\n\n{evidence_block}"
-    answer = backend_client.llm_chat(
+    start = time.monotonic()
+    result = backend_client.llm_chat_with_usage(
         model,
         [
             {"role": "system", "content": _SYSTEM_PROMPT},
             {"role": "user", "content": user_content},
         ],
     )
+    latency_ms = int((time.monotonic() - start) * 1000)
+    answer = result["content"]
+    prompt_tokens = result.get("prompt_tokens")
+    completion_tokens = result.get("completion_tokens")
     citations = [
         {
             "evidence_id": e["id"],
@@ -71,4 +77,10 @@ def generate_answer(state: AgentState) -> dict[str, Any]:
         for e in context["excerpts"]
     ]
     emit(run_id, "answer_generation_completed", {"citation_count": len(citations)})
-    return {"answer": answer, "citations": citations}
+    return {
+        "answer": answer,
+        "citations": citations,
+        "answer_latency_ms": latency_ms,
+        "answer_prompt_tokens": prompt_tokens,
+        "answer_completion_tokens": completion_tokens,
+    }
