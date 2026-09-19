@@ -1,0 +1,23 @@
+{{- if .Values.enabled }}
+{{- if .Values.worker_evaluation.metrics.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "helper.componentFullname" (dict "root" . "componentName" "worker_evaluation-metrics") }}
+  labels: {{- (include "helper.labels" (dict "root" . "componentName" "worker_evaluation-metrics")) | nindent 4 }}
+  {{- if .Values.worker_evaluation.metrics.service.labels }}
+    {{- toYaml .Values.worker_evaluation.metrics.service.labels | nindent 4 }}
+  {{- end }}
+  {{- if .Values.worker_evaluation.metrics.service.annotations }}
+  annotations: {{- toYaml .Values.worker_evaluation.metrics.service.annotations | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.worker_evaluation.metrics.service.type | default "ClusterIP" }}
+  ports:
+  - port: {{ .Values.worker_evaluation.metrics.service.port }}
+    targetPort: {{ .Values.worker_evaluation.metrics.service.targetPort }}
+    protocol: TCP
+    name: {{ .Values.worker_evaluation.metrics.service.portName | default "metrics" }}
+  selector: {{- include "helper.selectorLabels" (dict "root" . "componentName" "worker_evaluation") | nindent 4 }}
+{{- end }}
+{{- end }}

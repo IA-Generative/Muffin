@@ -1,0 +1,27 @@
+{{- if .Values.enabled }}
+{{- if .Values.worker_evaluation.pdb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "helper.componentFullname" (dict "root" . "componentName" "worker_evaluation") }}
+  labels: {{- (include "helper.labels" (dict "root" . "componentName" "worker_evaluation")) | nindent 4 }}
+  {{- if .Values.worker_evaluation.pdb.labels }}
+    {{- toYaml .Values.worker_evaluation.pdb.labels | nindent 4 }}
+  {{- end }}
+  {{- if .Values.worker_evaluation.pdb.annotations }}
+  annotations: {{- toYaml .Values.worker_evaluation.pdb.annotations | nindent 4 }}
+  {{- end }}
+spec:
+  {{- /* Tested against the empty string rather than for truthiness: `maxUnavailable: 0` is a valid
+  setting (it blocks every voluntary eviction) but is falsy, so `with`/`if` would silently fall
+  through to minAvailable. `toString` maps both nil and "" to "", which are the two unset forms.
+  `helper.component.validate` guarantees at least one of the two is set. */ -}}
+  {{- if ne (toString .Values.worker_evaluation.pdb.maxUnavailable) "" }}
+  maxUnavailable: {{ .Values.worker_evaluation.pdb.maxUnavailable }}
+  {{- else }}
+  minAvailable: {{ .Values.worker_evaluation.pdb.minAvailable }}
+  {{- end }}
+  selector:
+    matchLabels: {{- include "helper.selectorLabels" (dict "root" . "componentName" "worker_evaluation") | nindent 6 }}
+{{- end }}
+{{- end }}
