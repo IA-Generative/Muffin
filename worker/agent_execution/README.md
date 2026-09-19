@@ -39,6 +39,29 @@ Le graphe peut être annulé (`cancel_requested` sur le run) et repris après un
 utilisateur (checkpointer LangGraph sur Redis - une pause doit pouvoir être reprise par un worker
 Celery différent de celui qui l'a posée).
 
+## Pièges connus
+
+Deux bugs rencontrés en ajoutant `web_search`, tous deux invisibles en tests unitaires - seul un
+run réel de bout en bout contre la stack dev (utilisateur sans aucune collection accessible,
+`web_search_enabled=true`) les a fait apparaître : la réponse revenait sans aucune citation
+`web_search`, alors que l'outil aurait dû être utilisé.
+
+- **`replan_research.py` figeait `tool="search"` pour toute tâche replanifiée.** La boucle
+  "couverture insuffisante → replan" (`evaluate_coverage` → `replan_research`) est justement le
+  scénario principal décrit pour déclencher `web_search` (accès documentaire épuisé), mais elle ne
+  pouvait jamais l'atteindre puisque le tool était toujours forcé à `"search"`. Corrigé en laissant
+  le LLM choisir l'outil parmi le même ensemble activé/désactivé que `decompose_query.py`.
+- **`evaluate_coverage.py` classait un jeu de preuves 100% `web_search` comme une simple recherche
+  "meta" (au même titre que `list_collections`/`collection_summary`/...), donc jugée complète sans
+  évaluation de pertinence.** Un résultat web est une preuve de contenu au même titre qu'un chunk
+  de document, pas une recherche méta - il doit passer par le même jugement de suffisance. Corrigé
+  via l'ensemble `_CONTENT_TOOLS = {"search", "web_search"}`.
+
+À garder en tête pour tout futur outil de type "recherche" ajouté au graphe : vérifier qu'il est
+bien atteignable depuis la boucle de replan, et bien classé côté `evaluate_coverage` - un test
+unitaire isolé sur le node concerné ne suffit pas à le détecter, il faut un run bout en bout qui
+passe réellement par la boucle replan.
+
 ## Structure
 
 ```
