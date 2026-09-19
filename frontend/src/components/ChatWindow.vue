@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { nextTick, ref, watch } from 'vue'
 import { useCollections } from '../composables/useCollections'
+import { useChat } from '../composables/useChat'
 import type { ChatMessage, FeedbackDetails } from '../types/chat'
 import ChatMessageItem from './ChatMessage.vue'
 import CollectionPicker from './CollectionPicker.vue'
+import DiscussionFeedbackPrompt from './DiscussionFeedbackPrompt.vue'
 import ModelSelector from './ModelSelector.vue'
 
 const props = defineProps<{
@@ -16,7 +18,10 @@ const emit = defineEmits<{
   feedback: [id: string, value: 'up' | 'down', details?: FeedbackDetails]
   showSources: [id: string]
   showExecution: [id: string]
+  showDiscussionScore: []
 }>()
+
+const { activeId } = useChat()
 
 const { collections } = useCollections()
 
@@ -84,6 +89,11 @@ watch(
 
     <form class="chat-window__form" @submit.prevent="submit">
       <div class="chat-window__inner">
+        <DiscussionFeedbackPrompt
+          :message-count="messages.length"
+          :conversation-id="activeId"
+          @open="emit('showDiscussionScore')"
+        />
         <ul v-if="pinnedCollectionIds.length > 0" class="chat-window__chips">
           <li v-for="id in pinnedCollectionIds" :key="id" class="chat-window__chip">
             <span>{{ collections.find((collection) => collection.id === id)?.name ?? id }}</span>

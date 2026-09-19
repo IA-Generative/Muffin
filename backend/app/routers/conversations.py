@@ -7,6 +7,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.security.factory import RequestContext, get_current_user
 from app.db import get_db
 from app.schemas.conversation import ConversationOut, ConversationUpdate, MessageOut
+from app.schemas.discussion_feedback import (
+    DiscussionFeedbackCreate,
+    DiscussionFeedbackOut,
+)
 from app.schemas.discussion_score import DiscussionScoreOut
 from app.schemas.pagination import Page, PaginationParams
 from app.schemas.run import RunOut
@@ -119,6 +123,46 @@ async def list_discussion_scores(
 ) -> list[DiscussionScoreOut]:
     try:
         return await service.list_discussion_scores(conversation_id, user)
+    except ConversationNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found") from error
+
+
+@router.post(
+    "/conversations/{conversation_id}/discussion-feedback",
+    summary="Submit or update the current user's holistic judgment of this conversation - the "
+    "human counterpart to the LLM-generated discussion score",
+    response_model=DiscussionFeedbackOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def submit_discussion_feedback(
+    conversation_id: uuid.UUID,
+    user: UserDep,
+    service: ConversationServiceDep,
+    body: DiscussionFeedbackCreate,
+) -> DiscussionFeedbackOut:
+    try:
+        return await service.submit_discussion_feedback(
+            conversation_id,
+            user,
+            rating=body.rating,
+            coherent=body.coherent,
+            context_usage_score=body.context_usage_score,
+            comment=body.comment,
+        )
+    except ConversationNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found") from error
+
+
+@router.get(
+    "/conversations/{conversation_id}/discussion-feedback",
+    summary="List this conversation's human discussion feedback, most recent first",
+    response_model=list[DiscussionFeedbackOut],
+)
+async def list_discussion_feedback(
+    conversation_id: uuid.UUID, user: UserDep, service: ConversationServiceDep
+) -> list[DiscussionFeedbackOut]:
+    try:
+        return await service.list_discussion_feedback(conversation_id, user)
     except ConversationNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found") from error
 

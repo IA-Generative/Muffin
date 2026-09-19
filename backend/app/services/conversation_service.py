@@ -5,10 +5,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.security.factory import RequestContext
 from app.core.tasks import SCORE_DISCUSSION_TASK, enqueue_score_discussion
 from app.repositories.conversation_repository import ConversationRepository
+from app.repositories.discussion_feedback_repository import DiscussionFeedbackRepository
 from app.repositories.discussion_score_repository import DiscussionScoreRepository
 from app.repositories.feedback_repository import FeedbackRepository
 from app.repositories.task_repository import TaskRepository
 from app.schemas.conversation import ConversationOut, MessageOut
+from app.schemas.discussion_feedback import DiscussionFeedbackOut
 from app.schemas.discussion_score import DiscussionScoreOut
 from app.schemas.pagination import Page, PaginationParams
 
@@ -22,6 +24,7 @@ class ConversationService:
         self.db = db
         self.conversations = ConversationRepository(db)
         self.discussion_scores = DiscussionScoreRepository(db)
+        self.discussion_feedbacks = DiscussionFeedbackRepository(db)
         self.tasks = TaskRepository(db)
         self.feedbacks = FeedbackRepository(db)
 
@@ -113,6 +116,60 @@ class ConversationService:
                 reasoning=score.reasoning,
             )
             for score in scores
+        ]
+
+    async def submit_discussion_feedback(
+        self,
+        conversation_id: uuid.UUID,
+        user: RequestContext,
+        rating: int,
+        coherent: bool,
+        context_usage_score: float | None,
+        comment: str | None,
+    ) -> DiscussionFeedbackOut:
+        conversation = await self._get_owned(conversation_id, user)
+        feedback = await self.discussion_feedbacks.upsert(
+            conversation.id,
+            user.user_id,
+            {
+                "rating": rating,
+                "coherent": coherent,
+                "context_usage_score": context_usage_score,
+                "comment": comment,
+            },
+        )
+        await self.db.commit()
+        await self.db.refresh(feedback)
+        return DiscussionFeedbackOut(
+            id=feedback.id,
+            conversation_id=feedback.conversation_id,
+            user_id=feedback.user_id,
+            rating=feedback.rating,
+            coherent=feedback.coherent,
+            context_usage_score=feedback.context_usage_score,
+            comment=feedback.comment,
+            created_at=feedback.created_at,
+            updated_at=feedback.updated_at,
+        )
+
+    async def list_discussion_feedback(
+        self, conversation_id: uuid.UUID, user: RequestContext
+    ) -> list[DiscussionFeedbackOut]:
+        conversation = await self._get_owned(conversation_id, user)
+        feedbacks = await self.discussion_feedbacks.list_by_conversation(conversation.id)
+        return [
+            DiscussionFeedbackOut(
+                id=fb.id,
+                conversation_id=fb.conversation_id,
+                user_id=fb.user_id,
+                rating=fb.rating,
+                coherent=fb.coherent,
+                context_usage_score=fb.context_usage_score,
+                comment=fb.comment,
+                created_at=fb.created_at,
+                updated_at=fb.updated_at,
+            )
+            for fb in feedbacks
         ]
 
     async def _get_owned(self, conversation_id: uuid.UUID, user: RequestContext):  # noqa: ANN202
