@@ -1,7 +1,7 @@
 # backend
 
 API FastAPI de Muffin, en BFF (Backend For Frontend) : c'est le **seul** service qui parle
-directement à Postgres, Qdrant, RustFS, Keycloak et au hub LLM. Le frontend et les deux workers
+directement à Postgres, Meilisearch, RustFS, Keycloak et au hub LLM. Le frontend et les deux workers
 Celery (`worker/document_process`, `worker/agent_execution`) passent tous par ses endpoints HTTP.
 
 ## Rôle
@@ -14,7 +14,7 @@ Celery (`worker/document_process`, `worker/agent_execution`) passent tous par se
   reprise après une clarification demandée par l'agent (human-in-the-loop).
 - **Endpoints internes** (`/api/internal/*`, préfixe `internal`, protégés par le header
   `X-API-Key` == `WORKER_API_KEY`) : seule porte d'entrée que les deux workers utilisent pour lire/
-  écrire en base, dans Qdrant ou dans RustFS. Ni l'un ni l'autre n'a de credentials directs vers
+  écrire en base, dans Meilisearch ou dans RustFS. Ni l'un ni l'autre n'a de credentials directs vers
   ces systèmes.
 - **Hub LLM** : seul service à détenir la clé API du hub LLM (compatible OpenAI) ; expose
   `/api/models` et `/api/internal/llm/*` pour que les workers génèrent du texte/des embeddings

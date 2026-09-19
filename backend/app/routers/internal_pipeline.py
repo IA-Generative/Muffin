@@ -32,7 +32,7 @@ async def create_qa_pair(
     qa_pair = await QaPairRepository(db).create(collection_id, body.document_id, body.question, body.answer)
     await db.commit()
     if body.embedding is not None:
-        vector_store.upsert_qa_embedding(collection_id, qa_pair.id, body.embedding)
+        vector_store.upsert_qa_embedding(collection_id, qa_pair.id, body.embedding, body.question)
     return {"status": "ok"}
 
 

@@ -167,7 +167,7 @@ class CollectionService:
         rustfs_keys = await self.repository.list_rustfs_keys(collection_id)
         await self.repository.delete(collection)
         await self.db.commit()
-        # Best-effort and after the commit: a RustFS/Qdrant failure here must
+        # Best-effort and after the commit: a RustFS/Meilisearch failure here must
         # not roll back a deletion the user already sees as done.
         storage.delete_objects(rustfs_keys)
         vector_store.delete_collection(collection_id)

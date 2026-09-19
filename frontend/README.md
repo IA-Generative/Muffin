@@ -4,7 +4,7 @@ Interface Vue 3 de Muffin (design system DSFR - `@gouvfr/dsfr`/`@gouvminint/vue-
 recherche, gestion des collections/documents, suivi des tâches d'ingestion, administration.
 
 Parle uniquement au backend (`VITE_API_BASE_URL`, voir `docs/environment-variables.md` à la racine
-du repo) - jamais directement à Postgres/Qdrant/Keycloak.
+du repo) - jamais directement à Postgres/Meilisearch/Keycloak.
 
 ## Pages (`src/router/index.ts`)
 
