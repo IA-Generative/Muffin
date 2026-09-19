@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.6.0-rc.3](https://github.com/IA-Generative/Muffin/compare/v0.6.0-rc.2...v0.6.0-rc.3) (2026-09-19)
+
+
+### Features
+
+* add conversation feedback ([2d7dd03](https://github.com/IA-Generative/Muffin/commit/2d7dd030f2c0ed1a9c46a72ae9bd40b38546b9b3))
+* connect evaluation to collections ([700cd53](https://github.com/IA-Generative/Muffin/commit/700cd5376ba1abb5379de7e0fb2eeaaf361129f4))
+* connection with evaluation ([35c0974](https://github.com/IA-Generative/Muffin/commit/35c097478364d1a522d2163362a32d6558a0b41f))
+* **quality:** filter scores by model and skip already-scored conversations ([3100fd6](https://github.com/IA-Generative/Muffin/commit/3100fd69f0fca742fd0a04b3c01d21f568601a5c))
+
 ## [0.6.0-rc.2](https://github.com/IA-Generative/Muffin/compare/v0.6.0-rc.1...v0.6.0-rc.2) (2026-09-19)
 
 
