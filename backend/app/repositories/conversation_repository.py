@@ -81,9 +81,24 @@ class ConversationRepository:
         return conversation
 
     async def add_message(
-        self, conversation_id: uuid.UUID, role: MessageRole, content: str, run_id: uuid.UUID | None = None
+        self,
+        conversation_id: uuid.UUID,
+        role: MessageRole,
+        content: str,
+        run_id: uuid.UUID | None = None,
+        latency_ms: int | None = None,
+        prompt_tokens: int | None = None,
+        completion_tokens: int | None = None,
     ) -> Message:
-        message = Message(conversation_id=conversation_id, role=role, content=content, run_id=run_id)
+        message = Message(
+            conversation_id=conversation_id,
+            role=role,
+            content=content,
+            run_id=run_id,
+            latency_ms=latency_ms,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+        )
         self.db.add(message)
         await self.db.flush()
         return message

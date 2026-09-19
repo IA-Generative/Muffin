@@ -37,7 +37,8 @@ def _config(run_id: str) -> dict[str, Any]:
 def _generate_conversation_title(conversation_id: str, query: str, answer: str) -> None:
     """Best-effort (§ never let a side effect flip an already-completed run to failed): the
     backend's own title_generated flag makes this idempotent, so it's safe to just attempt it
-    after every completed run rather than the worker tracking "is this the first one" itself."""
+    after every completed run rather than the worker tracking "is this the first one" itself.
+    """
     try:
         model = backend_client.get_default_chat_model()
         if model is None:
@@ -124,7 +125,8 @@ class AgentService:
 
     def resume(self, run_id: str, answer: str) -> None:
         """Entry point for continuing a run paused on request_clarification's interrupt() (§31),
-        called from app.tasks.resume_agent (dispatched by POST /api/runs/{id}/resume)."""
+        called from app.tasks.resume_agent (dispatched by POST /api/runs/{id}/resume).
+        """
         from langgraph.types import Command
 
         try:
@@ -158,13 +160,18 @@ class AgentService:
             final_state["answer"] or "",
             final_state["citations"],
             grounding_valid=grounding_result["valid"] if grounding_result else None,
-            grounding_unsupported_claims=grounding_result["unsupported_claims"] if grounding_result else None,
+            grounding_unsupported_claims=(grounding_result["unsupported_claims"] if grounding_result else None),
             grounding_research_count=final_state.get("grounding_research_count"),
+            latency_ms=final_state.get("answer_latency_ms"),
+            prompt_tokens=final_state.get("answer_prompt_tokens"),
+            completion_tokens=final_state.get("answer_completion_tokens"),
         )
         backend_client.update_run_status(run_id, "completed")
         backend_client.add_run_event(run_id, "run_completed", {"citation_count": len(final_state["citations"])})
         _generate_conversation_title(
-            final_state["conversation_id"], final_state["original_query"], final_state["answer"] or ""
+            final_state["conversation_id"],
+            final_state["original_query"],
+            final_state["answer"] or "",
         )
 
 

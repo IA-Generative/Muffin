@@ -61,6 +61,11 @@ class RunResultUpdate(BaseModel):
     grounding_valid: bool | None = None
     grounding_unsupported_claims: list[str] | None = None
     grounding_research_count: int | None = None
+    # Per-message metrics from generate_answer's LLM call - stored on the assistant Message row,
+    # used by the quality dashboard for average latency and cost estimation.
+    latency_ms: int | None = None
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
 
 
 class RunErrorUpdate(BaseModel):

@@ -44,6 +44,12 @@ class DiscussionMetricOut(BaseModel):
     coherent_count: int
     avg_context_usage_score: float | None
     avg_rating: float | None
+    # Average number of messages per conversation (from the messages table).
+    avg_message_count: float | None
+    # Average agent response latency in milliseconds (from assistant messages that have it).
+    avg_latency_ms: float | None
+    # Estimated cost: 0.75 × total tokens (tokens sent + received, from assistant messages).
+    estimated_cost: float | None
 
 
 class GroundednessMetricOut(BaseModel):

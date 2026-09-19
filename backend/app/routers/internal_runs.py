@@ -32,7 +32,11 @@ from app.schemas.internal_run import (
 )
 from app.services.search_service import SearchService
 
-router = APIRouter(prefix="/internal", tags=["Internal"], dependencies=[Depends(require_worker_api_key)])
+router = APIRouter(
+    prefix="/internal",
+    tags=["Internal"],
+    dependencies=[Depends(require_worker_api_key)],
+)
 
 # How many prior messages get threaded into a new run's context (see InternalRunOut.history).
 # Unbounded history would make analyze_query's prompt (and its latency) grow with every turn of
@@ -65,7 +69,9 @@ def _to_out(run, history: list[dict[str, str]]) -> InternalRunOut:  # noqa: ANN0
 
 
 @router.get(
-    "/runs/{run_id}", summary="Fetch a run's full state for the worker to resume/act on", response_model=InternalRunOut
+    "/runs/{run_id}",
+    summary="Fetch a run's full state for the worker to resume/act on",
+    response_model=InternalRunOut,
 )
 async def get_run(run_id: uuid.UUID, db: Annotated[AsyncSession, Depends(get_db)]) -> InternalRunOut:
     run = await RunRepository(db).get_by_id(run_id)
@@ -84,7 +90,9 @@ async def get_run(run_id: uuid.UUID, db: Annotated[AsyncSession, Depends(get_db)
 
 @router.patch("/runs/{run_id}/status", summary="Report a run's status/current node/activity")
 async def update_run_status(
-    run_id: uuid.UUID, update: RunStatusUpdate, db: Annotated[AsyncSession, Depends(get_db)]
+    run_id: uuid.UUID,
+    update: RunStatusUpdate,
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict[str, str]:
     repository = RunRepository(db)
     run = await repository.get_by_id(run_id)
@@ -95,16 +103,26 @@ async def update_run_status(
     return {"status": "ok"}
 
 
-@router.patch("/runs/{run_id}/state", summary="Merge into a run's plan/budget/pending_human_action state")
+@router.patch(
+    "/runs/{run_id}/state",
+    summary="Merge into a run's plan/budget/pending_human_action state",
+)
 async def update_run_state(
-    run_id: uuid.UUID, update: RunStateUpdate, db: Annotated[AsyncSession, Depends(get_db)]
+    run_id: uuid.UUID,
+    update: RunStateUpdate,
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict[str, str]:
     repository = RunRepository(db)
     run = await repository.get_by_id(run_id)
     if run is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
     await repository.update_state(
-        run, update.research_plan, update.budget, update.pending_human_action, update.plan_version, update.replan_count
+        run,
+        update.research_plan,
+        update.budget,
+        update.pending_human_action,
+        update.plan_version,
+        update.replan_count,
     )
     await db.commit()
     return {"status": "ok"}
@@ -112,7 +130,9 @@ async def update_run_state(
 
 @router.patch("/runs/{run_id}/result", summary="Report a run's final answer and citations")
 async def update_run_result(
-    run_id: uuid.UUID, update: RunResultUpdate, db: Annotated[AsyncSession, Depends(get_db)]
+    run_id: uuid.UUID,
+    update: RunResultUpdate,
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict[str, str]:
     repository = RunRepository(db)
     run = await repository.get_by_id(run_id)
@@ -122,7 +142,13 @@ async def update_run_result(
     # restore the full thread (§ conversation persistence) - Run stays about execution/status,
     # Message is the single source of truth for what the user actually sees in the chat history.
     message = await ConversationRepository(db).add_message(
-        run.conversation_id, MessageRole.ASSISTANT, update.answer, run_id=run.id
+        run.conversation_id,
+        MessageRole.ASSISTANT,
+        update.answer,
+        run_id=run.id,
+        latency_ms=update.latency_ms,
+        prompt_tokens=update.prompt_tokens,
+        completion_tokens=update.completion_tokens,
     )
     # Materializes the citable subset of update.citations as Source rows, so a feedback on this
     # message later has stable ids to validate/add (see SourceRepository, FeedbackSource) - the
@@ -143,7 +169,9 @@ async def update_run_result(
 
 @router.patch("/runs/{run_id}/error", summary="Report a run failure")
 async def update_run_error(
-    run_id: uuid.UUID, update: RunErrorUpdate, db: Annotated[AsyncSession, Depends(get_db)]
+    run_id: uuid.UUID,
+    update: RunErrorUpdate,
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict[str, str]:
     repository = RunRepository(db)
     run = await repository.get_by_id(run_id)
@@ -154,9 +182,15 @@ async def update_run_error(
     return {"status": "ok"}
 
 
-@router.post("/runs/{run_id}/events", summary="Record a structured progress event", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/runs/{run_id}/events",
+    summary="Record a structured progress event",
+    status_code=status.HTTP_201_CREATED,
+)
 async def create_run_event(
-    run_id: uuid.UUID, event: RunEventCreate, db: Annotated[AsyncSession, Depends(get_db)]
+    run_id: uuid.UUID,
+    event: RunEventCreate,
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict[str, str]:
     repository = RunRepository(db)
     if await repository.get_by_id(run_id) is None:
@@ -208,7 +242,12 @@ async def list_collection_documents(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found")
     documents = await DocumentRepository(db).list_by_collection(collection_id)
     return [
-        DocumentSummaryOut(id=document.id, name=document.name, status=document.status, summary=document.summary)
+        DocumentSummaryOut(
+            id=document.id,
+            name=document.name,
+            status=document.status,
+            summary=document.summary,
+        )
         for document in documents
     ]
 
@@ -220,7 +259,10 @@ async def list_collection_documents(
     response_model=DocumentPageContentOut,
 )
 async def get_document_page(
-    user_id: str, document_id: uuid.UUID, page_number: int, db: Annotated[AsyncSession, Depends(get_db)]
+    user_id: str,
+    document_id: uuid.UUID,
+    page_number: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> DocumentPageContentOut:
     documents = DocumentRepository(db)
     document = await documents.get_with_collection(document_id)
@@ -232,7 +274,7 @@ async def get_document_page(
     return DocumentPageContentOut(
         page_number=page.page_number,
         content=page.content,
-        screenshot_url=storage.get_presigned_url(page.screenshot) if page.screenshot else None,
+        screenshot_url=(storage.get_presigned_url(page.screenshot) if page.screenshot else None),
     )
 
 
@@ -243,7 +285,9 @@ async def get_document_page(
     "conversation never overwrites a title the first one already generated",
 )
 async def update_conversation_title(
-    conversation_id: uuid.UUID, body: ConversationTitleUpdate, db: Annotated[AsyncSession, Depends(get_db)]
+    conversation_id: uuid.UUID,
+    body: ConversationTitleUpdate,
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict[str, str]:
     repository = ConversationRepository(db)
     conversation = await repository.get_by_id(conversation_id)
