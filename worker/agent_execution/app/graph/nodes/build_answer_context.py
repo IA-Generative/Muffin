@@ -40,8 +40,10 @@ def build_answer_context(state: AgentState) -> dict[str, Any]:
                 # tool + document_id.
                 "evidence_kind": e["metadata"].get("evidence_kind", "document"),
                 # source_id is empty for QA/summary evidence (no specific document to cite) -
-                # don't pass it as document_id, or link_citations would FK-violate.
-                "document_id": e["source_id"] or None,
+                # don't pass it as document_id, or link_citations would FK-violate. For web_search
+                # evidence, source_id is the external URL (not a UUID) - passing it as document_id
+                # would crash link_citations' uuid.UUID() parse. Web citations use `url` instead.
+                "document_id": (e["source_id"] if e["metadata"].get("evidence_kind") == "document" else None),
                 "chunk_id": e["metadata"].get("chunk_id"),
                 "page_number": e["metadata"].get("page_number"),
                 # Only ever set on a web_search result (see research_task._web_result_evidence) -

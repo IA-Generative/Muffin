@@ -80,8 +80,17 @@ class SourceRepository:
                 enriched.append(citation)
                 continue
             url = citation.get("url")
-            document_id = uuid.UUID(citation["document_id"]) if citation.get("document_id") else None
-            chunk_id = uuid.UUID(citation["chunk_id"]) if citation.get("chunk_id") else None
+            # Defensive: a non-UUID document_id (e.g. a web_search URL that leaked through as
+            # source_id) must never crash the whole run finalization - null it out instead, the
+            # citation stays visible, just without a document link.
+            try:
+                document_id = uuid.UUID(citation["document_id"]) if citation.get("document_id") else None
+            except (ValueError, TypeError):
+                document_id = None
+            try:
+                chunk_id = uuid.UUID(citation["chunk_id"]) if citation.get("chunk_id") else None
+            except (ValueError, TypeError):
+                chunk_id = None
             if url is None and document_id is None:
                 # Neither identity is available - nothing stable to dedupe or link on.
                 enriched.append(citation)
