@@ -145,10 +145,13 @@ onBeforeUnmount(() => {
       </template>
       <template v-else>
         <p v-if="message.role === 'user'" class="chat-message__text">{{ renderedContent }}</p>
-        <p v-else-if="message.pending" class="chat-message__text chat-message__pending">
-          {{ renderedContent }}<span class="chat-message__dots" aria-hidden="true"><span>.</span><span>.</span><span>.</span></span>
-          <span class="chat-message__elapsed">{{ elapsedLabel }}</span>
-        </p>
+        <div v-else-if="message.pending" class="chat-message__pending">
+          <div class="chat-message__pending-header">
+            <span class="chat-message__dots" aria-hidden="true"><span>.</span><span>.</span><span>.</span></span>
+            <span class="chat-message__elapsed">{{ elapsedLabel }}</span>
+          </div>
+          <p class="chat-message__text">{{ renderedContent }}</p>
+        </div>
         <!-- eslint-disable-next-line vue/no-v-html -->
         <div v-else class="chat-message__markdown" v-html="renderedContent" />
       </template>
@@ -195,7 +198,7 @@ onBeforeUnmount(() => {
           title="Bonne réponse"
           @click="thumbUp"
         >
-          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="17" height="17" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
             <path
               stroke-linecap="round"
               stroke-linejoin="round"
@@ -211,7 +214,7 @@ onBeforeUnmount(() => {
           title="Mauvaise réponse"
           @click="thumbDown"
         >
-          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="17" height="17" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
             <path
               stroke-linecap="round"
               stroke-linejoin="round"
@@ -306,8 +309,14 @@ onBeforeUnmount(() => {
   color: var(--text-mention-grey);
 }
 
+.chat-message__pending-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
 .chat-message__elapsed {
-  margin-left: 0.5rem;
   font-size: 0.75rem;
   font-variant-numeric: tabular-nums;
   color: var(--text-disabled-grey);
@@ -414,6 +423,11 @@ onBeforeUnmount(() => {
   background: transparent;
   color: var(--text-mention-grey);
   cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.chat-message__action svg {
+  fill: none;
 }
 
 .chat-message__action:hover {
@@ -422,7 +436,16 @@ onBeforeUnmount(() => {
 }
 
 .chat-message__action--active {
+  background: var(--background-action-low-blue-france);
   color: var(--text-action-high-blue-france);
+}
+
+.chat-message__action--active svg {
+  fill: var(--background-action-high-blue-france);
+}
+
+.chat-message__action--active:hover {
+  background: var(--background-action-low-blue-france-hover, var(--background-action-low-blue-france));
 }
 
 .chat-message__menu-wrapper {
@@ -431,9 +454,9 @@ onBeforeUnmount(() => {
 
 .chat-message__menu {
   position: absolute;
-  top: 100%;
+  bottom: 100%;
   left: 0;
-  margin-top: 0.25rem;
+  margin-bottom: 0.25rem;
   padding: 0.25rem;
   min-width: 12rem;
   background: var(--background-default-grey);
