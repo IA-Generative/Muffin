@@ -72,6 +72,49 @@ def test_finalize_does_not_generate_a_title_for_a_cancelled_run(monkeypatch):
     fake.get_default_chat_model.assert_not_called()
 
 
+def test_finalize_reports_the_grounding_verdict_alongside_the_result(monkeypatch):
+    fake = MagicMock()
+    fake.get_default_chat_model.return_value = None
+    monkeypatch.setattr("app.agent_service.backend_client", fake)
+
+    AgentService()._finalize(
+        "run-1",
+        _completed_state(
+            grounding_result={"valid": False, "unsupported_claims": ["25 days is a minimum, not a guarantee"]},
+            grounding_research_count=2,
+        ),
+    )
+
+    fake.set_run_result.assert_called_once_with(
+        "run-1",
+        "Leave is 25 days per year [abc].",
+        [{"evidence_id": "abc", "source": "policy.pdf", "vdb_id": "hr"}],
+        grounding_valid=False,
+        grounding_unsupported_claims=["25 days is a minimum, not a guarantee"],
+        grounding_research_count=2,
+    )
+
+
+def test_finalize_reports_no_grounding_verdict_when_validate_grounding_was_skipped(monkeypatch):
+    """after_generate_answer can route straight to END without ever running validate_grounding
+    (e.g. no evidence to check) - grounding_result stays None in that case, not a fabricated
+    "valid" verdict."""
+    fake = MagicMock()
+    fake.get_default_chat_model.return_value = None
+    monkeypatch.setattr("app.agent_service.backend_client", fake)
+
+    AgentService()._finalize("run-1", _completed_state())
+
+    fake.set_run_result.assert_called_once_with(
+        "run-1",
+        "Leave is 25 days per year [abc].",
+        [{"evidence_id": "abc", "source": "policy.pdf", "vdb_id": "hr"}],
+        grounding_valid=None,
+        grounding_unsupported_claims=None,
+        grounding_research_count=None,
+    )
+
+
 def test_finalize_persists_pending_human_action_on_interrupt(monkeypatch):
     fake = MagicMock()
     monkeypatch.setattr("app.agent_service.backend_client", fake)

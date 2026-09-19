@@ -2,7 +2,7 @@ import uuid
 from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.run import Run, RunEvent, RunStatus
@@ -81,12 +81,64 @@ class RunRepository:
         if replan_count is not None:
             run.replan_count = replan_count
 
-    async def set_result(self, run: Run, answer: str, citations: list[dict[str, Any]]) -> None:
+    async def set_result(
+        self,
+        run: Run,
+        answer: str,
+        citations: list[dict[str, Any]],
+        grounding_valid: bool | None = None,
+        grounding_unsupported_claims: list[str] | None = None,
+        grounding_research_count: int | None = None,
+    ) -> None:
         run.answer = answer
         run.citations = citations
+        run.grounding_valid = grounding_valid
+        run.grounding_unsupported_claims = grounding_unsupported_claims
+        run.grounding_research_count = grounding_research_count
 
     async def set_error(self, run: Run, error: str) -> None:
         run.error = error
+
+    async def get_groundedness_stats(self, collection_id: uuid.UUID) -> dict[str, Any]:
+        """Aggregates the grounding verdicts (see Run.grounding_valid) of every completed run
+        that cited this collection - identified via citations[].vdb_id, the only link between a
+        run and a collection (a run's pinned_collection_ids is what the user attached, not
+        necessarily what actually got searched/cited - see worker/agent_execution/app/graph/
+        nodes/research_task.py). No dedicated join table for this, jsonb_array_elements is cheap
+        enough at this scale and avoids a schema change just to index an already-denormalized
+        JSONB column."""
+        cited_filter = text(
+            "EXISTS (SELECT 1 FROM jsonb_array_elements(runs.citations) AS c WHERE c ->> 'vdb_id' = :collection_id)"
+        ).bindparams(collection_id=str(collection_id))
+
+        counts = await self.db.execute(
+            select(
+                func.count().filter(Run.grounding_valid.is_not(None)).label("evaluated_count"),
+                func.count().filter(Run.grounding_valid.is_(False)).label("ungrounded_count"),
+            ).where(cited_filter)
+        )
+        evaluated_count, ungrounded_count = counts.one()
+
+        recent = await self.db.execute(
+            select(Run.id, Run.query, Run.created_at, Run.grounding_unsupported_claims)
+            .where(cited_filter, Run.grounding_valid.is_(False))
+            .order_by(Run.created_at.desc())
+            .limit(10)
+        )
+        recent_ungrounded = [
+            {
+                "run_id": row.id,
+                "query": row.query,
+                "created_at": row.created_at,
+                "unsupported_claims": row.grounding_unsupported_claims or [],
+            }
+            for row in recent
+        ]
+        return {
+            "evaluated_count": evaluated_count or 0,
+            "ungrounded_count": ungrounded_count or 0,
+            "recent_ungrounded": recent_ungrounded,
+        }
 
     async def list_events(self, run_id: uuid.UUID, since: uuid.UUID | None = None) -> Sequence[RunEvent]:
         query = select(RunEvent).where(RunEvent.run_id == run_id).order_by(RunEvent.created_at)

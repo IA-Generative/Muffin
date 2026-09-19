@@ -9,7 +9,10 @@ from app.core.security.factory import RequestContext, get_current_user
 from app.db import async_session_factory
 from app.main import app
 from app.models.collection import Collection
+from app.models.conversation import Conversation
 from app.models.document import Document, DocumentPage
+from app.models.message import Message, MessageRole
+from app.models.run import Run
 
 
 @pytest.fixture
@@ -22,7 +25,31 @@ async def client():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as async_client:
         yield async_client
     async with async_session_factory() as session:
+        await session.execute(delete(Run))
+        await session.execute(delete(Conversation))
         await session.execute(delete(Collection))
+        await session.commit()
+
+
+async def _create_run_with_citation(collection_id: str, grounding_valid: bool | None, query: str = "query") -> None:
+    async with async_session_factory() as session:
+        conversation = Conversation(user_id="dev-user", title="Test")
+        session.add(conversation)
+        await session.flush()
+        message = Message(conversation_id=conversation.id, role=MessageRole.USER, content=query)
+        session.add(message)
+        await session.flush()
+        session.add(
+            Run(
+                user_id="dev-user",
+                message_id=message.id,
+                conversation_id=conversation.id,
+                query=query,
+                citations=[{"vdb_id": collection_id, "source": "doc-1"}],
+                grounding_valid=grounding_valid,
+                grounding_unsupported_claims=["a claim"] if grounding_valid is False else None,
+            )
+        )
         await session.commit()
 
 
@@ -287,6 +314,34 @@ async def test_list_qa_pairs_filtered_by_document(client):
     body = response.json()
     assert len(body) == 1
     assert body[0]["question"] == "Report question"
+
+
+async def test_groundedness_stats_aggregates_by_collection(client):
+    collection_id = (await client.post("/api/collections")).json()["id"]
+    other_collection_id = (await client.post("/api/collections")).json()["id"]
+
+    await _create_run_with_citation(collection_id, grounding_valid=True, query="grounded")
+    await _create_run_with_citation(collection_id, grounding_valid=False, query="ungrounded")
+    # Not evaluated yet (e.g. validate_grounding was skipped - see agent_service.py) - shouldn't
+    # count as either grounded or ungrounded.
+    await _create_run_with_citation(collection_id, grounding_valid=None, query="unevaluated")
+    # A different collection's ungrounded run must never leak into this one's stats.
+    await _create_run_with_citation(other_collection_id, grounding_valid=False, query="elsewhere")
+
+    response = await client.get(f"/api/collections/{collection_id}/groundedness")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["evaluated_count"] == 2
+    assert body["ungrounded_count"] == 1
+    assert len(body["recent_ungrounded"]) == 1
+    assert body["recent_ungrounded"][0]["query"] == "ungrounded"
+    assert body["recent_ungrounded"][0]["unsupported_claims"] == ["a claim"]
+
+
+async def test_groundedness_stats_for_unknown_collection_returns_404(client):
+    response = await client.get(f"/api/collections/{uuid.uuid4()}/groundedness")
+    assert response.status_code == 404
 
 
 async def test_list_entities(client):
