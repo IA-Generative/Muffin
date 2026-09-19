@@ -37,7 +37,8 @@ async def test_create_file_document_uploads_and_queues_processing(client):
     with (
         patch("app.services.document_upload_service.storage.put_object") as mock_put,
         patch(
-            "app.services.document_upload_service.enqueue_process_document", return_value="celery-task-id"
+            "app.services.document_upload_service.enqueue_process_document",
+            return_value="celery-task-id",
         ) as mock_enqueue,
     ):
         response = await client.post(
@@ -62,10 +63,12 @@ async def test_create_url_document_queues_processing(client):
     collection_id = await _create_collection(client)
 
     with patch(
-        "app.services.document_upload_service.enqueue_process_document", return_value="celery-task-id"
+        "app.services.document_upload_service.enqueue_process_document",
+        return_value="celery-task-id",
     ) as mock_enqueue:
         response = await client.post(
-            f"/api/collections/{collection_id}/documents/url", json={"url": "https://example.com"}
+            f"/api/collections/{collection_id}/documents/url",
+            json={"url": "https://example.com"},
         )
 
     assert response.status_code == 201
@@ -77,8 +80,14 @@ async def test_create_url_document_queues_processing(client):
 
 async def test_list_documents(client):
     collection_id = await _create_collection(client)
-    with patch("app.services.document_upload_service.enqueue_process_document", return_value="celery-task-id"):
-        await client.post(f"/api/collections/{collection_id}/documents/url", json={"url": "https://example.com"})
+    with patch(
+        "app.services.document_upload_service.enqueue_process_document",
+        return_value="celery-task-id",
+    ):
+        await client.post(
+            f"/api/collections/{collection_id}/documents/url",
+            json={"url": "https://example.com"},
+        )
 
     response = await client.get(f"/api/collections/{collection_id}/documents")
 
@@ -87,9 +96,13 @@ async def test_list_documents(client):
 
 
 async def test_create_document_for_unknown_collection_returns_404(client):
-    with patch("app.services.document_upload_service.enqueue_process_document", return_value="celery-task-id"):
+    with patch(
+        "app.services.document_upload_service.enqueue_process_document",
+        return_value="celery-task-id",
+    ):
         response = await client.post(
-            f"/api/collections/{uuid.uuid4()}/documents/url", json={"url": "https://example.com"}
+            f"/api/collections/{uuid.uuid4()}/documents/url",
+            json={"url": "https://example.com"},
         )
     assert response.status_code == 404
 
@@ -98,7 +111,10 @@ async def test_get_document_returns_detail_with_tags_and_page_count(client):
     collection_id = await _create_collection(client)
     with (
         patch("app.services.document_upload_service.storage.put_object"),
-        patch("app.services.document_upload_service.enqueue_process_document", return_value="celery-task-id"),
+        patch(
+            "app.services.document_upload_service.enqueue_process_document",
+            return_value="celery-task-id",
+        ),
     ):
         created = (
             await client.post(
@@ -134,7 +150,10 @@ async def test_list_document_pages_paginated_with_screenshot_urls(client):
     collection_id = await _create_collection(client)
     with (
         patch("app.services.document_upload_service.storage.put_object"),
-        patch("app.services.document_upload_service.enqueue_process_document", return_value="celery-task-id"),
+        patch(
+            "app.services.document_upload_service.enqueue_process_document",
+            return_value="celery-task-id",
+        ),
     ):
         created = (
             await client.post(
@@ -144,12 +163,20 @@ async def test_list_document_pages_paginated_with_screenshot_urls(client):
         ).json()
 
     async with async_session_factory() as session:
-        session.add(DocumentPage(document_id=created["id"], page_number=1, content="page one", screenshot="p1.png"))
+        session.add(
+            DocumentPage(
+                document_id=created["id"],
+                page_number=1,
+                content="page one",
+                screenshot="p1.png",
+            )
+        )
         session.add(DocumentPage(document_id=created["id"], page_number=2, content="page two"))
         await session.commit()
 
     response = await client.get(
-        f"/api/collections/{collection_id}/documents/{created['id']}/pages", params={"page_size": 1}
+        f"/api/collections/{collection_id}/documents/{created['id']}/pages",
+        params={"page_size": 1},
     )
 
     assert response.status_code == 200
@@ -167,7 +194,10 @@ async def test_get_page_screenshot_streams_through_the_backend(client):
     collection_id = await _create_collection(client)
     with (
         patch("app.services.document_upload_service.storage.put_object"),
-        patch("app.services.document_upload_service.enqueue_process_document", return_value="celery-task-id"),
+        patch(
+            "app.services.document_upload_service.enqueue_process_document",
+            return_value="celery-task-id",
+        ),
     ):
         created = (
             await client.post(
@@ -177,11 +207,19 @@ async def test_get_page_screenshot_streams_through_the_backend(client):
         ).json()
 
     async with async_session_factory() as session:
-        session.add(DocumentPage(document_id=created["id"], page_number=1, content="page one", screenshot="p1.png"))
+        session.add(
+            DocumentPage(
+                document_id=created["id"],
+                page_number=1,
+                content="page one",
+                screenshot="p1.png",
+            )
+        )
         await session.commit()
 
     with patch(
-        "app.services.document_upload_service.storage.get_object", return_value=(b"fake-png-bytes", "image/png")
+        "app.services.document_upload_service.storage.get_object",
+        return_value=(b"fake-png-bytes", "image/png"),
     ) as mock_get_object:
         response = await client.get(f"/api/collections/{collection_id}/documents/{created['id']}/pages/1/screenshot")
 
@@ -195,7 +233,10 @@ async def test_get_page_screenshot_for_page_without_one_returns_404(client):
     collection_id = await _create_collection(client)
     with (
         patch("app.services.document_upload_service.storage.put_object"),
-        patch("app.services.document_upload_service.enqueue_process_document", return_value="celery-task-id"),
+        patch(
+            "app.services.document_upload_service.enqueue_process_document",
+            return_value="celery-task-id",
+        ),
     ):
         created = (
             await client.post(
@@ -216,7 +257,10 @@ async def test_delete_document_removes_its_rustfs_objects(client):
     collection_id = await _create_collection(client)
     with (
         patch("app.services.document_upload_service.storage.put_object"),
-        patch("app.services.document_upload_service.enqueue_process_document", return_value="celery-task-id"),
+        patch(
+            "app.services.document_upload_service.enqueue_process_document",
+            return_value="celery-task-id",
+        ),
     ):
         created = (
             await client.post(
@@ -225,11 +269,15 @@ async def test_delete_document_removes_its_rustfs_objects(client):
             )
         ).json()
 
-    with patch("app.services.document_upload_service.storage.delete_objects") as mock_delete:
+    with (
+        patch("app.services.document_upload_service.storage.delete_objects") as mock_delete,
+        patch("app.services.document_upload_service.vector_store.delete_document_embeddings") as mock_delete_vectors,
+    ):
         response = await client.delete(f"/api/collections/{collection_id}/documents/{created['id']}")
 
     assert response.status_code == 204
     mock_delete.assert_called_once()
+    mock_delete_vectors.assert_called_once()
 
     remaining = await client.get(f"/api/collections/{collection_id}/documents")
     assert remaining.json() == []
@@ -245,7 +293,10 @@ async def test_reindex_resets_status_and_requeues(client):
     collection_id = await _create_collection(client)
     with (
         patch("app.services.document_upload_service.storage.put_object"),
-        patch("app.services.document_upload_service.enqueue_process_document", return_value="celery-task-id-1"),
+        patch(
+            "app.services.document_upload_service.enqueue_process_document",
+            return_value="celery-task-id-1",
+        ),
     ):
         created = (
             await client.post(
@@ -255,15 +306,24 @@ async def test_reindex_resets_status_and_requeues(client):
         ).json()
 
     async with async_session_factory() as session:
-        session.add(DocumentPage(document_id=created["id"], page_number=1, content="old", screenshot="old.png"))
+        session.add(
+            DocumentPage(
+                document_id=created["id"],
+                page_number=1,
+                content="old",
+                screenshot="old.png",
+            )
+        )
         session.add(Chunk(document_id=created["id"], index=0, text="old chunk", token_count=2))
         await session.commit()
 
     with (
         patch("app.services.document_upload_service.storage.delete_objects") as mock_delete,
         patch(
-            "app.services.document_upload_service.enqueue_process_document", return_value="celery-task-id-2"
+            "app.services.document_upload_service.enqueue_process_document",
+            return_value="celery-task-id-2",
         ) as mock_enqueue,
+        patch("app.services.document_upload_service.vector_store.delete_document_embeddings"),
     ):
         response = await client.post(f"/api/collections/{collection_id}/documents/reindex")
 
