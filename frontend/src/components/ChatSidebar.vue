@@ -78,7 +78,7 @@ async function startRename(conversation: Conversation) {
 function confirmRename() {
   const id = renamingId.value
   const title = renameDraft.value.trim()
-  renamingId.value = undefined
+  renamingId.value = undefined // clear first so the subsequent @blur (fired by Enter losing focus) is a no-op
   if (id && title) emit('rename', id, title)
 }
 
