@@ -524,8 +524,9 @@ function assistantMessageFor(id: string, run: RunOut): ChatMessage {
   return {
     id,
     role: 'assistant',
-    content: run.status === 'cancelled' ? 'Cette recherche a été annulée.' : run.error || 'Cette recherche a échoué.',
+    content: run.status === 'cancelled' ? 'Cette recherche a été annulée.' : 'Cette recherche a échoué. Veuillez réessayer.',
     runId: run.id,
+    error: run.status !== 'cancelled',
   }
 }
 
@@ -567,7 +568,8 @@ function trackRun(conversationId: string, messageId: string, run: RunOut) {
       replaceMessage(conversationId, messageId, {
         id: messageId,
         role: 'assistant',
-        content: 'Impossible de récupérer le résultat de cette recherche.',
+        content: 'Impossible de récupérer le résultat de cette recherche. Veuillez réessayer.',
+        error: true,
       })
     }
   }, 1500)
@@ -589,7 +591,8 @@ async function runQuery(
     replaceMessage(conversationId, messageId, {
       id: messageId,
       role: 'assistant',
-      content: 'Impossible de lancer cette recherche.',
+      content: 'Impossible de lancer cette recherche. Veuillez réessayer.',
+      error: true,
     })
   }
 }
@@ -602,7 +605,8 @@ async function resumeAndTrack(conversationId: string, runId: string, messageId: 
     replaceMessage(conversationId, messageId, {
       id: messageId,
       role: 'assistant',
-      content: 'Impossible de reprendre cette recherche.',
+      content: 'Impossible de reprendre cette recherche. Veuillez réessayer.',
+      error: true,
     })
   }
 }
