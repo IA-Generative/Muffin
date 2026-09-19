@@ -126,7 +126,7 @@ désactivée par défaut en amont et doit être explicitement activée côté se
 
 | Variable | Définition | Défaut | Utilisée par |
 |---|---|---|---|
-| `WORKER_API_KEY` | Secret partagé, vérifié sur chaque appel `/internal/*` par `app/core/security/worker_auth.py` (dépendance `require_worker_api_key`) | `""` côté backend / `""` côté workers | **backend** (`app/config/worker.py`), **worker/document_process**, **worker/agent_execution` — doit être identique des deux côtés, sinon tout appel interne échoue en 401 |
+| `WORKER_API_KEY` | Secret partagé, vérifié sur chaque appel `/internal/*` par `app/core/security/worker_auth.py` (dépendance `require_worker_api_key`) | `""` côté backend / `""` côté workers | **backend** (`app/config/worker.py`), **worker/document_process**, **worker/agent_execution**, **worker/evaluation** — doit être identique des deux côtés, sinon tout appel interne échoue en 401 |
 
 ## Partage de collections (invitations hashées)
 
@@ -138,7 +138,7 @@ désactivée par défaut en amont et doit être explicitement activée côté se
 
 | Variable | Définition | Défaut | Utilisée par |
 |---|---|---|---|
-| `BACKEND_API_URL` | URL du backend vue par les workers, base de tous leurs appels `/internal/*` | `http://localhost:8000` | **worker/document_process**, **worker/agent_execution** (`app/config.py` → clients HTTP `backend_client.py`) |
+| `BACKEND_API_URL` | URL du backend vue par les workers, base de tous leurs appels `/internal/*` | `http://localhost:8000` | **worker/document_process**, **worker/agent_execution**, **worker/evaluation** (`app/config.py` → clients HTTP `backend_client.py`) |
 
 ## Logs
 
@@ -171,6 +171,13 @@ boucle de vérification (« grounding »).
 | `MAX_REPLANS` | Nombre max de replans autorisés | `2` | idem |
 | `MAX_GROUNDING_RESEARCHES` | Nombre max de relances de recherche déclenchées par un échec de vérification (grounding) | `1` | idem |
 | `SEARCH_RESULTS_PER_QUERY` | Nombre de résultats retournés par recherche vectorielle | `5` | idem |
+
+## worker/evaluation — évaluation du retrieval (issue #11)
+
+| Variable | Définition | Défaut | Utilisée par |
+|---|---|---|---|
+| `CELERY_QUEUE_NAME` | Nom de la queue Celery consommée par ce worker | `evaluation` | **worker/evaluation** (`app/config.py`) |
+| `DEFAULT_TOP_K` | Nombre de chunks retrouvés par question quand `k` n'est pas explicitement passé à la tâche | `5` | idem (`app/tasks.py`) |
 
 ## Frontend (Vite)
 
