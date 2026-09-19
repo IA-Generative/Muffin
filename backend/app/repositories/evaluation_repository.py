@@ -6,7 +6,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.evaluation import EvaluationResult, EvaluationResultSource, EvaluationRun
+from app.models.evaluation import (
+    EvaluationResult,
+    EvaluationResultSource,
+    EvaluationRun,
+)
 
 
 class EvaluationRepository:
@@ -50,3 +54,24 @@ class EvaluationRepository:
             .options(selectinload(EvaluationRun.results).selectinload(EvaluationResult.retrieved_sources))
         )
         return result.scalar_one_or_none()
+
+    async def find_existing(self, collection_id: uuid.UUID, content_hash: str, llm_model: str) -> uuid.UUID | None:
+        """Returns the id of an already-persisted run for this exact (collection, content, model)
+        triple, or None - so the worker can skip re-evaluating a collection when nothing that
+        affects the result has changed since the last run with the same parameters (same dedup
+        strategy as DiscussionScoreRepository.find_existing)."""
+        result = await self.db.execute(
+            select(EvaluationRun.id).where(
+                EvaluationRun.collection_id == collection_id,
+                EvaluationRun.content_hash == content_hash,
+                EvaluationRun.llm_model == llm_model,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def delete_run(self, run: EvaluationRun) -> None:
+        """Cascading delete: EvaluationResult and EvaluationResultSource rows are removed via
+        the ORM cascade (see EvaluationResult.run_id ON DELETE CASCADE), so a single delete
+        on the run row cleans up everything."""
+        await self.db.delete(run)
+        await self.db.flush()

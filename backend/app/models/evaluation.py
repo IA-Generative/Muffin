@@ -1,6 +1,18 @@
 import uuid
 
-from sqlalchemy import Boolean, Enum, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    Boolean,
+    Enum,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+)
+from sqlalchemy import (
+    text as sa_text,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDMixin
@@ -54,6 +66,23 @@ class EvaluationRun(UUIDMixin, TimestampMixin, Base):
     unvalidated_recall_at_k: Mapped[float | None] = mapped_column(Float, nullable=True)
     unvalidated_mrr: Mapped[float | None] = mapped_column(Float, nullable=True)
     unvalidated_ndcg: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    # SHA-256 of (QA pairs content + chunking settings + embedding model + k + llm_model) -
+    # lets the worker skip re-evaluating a collection when nothing that affects the result has
+    # changed since the last run with the same parameters (same strategy as DiscussionScore's
+    # content_hash, see #31).
+    content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    __table_args__ = (
+        Index(
+            "uq_evaluation_runs_collection_hash",
+            "collection_id",
+            "content_hash",
+            "llm_model",
+            unique=True,
+            postgresql_where=sa_text("content_hash IS NOT NULL"),
+        ),
+    )
 
     collection: Mapped["Collection"] = relationship(back_populates="evaluation_runs")  # noqa: F821
     results: Mapped[list["EvaluationResult"]] = relationship(back_populates="run", cascade="all, delete-orphan")

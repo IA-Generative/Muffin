@@ -4,7 +4,11 @@ from celery.result import AsyncResult
 from app.config import RedisSettings
 
 _redis_settings = RedisSettings()
-_celery_app = Celery("muffin_backend_producer", broker=_redis_settings.REDIS_URL, backend=_redis_settings.REDIS_URL)
+_celery_app = Celery(
+    "muffin_backend_producer",
+    broker=_redis_settings.REDIS_URL,
+    backend=_redis_settings.REDIS_URL,
+)
 # Celery's own default (1 day) would make a task's status silently fall back
 # to PENDING once its result key expires, well before anyone looking at a
 # task history would expect it to disappear.
@@ -52,16 +56,22 @@ def enqueue_run_agent(run_id: str) -> str:
 def enqueue_resume_agent(run_id: str, answer: str) -> str:
     """Continues a run paused on request_clarification's interrupt() (§31) - a distinct task
     name/args from enqueue_run_agent rather than overloading it, since resuming re-enters the
-    same checkpointed graph execution (Command(resume=...)) instead of starting a fresh one."""
+    same checkpointed graph execution (Command(resume=...)) instead of starting a fresh one.
+    """
     result = _celery_app.send_task(RESUME_AGENT_TASK, args=[run_id, answer], queue=AGENT_EXECUTION_QUEUE)
     return result.id
 
 
-def enqueue_run_evaluation(collection_id: str, k: int) -> str:
+def enqueue_run_evaluation(collection_id: str, k: int, validated_only: bool = False) -> str:
     """Returns the Celery task id, recorded as a collection-scoped Task row (see
     app/routers/internal_tasks.py) rather than on a pre-created EvaluationRun - the model has no
-    in-progress state, the run row only ever exists once the worker posts a fully computed one."""
-    result = _celery_app.send_task(RUN_EVALUATION_TASK, args=[collection_id, k], queue=EVALUATION_QUEUE)
+    in-progress state, the run row only ever exists once the worker posts a fully computed one.
+    """
+    result = _celery_app.send_task(
+        RUN_EVALUATION_TASK,
+        args=[collection_id, k, validated_only],
+        queue=EVALUATION_QUEUE,
+    )
     return result.id
 
 

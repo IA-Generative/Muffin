@@ -61,6 +61,17 @@ class BackendClient:
         response.raise_for_status()
         return response.json()["id"]
 
+    def find_evaluation_run(self, collection_id: str, content_hash: str, llm_model: str) -> str | None:
+        """Returns the id of an already-persisted run for this exact (collection, content, model)
+        triple, or None - so run_evaluation can skip re-evaluating an unchanged collection with
+        the same model (same dedup strategy as find_discussion_score)."""
+        response = self._client.get(
+            f"/api/internal/collections/{collection_id}/evaluation-runs/exists",
+            params={"content_hash": content_hash, "llm_model": llm_model},
+        )
+        response.raise_for_status()
+        return response.json()["id"]
+
     def list_conversation_messages(self, conversation_id: str) -> list[dict[str, Any]]:
         """Full transcript, oldest first - what score_discussion judges (see #31)."""
         response = self._client.get(f"/api/internal/conversations/{conversation_id}/messages")

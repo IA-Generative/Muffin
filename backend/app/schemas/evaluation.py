@@ -11,6 +11,10 @@ class EvaluationTriggerRequest(BaseModel):
     # `limit` (see worker/agent_execution's MAX_PARALLEL_SEARCHES-style budgets), just for the
     # evaluation's own retrieval pass rather than a live agent run.
     k: int = 5
+    # When True (default), only validated QA pairs are evaluated. When False, all QA pairs
+    # with a source document are evaluated - lets the user run evaluation on unvalidated
+    # pairs too (the validated/unvalidated breakdown in EvaluationRun still separates them).
+    validated_only: bool = False
 
 
 class EvaluationResultSourceOut(BaseModel):
@@ -59,4 +63,7 @@ class EvaluationRunOut(BaseModel):
     unvalidated_recall_at_k: float | None
     unvalidated_mrr: float | None
     unvalidated_ndcg: float | None
+    # SHA-256 of (QA pairs + chunking settings + embedding model + k + llm_model) - present when
+    # the worker computed it for dedup (see EvaluationRun.content_hash).
+    content_hash: str | None = None
     results: list[EvaluationResultOut]

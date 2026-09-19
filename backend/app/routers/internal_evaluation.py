@@ -13,7 +13,11 @@ from app.repositories.evaluation_repository import EvaluationRepository
 from app.repositories.qa_pair_repository import QaPairRepository
 from app.schemas.internal_evaluation import EvaluationQaPairOut, EvaluationRunCreate
 
-router = APIRouter(prefix="/internal", tags=["Internal"], dependencies=[Depends(require_worker_api_key)])
+router = APIRouter(
+    prefix="/internal",
+    tags=["Internal"],
+    dependencies=[Depends(require_worker_api_key)],
+)
 
 
 @router.get(
@@ -60,10 +64,27 @@ async def get_document_chunk_count(
     status_code=status.HTTP_201_CREATED,
 )
 async def create_evaluation_run(
-    collection_id: uuid.UUID, body: EvaluationRunCreate, db: Annotated[AsyncSession, Depends(get_db)]
+    collection_id: uuid.UUID,
+    body: EvaluationRunCreate,
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict[str, str]:
     if await CollectionRepository(db).get_by_id(collection_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found")
     run = await EvaluationRepository(db).create_run(collection_id, body.model_dump(mode="python"))
     await db.commit()
     return {"status": "ok", "id": str(run.id)}
+
+
+@router.get(
+    "/collections/{collection_id}/evaluation-runs/exists",
+    summary="Check whether an evaluation run already exists for this (content_hash, llm_model) pair - "
+    "lets the worker skip re-evaluating an unchanged collection with the same model (see #11)",
+)
+async def find_evaluation_run(
+    collection_id: uuid.UUID,
+    content_hash: str,
+    llm_model: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict[str, str | None]:
+    existing_id = await EvaluationRepository(db).find_existing(collection_id, content_hash, llm_model)
+    return {"id": str(existing_id) if existing_id else None}

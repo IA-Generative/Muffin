@@ -9,14 +9,17 @@ const props = defineProps<{
   collection: Collection
 }>()
 
-const { runEvaluation } = useCollections()
+const { runEvaluation, isEvaluating, deleteEvaluation } = useCollections()
 
 const evaluationRuns = computed(() => props.collection.evaluationRuns)
 const { page, pageCount, paged: pagedRuns } = usePagination(evaluationRuns)
 
+const evaluating = computed(() => isEvaluating(props.collection.id))
+
 const expandedRunId = ref<string>()
 
-const validatedCount = computed(() => props.collection.qaPairs.filter((pair) => pair.validated).length)
+const evaluableCount = computed(() => props.collection.qaPairs.filter((pair) => pair.source).length)
+const skippedCount = computed(() => props.collection.qaPairs.length - evaluableCount.value)
 
 const dateFormatter = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })
 function formatDate(iso: string) {
@@ -40,6 +43,8 @@ const STRATEGY_LABEL: Record<string, string> = {
   semantic: 'Sémantique',
   llm: 'Par LLM',
 }
+
+const EVAL_K = 5
 </script>
 
 <template>
@@ -51,45 +56,67 @@ const STRATEGY_LABEL: Record<string, string> = {
 
     <div class="eval-tab__launch">
       <span class="eval-tab__count">
-        {{ validatedCount }} question(s)-réponse(s) validée(s) sur {{ collection.qaPairs.length }} —
-        seules les paires validées sont utilisées.
+        {{ evaluableCount }} question(s)-réponse(s) évaluable(s) (avec document source) sur {{ collection.qaPairs.length }}
+        <template v-if="skippedCount > 0"> — {{ skippedCount }} sans source (non évaluables)</template>
       </span>
       <button
         type="button"
         class="fr-btn"
-        :disabled="validatedCount === 0"
+        :disabled="evaluableCount === 0 || evaluating"
         @click="runEvaluation(collection.id)"
       >
-        Lancer l'évaluation
+        {{ evaluating ? 'Évaluation en cours…' : 'Lancer l\'évaluation' }}
       </button>
+    </div>
+
+    <div v-if="evaluating" class="eval-tab__progress-card">
+      <div class="eval-tab__progress-spinner" aria-hidden="true" />
+      <div class="eval-tab__progress-text">
+        <span class="eval-tab__progress-title">Évaluation en cours…</span>
+        <span class="eval-tab__progress-detail">
+          {{ evaluableCount }} question(s) en cours d'évaluation · k={{ EVAL_K }}
+        </span>
+      </div>
     </div>
 
     <ul v-if="collection.evaluationRuns.length" class="eval-tab__runs">
       <li v-for="run in pagedRuns" :key="run.id" class="eval-tab__run">
-        <button type="button" class="eval-tab__run-header" @click="toggleExpand(run.id)">
-          <span class="eval-tab__run-header-text">
-            <span class="eval-tab__run-date">{{ formatDate(run.runAt) }} · {{ run.pairCount }} paire(s) · k={{ run.k }}</span>
-            <span class="eval-tab__run-config">
-              {{ STRATEGY_LABEL[run.chunkingSnapshot.strategy] }}
-              <template v-if="run.chunkingSnapshot.strategy === 'paragraph' || run.chunkingSnapshot.strategy === 'fixed'">
-                ({{ run.chunkingSnapshot.chunkSize }} tokens, chevauchement {{ run.chunkingSnapshot.chunkOverlap }})
-              </template>
-              · embedding {{ run.chunkingSnapshot.embeddingModel }} · LLM {{ run.llmModel }}
+        <div class="eval-tab__run-header">
+          <button type="button" class="eval-tab__run-toggle" @click="toggleExpand(run.id)">
+            <span class="eval-tab__run-header-text">
+              <span class="eval-tab__run-date">{{ formatDate(run.runAt) }} · {{ run.pairCount }} paire(s) · k={{ run.k }}</span>
+              <span class="eval-tab__run-config">
+                {{ STRATEGY_LABEL[run.chunkingSnapshot.strategy] }}
+                <template v-if="run.chunkingSnapshot.strategy === 'paragraph' || run.chunkingSnapshot.strategy === 'fixed'">
+                  ({{ run.chunkingSnapshot.chunkSize }} tokens, chevauchement {{ run.chunkingSnapshot.chunkOverlap }})
+                </template>
+                · embedding {{ run.chunkingSnapshot.embeddingModel }} · LLM {{ run.llmModel }}
+              </span>
             </span>
-          </span>
-          <svg
-            viewBox="0 0 24 24"
-            width="16"
-            height="16"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.5"
-            :style="{ transform: expandedRunId === run.id ? 'rotate(180deg)' : 'none' }"
-            aria-hidden="true"
+            <svg
+              viewBox="0 0 24 24"
+              width="16"
+              height="16"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              :style="{ transform: expandedRunId === run.id ? 'rotate(180deg)' : 'none' }"
+              aria-hidden="true"
+            >
+              <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            class="fr-btn fr-btn--tertiary-no-outline fr-btn--sm eval-tab__delete-btn"
+            title="Supprimer cette évaluation"
+            @click="deleteEvaluation(collection.id, run.id)"
           >
-            <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
-          </svg>
-        </button>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
 
         <div class="eval-tab__metrics">
           <div v-for="metric in METRIC_LABELS" :key="metric.key" class="eval-tab__metric">
@@ -178,8 +205,16 @@ const STRATEGY_LABEL: Record<string, string> = {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 1rem;
+  gap: 0.5rem;
   width: 100%;
+}
+
+.eval-tab__run-toggle {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex: 1;
   border: none;
   background: transparent;
   cursor: pointer;
@@ -189,9 +224,14 @@ const STRATEGY_LABEL: Record<string, string> = {
   text-align: left;
 }
 
-.eval-tab__run-header svg {
+.eval-tab__run-toggle svg {
   flex-shrink: 0;
   margin-top: 0.125rem;
+}
+
+.eval-tab__delete-btn {
+  flex-shrink: 0;
+  margin-top: -0.125rem;
 }
 
 .eval-tab__run-header-text {
@@ -298,5 +338,48 @@ const STRATEGY_LABEL: Record<string, string> = {
 .eval-tab__empty {
   color: var(--text-mention-grey);
   font-size: 0.875rem;
+}
+
+.eval-tab__progress-card {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1.25rem;
+  margin-bottom: 1.25rem;
+  border: 1px solid var(--border-default-grey);
+  border-radius: 0.5rem;
+  background: var(--background-alt-grey);
+}
+
+.eval-tab__progress-spinner {
+  width: 1.5rem;
+  height: 1.5rem;
+  border: 2px solid var(--border-default-grey);
+  border-top-color: var(--text-action-high-blue-france);
+  border-radius: 50%;
+  animation: eval-tab-spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes eval-tab-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.eval-tab__progress-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.eval-tab__progress-title {
+  font-weight: 700;
+  font-size: 0.875rem;
+}
+
+.eval-tab__progress-detail {
+  font-size: 0.75rem;
+  color: var(--text-mention-grey);
 }
 </style>
