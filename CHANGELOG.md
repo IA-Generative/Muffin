@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0-rc.4](https://github.com/IA-Generative/Muffin/compare/v0.6.0-rc.3...v0.6.0-rc.4) (2026-09-19)
+
+
+### Bug Fixes
+
+* tests and lint ([eb592de](https://github.com/IA-Generative/Muffin/commit/eb592de2e09857dc22d8c687d1a8d489cd475399))
+
 ## [0.6.0-rc.3](https://github.com/IA-Generative/Muffin/compare/v0.6.0-rc.2...v0.6.0-rc.3) (2026-09-19)
 
 
