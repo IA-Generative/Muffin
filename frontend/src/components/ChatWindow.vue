@@ -11,7 +11,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  send: [content: string, collectionIds: string[]]
+  send: [content: string, collectionIds: string[], webSearchEnabled: boolean]
   regenerate: [id: string]
   feedback: [id: string, value: 'up' | 'down', details?: FeedbackDetails]
   showSources: [id: string]
@@ -22,13 +22,17 @@ const { collections } = useCollections()
 
 const draft = ref('')
 const pinnedCollectionIds = ref<string[]>([])
+// Off by default (§ security: never search the web unless explicitly asked - see backend
+// RunCreate.web_search_enabled) - stays on across messages once toggled, same as
+// pinnedCollectionIds, until the user turns it back off or reloads the page.
+const webSearchEnabled = ref(false)
 const textarea = ref<HTMLTextAreaElement>()
 const scrollAnchor = ref<HTMLElement>()
 
 function submit() {
   const content = draft.value.trim()
   if (!content) return
-  emit('send', content, pinnedCollectionIds.value)
+  emit('send', content, pinnedCollectionIds.value, webSearchEnabled.value)
   draft.value = ''
   resizeTextarea()
 }
@@ -94,7 +98,7 @@ watch(
           </li>
         </ul>
         <div class="chat-window__composer">
-          <CollectionPicker v-model="pinnedCollectionIds" />
+          <CollectionPicker v-model="pinnedCollectionIds" v-model:web-search-enabled="webSearchEnabled" />
           <textarea
             ref="textarea"
             v-model="draft"
@@ -243,4 +247,5 @@ watch(
   color: var(--text-disabled-grey);
   cursor: not-allowed;
 }
+
 </style>
