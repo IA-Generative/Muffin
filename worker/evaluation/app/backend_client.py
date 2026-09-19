@@ -59,6 +59,17 @@ class BackendClient:
         response.raise_for_status()
         return response.json()["id"]
 
+    def list_conversation_messages(self, conversation_id: str) -> list[dict[str, Any]]:
+        """Full transcript, oldest first - what score_discussion judges (see #31)."""
+        response = self._client.get(f"/api/internal/conversations/{conversation_id}/messages")
+        response.raise_for_status()
+        return response.json()
+
+    def create_discussion_score(self, conversation_id: str, payload: dict[str, Any]) -> str:
+        response = self._client.post(f"/api/internal/conversations/{conversation_id}/discussion-scores", json=payload)
+        response.raise_for_status()
+        return response.json()["id"]
+
     def set_task_logs(self, celery_task_id: str, logs: str) -> None:
         response = self._client.patch(f"/api/internal/tasks/{celery_task_id}/logs", json={"logs": logs})
         response.raise_for_status()
