@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.5.0-rc.3](https://github.com/IA-Generative/Muffin/compare/v0.5.0-rc.2...v0.5.0-rc.3) (2026-09-19)
+
+
+### Features
+
+* **backend:** implement retrieval evaluation ([#11](https://github.com/IA-Generative/Muffin/issues/11) - backend half) ([8885730](https://github.com/IA-Generative/Muffin/commit/88857304babfbe2dfe4312211cbd6b1ce01f4b10))
+* evaluate both validated and unvalidated QA pairs, three-way metrics ([9e202bc](https://github.com/IA-Generative/Muffin/commit/9e202bc6d7e9ee91c861e90417695b916cad6041))
+* **worker:** add worker/evaluation, a dedicated retrieval-evaluation worker ([#11](https://github.com/IA-Generative/Muffin/issues/11)) ([c50d810](https://github.com/IA-Generative/Muffin/commit/c50d81027cb9664b6020b954f81a6391c120655d))
+
 ## [0.5.0-rc.2](https://github.com/IA-Generative/Muffin/compare/v0.5.0-rc.1...v0.5.0-rc.2) (2026-09-19)
 
 
