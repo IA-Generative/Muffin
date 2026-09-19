@@ -1,5 +1,12 @@
 export interface Source {
   title: string
+  // The backend Source row this citation was materialized into (see the backend's
+  // SourceRepository.link_citations) - only set for a "document"/"web" citation, since those are
+  // the only ones with a stable identity worth persisting. Absent for a "tool" citation, an
+  // older citation persisted before this existed, or a feedback's own addedSources (a brand-new
+  // suggestion, not a Source yet). This is what FeedbackModal.vue sends back as
+  // validatedSourceIds - never the title/url, which aren't guaranteed unique or stable.
+  id?: string
   // Set for a "web" citation (the web_search tool - a real, browsable external URL, see
   // useChat.ts's formatAnswerWithCitations) or an older/mocked/user-added source.
   url?: string
@@ -39,7 +46,9 @@ export interface ExecutionEvent {
 export interface FeedbackDetails {
   reasons: string[]
   comment: string
-  validatedSources: string[]
+  // Backend Source.id values (see Source.id above) - only ever sources that actually have one,
+  // FeedbackModal.vue never offers "valider" for a source without a stable id to send.
+  validatedSourceIds: string[]
   addedSources: Source[]
 }
 
