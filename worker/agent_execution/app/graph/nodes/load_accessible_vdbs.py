@@ -19,6 +19,6 @@ def load_accessible_vdbs(state: AgentState) -> dict[str, Any]:
 
     set_activity(run_id, "load_accessible_vdbs", "Checking your accessible knowledge bases")
     emit(run_id, "vdb_discovery_started")
-    accessible = backend_client.list_accessible_collections(state["user_id"])
+    accessible = backend_client.list_accessible_collections(state["user_id"], state["user_groups"])
     emit(run_id, "vdb_discovery_completed", {"accessible_count": len(accessible)})
     return {"accessible_vdbs": accessible}

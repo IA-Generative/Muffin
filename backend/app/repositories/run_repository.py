@@ -19,6 +19,7 @@ class RunRepository:
         message_id: uuid.UUID,
         conversation_id: uuid.UUID,
         pinned_collection_ids: list[uuid.UUID] | None = None,
+        user_groups: list[str] | None = None,
     ) -> Run:
         run = Run(
             user_id=user_id,
@@ -27,6 +28,7 @@ class RunRepository:
             conversation_id=conversation_id,
             status=RunStatus.QUEUED,
             pinned_collection_ids=[str(cid) for cid in pinned_collection_ids] if pinned_collection_ids else None,
+            user_groups=user_groups or None,
         )
         self.db.add(run)
         await self.db.flush()

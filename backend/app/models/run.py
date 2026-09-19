@@ -51,6 +51,12 @@ class Run(UUIDMixin, TimestampMixin, Base):
     # collections) - stored as plain strings, same reasoning as citations below: read back
     # as-is by the worker, never queried/filtered on at the SQL level.
     pinned_collection_ids: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
+    # Snapshot of RequestContext.groups at run creation time - the worker's load_accessible_vdbs
+    # node needs this to resolve group-shared collections (see CollectionRepository.
+    # list_all_accessible), and has no session/token of its own to read it from live. A snapshot,
+    # not a live lookup, same tradeoff as pinned_collection_ids above: a group membership change
+    # mid-run is not expected to retroactively change what an already-running query can reach.
+    user_groups: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
     status: Mapped[RunStatus] = mapped_column(
         Enum(RunStatus, name="run_status"), nullable=False, default=RunStatus.QUEUED
     )

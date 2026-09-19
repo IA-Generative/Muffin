@@ -23,9 +23,9 @@ async def client():
         await session.commit()
 
 
-def _as_user(user_id: str, email: str):
+def _as_user(user_id: str, email: str, groups: list[str] | None = None):
     def override() -> RequestContext:
-        return RequestContext(user_id=user_id, email=email, roles=["user"], is_admin=False)
+        return RequestContext(user_id=user_id, email=email, roles=["user"], is_admin=False, groups=groups or [])
 
     return override
 
@@ -65,6 +65,17 @@ async def test_create_run_persists_pinned_collection_ids(client):
     async with async_session_factory() as session:
         run = await session.get(Run, uuid.UUID(response.json()["id"]))
     assert run.pinned_collection_ids == [str(collection_id)]
+
+
+async def test_create_run_snapshots_the_requesting_user_s_groups(client):
+    app.dependency_overrides[get_current_user] = _as_user("owner", "owner@example.com", groups=["/hr-team"])
+    with patch("app.services.run_service.enqueue_run_agent", return_value="celery-run-1"):
+        response = await client.post("/api/runs", json={"query": "What is this?"})
+    assert response.status_code == 202
+
+    async with async_session_factory() as session:
+        run = await session.get(Run, uuid.UUID(response.json()["id"]))
+    assert run.user_groups == ["/hr-team"]
 
 
 async def test_create_run_without_pinned_collections_stores_none(client):
