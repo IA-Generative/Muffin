@@ -17,6 +17,9 @@ Kubernetes: `>=1.25.0-0`
 | oci://registry-1.docker.io/cloudpirates | rustfs(rustfs) | 0.10.0 |
 | https://charts.kubito.dev | searxng | 1.1.4 |
 
+Enabling `searxng` needs a settings override (its defaults ship with the JSON API disabled and a
+public, chart-baked secret key) - see `values-searxng.example.yaml`.
+
 ## Values
 
 ### General
