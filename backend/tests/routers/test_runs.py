@@ -78,6 +78,23 @@ async def test_create_run_snapshots_the_requesting_user_s_groups(client):
     assert run.user_groups == ["/hr-team"]
 
 
+async def test_create_run_web_search_enabled_defaults_to_false(client):
+    response = await _create_run(client)
+    async with async_session_factory() as session:
+        run = await session.get(Run, uuid.UUID(response.json()["id"]))
+    assert run.web_search_enabled is False
+
+
+async def test_create_run_persists_web_search_enabled_when_requested(client):
+    with patch("app.services.run_service.enqueue_run_agent", return_value="celery-run-1"):
+        response = await client.post("/api/runs", json={"query": "What's the weather?", "web_search_enabled": True})
+    assert response.status_code == 202
+
+    async with async_session_factory() as session:
+        run = await session.get(Run, uuid.UUID(response.json()["id"]))
+    assert run.web_search_enabled is True
+
+
 async def test_create_run_without_pinned_collections_stores_none(client):
     response = await _create_run(client)
 

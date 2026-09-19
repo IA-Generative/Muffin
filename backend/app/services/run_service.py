@@ -41,7 +41,13 @@ class RunService:
         # conversation - see app/models/run.py.
         message = await self.conversations.add_message(conversation.id, MessageRole.USER, body.query)
         run = await self.runs.create(
-            user.user_id, body.query, message.id, conversation.id, body.collection_ids, user.groups
+            user.user_id,
+            body.query,
+            message.id,
+            conversation.id,
+            body.collection_ids,
+            user.groups,
+            body.web_search_enabled,
         )
         await self.db.commit()
         # Dispatched after the first commit: the worker's very first read of
