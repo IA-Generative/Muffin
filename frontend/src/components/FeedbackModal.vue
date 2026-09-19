@@ -11,31 +11,33 @@ const emit = defineEmits<{
   submit: [details: FeedbackDetails]
 }>()
 
+// `code` is what the backend's FeedbackReasonCode enum expects (backend/app/models/feedback.py) -
+// `label` is only ever for display, never sent.
 const REASONS = [
-  'Réponse incorrecte',
-  'Pas utile',
-  'Sources douteuses',
-  'Ton inapproprié',
-  'Autre',
+  { code: 'incorrect_answer', label: 'Réponse incorrecte' },
+  { code: 'not_useful', label: 'Pas utile' },
+  { code: 'questionable_sources', label: 'Sources douteuses' },
+  { code: 'inappropriate_tone', label: 'Ton inapproprié' },
+  { code: 'other', label: 'Autre' },
 ]
 
 const selectedReasons = ref<string[]>([])
 const comment = ref('')
-const validatedSources = ref<string[]>([])
+const validatedSourceIds = ref<string[]>([])
 const addedSources = ref<Source[]>([])
 const newSourceTitle = ref('')
 const newSourceUrl = ref('')
 
-function toggleReason(reason: string) {
-  const index = selectedReasons.value.indexOf(reason)
-  if (index === -1) selectedReasons.value.push(reason)
+function toggleReason(code: string) {
+  const index = selectedReasons.value.indexOf(code)
+  if (index === -1) selectedReasons.value.push(code)
   else selectedReasons.value.splice(index, 1)
 }
 
-function toggleValidated(identifier: string) {
-  const index = validatedSources.value.indexOf(identifier)
-  if (index === -1) validatedSources.value.push(identifier)
-  else validatedSources.value.splice(index, 1)
+function toggleValidated(sourceId: string) {
+  const index = validatedSourceIds.value.indexOf(sourceId)
+  if (index === -1) validatedSourceIds.value.push(sourceId)
+  else validatedSourceIds.value.splice(index, 1)
 }
 
 function addSource() {
@@ -55,7 +57,7 @@ function submit() {
   emit('submit', {
     reasons: selectedReasons.value,
     comment: comment.value.trim(),
-    validatedSources: validatedSources.value,
+    validatedSourceIds: validatedSourceIds.value,
     addedSources: addedSources.value,
   })
 }
@@ -76,13 +78,13 @@ function submit() {
         <div class="feedback-modal__reasons">
           <button
             v-for="reason in REASONS"
-            :key="reason"
+            :key="reason.code"
             type="button"
             class="feedback-modal__reason"
-            :class="{ 'feedback-modal__reason--active': selectedReasons.includes(reason) }"
-            @click="toggleReason(reason)"
+            :class="{ 'feedback-modal__reason--active': selectedReasons.includes(reason.code) }"
+            @click="toggleReason(reason.code)"
           >
-            {{ reason }}
+            {{ reason.label }}
           </button>
         </div>
       </fieldset>
@@ -101,13 +103,15 @@ function submit() {
       <div v-if="sources?.length" class="feedback-modal__field">
         <label>Sources de cette réponse</label>
         <ul class="feedback-modal__sources">
-          <li v-for="source in sources" :key="source.url ?? source.title">
-            <a :href="source.url" target="_blank" rel="noopener noreferrer">{{ source.title }}</a>
+          <li v-for="source in sources" :key="source.id ?? source.url ?? source.title">
+            <a v-if="source.url" :href="source.url" target="_blank" rel="noopener noreferrer">{{ source.title }}</a>
+            <span v-else>{{ source.title }}</span>
             <button
+              v-if="source.id"
               type="button"
               class="feedback-modal__validate"
-              :class="{ 'feedback-modal__validate--active': validatedSources.includes(source.url ?? source.title) }"
-              @click="toggleValidated(source.url ?? source.title)"
+              :class="{ 'feedback-modal__validate--active': validatedSourceIds.includes(source.id) }"
+              @click="toggleValidated(source.id)"
             >
               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                 <path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" />
@@ -269,7 +273,8 @@ function submit() {
   gap: 0.5rem;
 }
 
-.feedback-modal__sources a {
+.feedback-modal__sources a,
+.feedback-modal__sources span {
   color: var(--text-action-high-blue-france);
   font-size: 0.875rem;
   overflow: hidden;

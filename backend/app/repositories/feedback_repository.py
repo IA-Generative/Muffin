@@ -4,7 +4,14 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.feedback import Feedback, FeedbackReason, FeedbackReasonCode, FeedbackValue
+from app.models.feedback import (
+    Feedback,
+    FeedbackReason,
+    FeedbackReasonCode,
+    FeedbackSource,
+    FeedbackSourceRole,
+    FeedbackValue,
+)
 
 # Same citations[].vdb_id matching as RunRepository.get_groundedness_stats - the only real link
 # between a run and a collection (a run's pinned_collection_ids is what the user attached, not
@@ -25,12 +32,22 @@ class FeedbackRepository:
         value: FeedbackValue,
         reasons: list[FeedbackReasonCode],
         comment: str | None,
+        validated_source_ids: list[uuid.UUID],
+        added_source_ids: list[uuid.UUID],
     ) -> Feedback:
+        """`validated_source_ids`/`added_source_ids` are trusted as-is here - the caller
+        (RunService.submit_feedback) is responsible for re-verifying validated ids against
+        message_sources and for creating a real Source row per added one first (see
+        SourceRepository)."""
         feedback = Feedback(message_id=message_id, user_id=user_id, value=value, comment=comment)
         self.db.add(feedback)
         await self.db.flush()
         for reason in reasons:
             self.db.add(FeedbackReason(feedback_id=feedback.id, reason=reason))
+        for source_id in validated_source_ids:
+            self.db.add(FeedbackSource(feedback_id=feedback.id, source_id=source_id, role=FeedbackSourceRole.VALIDATED))
+        for source_id in added_source_ids:
+            self.db.add(FeedbackSource(feedback_id=feedback.id, source_id=source_id, role=FeedbackSourceRole.ADDED))
         await self.db.flush()
         return feedback
 
