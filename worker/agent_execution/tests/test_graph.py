@@ -155,6 +155,29 @@ def test_vdb_routing_never_escapes_accessible_set(make_run):
         assert "finance" not in collection_ids
 
 
+def test_accessible_vdbs_lookup_forwards_the_run_s_user_groups(make_run):
+    """load_accessible_vdbs must thread state["user_groups"] through to the backend so a
+    collection shared to one of the user's Keycloak groups is part of the accessible set, not
+    just owner/public/direct-share collections (see CollectionRepository.list_all_accessible)."""
+
+    def router(system_prompt: str) -> str:
+        if "Analyze the user" in system_prompt:
+            return _analysis()
+        if "select the ones relevant" in system_prompt.lower():
+            return '["hr"]'
+        if "Decide whether" in system_prompt:
+            return json.dumps({"status": "sufficient", "missing_information": [], "reasoning": "ok"})
+        if "Check whether every" in system_prompt:
+            return json.dumps({"valid": True, "unsupported_claims": []})
+        return "answer [x]."
+
+    graph, fake = make_run([{"id": "hr", "name": "HR", "description": "HR", "tags": []}], router)
+    state = initial_state("What is the leave policy?", user_groups=["/hr-team"])
+    graph.invoke(state, config=_config(state))
+
+    assert fake.accessible_collections_groups_requested == [["/hr-team"]]
+
+
 def test_pinned_collections_are_always_searched_even_if_not_llm_selected(make_run):
     """The chat composer's "+" picker - a user-attached collection is searched regardless of
     what VDB routing's own relevance guess would have picked on its own."""

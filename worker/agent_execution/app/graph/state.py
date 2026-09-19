@@ -76,6 +76,9 @@ class AgentState(TypedDict):
     # --- identity/context (§3, never inferred by the LLM) ---
     run_id: str
     user_id: str
+    # Snapshot of the user's Keycloak groups at run creation time (Run.user_groups) - only
+    # consumed by load_accessible_vdbs, to include collections shared to one of these groups.
+    user_groups: list[str]
     conversation_id: str
 
     original_query: str

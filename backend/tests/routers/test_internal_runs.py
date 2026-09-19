@@ -7,7 +7,7 @@ from sqlalchemy import delete
 from app.core.security import worker_auth
 from app.db import async_session_factory
 from app.main import app
-from app.models.collection import Collection, CollectionSettings
+from app.models.collection import Collection, CollectionSettings, CollectionShare, ShareStatus, ShareSubjectType
 from app.models.conversation import Conversation
 from app.models.document import Document, DocumentPage
 from app.models.message import Message, MessageRole
@@ -88,6 +88,31 @@ async def test_get_run_exposes_pinned_collection_ids(client):
 
     assert response.status_code == 200
     assert response.json()["pinned_collection_ids"] == [str(collection_id)]
+
+
+async def test_get_run_exposes_user_groups(client):
+    async with async_session_factory() as session:
+        conversation = Conversation(user_id="dev-user", title="Test")
+        session.add(conversation)
+        await session.flush()
+        message = Message(conversation_id=conversation.id, role=MessageRole.USER, content="What is the policy?")
+        session.add(message)
+        await session.flush()
+        run = Run(
+            user_id="dev-user",
+            message_id=message.id,
+            conversation_id=conversation.id,
+            query="What is the policy?",
+            user_groups=["/hr-team"],
+        )
+        session.add(run)
+        await session.commit()
+        run_id = run.id
+
+    response = await client.get(f"/api/internal/runs/{run_id}", headers=_headers())
+
+    assert response.status_code == 200
+    assert response.json()["user_groups"] == ["/hr-team"]
 
 
 async def test_get_run_not_found(client):
@@ -193,6 +218,34 @@ async def test_list_accessible_collections_owner_only(client):
     body = response.json()
     assert [c["name"] for c in body] == ["Mine"]
     assert body[0]["document_count"] == 2
+
+
+async def test_list_accessible_collections_includes_a_group_shared_collection_when_groups_passed(client):
+    async with async_session_factory() as session:
+        shared = Collection(owner_id="someone-else", name="HR team collection", description="")
+        shared.settings = CollectionSettings(embedding_model="text-embedding-3-small")
+        session.add(shared)
+        await session.flush()
+        session.add(
+            CollectionShare(
+                collection_id=shared.id,
+                subject_type=ShareSubjectType.GROUP,
+                status=ShareStatus.ACTIVE,
+                subject_id="/hr-team",
+                display_hint="/hr-team",
+            )
+        )
+        await session.commit()
+
+    without_groups = await client.get("/api/internal/users/dev-user/accessible-collections", headers=_headers())
+    assert [c["name"] for c in without_groups.json()] == []
+
+    with_groups = await client.get(
+        "/api/internal/users/dev-user/accessible-collections",
+        params={"groups": ["/hr-team"]},
+        headers=_headers(),
+    )
+    assert [c["name"] for c in with_groups.json()] == ["HR team collection"]
 
 
 async def test_list_collection_documents_requires_ownership(client):
