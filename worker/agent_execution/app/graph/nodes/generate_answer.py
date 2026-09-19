@@ -60,6 +60,7 @@ def generate_answer(state: AgentState) -> dict[str, Any]:
             "document_id": e["document_id"],
             "chunk_id": e["chunk_id"],
             "page_number": e["page_number"],
+            "url": e["url"],
             "query": e["query"],
             "content": e["content"],
         }

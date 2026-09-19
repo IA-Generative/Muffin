@@ -11,6 +11,7 @@ from app.graph.services.evidence import normalize_results
 from app.graph.services.llm import json_chat
 from app.graph.services.vdb_router import select_relevant_vdbs
 from app.graph.state import Evidence, ResearchTaskInput
+from app.searxng_client import searxng_client
 
 # Ranking score (Meilisearch hybrid search, §12: blended lexical + cosine-vector) above which a
 # previously answered question counts as "this one, already answered" rather than merely related -
@@ -91,6 +92,24 @@ def _summary_evidence(task_id: str, retrieval_query: str, vdb: dict[str, Any], a
     )
 
 
+def _web_result_evidence(task_id: str, retrieval_query: str, result: dict[str, Any]) -> Evidence:
+    # vdb_id="": this evidence never came from a Muffin collection - build_answer_context/the
+    # frontend's sources panel key off metadata["tool"]=="web_search" (stamped centrally by
+    # research_task below), not vdb_id, to tell a web result apart from a knowledge-base one.
+    title = result.get("title") or result["url"]
+    snippet = result.get("content") or ""
+    return Evidence(
+        id=str(uuid.uuid4()),
+        task_id=task_id,
+        vdb_id="",
+        source_id=result["url"],
+        content=f"{title}\n\n{snippet}" if snippet else title,
+        metadata={"document_name": title, "url": result["url"], "engine": result.get("engine", "")},
+        relevance_score=result.get("score"),
+        retrieval_query=retrieval_query,
+    )
+
+
 _SUMMARY_MATCH_LIMIT = 5
 
 
@@ -123,6 +142,7 @@ def _run_search(
     accessible_vdbs: list[dict[str, Any]],
     model: str | None,
     pinned_vdb_ids: list[str],
+    _web_search_enabled: bool,
 ) -> tuple[dict[str, Any], list[Evidence]]:
     selected_vdbs = select_relevant_vdbs(task["query"], accessible_vdbs, model, pinned_vdb_ids)
     if not selected_vdbs:
@@ -176,6 +196,7 @@ def _run_list_documents(
     accessible_vdbs: list[dict[str, Any]],
     model: str | None,
     pinned_vdb_ids: list[str],
+    _web_search_enabled: bool,
 ) -> tuple[dict, list[Evidence]]:
     selected_vdbs = select_relevant_vdbs(task["query"], accessible_vdbs, model, pinned_vdb_ids)
     evidence: list[Evidence] = []
@@ -217,6 +238,7 @@ def _run_page_content(
     accessible_vdbs: list[dict[str, Any]],
     model: str | None,
     pinned_vdb_ids: list[str],
+    _web_search_enabled: bool,
 ) -> tuple[dict, list[Evidence]]:
     selected_vdbs = select_relevant_vdbs(task["query"], accessible_vdbs, model, pinned_vdb_ids)
     if not selected_vdbs:
@@ -251,15 +273,39 @@ def _run_page_content(
     return {"selected_vdbs": [str(vdb["id"])]}, evidence
 
 
+def _run_web_search(
+    task: dict[str, Any],
+    _user_id: str,
+    _accessible_vdbs: list[dict[str, Any]],
+    _model: str | None,
+    _pinned_vdb_ids: list[str],
+    web_search_enabled: bool,
+) -> tuple[dict[str, Any], list[Evidence]]:
+    if not web_search_enabled:
+        # Second, independent gate (see decompose_query._sanitize) against a stale/malformed
+        # task claiming this tool on a run that never opted in - must never call out to the
+        # web on the strength of the planner's own output alone.
+        logger.warning(f"Task {task['id']} requested web_search on a run with web_search_enabled=False - refused")
+        return {"results": []}, []
+
+    # The query sent out is always this task's own query - decomposed from the user's original
+    # question by decompose_query, never document excerpts/evidence content (§ security: this
+    # is what keeps private document content from ever leaking into a web search request).
+    results = searxng_client.search(task["query"], settings.WEB_SEARCH_RESULTS_PER_QUERY)
+    evidence = [_web_result_evidence(task["id"], task["query"], result) for result in results]
+    return {"results": [{"url": r["url"]} for r in results]}, evidence
+
+
 _RUNNERS = {
-    "list_collections": lambda task, user_id, accessible_vdbs, model, pinned_vdb_ids: _run_list_collections(
-        task, accessible_vdbs
+    "list_collections": lambda task, user_id, accessible_vdbs, model, pinned_vdb_ids, web_search_enabled: (
+        _run_list_collections(task, accessible_vdbs)
     ),
-    "collection_summary": lambda task, user_id, accessible_vdbs, model, pinned_vdb_ids: _run_collection_summary(
-        task, accessible_vdbs, model, pinned_vdb_ids
+    "collection_summary": lambda task, user_id, accessible_vdbs, model, pinned_vdb_ids, web_search_enabled: (
+        _run_collection_summary(task, accessible_vdbs, model, pinned_vdb_ids)
     ),
     "list_documents": _run_list_documents,
     "page_content": _run_page_content,
+    "web_search": _run_web_search,
 }
 
 
@@ -283,7 +329,12 @@ def research_task(state: ResearchTaskInput) -> dict[str, Any]:
         emit(run_id, "vdb_routing_started", task_id=task_id)
         runner = _RUNNERS.get(task["tool"], _run_search)
         updates, evidence = runner(
-            task, user_id, state["accessible_vdbs"], state["chat_model"], state["pinned_vdb_ids"]
+            task,
+            user_id,
+            state["accessible_vdbs"],
+            state["chat_model"],
+            state["pinned_vdb_ids"],
+            state["web_search_enabled"],
         )
         # Stamped centrally here (not in each runner) so every evidence-producing branch tags
         # itself the same way, once - lets a citation say which tool produced it (§ sources

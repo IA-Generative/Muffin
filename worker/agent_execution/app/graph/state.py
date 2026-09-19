@@ -7,7 +7,7 @@ TaskStatus = Literal["pending", "ready", "blocked", "running", "completed", "fai
 # tools): "search" is the default (evidence search over chunks); the others answer questions
 # about the knowledge bases themselves rather than their content, using data the backend
 # already scoped to this user - never a fresh, unchecked lookup by an LLM-supplied id.
-TaskTool = Literal["search", "list_collections", "collection_summary", "list_documents", "page_content"]
+TaskTool = Literal["search", "list_collections", "collection_summary", "list_documents", "page_content", "web_search"]
 
 
 class ResearchTask(TypedDict):
@@ -70,6 +70,7 @@ class ResearchTaskInput(TypedDict):
     task: ResearchTask
     chat_model: str | None
     pinned_vdb_ids: list[str]
+    web_search_enabled: bool
 
 
 class AgentState(TypedDict):
@@ -99,6 +100,11 @@ class AgentState(TypedDict):
     # picker) - always searched regardless of what VDB routing's own relevance guess would have
     # picked, see select_relevant_vdbs. Empty list, never None, when nothing was attached.
     pinned_vdb_ids: list[str]
+
+    # Opt-in per message (chat composer toggle, off by default) - see Run.web_search_enabled.
+    # Read by decompose_query (only offers the "web_search" tool to the planner when true) and
+    # research_task (refuses to run it otherwise, an independent second gate).
+    web_search_enabled: bool
 
     # --- permission barrier (§4) ---
     accessible_vdbs: list[dict[str, Any]]

@@ -103,6 +103,18 @@ class FakeBackend:
         self.conversation_titles[conversation_id] = title
 
 
+class FakeSearxng:
+    """Stand-in for the real searxng_client - same fake-HTTP-boundary reasoning as FakeBackend."""
+
+    def __init__(self, results: list[dict[str, Any]] | None = None) -> None:
+        self.results = results if results is not None else []
+        self.queries: list[str] = []
+
+    def search(self, query: str, limit: int) -> list[dict[str, Any]]:
+        self.queries.append(query)
+        return self.results[:limit]
+
+
 _PATCHED_MODULES = (
     backend_client_module,
     events_module,
@@ -121,10 +133,19 @@ def make_run():
     `backend_client` reference (each does `from app.backend_client import backend_client`, so
     patching the module attribute in isolation is not enough)."""
 
-    def _make(accessible_vdbs: list[dict[str, Any]], llm_router: Callable[[str], str]):
+    def _make(
+        accessible_vdbs: list[dict[str, Any]],
+        llm_router: Callable[[str], str],
+        web_results: list[dict[str, Any]] | None = None,
+    ):
         fake = FakeBackend(accessible_vdbs, llm_router)
         for module in _PATCHED_MODULES:
             module.backend_client = fake
+        # Attached to `fake` (not a 3rd return value) so every existing `graph, fake =
+        # make_run(...)` call site keeps working unchanged - only tests that care about web
+        # search reach for `fake.searxng`.
+        fake.searxng = FakeSearxng(web_results)
+        research_task_module.searxng_client = fake.searxng
         graph = build_graph()
         return graph, fake
 
@@ -136,6 +157,7 @@ def initial_state(
     user_id: str = "user-1",
     pinned_vdb_ids: list[str] | None = None,
     user_groups: list[str] | None = None,
+    web_search_enabled: bool = False,
 ) -> dict[str, Any]:
     return {
         "run_id": str(uuid.uuid4()),
@@ -147,6 +169,7 @@ def initial_state(
         "messages": [{"role": "user", "content": query}],
         "chat_model": "test-model",
         "pinned_vdb_ids": pinned_vdb_ids or [],
+        "web_search_enabled": web_search_enabled,
         "accessible_vdbs": [],
         "query_analysis": {},
         "research_plan": {},

@@ -155,6 +155,185 @@ def test_vdb_routing_never_escapes_accessible_set(make_run):
         assert "finance" not in collection_ids
 
 
+def test_web_search_runs_when_enabled_and_planner_picks_it(make_run):
+    def router(system_prompt: str) -> str:
+        if "Break the user's query" in system_prompt:
+            assert "web_search" in system_prompt  # only offered to the planner when enabled
+            return json.dumps([{"id": "task-1", "query": "current weather in Paris", "dependencies": []}])
+        if "Analyze the user" in system_prompt:
+            return _analysis(intent="meta", complexity="complex")
+        if "Decide whether" in system_prompt:
+            return json.dumps({"status": "sufficient", "missing_information": [], "reasoning": "ok"})
+        if "Check whether every" in system_prompt:
+            return json.dumps({"valid": True, "unsupported_claims": []})
+        return "It's sunny [x]."
+
+    # decompose_query's own sanitizer falls back to "search" for any tool name outside the
+    # (dynamically enabled) valid set - a hardcoded literal here proves the planner really did
+    # choose "web_search" and it wasn't silently downgraded.
+    import app.graph.nodes.decompose_query as decompose_query_module
+
+    original_sanitize = decompose_query_module._sanitize
+
+    def sanitize_with_web_search(raw, original_query, web_search_enabled):
+        for item in raw:
+            item["tool"] = "web_search"
+        return original_sanitize(raw, original_query, web_search_enabled)
+
+    decompose_query_module._sanitize = sanitize_with_web_search
+    try:
+        graph, fake = make_run(
+            [],
+            router,
+            web_results=[
+                {"title": "Paris weather", "url": "https://example.com/paris-weather", "content": "Sunny, 22°C"}
+            ],
+        )
+        state = initial_state("What's the weather in Paris right now?", web_search_enabled=True)
+        result = graph.invoke(state, config=_config(state))
+    finally:
+        decompose_query_module._sanitize = original_sanitize
+
+    assert fake.searxng.queries == ["current weather in Paris"]
+    assert len(result["deduped_evidence"]) == 1
+    evidence = result["deduped_evidence"][0]
+    assert evidence["source_id"] == "https://example.com/paris-weather"
+    assert evidence["metadata"]["tool"] == "web_search"
+    assert result["citations"][0]["url"] == "https://example.com/paris-weather"
+
+
+def test_web_search_tool_is_never_offered_to_the_planner_when_disabled(make_run):
+    def router(system_prompt: str) -> str:
+        if "Break the user's query" in system_prompt:
+            assert "web_search" not in system_prompt
+            return json.dumps([{"id": "task-1", "query": "current weather in Paris", "dependencies": []}])
+        if "Analyze the user" in system_prompt:
+            return _analysis(intent="meta", complexity="complex")
+        if "Decide whether" in system_prompt:
+            return json.dumps({"status": "insufficient", "missing_information": ["weather"], "reasoning": "n/a"})
+        if "Check whether every" in system_prompt:
+            return json.dumps({"valid": True, "unsupported_claims": []})
+        return "I don't have that information [x]."
+
+    graph, fake = make_run([], router, web_results=[{"title": "Should never be reached", "url": "https://x"}])
+    state = initial_state("What's the weather in Paris right now?", web_search_enabled=False)
+    graph.invoke(state, config=_config(state))
+
+    assert fake.searxng.queries == []
+
+
+def test_web_search_runner_refuses_even_if_the_planner_somehow_picks_it_while_disabled(make_run):
+    """Defense in depth (decompose_query._sanitize is the first gate, this is the second,
+    independent one) - a stale/malformed task claiming "web_search" must never actually call
+    out to the web on a run that didn't opt in."""
+    import app.graph.nodes.decompose_query as decompose_query_module
+
+    original_sanitize = decompose_query_module._sanitize
+
+    def sanitize_forcing_web_search(raw, original_query, web_search_enabled):
+        for item in raw:
+            item["tool"] = "web_search"
+        return original_sanitize(raw, original_query, True)  # force it past the first gate
+
+    def router(system_prompt: str) -> str:
+        if "Analyze the user" in system_prompt:
+            return _analysis()  # simple/non-meta: decompose_query short-circuits without an LLM call
+        if "Decide whether" in system_prompt:
+            return json.dumps({"status": "sufficient", "missing_information": [], "reasoning": "ok"})
+        if "Check whether every" in system_prompt:
+            return json.dumps({"valid": True, "unsupported_claims": []})
+        return "No evidence to answer from."
+
+    decompose_query_module._sanitize = sanitize_forcing_web_search
+    try:
+        graph, fake = make_run([], router, web_results=[])
+        state = initial_state("anything", web_search_enabled=False)
+        result = graph.invoke(state, config=_config(state))
+    finally:
+        decompose_query_module._sanitize = original_sanitize
+
+    assert fake.searxng.queries == []
+    assert result["deduped_evidence"] == []
+
+
+def test_replan_falls_back_to_web_search_when_the_users_own_collections_come_up_empty(make_run):
+    """Reproduces a real gap found in manual end-to-end testing: a query against zero/irrelevant
+    accessible collections must still be able to reach the web via the replan loop, not just via
+    decompose_query's own first-pass tool choice."""
+
+    def router(system_prompt: str) -> str:
+        if "Analyze the user" in system_prompt:
+            return _analysis()  # simple: decompose_query short-circuits straight to a "search" task
+        if "Coverage of a research query was judged insufficient" in system_prompt:
+            assert "web_search" in system_prompt  # only offered because web_search_enabled=True
+            return json.dumps([{"query": "current weather in Paris", "intent": None, "tool": "web_search"}])
+        if "Decide whether" in system_prompt:
+            return json.dumps({"status": "sufficient", "missing_information": [], "reasoning": "ok"})
+        if "Check whether every" in system_prompt:
+            return json.dumps({"valid": True, "unsupported_claims": []})
+        return "It's sunny [x]."
+
+    graph, fake = make_run(
+        [],  # no accessible collections at all - the first "search" task finds nothing
+        router,
+        web_results=[{"title": "Paris weather", "url": "https://example.com/paris", "content": "Sunny, 22°C"}],
+    )
+    state = initial_state("What's the weather in Paris right now?", web_search_enabled=True)
+    result = graph.invoke(state, config=_config(state))
+
+    assert fake.searxng.queries == ["current weather in Paris"]
+    assert result["replan_count"] == 1
+    # The web result went through a real sufficiency check (evaluate_coverage), not the
+    # "meta-tool, complete the moment it runs" shortcut - proves web_search is classified as
+    # content evidence, not lumped in with list_collections/collection_summary/etc.
+    assert result["coverage_result"]["status"] == "sufficient"
+    assert result["citations"][0]["url"] == "https://example.com/paris"
+
+
+def test_evaluate_coverage_does_not_wave_through_a_web_search_result_as_meta_complete(make_run):
+    """Guards the evaluate_coverage.py fix directly: a run whose *only* completed task is
+    web_search must still get a real LLM sufficiency judgment, not the is_meta_only shortcut
+    meant for list_collections/collection_summary/list_documents/page_content."""
+    import app.graph.nodes.decompose_query as decompose_query_module
+
+    original_sanitize = decompose_query_module._sanitize
+
+    def force_web_search(raw, original_query, web_search_enabled):
+        for item in raw:
+            item["tool"] = "web_search"
+        return original_sanitize(raw, original_query, web_search_enabled)
+
+    decompose_query_module._sanitize = force_web_search
+
+    coverage_prompts: list[str] = []
+
+    def router(system_prompt: str) -> str:
+        if "Analyze the user" in system_prompt:
+            return _analysis()
+        if "Decide whether" in system_prompt:
+            coverage_prompts.append(system_prompt)
+            return json.dumps({"status": "insufficient", "missing_information": ["more detail"], "reasoning": "n/a"})
+        if "Coverage of a research query was judged insufficient" in system_prompt:
+            return json.dumps([])
+        if "Check whether every" in system_prompt:
+            return json.dumps({"valid": True, "unsupported_claims": []})
+        return "Partial answer [x]."
+
+    try:
+        graph, fake = make_run(
+            [], router, web_results=[{"title": "Result", "url": "https://example.com/r", "content": "..."}]
+        )
+        state = initial_state("anything", web_search_enabled=True)
+        result = graph.invoke(state, config=_config(state))
+    finally:
+        decompose_query_module._sanitize = original_sanitize
+
+    # evaluate_coverage actually called the LLM (the is_meta_only shortcut never calls it at
+    # all) and its "insufficient" verdict survived into the final result.
+    assert len(coverage_prompts) >= 1
+    assert result["coverage_result"]["status"] == "insufficient"
+
+
 def test_accessible_vdbs_lookup_forwards_the_run_s_user_groups(make_run):
     """load_accessible_vdbs must thread state["user_groups"] through to the backend so a
     collection shared to one of the user's Keycloak groups is part of the accessible set, not
