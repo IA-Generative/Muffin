@@ -1,0 +1,10 @@
+{{- if .Values.enabled }}
+{{- if and .Values.worker_evaluation.serviceAccount.enabled .Values.worker_evaluation.serviceAccount.role.create .Values.worker_evaluation.serviceAccount.role.rules }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "helper.componentFullname" (dict "root" . "componentName" "worker_evaluation") }}
+  labels: {{- (include "helper.labels" (dict "root" . "componentName" "worker_evaluation")) | nindent 4 }}
+rules: {{- toYaml .Values.worker_evaluation.serviceAccount.role.rules | nindent 0 }}
+{{- end }}
+{{- end }}

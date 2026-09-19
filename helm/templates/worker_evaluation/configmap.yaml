@@ -1,0 +1,16 @@
+{{- if .Values.enabled }}
+{{- if or .Values.worker_evaluation.envCm .Values.global.envCm -}}
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: {{ include "helper.componentFullname" (dict "root" . "componentName" "worker_evaluation") }}
+  labels: {{- (include "helper.labels" (dict "root" . "componentName" "worker_evaluation")) | nindent 4 }}
+data:
+  {{- if .Values.global.envCm -}}
+  {{- include "helper.env" (dict "root" . "data" .Values.global.envCm) | indent 2 }}
+  {{- end -}}
+  {{- if .Values.worker_evaluation.envCm -}}
+  {{- include "helper.env" (dict "root" . "data" .Values.worker_evaluation.envCm) | indent 2 }}
+  {{- end -}}
+{{- end -}}
+{{- end }}
