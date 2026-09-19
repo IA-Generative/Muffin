@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0-rc.1](https://github.com/IA-Generative/Muffin/compare/v0.6.0-rc...v0.6.0-rc.1) (2026-09-19)
+
+
+### Features
+
+* **worker:** add time tool for LLM temporal context ([#56](https://github.com/IA-Generative/Muffin/issues/56)) ([4c6b06c](https://github.com/IA-Generative/Muffin/commit/4c6b06c4094f73104eb5ff2f78c0337fa577c6a9))
+
 ## [0.6.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.5.0...v0.6.0-rc) (2026-09-19)
 
 
