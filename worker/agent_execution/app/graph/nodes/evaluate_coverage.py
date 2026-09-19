@@ -10,6 +10,13 @@ _SYSTEM_PROMPT = (
     'strings describing what is missing, empty if sufficient], "reasoning": short string}.'
 )
 
+# Tools that produce real content evidence needing an actual sufficiency judgment - everything
+# else (list_collections, collection_summary, list_documents, page_content) is a meta/knowledge-
+# base lookup, see is_meta_only below. web_search belongs here, not with the meta tools: a web
+# result is content evidence exactly like a document chunk is, it must go through the same
+# relevance check, never be waved through as "complete the moment it runs".
+_CONTENT_TOOLS = frozenset({"search", "web_search"})
+
 
 def evaluate_coverage(state: AgentState) -> dict[str, Any]:
     """Compares evidence against the query's actual requirements rather than a blanket "I have
@@ -23,7 +30,7 @@ def evaluate_coverage(state: AgentState) -> dict[str, Any]:
     evidence = state["deduped_evidence"]
     completed_ids = set(state["completed_task_ids"])
     completed_tasks = [t for t in state["research_tasks"] if t["id"] in completed_ids]
-    is_meta_only = bool(completed_tasks) and all(t.get("tool", "search") != "search" for t in completed_tasks)
+    is_meta_only = bool(completed_tasks) and all(t.get("tool", "search") not in _CONTENT_TOOLS for t in completed_tasks)
 
     if is_meta_only:
         # A knowledge-base lookup (list_collections, collection_summary, list_documents,

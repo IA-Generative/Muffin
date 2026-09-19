@@ -6,7 +6,9 @@ multi-collections, et une vérification que chaque affirmation est bien étayée
 (grounding).
 
 Ne parle jamais directement à Postgres/Meilisearch : toute lecture/écriture passe par les endpoints
-internes du backend (`app/backend_client.py`), authentifiés par `WORKER_API_KEY`.
+internes du backend (`app/backend_client.py`), authentifiés par `WORKER_API_KEY`. Seule exception :
+SearXNG (`app/searxng_client.py`), appelé directement par l'outil `web_search`, jamais via le
+backend - aucune donnée utilisateur n'y est stockée, ce n'est qu'un aller-retour HTTP.
 
 ## Le graphe (`app/graph/graph.py`)
 
@@ -19,9 +21,13 @@ internes du backend (`app/backend_client.py`), authentifiés par `WORKER_API_KEY
 3. `decompose_query` / `build_research_plan` - découpe la question en sous-tâches de recherche.
 4. `research_task` (fan-out dynamique via `Send`, un nœud par tâche en parallèle, borné par les
    budgets `MAX_PARALLEL_TASKS`/`MAX_PARALLEL_SEARCHES`/...) - exécute un outil par tâche :
-   `search`, `page_content`, `list_documents`, `collection_summary`, `list_collections`. Pour
-   `search`, cascade QA cache → résumés → chunks (voir `app/graph/nodes/research_task.py`) avant
-   de faire une recherche vectorielle complète.
+   `search`, `page_content`, `list_documents`, `collection_summary`, `list_collections`,
+   `web_search`. Pour `search`, cascade QA cache → résumés → chunks (voir
+   `app/graph/nodes/research_task.py`) avant de faire une recherche vectorielle complète.
+   `web_search` (SearXNG) n'est jamais proposé au planner ni exécuté sauf si le run a activé la
+   recherche web (toggle du composer de chat, désactivé par défaut - voir
+   `AgentState.web_search_enabled`, double vérification dans `decompose_query.py` et
+   `research_task.py`).
 5. `merge_evidence` → `evaluate_coverage` → `replan_research` (boucle bornée par `MAX_REPLANS`) -
    vérifie que les preuves collectées suffisent à répondre, relance une recherche ciblée sinon.
 6. `build_answer_context` → `generate_answer` - génère la réponse finale avec citations.
@@ -46,6 +52,7 @@ app/
                     evidence.py, planning.py, document_resolver.py, events.py
   agent_service.py  point d'entrée appelé par la tâche Celery : charge le run, lance le graphe
   backend_client.py client HTTP vers les endpoints /internal/* du backend
+  searxng_client.py client HTTP vers SearXNG (outil web_search, appelé directement, pas via le backend)
   celery_app.py     app Celery (queue, nom des tâches)
   config.py         Settings, dont les budgets d'exécution (voir docs/environment-variables.md)
 ```

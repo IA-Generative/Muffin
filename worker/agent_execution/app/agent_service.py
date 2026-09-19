@@ -93,6 +93,7 @@ class AgentService:
                 # Collections explicitly attached via the chat composer's "+" picker - see
                 # AgentState.pinned_vdb_ids.
                 "pinned_vdb_ids": [str(vdb_id) for vdb_id in (run.get("pinned_collection_ids") or [])],
+                "web_search_enabled": bool(run.get("web_search_enabled", False)),
                 "accessible_vdbs": [],
                 "query_analysis": {},
                 "research_plan": {},
