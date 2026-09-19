@@ -1,7 +1,7 @@
 import uuid
 from typing import Any
 
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.feedback import (
@@ -25,6 +25,20 @@ class FeedbackRepository:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
+    async def get_user_feedback_for_messages(
+        self, message_ids: list[uuid.UUID], user_id: str
+    ) -> dict[uuid.UUID, FeedbackValue]:
+        """Returns a {message_id: value} map for the given messages and user - used to restore
+        thumbs-up/down highlighting after a page reload."""
+        if not message_ids:
+            return {}
+        result = await self.db.execute(
+            select(Feedback.message_id, Feedback.value).where(
+                Feedback.message_id.in_(message_ids), Feedback.user_id == user_id
+            )
+        )
+        return {row.message_id: row.value for row in result.all()}
+
     async def create(
         self,
         message_id: uuid.UUID,
@@ -45,9 +59,21 @@ class FeedbackRepository:
         for reason in reasons:
             self.db.add(FeedbackReason(feedback_id=feedback.id, reason=reason))
         for source_id in validated_source_ids:
-            self.db.add(FeedbackSource(feedback_id=feedback.id, source_id=source_id, role=FeedbackSourceRole.VALIDATED))
+            self.db.add(
+                FeedbackSource(
+                    feedback_id=feedback.id,
+                    source_id=source_id,
+                    role=FeedbackSourceRole.VALIDATED,
+                )
+            )
         for source_id in added_source_ids:
-            self.db.add(FeedbackSource(feedback_id=feedback.id, source_id=source_id, role=FeedbackSourceRole.ADDED))
+            self.db.add(
+                FeedbackSource(
+                    feedback_id=feedback.id,
+                    source_id=source_id,
+                    role=FeedbackSourceRole.ADDED,
+                )
+            )
         await self.db.flush()
         return feedback
 
@@ -55,8 +81,7 @@ class FeedbackRepository:
         """Aggregates feedback (see Feedback.value) left on every assistant message whose run
         cited this collection."""
         counts = await self.db.execute(
-            text(
-                f"""
+            text(f"""
                 SELECT
                     count(*) FILTER (WHERE feedbacks.value = 'UP') AS up_count,
                     count(*) FILTER (WHERE feedbacks.value = 'DOWN') AS down_count
@@ -64,14 +89,12 @@ class FeedbackRepository:
                 JOIN messages ON messages.id = feedbacks.message_id
                 JOIN runs ON runs.id = messages.run_id
                 WHERE {_CITED_COLLECTION}
-                """
-            ).bindparams(collection_id=str(collection_id))
+                """).bindparams(collection_id=str(collection_id))
         )
         up_count, down_count = counts.one()
 
         reason_rows = await self.db.execute(
-            text(
-                f"""
+            text(f"""
                 SELECT feedback_reasons.reason AS reason, count(*) AS reason_count
                 FROM feedback_reasons
                 JOIN feedbacks ON feedbacks.id = feedback_reasons.feedback_id
@@ -79,12 +102,15 @@ class FeedbackRepository:
                 JOIN runs ON runs.id = messages.run_id
                 WHERE {_CITED_COLLECTION}
                 GROUP BY feedback_reasons.reason
-                """
-            ).bindparams(collection_id=str(collection_id))
+                """).bindparams(collection_id=str(collection_id))
         )
         # SQLAlchemy's Enum(FeedbackReasonCode, ...) stores the Python member's *name* ("INCORRECT_
         # ANSWER"), not its value ("incorrect_answer") - a raw-SQL result set bypasses that
         # translation, so it has to be done by hand here.
         reason_counts = {FeedbackReasonCode[row.reason]: row.reason_count for row in reason_rows}
 
-        return {"up_count": up_count or 0, "down_count": down_count or 0, "reason_counts": reason_counts}
+        return {
+            "up_count": up_count or 0,
+            "down_count": down_count or 0,
+            "reason_counts": reason_counts,
+        }

@@ -40,6 +40,7 @@ interface MessageOut {
   created_at: string
   run_id: string | null
   citations: Citation[] | null
+  feedback: 'up' | 'down' | null
 }
 
 interface RunEventOut {
@@ -242,6 +243,7 @@ async function ensureMessagesLoaded(conversationId: string) {
         content,
         sources,
         runId: item.run_id ?? undefined,
+        feedback: item.feedback ?? null,
       }
     })
     confirmedConversationIds.add(conversationId)

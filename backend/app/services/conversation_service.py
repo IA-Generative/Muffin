@@ -6,6 +6,7 @@ from app.core.security.factory import RequestContext
 from app.core.tasks import SCORE_DISCUSSION_TASK, enqueue_score_discussion
 from app.repositories.conversation_repository import ConversationRepository
 from app.repositories.discussion_score_repository import DiscussionScoreRepository
+from app.repositories.feedback_repository import FeedbackRepository
 from app.repositories.task_repository import TaskRepository
 from app.schemas.conversation import ConversationOut, MessageOut
 from app.schemas.discussion_score import DiscussionScoreOut
@@ -22,6 +23,7 @@ class ConversationService:
         self.conversations = ConversationRepository(db)
         self.discussion_scores = DiscussionScoreRepository(db)
         self.tasks = TaskRepository(db)
+        self.feedbacks = FeedbackRepository(db)
 
     async def list_conversations(self, user: RequestContext, pagination: PaginationParams) -> Page[ConversationOut]:
         items, total = await self.conversations.list_by_owner(
@@ -33,6 +35,8 @@ class ConversationService:
     async def list_messages(self, conversation_id: uuid.UUID, user: RequestContext) -> list[MessageOut]:
         conversation = await self._get_owned(conversation_id, user)
         rows = await self.conversations.list_messages(conversation.id)
+        message_ids = [message.id for message, _ in rows]
+        feedback_map = await self.feedbacks.get_user_feedback_for_messages(message_ids, user.user_id)
         return [
             MessageOut(
                 id=message.id,
@@ -41,6 +45,7 @@ class ConversationService:
                 created_at=message.created_at,
                 run_id=message.run_id,
                 citations=citations,
+                feedback=feedback_map.get(message.id),
             )
             for message, citations in rows
         ]
@@ -54,7 +59,11 @@ class ConversationService:
         await self.conversations.set_generated_title(conversation, title)
         await self.db.commit()
         await self.db.refresh(conversation, attribute_names=["updated_at"])
-        return ConversationOut(id=conversation.id, title=conversation.title, updated_at=conversation.updated_at)
+        return ConversationOut(
+            id=conversation.id,
+            title=conversation.title,
+            updated_at=conversation.updated_at,
+        )
 
     async def delete_conversation(self, conversation_id: uuid.UUID, user: RequestContext) -> None:
         conversation = await self._get_owned(conversation_id, user)
@@ -68,7 +77,12 @@ class ConversationService:
         # done. The Task row is created here directly though - same pattern as
         # EvaluationService.trigger: this request already knows the user, no round trip needed.
         celery_task_id = enqueue_score_discussion(str(conversation.id))
-        await self.tasks.create(celery_task_id, SCORE_DISCUSSION_TASK, user.user_id, conversation_id=conversation.id)
+        await self.tasks.create(
+            celery_task_id,
+            SCORE_DISCUSSION_TASK,
+            user.user_id,
+            conversation_id=conversation.id,
+        )
         await self.db.commit()
         return celery_task_id
 
