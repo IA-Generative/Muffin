@@ -2,7 +2,7 @@ import uuid
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from app.core.security import worker_auth
 from app.db import async_session_factory
@@ -228,6 +228,124 @@ async def test_update_run_result_defaults_grounding_to_none(client):
         assert run.grounding_valid is None
         assert run.grounding_unsupported_claims is None
         assert run.grounding_research_count is None
+
+
+async def test_update_run_result_materializes_citable_citations_as_sources(client):
+    from app.models.chunk import Chunk
+    from app.models.collection import Collection
+    from app.models.document import Document, DocumentType
+    from app.models.source import MessageSource, Source
+
+    async with async_session_factory() as session:
+        collection = Collection(owner_id="dev-user", name="Policies", description="")
+        session.add(collection)
+        await session.flush()
+        document = Document(collection_id=collection.id, name="handbook.pdf", type=DocumentType.FILE)
+        session.add(document)
+        await session.flush()
+        chunk = Chunk(document_id=document.id, index=0, text="Telework is 2 days/week.", token_count=8)
+        session.add(chunk)
+        await session.commit()
+        document_id, chunk_id, collection_id = str(document.id), str(chunk.id), str(collection.id)
+
+    run_id = await _create_run()
+    response = await client.patch(
+        f"/api/internal/runs/{run_id}/result",
+        headers=_headers(),
+        json={
+            "answer": "Telework is allowed 2 days/week [1].",
+            "citations": [
+                {
+                    "tool": "search",
+                    "source": "handbook.pdf",
+                    "vdb_id": collection_id,
+                    "document_id": document_id,
+                    "chunk_id": chunk_id,
+                    "page_number": 3,
+                    "url": None,
+                },
+                {
+                    "tool": "web_search",
+                    "source": "Some blog",
+                    "vdb_id": None,
+                    "document_id": None,
+                    "chunk_id": None,
+                    "page_number": None,
+                    "url": "https://example.com/telework",
+                },
+                {
+                    "tool": "list_collections",
+                    "source": None,
+                    "vdb_id": None,
+                    "document_id": None,
+                    "chunk_id": None,
+                    "page_number": None,
+                    "url": None,
+                },
+            ],
+        },
+    )
+    assert response.status_code == 200
+
+    body = (await client.get(f"/api/internal/runs/{run_id}", headers=_headers())).json()
+    stored = body["citations"]
+    assert stored[0]["source_id"] is not None
+    assert stored[1]["source_id"] is not None
+    assert "source_id" not in stored[2]
+
+    async with async_session_factory() as session:
+        sources = (await session.execute(select(Source))).scalars().all()
+        message_sources = (await session.execute(select(MessageSource))).scalars().all()
+    assert len(sources) == 2
+    assert len(message_sources) == 2
+    by_url = {source.url: source for source in sources if source.url}
+    assert by_url["https://example.com/telework"].title == "Some blog"
+    by_doc = {(str(source.document_id), str(source.chunk_id)): source for source in sources if source.document_id}
+    assert (document_id, chunk_id) in by_doc
+    assert by_doc[(document_id, chunk_id)].page_number == 3
+
+    async with async_session_factory() as session:
+        await session.execute(delete(MessageSource))
+        await session.execute(delete(Source))
+        await session.execute(delete(Chunk))
+        await session.execute(delete(Document))
+        await session.execute(delete(Collection).where(Collection.id == uuid.UUID(collection_id)))
+        await session.commit()
+
+
+async def test_update_run_result_dedupes_sources_across_runs(client):
+    from app.models.source import MessageSource, Source
+
+    first_run_id = await _create_run()
+    second_run_id = await _create_run()
+    citation = {
+        "tool": "web_search",
+        "source": "Some blog",
+        "vdb_id": None,
+        "document_id": None,
+        "chunk_id": None,
+        "page_number": None,
+        "url": "https://example.com/shared",
+    }
+
+    for run_id in (first_run_id, second_run_id):
+        response = await client.patch(
+            f"/api/internal/runs/{run_id}/result",
+            headers=_headers(),
+            json={"answer": "answer", "citations": [citation]},
+        )
+        assert response.status_code == 200
+
+    async with async_session_factory() as session:
+        sources = (await session.execute(select(Source).where(Source.url == citation["url"]))).scalars().all()
+        message_sources = (await session.execute(select(MessageSource))).scalars().all()
+    assert len(sources) == 1
+    assert len(message_sources) == 2
+
+    async with async_session_factory() as session:
+        await session.execute(delete(MessageSource))
+        await session.execute(delete(Source))
+        await session.commit()
 
 
 async def test_update_run_error(client):
