@@ -1,7 +1,7 @@
 import { ref } from 'vue'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
-const PAGE_SIZE = 10
+const PAGE_SIZE = 20
 
 export interface Task {
   id: string
@@ -62,6 +62,7 @@ const page = ref(1)
 // come back alongside their root regardless of page size, see backend's
 // TaskService.list_tasks.
 const pageCount = ref(1)
+const totalTasks = ref(0)
 
 async function fetchTasks() {
   isLoading.value = true
@@ -73,6 +74,7 @@ async function fetchTasks() {
     if (!response.ok) throw new Error(`${response.status}`)
     const body: TaskPage = await response.json()
     tasks.value = body.items.map(toTask)
+    totalTasks.value = body.total
     pageCount.value = Math.max(1, Math.ceil(body.total / body.page_size))
   } catch {
     error.value = 'Impossible de récupérer les tâches.'
@@ -104,5 +106,5 @@ async function fetchTaskLogs(id: string): Promise<string> {
 }
 
 export function useTasks() {
-  return { tasks, isLoading, error, page, pageCount, fetchTasks, revokeTask, fetchTaskLogs }
+  return { tasks, isLoading, error, page, pageCount, totalTasks, fetchTasks, revokeTask, fetchTaskLogs }
 }
