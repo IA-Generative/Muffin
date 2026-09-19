@@ -9,7 +9,7 @@ chart-dirs:
 # are pulled straight from their OCI registry by `helm dependency build`.
 chart-repos:
 - cnpg=https://cloudnative-pg.github.io/charts
-- qdrant=https://qdrant.github.io/qdrant-helm
+- meilisearch=https://meilisearch.github.io/meilisearch-kubernetes
 helm-extra-args: ''
 validate-chart-schema: true
 validate-chart-values: true

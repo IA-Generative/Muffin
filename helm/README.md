@@ -11,7 +11,7 @@ Kubernetes: `>=1.25.0-0`
 | Repository | Name | Version |
 |------------|------|---------|
 | https://cloudnative-pg.github.io/charts | cnpg(cluster) | 0.8.1 |
-| https://qdrant.github.io/qdrant-helm | qdrant | 1.17.0 |
+| https://meilisearch.github.io/meilisearch-kubernetes | meilisearch | 0.39.0 |
 | oci://registry-1.docker.io/cloudpirates | postgres(postgres) | 0.19.6 |
 | oci://registry-1.docker.io/cloudpirates | redis(redis) | 0.27.9 |
 | oci://registry-1.docker.io/cloudpirates | rustfs(rustfs) | 0.10.0 |
