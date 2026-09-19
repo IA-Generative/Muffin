@@ -4,6 +4,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.document import Document
 from app.models.source import MessageSource, Source
 
 # Only these tools produce a citation with a real, stable identity worth persisting as a
@@ -39,7 +40,13 @@ class SourceRepository:
         if source is not None:
             return source
 
-        source = Source(title=title, url=url, document_id=document_id, chunk_id=chunk_id, page_number=page_number)
+        source = Source(
+            title=title,
+            url=url,
+            document_id=document_id,
+            chunk_id=chunk_id,
+            page_number=page_number,
+        )
         self.db.add(source)
         await self.db.flush()
         return source
@@ -53,7 +60,8 @@ class SourceRepository:
             return []
         result = await self.db.execute(
             select(MessageSource.source_id).where(
-                MessageSource.message_id == message_id, MessageSource.source_id.in_(source_ids)
+                MessageSource.message_id == message_id,
+                MessageSource.source_id.in_(source_ids),
             )
         )
         return list(result.scalars().all())
@@ -78,6 +86,20 @@ class SourceRepository:
                 # Neither identity is available - nothing stable to dedupe or link on.
                 enriched.append(citation)
                 continue
+
+            # Defensive guard against orphaned Meilisearch vectors: a document deleted before
+            # vector_store.delete_document_embeddings existed (or a Meilisearch cleanup that
+            # failed best-effort) leaves stale vectors that still surface in search results,
+            # pointing at a document_id that no longer exists in Postgres. Inserting a Source
+            # with that id would FK-violate - so verify existence first and null out the
+            # document_id/chunk_id if the document is gone, rather than crashing the whole run
+            # finalization. The Source still gets created (just without a document link), so the
+            # citation remains visible to the user and feedback still works.
+            if document_id is not None:
+                exists = await self.db.scalar(select(Document.id).where(Document.id == document_id))
+                if exists is None:
+                    document_id = None
+                    chunk_id = None
 
             source = await self.get_or_create(
                 title=citation.get("source") or url or "Source",
