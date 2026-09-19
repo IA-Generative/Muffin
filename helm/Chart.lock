@@ -14,5 +14,8 @@ dependencies:
 - name: meilisearch
   repository: https://meilisearch.github.io/meilisearch-kubernetes
   version: 0.39.0
-digest: sha256:713bb2c0127bba1c7d147c758b962dab847d813a9f7a5e0a171d5ffe31648928
-generated: "2026-09-19T09:16:54.980829344+02:00"
+- name: searxng
+  repository: https://charts.kubito.dev
+  version: 1.1.4
+digest: sha256:6ab862b68d1dd1c92fd284190333bc3e30ae12c23a49619dfe88b655bc259c04
+generated: "2026-09-19T10:08:19.617940329+02:00"
