@@ -2,7 +2,7 @@ from .database import DatabaseSettings
 from .keycloak import KeycloakSettings
 from .llm import LlmSettings
 from .logging import LoggingSettings
-from .qdrant import QdrantSettings
+from .meilisearch import MeilisearchSettings
 from .redis import RedisSettings
 from .rustfs import RustFsSettings
 from .sharing import SharingSettings
@@ -13,7 +13,7 @@ __all__ = [
     "KeycloakSettings",
     "LlmSettings",
     "LoggingSettings",
-    "QdrantSettings",
+    "MeilisearchSettings",
     "RedisSettings",
     "RustFsSettings",
     "SharingSettings",

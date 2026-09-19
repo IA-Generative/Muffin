@@ -46,7 +46,7 @@ class DocumentService:
         created = await self.repository.add_chunk(document_id, chunk.index, chunk.text, chunk.token_count, chunk.extras)
         await self.db.commit()
         if chunk.embedding is not None:
-            vector_store.upsert_chunk_embedding(document.collection_id, created.id, chunk.embedding)
+            vector_store.upsert_chunk_embedding(document.collection_id, created.id, chunk.embedding, chunk.text)
         return created
 
     async def set_summary(self, document_id: uuid.UUID, summary: str, embedding: list[float] | None = None) -> None:
@@ -54,7 +54,7 @@ class DocumentService:
         await self.repository.set_summary(document, summary)
         await self.db.commit()
         if embedding is not None:
-            vector_store.upsert_summary_embedding(document.collection_id, document.id, embedding)
+            vector_store.upsert_summary_embedding(document.collection_id, document.id, embedding, summary)
 
     async def set_error(self, document_id: uuid.UUID, error: str) -> None:
         document = await self.get_document(document_id)

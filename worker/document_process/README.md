@@ -5,7 +5,7 @@ parsing, OCR si besoin, chunking, résumé, tags, génération de paires QA, ext
 entités/relations, et calcul des embeddings - jusqu'à ce que le document soit cherchable par
 l'agent de recherche.
 
-Ne parle jamais directement à Postgres/Qdrant : toute lecture/écriture passe par les endpoints
+Ne parle jamais directement à Postgres/Meilisearch : toute lecture/écriture passe par les endpoints
 internes du backend (`app/backend_client.py`), authentifiés par `WORKER_API_KEY`.
 
 ## Pipeline

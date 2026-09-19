@@ -12,9 +12,10 @@ from app.graph.services.llm import json_chat
 from app.graph.services.vdb_router import select_relevant_vdbs
 from app.graph.state import Evidence, ResearchTaskInput
 
-# Cosine similarity (Qdrant's COSINE distance) above which a previously answered question counts
-# as "this one, already answered" rather than merely related - conservative on purpose, a false
-# match here means citing a wrong answer, not just a missed shortcut.
+# Ranking score (Meilisearch hybrid search, §12: blended lexical + cosine-vector) above which a
+# previously answered question counts as "this one, already answered" rather than merely related -
+# conservative on purpose, a false match here means citing a wrong answer, not just a missed
+# shortcut.
 _QA_MATCH_THRESHOLD = 0.85
 
 _SUMMARY_SUFFICIENCY_PROMPT = (

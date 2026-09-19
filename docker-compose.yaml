@@ -46,7 +46,8 @@ services:
       RUSTFS_ACCESS_KEY: rustfsadmin
       RUSTFS_SECRET_KEY: rustfsadmin
       RUSTFS_BUCKET: muffin-documents
-      QDRANT_URL: http://qdrant:6333
+      MEILI_URL: http://meilisearch:7700
+      MEILI_API_KEY: ${MEILI_MASTER_KEY:-dev-only-meili-key-not-for-prod}
     depends_on:
       postgres:
         condition: service_healthy
@@ -56,7 +57,7 @@ services:
         condition: service_healthy
       rustfs:
         condition: service_healthy
-      qdrant:
+      meilisearch:
         condition: service_healthy
     restart: unless-stopped
 
@@ -138,21 +139,23 @@ services:
       retries: 15
       start_period: 20s
 
-  qdrant:
-    image: qdrant/qdrant:v1.15.5
+  meilisearch:
+    image: getmeili/meilisearch:v1.12
+    environment:
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-dev-only-meili-key-not-for-prod}
+      MEILI_NO_ANALYTICS: "true"
+      # No env var/CLI flag enables the "vector store" experimental feature (embedders,
+      # `_vectors`, "hybrid" search) that backend/app/services/vector_store.py relies on, as of
+      # Meilisearch 1.12 - only the `PATCH /experimental-features` API does, which the backend
+      # calls itself the first time it needs an index (see vector_store._ensure_vector_store_feature).
     volumes:
-      - qdrant-data:/qdrant/storage
+      - meilisearch-data:/meili_data
     ports:
-      - "6333:6333" # HTTP/gRPC-gateway API
-      - "6334:6334" # gRPC API
+      - "7700:7700"
     healthcheck:
-      test:
-        [
-          "CMD",
-          "bash",
-          "-c",
-          "exec 3<>/dev/tcp/localhost/6333 && echo -e 'GET /readyz HTTP/1.1\r\nhost: localhost\r\nConnection: close\r\n\r\n' >&3 && cat <&3 | grep -q '200 OK'",
-        ]
+      # The image is Alpine-based (has curl, no bash) - unlike qdrant's/keycloak's raw
+      # /dev/tcp healthcheck elsewhere in this file, which their images can't run either.
+      test: ["CMD", "curl", "-f", "http://localhost:7700/health"]
       interval: 10s
       timeout: 5s
       retries: 15
@@ -215,4 +218,4 @@ volumes:
   rustfs-data-1:
   rustfs-data-2:
   rustfs-data-3:
-  qdrant-data:
+  meilisearch-data:

@@ -89,14 +89,15 @@ apps) : `RUSTFS_VOLUMES`, `RUSTFS_ADDRESS`, `RUSTFS_CONSOLE_ADDRESS`, `RUSTFS_CO
 `RUSTFS_UNSAFE_BYPASS_DISK_CHECK` (bypass dev-only : les 4 volumes nommés Docker sont sur le même
 disque physique, RustFS le refuse par défaut).
 
-## Base vectorielle (Qdrant)
+## Recherche hybride (Meilisearch)
 
 | Variable | Définition | Défaut | Utilisée par |
 |---|---|---|---|
-| `QDRANT_URL` | URL du serveur Qdrant | `http://localhost:6333` | **backend** (`app/config/qdrant.py` → `app/connectors.py`, `app/services/vector_store.py` : upsert/recherche des chunks, QA pairs et résumés embarqués) |
+| `MEILI_URL` | URL du serveur Meilisearch | `http://localhost:7700` | **backend** (`app/config/meilisearch.py` → `app/connectors.py`, `app/services/vector_store.py` : upsert/recherche hybride (lexicale + vectorielle) des chunks, QA pairs et résumés embarqués) |
+| `MEILI_API_KEY` | Clé API Meilisearch (doit correspondre à `MEILI_MASTER_KEY` côté serveur) | `None` (pas de clé - convient à une instance de dev démarrée sans `MEILI_MASTER_KEY`, jamais en production) | **backend** (`app/config/meilisearch.py`) |
 
-Les workers n'accèdent jamais directement à Qdrant : toute recherche/écriture vectorielle passe par
-les endpoints internes du backend (`/internal/search`, `/internal/qa-search`,
+Les workers n'accèdent jamais directement à Meilisearch : toute recherche/écriture vectorielle
+passe par les endpoints internes du backend (`/internal/search`, `/internal/qa-search`,
 `/internal/summary-search`, `/internal/pipeline/*`).
 
 ## Stratégie d'authentification (lue directement depuis `os.environ`, pas via une classe `Settings`)

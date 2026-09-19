@@ -364,17 +364,17 @@ async def test_search_finds_matching_chunk(client, monkeypatch):
         collection_id = collection.id
         telework_chunk_id = telework_chunk.id
 
-    # The vector store itself (Qdrant) isn't exercised here - only that the search endpoint
+    # The vector store itself (Meilisearch) isn't exercised here - only that the search endpoint
     # embeds the query, asks vector_store.search per selected collection, and hydrates whatever
-    # chunk ids come back. Qdrant ranking behavior is covered by app/services/vector_store.py
-    # being a thin pass-through to the qdrant-client SDK, not worth re-testing against a fake.
+    # chunk ids come back. Meilisearch ranking behavior is covered by app/services/vector_store.py
+    # being a thin pass-through to the meilisearch SDK, not worth re-testing against a fake.
     async def create_embedding(**_kwargs):
         return SimpleNamespace(data=[SimpleNamespace(embedding=[0.1, 0.2])])
 
     fake_openai_client = SimpleNamespace(embeddings=SimpleNamespace(create=create_embedding))
     monkeypatch.setattr(search_service, "_openai_client", fake_openai_client)
     monkeypatch.setattr(
-        vector_store, "search", lambda collection_id, query_embedding, limit: [(telework_chunk_id, 0.9)]
+        vector_store, "search", lambda collection_id, query, query_embedding, limit: [(telework_chunk_id, 0.9)]
     )
 
     response = await client.post(
@@ -418,7 +418,9 @@ async def test_qa_search_finds_matching_qa_pair(client, monkeypatch):
 
     fake_openai_client = SimpleNamespace(embeddings=SimpleNamespace(create=create_embedding))
     monkeypatch.setattr(search_service, "_openai_client", fake_openai_client)
-    monkeypatch.setattr(vector_store, "search_qa", lambda collection_id, query_embedding, limit: [(qa_pair_id, 0.93)])
+    monkeypatch.setattr(
+        vector_store, "search_qa", lambda collection_id, query, query_embedding, limit: [(qa_pair_id, 0.93)]
+    )
 
     response = await client.post(
         "/api/internal/qa-search",
@@ -462,7 +464,7 @@ async def test_summary_search_finds_matching_document(client, monkeypatch):
     fake_openai_client = SimpleNamespace(embeddings=SimpleNamespace(create=create_embedding))
     monkeypatch.setattr(search_service, "_openai_client", fake_openai_client)
     monkeypatch.setattr(
-        vector_store, "search_summaries", lambda collection_id, query_embedding, limit: [(document_id, 0.81)]
+        vector_store, "search_summaries", lambda collection_id, query, query_embedding, limit: [(document_id, 0.81)]
     )
 
     response = await client.post(
