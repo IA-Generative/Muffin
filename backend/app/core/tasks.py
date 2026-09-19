@@ -75,11 +75,17 @@ def enqueue_run_evaluation(collection_id: str, k: int, validated_only: bool = Fa
     return result.id
 
 
-def enqueue_score_discussion(conversation_id: str) -> str:
+def enqueue_score_discussion(conversation_id: str, model: str | None = None) -> str:
     """Returns the Celery task id, recorded as a conversation-scoped Task row (see
     app/routers/internal_tasks.py) - same reasoning as enqueue_run_evaluation, the DiscussionScore
-    row only ever exists once the worker posts a fully computed one."""
-    result = _celery_app.send_task(SCORE_DISCUSSION_TASK, args=[conversation_id], queue=EVALUATION_QUEUE)
+    row only ever exists once the worker posts a fully computed one.
+
+    When `model` is None, the worker picks the hub's default chat model. When set, the worker
+    uses that specific model - the (conversation, content_hash, model) unique index means
+    re-scoring the same transcript with a different model creates a new score row instead of
+    being a no-op."""
+    args: list = [conversation_id] if model is None else [conversation_id, model]
+    result = _celery_app.send_task(SCORE_DISCUSSION_TASK, args=args, queue=EVALUATION_QUEUE)
     return result.id
 
 

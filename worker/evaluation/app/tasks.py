@@ -288,13 +288,18 @@ def run_evaluation(self, collection_id: str, k: int | None = None, validated_onl
 
 
 @celery_app.task(name="app.tasks.score_discussion", bind=True)
-def score_discussion(self, conversation_id: str) -> None:
+def score_discussion(self, conversation_id: str, model: str | None = None) -> None:
     """Judges a whole conversation - not any one answer - for cross-turn coherence and correct
     use of conversational context (see #31). A single LLM judgment call, not a search-heavy loop
     like run_evaluation, but shares its queue/service since neither needs its own. No
     self.request.id Task registration here either, same reasoning as run_evaluation: the backend
     already creates the Task row itself at dispatch time (see ConversationService.
-    trigger_discussion_score)."""
+    trigger_discussion_score).
+
+    When `model` is None, the hub's default chat model is used. When set, that specific model is
+    used - the (conversation, content_hash, model) unique index means re-scoring the same
+    transcript with a different model creates a new score row instead of being a no-op.
+    """
     with capture_task_logs(self.request.id):
         messages = backend_client.list_conversation_messages(conversation_id)
         assistant_turns = sum(1 for message in messages if message["role"] == "assistant")
@@ -305,7 +310,8 @@ def score_discussion(self, conversation_id: str) -> None:
             )
             return
 
-        model = backend_client.get_default_chat_model()
+        if model is None:
+            model = backend_client.get_default_chat_model()
         if model is None:
             logger.warning(f"No chat model available to score conversation {conversation_id}, skipping")
             return
