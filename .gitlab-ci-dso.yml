@@ -144,6 +144,31 @@ docker-build-worker-agent-execution:
       export IMAGE_NAMES="$TAGS"
       echo "Building with tags: $IMAGE_NAMES"
 
+docker-build-worker-evaluation:
+  extends:
+    - .docker-build-common
+  variables:
+    DOCKERFILE: "worker/evaluation/Dockerfile"
+    WORKING_DIR: "worker/evaluation"
+  before_script:
+    - |
+      SHORT_SHA=$(echo $CI_COMMIT_SHA | cut -c1-7)
+      # See docker-build-backend: this pipeline never runs as a GitLab tag pipeline,
+      # so the version tag comes from the appVersion already committed to Chart.yaml.
+      APP_VERSION=$(grep '^appVersion:' helm/Chart.yaml | awk '{print $2}' | tr -d '"')
+      if [ -z "$APP_VERSION" ]; then
+        echo "Error: Could not extract appVersion from helm/Chart.yaml"
+        exit 1
+      fi
+      TAGS="muffin-worker-evaluation:$SHORT_SHA"
+      TAGS="$TAGS muffin-worker-evaluation:$CI_COMMIT_REF_SLUG"
+      TAGS="$TAGS muffin-worker-evaluation:$APP_VERSION"
+      if echo "$APP_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+        TAGS="$TAGS muffin-worker-evaluation:latest"
+      fi
+      export IMAGE_NAMES="$TAGS"
+      echo "Building with tags: $IMAGE_NAMES"
+
 # Inlined copy of the catalogue's `.helm:build-push` (helm-ci.yml) with its chart
 # detection fixed, so the fix can be exercised here before it is proposed upstream.
 #   - the changed-files grep matches `${CHARTS_PREFIX}/`, derived from CHARTS_DIR,
