@@ -39,6 +39,35 @@ def _headers() -> dict[str, str]:
     return {"X-API-Key": API_KEY}
 
 
+def _run_payload(**overrides) -> dict:
+    payload = {
+        "k": 5,
+        "pair_count": 0,
+        "llm_model": "test-model",
+        "snapshot_chunking_strategy": "paragraph",
+        "snapshot_chunk_size": 500,
+        "snapshot_chunk_overlap": 50,
+        "snapshot_embedding_model": "text-embedding-3-small",
+        "precision_at_k": 0.0,
+        "recall_at_k": 0.0,
+        "mrr": 0.0,
+        "ndcg": 0.0,
+        "validated_pair_count": 0,
+        "validated_precision_at_k": None,
+        "validated_recall_at_k": None,
+        "validated_mrr": None,
+        "validated_ndcg": None,
+        "unvalidated_pair_count": 0,
+        "unvalidated_precision_at_k": None,
+        "unvalidated_recall_at_k": None,
+        "unvalidated_mrr": None,
+        "unvalidated_ndcg": None,
+        "results": [],
+    }
+    payload.update(overrides)
+    return payload
+
+
 async def _create_collection_with_document() -> tuple[uuid.UUID, uuid.UUID]:
     async with async_session_factory() as session:
         collection = Collection(owner_id="dev-user", name="Policies", description="")
@@ -51,7 +80,7 @@ async def _create_collection_with_document() -> tuple[uuid.UUID, uuid.UUID]:
         return collection.id, document.id
 
 
-async def test_list_validated_qa_pairs_excludes_unvalidated(client):
+async def test_list_qa_pairs_for_evaluation_includes_validated_and_not(client):
     collection_id, document_id = await _create_collection_with_document()
     async with async_session_factory() as session:
         session.add_all(
@@ -76,17 +105,18 @@ async def test_list_validated_qa_pairs_excludes_unvalidated(client):
         )
         await session.commit()
 
-    response = await client.get(f"/api/internal/collections/{collection_id}/qa-pairs/validated", headers=_headers())
+    response = await client.get(f"/api/internal/collections/{collection_id}/qa-pairs", headers=_headers())
 
     assert response.status_code == 200
     body = response.json()
-    assert len(body) == 1
-    assert body[0]["question"] == "Validated?"
-    assert body[0]["document_id"] == str(document_id)
+    assert len(body) == 2
+    by_question = {row["question"]: row for row in body}
+    assert by_question["Validated?"]["validated"] is True
+    assert by_question["Unvalidated?"]["validated"] is False
 
 
-async def test_list_validated_qa_pairs_for_unknown_collection_returns_404(client):
-    response = await client.get(f"/api/internal/collections/{uuid.uuid4()}/qa-pairs/validated", headers=_headers())
+async def test_list_qa_pairs_for_evaluation_for_unknown_collection_returns_404(client):
+    response = await client.get(f"/api/internal/collections/{uuid.uuid4()}/qa-pairs", headers=_headers())
     assert response.status_code == 404
 
 
@@ -130,19 +160,18 @@ async def test_create_evaluation_run_persists_run_and_results(client):
     response = await client.post(
         f"/api/internal/collections/{collection_id}/evaluation-runs",
         headers=_headers(),
-        json={
-            "k": 5,
-            "pair_count": 1,
-            "llm_model": "test-model",
-            "snapshot_chunking_strategy": "paragraph",
-            "snapshot_chunk_size": 500,
-            "snapshot_chunk_overlap": 50,
-            "snapshot_embedding_model": "text-embedding-3-small",
-            "precision_at_k": 0.8,
-            "recall_at_k": 0.6,
-            "mrr": 1.0,
-            "ndcg": 0.9,
-            "results": [
+        json=_run_payload(
+            pair_count=1,
+            precision_at_k=0.8,
+            recall_at_k=0.6,
+            mrr=1.0,
+            ndcg=0.9,
+            validated_pair_count=1,
+            validated_precision_at_k=0.8,
+            validated_recall_at_k=0.6,
+            validated_mrr=1.0,
+            validated_ndcg=0.9,
+            results=[
                 {
                     "qa_pair_id": str(qa_pair_id),
                     "question": "What is the policy?",
@@ -152,10 +181,11 @@ async def test_create_evaluation_run_persists_run_and_results(client):
                     "recall_at_k": 0.6,
                     "reciprocal_rank": 1.0,
                     "ndcg": 0.9,
+                    "validated": True,
                     "retrieved_sources": ["handbook.pdf#0", "handbook.pdf#1"],
                 }
             ],
-        },
+        ),
     )
 
     assert response.status_code == 201
@@ -166,9 +196,14 @@ async def test_create_evaluation_run_persists_run_and_results(client):
         assert run is not None
         assert run.pair_count == 1
         assert run.precision_at_k == 0.8
+        assert run.validated_pair_count == 1
+        assert run.validated_precision_at_k == 0.8
+        assert run.unvalidated_pair_count == 0
+        assert run.unvalidated_precision_at_k is None
         assert len(run.results) == 1
         result = run.results[0]
         assert result.qa_pair_id == qa_pair_id
+        assert result.validated is True
         sources = (
             (
                 await session.execute(
@@ -183,21 +218,6 @@ async def test_create_evaluation_run_persists_run_and_results(client):
 
 async def test_create_evaluation_run_for_unknown_collection_returns_404(client):
     response = await client.post(
-        f"/api/internal/collections/{uuid.uuid4()}/evaluation-runs",
-        headers=_headers(),
-        json={
-            "k": 5,
-            "pair_count": 0,
-            "llm_model": "test-model",
-            "snapshot_chunking_strategy": "paragraph",
-            "snapshot_chunk_size": 500,
-            "snapshot_chunk_overlap": 50,
-            "snapshot_embedding_model": "text-embedding-3-small",
-            "precision_at_k": 0.0,
-            "recall_at_k": 0.0,
-            "mrr": 0.0,
-            "ndcg": 0.0,
-            "results": [],
-        },
+        f"/api/internal/collections/{uuid.uuid4()}/evaluation-runs", headers=_headers(), json=_run_payload()
     )
     assert response.status_code == 404

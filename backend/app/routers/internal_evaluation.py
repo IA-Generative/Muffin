@@ -17,18 +17,25 @@ router = APIRouter(prefix="/internal", tags=["Internal"], dependencies=[Depends(
 
 
 @router.get(
-    "/collections/{collection_id}/qa-pairs/validated",
-    summary="List a collection's validated QA pairs - what worker/evaluation replays retrieval against",
+    "/collections/{collection_id}/qa-pairs",
+    summary="List every QA pair of a collection, validated or not - what worker/evaluation "
+    "replays retrieval against, grouping its aggregates by EvaluationQaPairOut.validated",
     response_model=list[EvaluationQaPairOut],
 )
-async def list_validated_qa_pairs(
+async def list_qa_pairs_for_evaluation(
     collection_id: uuid.UUID, db: Annotated[AsyncSession, Depends(get_db)]
 ) -> list[EvaluationQaPairOut]:
     if await CollectionRepository(db).get_by_id(collection_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found")
-    pairs = await QaPairRepository(db).list_validated_by_collection(collection_id)
+    pairs = await QaPairRepository(db).list_by_collection(collection_id)
     return [
-        EvaluationQaPairOut(id=pair.id, question=pair.question, answer=pair.answer, document_id=pair.document_id)
+        EvaluationQaPairOut(
+            id=pair.id,
+            question=pair.question,
+            answer=pair.answer,
+            document_id=pair.document_id,
+            validated=pair.validated,
+        )
         for pair in pairs
     ]
 
