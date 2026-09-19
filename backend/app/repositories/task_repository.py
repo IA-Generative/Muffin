@@ -19,6 +19,7 @@ class TaskRepository:
         owner_id: str,
         document_id: uuid.UUID | None = None,
         collection_id: uuid.UUID | None = None,
+        conversation_id: uuid.UUID | None = None,
         parent_id: uuid.UUID | None = None,
     ) -> Task:
         task = Task(
@@ -27,6 +28,7 @@ class TaskRepository:
             owner_id=owner_id,
             document_id=document_id,
             collection_id=collection_id,
+            conversation_id=conversation_id,
             parent_id=parent_id,
         )
         self.db.add(task)

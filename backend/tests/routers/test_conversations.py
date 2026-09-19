@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from app.core.security import worker_auth
 from app.core.security.factory import RequestContext, get_current_user
@@ -11,6 +11,7 @@ from app.db import async_session_factory
 from app.main import app
 from app.models.conversation import Conversation
 from app.models.run import Run
+from app.models.task import Task
 
 WORKER_API_KEY = "test-worker-key"
 
@@ -26,6 +27,7 @@ async def client():
         yield async_client
     app.dependency_overrides.pop(get_current_user, None)
     async with async_session_factory() as session:
+        await session.execute(delete(Task))
         await session.execute(delete(Run))
         await session.execute(delete(Conversation))
         await session.commit()
@@ -203,4 +205,51 @@ async def test_delete_conversation_requires_ownership(client):
 
 async def test_delete_unknown_conversation_returns_404(client):
     response = await client.delete(f"/api/conversations/{uuid.uuid4()}")
+    assert response.status_code == 404
+
+
+async def test_trigger_discussion_score_enqueues_and_creates_task(client):
+    run = await _create_run(client)
+    await _complete_run(client, run["id"])
+
+    with patch(
+        "app.services.conversation_service.enqueue_score_discussion", return_value="celery-score-1"
+    ) as mock_enqueue:
+        response = await client.post(f"/api/conversations/{run['conversation_id']}/discussion-score")
+
+    assert response.status_code == 202
+    assert response.json() == {"celery_task_id": "celery-score-1"}
+    mock_enqueue.assert_called_once_with(run["conversation_id"])
+
+    async with async_session_factory() as session:
+        task = (await session.execute(select(Task).where(Task.celery_task_id == "celery-score-1"))).scalar_one()
+    assert task.conversation_id == uuid.UUID(run["conversation_id"])
+    assert task.document_id is None
+    assert task.collection_id is None
+
+
+async def test_trigger_discussion_score_requires_ownership(client):
+    app.dependency_overrides[get_current_user] = _as_user("user-a", "a@example.com")
+    run = await _create_run(client)
+
+    app.dependency_overrides[get_current_user] = _as_user("user-b", "b@example.com")
+    response = await client.post(f"/api/conversations/{run['conversation_id']}/discussion-score")
+
+    assert response.status_code == 404
+
+
+async def test_trigger_discussion_score_unknown_conversation_returns_404(client):
+    response = await client.post(f"/api/conversations/{uuid.uuid4()}/discussion-score")
+    assert response.status_code == 404
+
+
+async def test_list_discussion_scores_empty_initially(client):
+    run = await _create_run(client)
+    response = await client.get(f"/api/conversations/{run['conversation_id']}/discussion-scores")
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+async def test_list_discussion_scores_unknown_conversation_returns_404(client):
+    response = await client.get(f"/api/conversations/{uuid.uuid4()}/discussion-scores")
     assert response.status_code == 404

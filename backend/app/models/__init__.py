@@ -11,6 +11,7 @@ from app.models.collection import (
     ShareSubjectType,
 )
 from app.models.conversation import Conversation
+from app.models.discussion_score import DiscussionScore
 from app.models.document import (
     Document,
     DocumentPage,
@@ -49,6 +50,7 @@ __all__ = [
     "CollectionShare",
     "CollectionTag",
     "Conversation",
+    "DiscussionScore",
     "Document",
     "DocumentPage",
     "DocumentStatus",
