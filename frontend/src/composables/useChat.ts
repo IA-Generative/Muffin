@@ -20,6 +20,11 @@ interface Citation {
   // Absent on citations persisted before this field set existed - treated as an old-style
   // citation with no tool/page/chunk info, never a crash.
   tool?: string
+  // The precise provenance of this excerpt (document, qa, summary, collection, web) - stamped
+  // by each evidence producer in the worker's research_task.py and carried through
+  // build_answer_context/generate_answer/link_citations. Absent on citations persisted before
+  // this field existed - formatAnswerWithCitations falls back to inferring from `tool`.
+  evidence_kind?: string
   document_id?: string | null
   chunk_id?: string | null
   page_number?: number | null
@@ -497,11 +502,17 @@ function formatAnswerWithCitations(answer: string, citations: Citation[] | null 
       footnoteNumber = sources.length + 1
       footnoteNumberById.set(evidenceId, footnoteNumber)
       const sourceTitle = citation.source ?? `Source ${citation.vdb_id}`
-      const isWeb = citation.tool === 'web_search'
-      const isDocument = !isWeb && !!citation.tool && DOCUMENT_TOOLS.has(citation.tool)
+      const isWeb = citation.evidence_kind === 'web' || citation.tool === 'web_search'
+      const isDocument =
+        citation.evidence_kind === 'document' ||
+        (!isWeb && !!citation.tool && DOCUMENT_TOOLS.has(citation.tool))
       let type: Source['type']
       if (isWeb) type = 'web'
+      else if (citation.evidence_kind === 'qa') type = 'qa'
+      else if (citation.evidence_kind === 'summary') type = 'document_summary'
+      else if (citation.evidence_kind === 'collection') type = 'collection'
       else if (citation.tool !== undefined) type = isDocument ? 'document' : 'tool'
+      else type = 'tool'
       sources.push({
         title: `${footnoteNumber}. ${sourceTitle}`,
         id: citation.source_id ?? undefined,

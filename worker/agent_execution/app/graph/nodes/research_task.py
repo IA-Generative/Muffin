@@ -44,6 +44,7 @@ def _collection_evidence(vdb: dict[str, Any], task_id: str, retrieval_query: str
         metadata={
             "document_name": vdb["name"],
             "document_count": vdb.get("document_count", 0),
+            "evidence_kind": "collection",
         },
         relevance_score=None,
         retrieval_query=retrieval_query,
@@ -73,6 +74,7 @@ def _count_fact_evidence(
         metadata={
             "document_name": label or "Accessible knowledge bases",
             "count": count,
+            "evidence_kind": "collection",
         },
         relevance_score=None,
         retrieval_query=retrieval_query,
@@ -92,6 +94,7 @@ def _qa_evidence(task_id: str, retrieval_query: str, hit: dict[str, Any]) -> Evi
         metadata={
             "document_name": "Question déjà répondue",
             "qa_pair_id": str(hit["qa_pair_id"]),
+            "evidence_kind": "qa",
         },
         relevance_score=hit["score"],
         retrieval_query=retrieval_query,
@@ -106,7 +109,7 @@ def _summary_evidence(task_id: str, retrieval_query: str, vdb: dict[str, Any], a
         # Same as _qa_evidence: a summary-derived answer has no specific document_id to cite.
         source_id="",
         content=answer,
-        metadata={"document_name": vdb["name"]},
+        metadata={"document_name": vdb["name"], "evidence_kind": "summary"},
         relevance_score=None,
         retrieval_query=retrieval_query,
     )
@@ -128,6 +131,7 @@ def _web_result_evidence(task_id: str, retrieval_query: str, result: dict[str, A
             "document_name": title,
             "url": result["url"],
             "engine": result.get("engine", ""),
+            "evidence_kind": "web",
         },
         relevance_score=result.get("score"),
         retrieval_query=retrieval_query,
@@ -241,6 +245,7 @@ def _run_list_documents(
                     metadata={
                         "document_name": document["name"],
                         "status": document["status"],
+                        "evidence_kind": "document",
                     },
                     relevance_score=None,
                     retrieval_query=task["query"],
@@ -254,7 +259,11 @@ def _run_list_documents(
                 vdb_id=str(vdb["id"]),
                 source_id=str(vdb["id"]),
                 content=f"The '{vdb['name']}' collection has exactly {count} document{'' if count == 1 else 's'}.",
-                metadata={"document_name": vdb["name"], "count": count},
+                metadata={
+                    "document_name": vdb["name"],
+                    "count": count,
+                    "evidence_kind": "collection",
+                },
                 relevance_score=None,
                 retrieval_query=task["query"],
             )
@@ -295,6 +304,7 @@ def _run_page_content(
                 "document_name": document_name,
                 "page_number": page["page_number"],
                 "screenshot_url": page.get("screenshot_url"),
+                "evidence_kind": "document",
             },
             relevance_score=None,
             retrieval_query=task["query"],

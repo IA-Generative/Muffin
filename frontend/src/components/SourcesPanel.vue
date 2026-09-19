@@ -37,6 +37,35 @@ const openSource = ref<Source>()
           <span v-if="source.pageNumber" class="sources-panel__meta">Page {{ source.pageNumber }}</span>
         </button>
 
+        <!-- Document summary card: a collection-level summary, not a specific page - shown as
+             read-only text (no page to open). -->
+        <div
+          v-else-if="source.type === 'document_summary'"
+          class="sources-panel__card sources-panel__card--summary"
+        >
+          <span class="sources-panel__card-kind">Résumé</span>
+          <span class="sources-panel__title">{{ source.title }}</span>
+          <p v-if="source.content" class="sources-panel__tool-line">{{ source.content }}</p>
+        </div>
+
+        <!-- QA card: a previously-answered question reused as evidence - read-only, no page. -->
+        <div v-else-if="source.type === 'qa'" class="sources-panel__card sources-panel__card--qa">
+          <span class="sources-panel__card-kind">Question déjà répondue</span>
+          <span class="sources-panel__title">{{ source.title }}</span>
+          <p v-if="source.content" class="sources-panel__tool-line">{{ source.content }}</p>
+        </div>
+
+        <!-- Collection card: a knowledge-base-level meta-fact (collection description, document
+             count) - read-only, no page to open. -->
+        <div
+          v-else-if="source.type === 'collection'"
+          class="sources-panel__card sources-panel__card--collection"
+        >
+          <span class="sources-panel__card-kind">Base de connaissances</span>
+          <span class="sources-panel__title">{{ source.title }}</span>
+          <p v-if="source.content" class="sources-panel__tool-line">{{ source.content }}</p>
+        </div>
+
         <!-- Tool card: a knowledge-base lookup, not a document - just its input/output, nothing
              to open a page for. -->
         <div v-else-if="source.type === 'tool'" class="sources-panel__card sources-panel__card--tool">
@@ -169,6 +198,21 @@ a.sources-panel__card:hover {
 .sources-panel__card--document .sources-panel__card-kind {
   background: var(--background-alt-blue-france);
   color: var(--text-action-high-blue-france);
+}
+
+.sources-panel__card--summary .sources-panel__card-kind {
+  background: var(--background-alt-purple, var(--background-alt-grey));
+  color: var(--text-action-high-purple, var(--text-mention-grey));
+}
+
+.sources-panel__card--qa .sources-panel__card-kind {
+  background: var(--background-alt-yellow-tournesol, var(--background-alt-grey));
+  color: var(--text-action-high-yellow-tournesol, var(--text-mention-grey));
+}
+
+.sources-panel__card--collection .sources-panel__card-kind {
+  background: var(--background-alt-blue-ecume, var(--background-alt-grey));
+  color: var(--text-action-high-blue-ecume, var(--text-mention-grey));
 }
 
 .sources-panel__card--web:hover {

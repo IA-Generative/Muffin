@@ -14,7 +14,7 @@ export interface Source {
   // useChat.ts's formatAnswerWithCitations. "document" citations ("search"/"page_content" tools)
   // link back to a real page + the exact chunk text; "web" ones (web_search) link to `url`
   // instead; every other tool is just input/output, there's nothing to open for either.
-  type?: 'document' | 'tool' | 'web'
+  type?: 'document' | 'document_summary' | 'qa' | 'collection' | 'tool' | 'web'
   collectionId?: string
   documentId?: string
   pageNumber?: number
