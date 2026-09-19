@@ -34,6 +34,11 @@ export interface ChatMessage {
   // "Analyse de votre question") - ChatMessage.vue shows an animated "…" after it instead of a
   // static one, and never renders it as markdown.
   pending?: boolean
+  // True when this message is an error (run failed, network error, etc.) - ChatMessage.vue
+  // renders it with a distinct error style (icon + color) instead of a normal assistant bubble.
+  // The technical error from the backend (run.error) is never shown to the user - only a clean
+  // French message is, so a 500 with a stack trace or FK violation detail doesn't leak through.
+  error?: boolean
 }
 
 export interface ExecutionEvent {

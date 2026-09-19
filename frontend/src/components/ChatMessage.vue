@@ -133,14 +133,25 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="chat-message" :class="`chat-message--${message.role}`">
-    <div class="chat-message__bubble">
-      <p v-if="message.role === 'user'" class="chat-message__text">{{ renderedContent }}</p>
-      <p v-else-if="message.pending" class="chat-message__text chat-message__pending">
-        {{ renderedContent }}<span class="chat-message__dots" aria-hidden="true"><span>.</span><span>.</span><span>.</span></span>
-        <span class="chat-message__elapsed">{{ elapsedLabel }}</span>
-      </p>
-      <!-- eslint-disable-next-line vue/no-v-html -->
-      <div v-else class="chat-message__markdown" v-html="renderedContent" />
+    <div class="chat-message__bubble" :class="{ 'chat-message__bubble--error': message.error }">
+      <template v-if="message.error">
+        <div class="chat-message__error-header">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+          </svg>
+          <span class="chat-message__error-label">Erreur</span>
+        </div>
+        <p class="chat-message__text chat-message__error-text">{{ message.content }}</p>
+      </template>
+      <template v-else>
+        <p v-if="message.role === 'user'" class="chat-message__text">{{ renderedContent }}</p>
+        <p v-else-if="message.pending" class="chat-message__text chat-message__pending">
+          {{ renderedContent }}<span class="chat-message__dots" aria-hidden="true"><span>.</span><span>.</span><span>.</span></span>
+          <span class="chat-message__elapsed">{{ elapsedLabel }}</span>
+        </p>
+        <!-- eslint-disable-next-line vue/no-v-html -->
+        <div v-else class="chat-message__markdown" v-html="renderedContent" />
+      </template>
 
       <button
         v-if="sourcesLabel"
@@ -154,7 +165,7 @@ onBeforeUnmount(() => {
         {{ sourcesLabel }}
       </button>
 
-      <div v-if="message.role === 'assistant' && !message.pending" class="chat-message__actions">
+      <div v-if="message.role === 'assistant' && !message.pending && !message.error" class="chat-message__actions">
         <button type="button" class="chat-message__action" title="Copier" @click="copyContent">
           <svg
             v-if="!copied"
@@ -453,5 +464,30 @@ onBeforeUnmount(() => {
 .chat-message__menu-item:disabled {
   color: var(--text-disabled-grey);
   cursor: not-allowed;
+}
+
+.chat-message__bubble--error {
+  border: 1px solid var(--border-default-grey);
+  border-left: 3px solid var(--text-default-error);
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+  background: var(--background-alt-grey);
+}
+
+.chat-message__error-header {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin-bottom: 0.25rem;
+  color: var(--text-default-error);
+}
+
+.chat-message__error-label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.chat-message__error-text {
+  color: var(--text-default-grey);
 }
 </style>
