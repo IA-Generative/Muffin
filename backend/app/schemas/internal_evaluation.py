@@ -61,4 +61,8 @@ class EvaluationRunCreate(BaseModel):
     unvalidated_recall_at_k: float | None
     unvalidated_mrr: float | None
     unvalidated_ndcg: float | None
+    # SHA-256 of (QA pairs + chunking settings + embedding model + k + llm_model) - the worker
+    # computes this before running and checks /evaluation-runs/exists to skip if an identical run
+    # already exists (same dedup strategy as DiscussionScore.content_hash).
+    content_hash: str
     results: list[EvaluationResultIn]

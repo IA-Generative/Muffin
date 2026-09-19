@@ -14,6 +14,10 @@ class CollectionNotFoundError(Exception):
     pass
 
 
+class EvaluationRunNotFoundError(Exception):
+    pass
+
+
 class EvaluationService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
@@ -21,7 +25,13 @@ class EvaluationService:
         self.evaluations = EvaluationRepository(db)
         self.tasks = TaskRepository(db)
 
-    async def trigger(self, collection_id: uuid.UUID, user: RequestContext, k: int) -> str:
+    async def trigger(
+        self,
+        collection_id: uuid.UUID,
+        user: RequestContext,
+        k: int,
+        validated_only: bool = False,
+    ) -> str:
         await self._get_accessible(collection_id, user)
         # No EvaluationRun row is created here - see EvaluationRepository.create_run's docstring,
         # the worker posts a fully computed one back once it's done. The Task row (progress/logs
@@ -29,10 +39,23 @@ class EvaluationService:
         # pattern as DocumentUploadService.create_file_document: this request already knows the
         # user, so there's no need for the worker to call back just to record who owns it (it's a
         # single task with no children besides, unlike the document pipeline's cascade).
-        celery_task_id = enqueue_run_evaluation(str(collection_id), k)
-        await self.tasks.create(celery_task_id, RUN_EVALUATION_TASK, user.user_id, collection_id=collection_id)
+        celery_task_id = enqueue_run_evaluation(str(collection_id), k, validated_only)
+        await self.tasks.create(
+            celery_task_id,
+            RUN_EVALUATION_TASK,
+            user.user_id,
+            collection_id=collection_id,
+        )
         await self.db.commit()
         return celery_task_id
+
+    async def delete_run(self, collection_id: uuid.UUID, run_id: uuid.UUID, user: RequestContext) -> None:
+        await self._get_accessible(collection_id, user)
+        run = await self.evaluations.get(run_id)
+        if run is None or run.collection_id != collection_id:
+            raise EvaluationRunNotFoundError(str(run_id))
+        await self.evaluations.delete_run(run)
+        await self.db.commit()
 
     async def list_runs(self, collection_id: uuid.UUID, user: RequestContext) -> list[EvaluationRunOut]:
         await self._get_accessible(collection_id, user)
@@ -71,6 +94,7 @@ class EvaluationService:
             unvalidated_recall_at_k=run.unvalidated_recall_at_k,
             unvalidated_mrr=run.unvalidated_mrr,
             unvalidated_ndcg=run.unvalidated_ndcg,
+            content_hash=run.content_hash,
             results=[
                 EvaluationResultOut(
                     id=result.id,
