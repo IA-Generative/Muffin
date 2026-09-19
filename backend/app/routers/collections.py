@@ -32,7 +32,10 @@ from app.services.collection_service import (
 from app.services.evaluation_service import (
     CollectionNotFoundError as EvaluationCollectionNotFoundError,
 )
-from app.services.evaluation_service import EvaluationService
+from app.services.evaluation_service import (
+    EvaluationRunNotFoundError,
+    EvaluationService,
+)
 
 router = APIRouter(tags=["Collections"])
 
@@ -168,7 +171,7 @@ async def get_feedback_stats(collection_id: uuid.UUID, user: UserDep, service: S
 
 @router.post(
     "/collections/{collection_id}/evaluations",
-    summary="Trigger a retrieval-evaluation run against this collection's validated QA pairs "
+    summary="Trigger a retrieval-evaluation run against this collection's QA pairs "
     "(runs asynchronously in a dedicated worker - see #11)",
     status_code=status.HTTP_202_ACCEPTED,
 )
@@ -179,7 +182,7 @@ async def trigger_evaluation(
     service: EvaluationServiceDep,
 ) -> dict[str, str]:
     try:
-        celery_task_id = await service.trigger(collection_id, user, body.k)
+        celery_task_id = await service.trigger(collection_id, user, body.k, body.validated_only)
     except EvaluationCollectionNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
     return {"celery_task_id": celery_task_id}
@@ -197,6 +200,25 @@ async def list_evaluations(
         return await service.list_runs(collection_id, user)
     except EvaluationCollectionNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
+
+
+@router.delete(
+    "/collections/{collection_id}/evaluations/{run_id}",
+    summary="Delete a retrieval-evaluation run and all its per-pair results (see #11)",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_evaluation(
+    collection_id: uuid.UUID,
+    run_id: uuid.UUID,
+    user: UserDep,
+    service: EvaluationServiceDep,
+) -> None:
+    try:
+        await service.delete_run(collection_id, run_id, user)
+    except EvaluationCollectionNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
+    except EvaluationRunNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Evaluation run not found") from error
 
 
 @router.get(

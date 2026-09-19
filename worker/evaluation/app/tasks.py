@@ -110,6 +110,42 @@ def _build_answer(model: str, question: str, search_results: list[dict[str, Any]
     )
 
 
+def _evaluation_hash(
+    qa_pairs: list[dict[str, Any]],
+    collection_settings: dict[str, Any],
+    k: int,
+    llm_model: str,
+    validated_only: bool = False,
+) -> str:
+    """SHA-256 of everything that affects an evaluation run's result: the QA pairs (id, question,
+    answer, document_id, validated), the chunking/embedding config, k, the LLM model, and the
+    validated_only scope. If none of these changed since the last run with the same model, the
+    result would be identical and there's no reason to re-run (same dedup strategy as
+    _transcript_hash for DiscussionScore).
+    """
+    pairs_fingerprint = [
+        {
+            "id": p["id"],
+            "question": p["question"],
+            "answer": p["answer"],
+            "document_id": str(p["document_id"]) if p.get("document_id") else None,
+            "validated": p["validated"],
+        }
+        for p in sorted(qa_pairs, key=lambda p: p["id"])
+    ]
+    payload = {
+        "qa_pairs": pairs_fingerprint,
+        "chunking_strategy": collection_settings["chunking_strategy"],
+        "chunk_size": collection_settings["chunk_size"],
+        "chunk_overlap": collection_settings["chunk_overlap"],
+        "embedding_model": collection_settings["embedding_model"],
+        "k": k,
+        "llm_model": llm_model,
+        "validated_only": validated_only,
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+
+
 def _score_pair(pair: dict[str, Any], search_results: list[dict[str, Any]], total_relevant: int) -> dict[str, float]:
     relevances = [result["document_id"] == pair["document_id"] for result in search_results]
     return {
@@ -155,18 +191,20 @@ def _subset_average(results: list[dict[str, Any]], validated: bool) -> dict[str,
 
 
 @celery_app.task(name="app.tasks.run_evaluation", bind=True)
-def run_evaluation(self, collection_id: str, k: int | None = None) -> None:
-    """Replays every QA pair of a collection - validated and not-yet-validated alike - through the
-    same search the research agent uses, scores retrieval against each pair's source document
-    (the only ground truth a QaPair carries - see app/metrics.py), generates an answer from what
-    was retrieved, then posts one fully-computed EvaluationRun back to the backend (see #11 - the
-    model has no in-progress state, so nothing is created until everything is scored). The run's
-    aggregates are reported three ways - global, validated-only, unvalidated-only - so a low score
-    can be told apart from "these questions were never reviewed" rather than looking like a
-    retrieval problem. No self.request.id Task registration here, unlike worker/document_process's
-    spawned tasks: this is a single task with no children, and the backend already creates its
-    Task row itself right after dispatching it (see EvaluationService.trigger - it already knows
-    the user at that point, no round trip needed)."""
+def run_evaluation(self, collection_id: str, k: int | None = None, validated_only: bool = False) -> None:
+    """Replays every QA pair of a collection through the same search the research agent uses,
+    scores retrieval against each pair's source document (the only ground truth a QaPair carries
+    - see app/metrics.py), generates an answer from what was retrieved, then posts one
+    fully-computed EvaluationRun back to the backend (see #11 - the model has no in-progress
+    state, so nothing is created until everything is scored). The run's aggregates are reported
+    three ways - global, validated-only, unvalidated-only - so a low score can be told apart from
+    "these questions were never reviewed" rather than looking like a retrieval problem. When
+    validated_only is True, only validated QA pairs are evaluated; when False (default), all QA
+    pairs with a source document are evaluated regardless of validation status. No self.request.id
+    Task registration here, unlike worker/document_process's spawned tasks: this is a single task
+    with no children, and the backend already creates its Task row itself right after dispatching
+    it (see EvaluationService.trigger - it already knows the user at that point, no round trip
+    needed)."""
     with capture_task_logs(self.request.id):
         k = k or settings.DEFAULT_TOP_K
         collection_settings = backend_client.get_collection_settings(collection_id)
@@ -182,11 +220,28 @@ def run_evaluation(self, collection_id: str, k: int | None = None) -> None:
         # docstring) - a pair with no source document has nothing to score retrieval against,
         # regardless of whether it's validated.
         evaluable_pairs = [pair for pair in qa_pairs if pair.get("document_id")]
+        # When validated_only is True, restrict to validated pairs only; when False (default),
+        # evaluate all pairs with a source document - the run's validated/unvalidated breakdown
+        # still separates them in the results.
+        if validated_only:
+            evaluable_pairs = [pair for pair in evaluable_pairs if pair.get("validated")]
         skipped = len(qa_pairs) - len(evaluable_pairs)
         if skipped:
             logger.info(f"Skipping {skipped} QA pair(s) with no source document")
         if not evaluable_pairs:
             logger.warning(f"No evaluable QA pairs for collection {collection_id}, nothing to run")
+            return
+
+        # Dedup: if an identical run already exists (same QA pairs content, same chunking/embedding
+        # settings, same k, same LLM model, same validated_only scope), skip - the result would be
+        # identical. Same strategy as score_discussion's content_hash skip (see #31).
+        content_hash = _evaluation_hash(qa_pairs, collection_settings, k, model, validated_only)
+        existing_id = backend_client.find_evaluation_run(collection_id, content_hash, model)
+        if existing_id is not None:
+            logger.info(
+                f"Evaluation run {existing_id} already exists for collection {collection_id} "
+                f"with the same content hash and model, skipping"
+            )
             return
 
         logger.info(f"Evaluating {len(evaluable_pairs)} QA pair(s) for collection {collection_id} at k={k}")
@@ -225,6 +280,7 @@ def run_evaluation(self, collection_id: str, k: int | None = None) -> None:
             **_average(results),
             **_subset_average(results, validated=True),
             **_subset_average(results, validated=False),
+            "content_hash": content_hash,
             "results": results,
         }
         run_id = backend_client.create_evaluation_run(collection_id, payload)

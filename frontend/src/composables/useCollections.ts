@@ -711,23 +711,43 @@ const EVAL_K = 5
 
 // Tracks active evaluation polls so a second click doesn't start a duplicate interval.
 const evaluationPolls = new Map<string, ReturnType<typeof setInterval>>()
+// Reactive set of collection IDs currently running an evaluation.
+const evaluatingCollectionIds = ref<Set<string>>(new Set())
+
+function isEvaluating(collectionId: string): boolean {
+  return evaluatingCollectionIds.value.has(collectionId)
+}
 
 async function runEvaluation(collectionId: string) {
   const collection = collections.value.find((item) => item.id === collectionId)
   if (!collection) return
 
-  const validated = collection.qaPairs.filter((pair) => pair.validated)
-  if (!validated.length) return
+  if (isEvaluating(collectionId)) return
+
+  // Evaluate all QA pairs with a source document, not just validated ones - the run's
+  // validated/unvalidated breakdown still separates them in the results.
+  const evaluable = collection.qaPairs.filter((pair) => pair.source)
+  if (!evaluable.length) return
+
+  evaluatingCollectionIds.value.add(collectionId)
+  // Trigger reactivity for the Set mutation
+  evaluatingCollectionIds.value = new Set(evaluatingCollectionIds.value)
 
   try {
     const response = await fetch(`${API_BASE_URL}/api/collections/${collectionId}/evaluations`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ k: EVAL_K }),
+      body: JSON.stringify({ k: EVAL_K, validated_only: false }),
     })
-    if (!response.ok) return
+    if (!response.ok) {
+      evaluatingCollectionIds.value.delete(collectionId)
+      evaluatingCollectionIds.value = new Set(evaluatingCollectionIds.value)
+      return
+    }
   } catch {
+    evaluatingCollectionIds.value.delete(collectionId)
+    evaluatingCollectionIds.value = new Set(evaluatingCollectionIds.value)
     return
   }
 
@@ -754,9 +774,27 @@ function pollEvaluationWhileRunning(collectionId: string) {
           clearInterval(handle)
           evaluationPolls.delete(collectionId)
         }
+        evaluatingCollectionIds.value.delete(collectionId)
+        evaluatingCollectionIds.value = new Set(evaluatingCollectionIds.value)
       }
     }, 2000),
   )
+}
+
+async function deleteEvaluation(collectionId: string, runId: string) {
+  try {
+    const response = await fetch(
+      `${API_BASE_URL}/api/collections/${collectionId}/evaluations/${runId}`,
+      { method: 'DELETE', credentials: 'include' },
+    )
+    if (!response.ok) return
+  } catch {
+    return
+  }
+  const collection = collections.value.find((item) => item.id === collectionId)
+  if (collection) {
+    collection.evaluationRuns = collection.evaluationRuns.filter((run) => run.id !== runId)
+  }
 }
 
 export function useCollections() {
@@ -799,5 +837,7 @@ export function useCollections() {
     reindexCollection,
     updateInstructionField,
     runEvaluation,
+    isEvaluating,
+    deleteEvaluation,
   }
 }
