@@ -4,7 +4,13 @@ from app.graph.services.events import emit, is_cancelled, set_activity
 from app.graph.services.llm import json_chat
 from app.graph.state import AgentState, ResearchTask, TaskTool
 
-_BASE_TOOLS: tuple[str, ...] = ("search", "list_collections", "collection_summary", "list_documents", "page_content")
+_BASE_TOOLS: tuple[str, ...] = (
+    "search",
+    "list_collections",
+    "collection_summary",
+    "list_documents",
+    "page_content",
+)
 
 _BASE_TOOL_GUIDE = (
     "Tool guide:\n"
@@ -49,7 +55,15 @@ def _system_prompt(web_search_enabled: bool) -> str:
 
 
 def _fallback_task(query: str, tool: TaskTool = "search") -> list[dict[str, Any]]:
-    return [{"id": "task-1", "query": query, "intent": None, "tool": tool, "dependencies": []}]
+    return [
+        {
+            "id": "task-1",
+            "query": query,
+            "intent": None,
+            "tool": tool,
+            "dependencies": [],
+        }
+    ]
 
 
 def _sanitize(raw: list[Any], original_query: str, web_search_enabled: bool) -> list[ResearchTask]:
@@ -124,7 +138,12 @@ def decompose_query(state: AgentState) -> dict[str, Any]:
         and not analysis.get("requires_multiple_sources")
         and analysis.get("complexity") == "simple"
     )
-    if is_simple_search:
+    # When web search is opted in, never short-circuit to a plain "search" fallback - the LLM
+    # planner is the only one that can decide whether this specific query actually needs the web
+    # (vs. the user's own documents). Skipping it means a simple-looking query like "qui est le
+    # président actuel ?" always falls back to "search" and the web_search tool is never picked,
+    # even though the user explicitly toggled it on.
+    if is_simple_search and not web_search_enabled:
         tasks = _sanitize(_fallback_task(query), query, web_search_enabled)
     else:
         model = state["chat_model"]
@@ -139,5 +158,9 @@ def decompose_query(state: AgentState) -> dict[str, Any]:
             )
             tasks = _sanitize(raw, query, web_search_enabled)
 
-    emit(run_id, "query_decomposition_completed", {"task_count": len(tasks), "task_ids": [t["id"] for t in tasks]})
+    emit(
+        run_id,
+        "query_decomposition_completed",
+        {"task_count": len(tasks), "task_ids": [t["id"] for t in tasks]},
+    )
     return {"research_tasks": tasks}
