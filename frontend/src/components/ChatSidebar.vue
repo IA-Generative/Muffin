@@ -9,7 +9,7 @@ defineProps<{
   conversationsHasMore: boolean
   loadingMoreConversations: boolean
   activeId: string
-  activeView: 'chat' | 'collections' | 'tasks' | 'admin'
+  activeView: 'chat' | 'collections' | 'tasks' | 'quality' | 'admin'
   user: User | null
 }>()
 
@@ -21,6 +21,7 @@ const emit = defineEmits<{
   delete: [id: string]
   openCollections: []
   openTasks: []
+  openQuality: []
   openAdmin: []
   openSettings: []
   login: []
@@ -103,6 +104,11 @@ function openSettings() {
 function openTasks() {
   showUserMenu.value = false
   emit('openTasks')
+}
+
+function openQuality() {
+  showUserMenu.value = false
+  emit('openQuality')
 }
 
 function openAdmin() {
@@ -247,6 +253,12 @@ function initials(name: string) {
             <path stroke-linecap="round" stroke-linejoin="round" d="M9 11l3 3 8-8M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9" />
           </svg>
           Tâches
+        </button>
+        <button v-if="user?.isAdmin" type="button" class="user-menu__item" role="menuitem" @click="openQuality">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 20V10M12 20V4M20 20v-7" />
+          </svg>
+          Qualité
         </button>
         <button v-if="user?.isAdmin" type="button" class="user-menu__item" role="menuitem" @click="openAdmin">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
