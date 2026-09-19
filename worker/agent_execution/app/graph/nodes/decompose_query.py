@@ -10,6 +10,7 @@ _BASE_TOOLS: tuple[str, ...] = (
     "collection_summary",
     "list_documents",
     "page_content",
+    "time",
 )
 
 _BASE_TOOL_GUIDE = (
@@ -19,6 +20,9 @@ _BASE_TOOL_GUIDE = (
     '- "collection_summary": the user wants a summary/description of one specific collection.\n'
     '- "list_documents": the user asks how many documents are in a collection, or wants a document\'s summary.\n'
     '- "page_content": the user wants the text and/or screenshot of one specific page of one document.\n'
+    '- "time": the user asks about the current date/time, or references relative periods (today, this week, '
+    "last month, etc.) to filter or compare documents/tasks. Always pick this tool when the query needs "
+    "temporal context the LLM cannot infer alone.\n"
 )
 
 # Only ever appended when the run opted in (chat composer toggle, off by default - see
