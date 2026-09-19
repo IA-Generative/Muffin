@@ -1,33 +1,34 @@
 # worker/evaluation
 
 Worker Celery qui exécute un run d'évaluation retrieval pour une collection (voir issue #11) :
-rejoue chaque paire QA validée à travers la même recherche que l'agent, note la pertinence des
-résultats, génère une réponse, puis envoie un `EvaluationRun` complet au backend.
+rejoue chaque paire QA - validée ou pas - à travers la même recherche que l'agent, note la
+pertinence des résultats, génère une réponse, puis envoie un `EvaluationRun` complet au backend.
 
 Ne parle jamais directement à Postgres/Meilisearch : toute lecture/écriture passe par les endpoints
 internes du backend (`app/backend_client.py`), authentifiés par `WORKER_API_KEY`.
 
 Dans sa propre queue Celery (`evaluation`), séparée de `document_processing` et
-`agent_execution` : un run d'évaluation itère sur toutes les paires QA validées d'une collection,
-refait une recherche + une génération pour chacune - potentiellement long et gourmand en appels
-LLM, ça ne doit jamais faire attendre une vraie requête utilisateur ni retarder l'ingestion de
-documents.
+`agent_execution` : un run d'évaluation itère sur toutes les paires QA d'une collection, refait une
+recherche + une génération pour chacune - potentiellement long et gourmand en appels LLM, ça ne
+doit jamais faire attendre une vraie requête utilisateur ni retarder l'ingestion de documents.
 
 ## Ce que fait `run_evaluation` (`app/tasks.py`)
 
 1. Récupère les paramètres de la collection (chunking/embedding, modèle configuré pour
    l'étape `evaluation` si défini, sinon le modèle de chat par défaut du hub LLM).
-2. Récupère les paires QA **validées** de la collection. Une paire sans document source
-   (`document_id`) est ignorée : la pertinence ne peut être jugée qu'au niveau document (une
-   `QaPair` n'a pas de vérité terrain au niveau chunk - voir `app/models/qa.py` côté backend), donc
-   une paire sans document n'a rien contre quoi noter le retrieval.
+2. Récupère **toutes** les paires QA de la collection, validées ou pas. Une paire sans document
+   source (`document_id`) est ignorée : la pertinence ne peut être jugée qu'au niveau document
+   (une `QaPair` n'a pas de vérité terrain au niveau chunk - voir `app/models/qa.py` côté
+   backend), donc une paire sans document n'a rien contre quoi noter le retrieval.
 3. Pour chaque paire évaluable : recherche les `k` chunks les mieux classés (même endpoint
    `/internal/search` que l'agent), calcule precision@k/recall@k/MRR/nDCG (`app/metrics.py`) en
    comparant les documents retrouvés au document source de la paire, puis génère une réponse à
    partir des extraits retrouvés.
-4. Poste un unique `EvaluationRun` complet (agrégats + résultat par paire + sources retrouvées)
-   au backend - le modèle `EvaluationRun` n'a pas d'état "en cours" (pas de colonne `status`), donc
-   rien n'est créé avant que tout soit calculé.
+4. Poste un unique `EvaluationRun` complet au backend - le modèle n'a pas d'état "en cours" (pas
+   de colonne `status`), donc rien n'est créé avant que tout soit calculé. Les métriques sont
+   agrégées trois fois : globalement (toutes les paires), sur les paires validées seules, et sur
+   les non-validées seules (`None` quand ce sous-ensemble est vide) - pour distinguer "le
+   retrieval est mauvais" de "ces questions n'ont jamais été relues".
 
 Le suivi de progression/logs passe par une `Task` (même mécanisme que
 `worker/document_process`), mais créée directement par le backend au moment du déclenchement

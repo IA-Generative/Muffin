@@ -22,8 +22,11 @@ class BackendClient:
         response.raise_for_status()
         return response.json()
 
-    def list_validated_qa_pairs(self, collection_id: str) -> list[dict[str, Any]]:
-        response = self._client.get(f"/api/internal/collections/{collection_id}/qa-pairs/validated")
+    def list_qa_pairs(self, collection_id: str) -> list[dict[str, Any]]:
+        """Every QA pair of the collection, validated or not - each carries its own `validated`
+        flag, which the worker groups its aggregates by (see #11's follow-up: evaluate both, not
+        just validated ones)."""
+        response = self._client.get(f"/api/internal/collections/{collection_id}/qa-pairs")
         response.raise_for_status()
         return response.json()
 
