@@ -11,6 +11,7 @@ from app.main import app
 from app.models.collection import Collection
 from app.models.conversation import Conversation
 from app.models.document import Document, DocumentPage
+from app.models.feedback import Feedback, FeedbackReason, FeedbackReasonCode, FeedbackValue
 from app.models.message import Message, MessageRole
 from app.models.run import Run
 
@@ -50,6 +51,38 @@ async def _create_run_with_citation(collection_id: str, grounding_valid: bool | 
                 grounding_unsupported_claims=["a claim"] if grounding_valid is False else None,
             )
         )
+        await session.commit()
+
+
+async def _create_run_with_feedback(
+    collection_id: str, value: FeedbackValue, reasons: list[FeedbackReasonCode] | None = None, query: str = "query"
+) -> None:
+    async with async_session_factory() as session:
+        conversation = Conversation(user_id="dev-user", title="Test")
+        session.add(conversation)
+        await session.flush()
+        user_message = Message(conversation_id=conversation.id, role=MessageRole.USER, content=query)
+        session.add(user_message)
+        await session.flush()
+        run = Run(
+            user_id="dev-user",
+            message_id=user_message.id,
+            conversation_id=conversation.id,
+            query=query,
+            citations=[{"vdb_id": collection_id, "source": "doc-1"}],
+        )
+        session.add(run)
+        await session.flush()
+        assistant_message = Message(
+            conversation_id=conversation.id, role=MessageRole.ASSISTANT, content="answer", run_id=run.id
+        )
+        session.add(assistant_message)
+        await session.flush()
+        feedback = Feedback(message_id=assistant_message.id, user_id="dev-user", value=value)
+        session.add(feedback)
+        await session.flush()
+        for reason in reasons or []:
+            session.add(FeedbackReason(feedback_id=feedback.id, reason=reason))
         await session.commit()
 
 
@@ -341,6 +374,34 @@ async def test_groundedness_stats_aggregates_by_collection(client):
 
 async def test_groundedness_stats_for_unknown_collection_returns_404(client):
     response = await client.get(f"/api/collections/{uuid.uuid4()}/groundedness")
+    assert response.status_code == 404
+
+
+async def test_feedback_stats_aggregates_by_collection(client):
+    collection_id = (await client.post("/api/collections")).json()["id"]
+    other_collection_id = (await client.post("/api/collections")).json()["id"]
+
+    await _create_run_with_feedback(collection_id, FeedbackValue.UP, query="good")
+    await _create_run_with_feedback(
+        collection_id,
+        FeedbackValue.DOWN,
+        reasons=[FeedbackReasonCode.INCORRECT_ANSWER, FeedbackReasonCode.NOT_USEFUL],
+        query="bad",
+    )
+    # A different collection's feedback must never leak into this one's stats.
+    await _create_run_with_feedback(other_collection_id, FeedbackValue.DOWN, query="elsewhere")
+
+    response = await client.get(f"/api/collections/{collection_id}/feedback")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["up_count"] == 1
+    assert body["down_count"] == 1
+    assert body["reason_counts"] == {"incorrect_answer": 1, "not_useful": 1}
+
+
+async def test_feedback_stats_for_unknown_collection_returns_404(client):
+    response = await client.get(f"/api/collections/{uuid.uuid4()}/feedback")
     assert response.status_code == 404
 
 

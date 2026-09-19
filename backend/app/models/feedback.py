@@ -7,6 +7,11 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base, TimestampMixin, UUIDMixin
 
 
+class FeedbackValue(enum.StrEnum):
+    UP = "up"
+    DOWN = "down"
+
+
 class FeedbackReasonCode(enum.StrEnum):
     INCORRECT_ANSWER = "incorrect_answer"
     NOT_USEFUL = "not_useful"
@@ -28,6 +33,11 @@ class Feedback(UUIDMixin, TimestampMixin, Base):
     )
     # Keycloak subject (sub) claim of the reviewer.
     user_id: Mapped[str] = mapped_column(String, nullable=False)
+    # Every feedback is either a thumbs up or a thumbs down (see ChatMessage.vue) - reasons below
+    # only ever get filled in on a down (FeedbackModal.vue), but the polarity itself is never
+    # optional: without it, a stored feedback with no reasons was indistinguishable between "a
+    # plain thumbs up" and "a thumbs down with no reason selected".
+    value: Mapped[FeedbackValue] = mapped_column(Enum(FeedbackValue, name="feedback_value"), nullable=False)
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     message: Mapped["Message"] = relationship(back_populates="feedbacks")  # noqa: F821
