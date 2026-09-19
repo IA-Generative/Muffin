@@ -23,6 +23,8 @@ interface Citation {
   document_id?: string | null
   chunk_id?: string | null
   page_number?: number | null
+  // Only ever set on a web_search citation - a real, browsable external URL.
+  url?: string | null
   query?: string
   content?: string
 }
@@ -370,7 +372,12 @@ async function loadMoreConversations() {
   }
 }
 
-async function createRun(conversationId: string, query: string, collectionIds: string[]): Promise<RunOut> {
+async function createRun(
+  conversationId: string,
+  query: string,
+  collectionIds: string[],
+  webSearchEnabled: boolean,
+): Promise<RunOut> {
   // Only ever send a conversation_id the backend actually confirmed exists - the sidebar's
   // placeholder id would 404 (ConversationNotFoundError), so a brand-new conversation's first
   // run omits it and lets the backend create one instead.
@@ -383,6 +390,7 @@ async function createRun(conversationId: string, query: string, collectionIds: s
       query,
       conversation_id: known,
       collection_ids: collectionIds.length > 0 ? collectionIds : undefined,
+      web_search_enabled: webSearchEnabled,
     }),
   })
   if (!response.ok) throw new Error(`${response.status}`)
@@ -420,7 +428,8 @@ function formatAnswerWithCitations(answer: string, citations: Citation[] | null 
 
   // Only "search" and "page_content" ever point at a real, openable document page - every other
   // tool (list_collections, collection_summary, list_documents) is a knowledge-base-level lookup
-  // with nothing to open a page for, just its own input/output.
+  // with nothing to open a page for, just its own input/output. "web_search" is its own case
+  // below: a real, openable link too, just external rather than a document page.
   const DOCUMENT_TOOLS = new Set(['search', 'page_content'])
 
   function footnoteFor(evidenceId: string): number | undefined {
@@ -431,12 +440,15 @@ function formatAnswerWithCitations(answer: string, citations: Citation[] | null 
       footnoteNumber = sources.length + 1
       footnoteNumberById.set(evidenceId, footnoteNumber)
       const sourceTitle = citation.source ?? `Source ${citation.vdb_id}`
-      const isDocument = !!citation.tool && DOCUMENT_TOOLS.has(citation.tool)
+      const isWeb = citation.tool === 'web_search'
+      const isDocument = !isWeb && !!citation.tool && DOCUMENT_TOOLS.has(citation.tool)
       let type: Source['type']
-      if (citation.tool !== undefined) type = isDocument ? 'document' : 'tool'
+      if (isWeb) type = 'web'
+      else if (citation.tool !== undefined) type = isDocument ? 'document' : 'tool'
       sources.push({
         title: `${footnoteNumber}. ${sourceTitle}`,
         type,
+        url: isWeb ? (citation.url ?? undefined) : undefined,
         collectionId: citation.vdb_id,
         documentId: isDocument ? (citation.document_id ?? undefined) : undefined,
         pageNumber: isDocument ? (citation.page_number ?? undefined) : undefined,
@@ -541,9 +553,15 @@ function trackRun(conversationId: string, messageId: string, run: RunOut) {
   activePolls.set(messageId, interval)
 }
 
-async function runQuery(conversationId: string, messageId: string, query: string, collectionIds: string[]) {
+async function runQuery(
+  conversationId: string,
+  messageId: string,
+  query: string,
+  collectionIds: string[],
+  webSearchEnabled: boolean,
+) {
   try {
-    const run = await createRun(conversationId, query, collectionIds)
+    const run = await createRun(conversationId, query, collectionIds, webSearchEnabled)
     const resolvedId = run.conversation_id ? migrateConversationId(conversationId, run.conversation_id) : conversationId
     trackRun(resolvedId, messageId, run)
   } catch {
@@ -568,7 +586,7 @@ async function resumeAndTrack(conversationId: string, runId: string, messageId: 
   }
 }
 
-function sendMessage(content: string, collectionIds: string[] = []) {
+function sendMessage(content: string, collectionIds: string[] = [], webSearchEnabled = false) {
   const conversationId = activeId.value
 
   const pending = pendingClarifications[conversationId]
@@ -590,7 +608,7 @@ function sendMessage(content: string, collectionIds: string[] = []) {
     { id: crypto.randomUUID(), role: 'user', content },
     { id: messageId, role: 'assistant', content: 'Recherche en cours', pending: true },
   )
-  runQuery(conversationId, messageId, content, collectionIds)
+  runQuery(conversationId, messageId, content, collectionIds, webSearchEnabled)
 }
 
 function regenerateMessage(id: string) {
@@ -613,7 +631,10 @@ function regenerateMessage(id: string) {
   // stale entry here would otherwise hijack the next normal sendMessage into "resuming" it.
   delete pendingClarifications[conversationId]
   list[index] = { id, role: 'assistant', content: 'Recherche en cours', pending: true }
-  runQuery(conversationId, id, lastUserMessage.content, [])
+  // Regenerating never re-enables web search on its own - it's not tracked per message, and
+  // silently turning it back on for a rerun the user didn't explicitly opt into would violate
+  // the same "off by default, opt-in per message" rule the composer toggle itself follows.
+  runQuery(conversationId, id, lastUserMessage.content, [], false)
 }
 
 function sendFeedback(id: string, value: 'up' | 'down', details?: FeedbackDetails) {

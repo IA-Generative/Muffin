@@ -50,6 +50,19 @@ const openSource = ref<Source>()
           </p>
         </div>
 
+        <!-- Web card: the web_search tool - a real external link, opens in a new tab. -->
+        <a
+          v-else-if="source.type === 'web' && source.url"
+          :href="source.url"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="sources-panel__card sources-panel__card--web"
+        >
+          <span class="sources-panel__card-kind">Web</span>
+          <span class="sources-panel__title">{{ source.title }}</span>
+          <span class="sources-panel__url">{{ source.url }}</span>
+        </a>
+
         <!-- Older citation with no type info, or a user-added feedback source. -->
         <a v-else-if="source.url" :href="source.url" target="_blank" rel="noopener noreferrer" class="sources-panel__card">
           <span class="sources-panel__title">{{ source.title }}</span>
@@ -156,6 +169,15 @@ a.sources-panel__card:hover {
 .sources-panel__card--document .sources-panel__card-kind {
   background: var(--background-alt-blue-france);
   color: var(--text-action-high-blue-france);
+}
+
+.sources-panel__card--web:hover {
+  border-color: var(--border-action-high-blue-france);
+}
+
+.sources-panel__card--web .sources-panel__card-kind {
+  background: var(--background-alt-green-emeraude, var(--background-alt-grey));
+  color: var(--text-default-success, var(--text-default-grey));
 }
 
 .sources-panel__title {
