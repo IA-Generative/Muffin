@@ -13,6 +13,9 @@ class EvaluationQaPairOut(BaseModel):
     # chunk-level ground truth (see app/models/qa.py) - so a pair with no source document has
     # nothing to score against and the worker skips it.
     document_id: uuid.UUID | None
+    # Both validated and not-yet-validated pairs get evaluated (see EvaluationRun's docstring) -
+    # this is what the worker groups its validated_*/unvalidated_* aggregates by.
+    validated: bool
 
 
 class EvaluationResultIn(BaseModel):
@@ -24,6 +27,9 @@ class EvaluationResultIn(BaseModel):
     recall_at_k: float
     reciprocal_rank: float
     ndcg: float
+    # Snapshot of EvaluationQaPairOut.validated at evaluation time - never re-derived from the
+    # QaPair later (see EvaluationResult.validated's own docstring).
+    validated: bool
     # One label per retrieved source (e.g. "handbook.pdf#3") - EvaluationResultSource is a plain
     # detail table, not a foreign key into chunks (a chunk can be deleted/re-chunked later, the
     # record of what this run actually saw should survive that).
@@ -38,8 +44,21 @@ class EvaluationRunCreate(BaseModel):
     snapshot_chunk_size: int
     snapshot_chunk_overlap: int
     snapshot_embedding_model: str
+    # Global aggregate - every evaluated pair, validated and not.
     precision_at_k: float
     recall_at_k: float
     mrr: float
     ndcg: float
+    # Same four metrics, broken down by EvaluationResultIn.validated - None when that subset is
+    # empty (see EvaluationRun's docstring).
+    validated_pair_count: int
+    validated_precision_at_k: float | None
+    validated_recall_at_k: float | None
+    validated_mrr: float | None
+    validated_ndcg: float | None
+    unvalidated_pair_count: int
+    unvalidated_precision_at_k: float | None
+    unvalidated_recall_at_k: float | None
+    unvalidated_mrr: float | None
+    unvalidated_ndcg: float | None
     results: list[EvaluationResultIn]

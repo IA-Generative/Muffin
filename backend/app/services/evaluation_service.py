@@ -61,6 +61,16 @@ class EvaluationService:
             recall_at_k=run.recall_at_k,
             mrr=run.mrr,
             ndcg=run.ndcg,
+            validated_pair_count=run.validated_pair_count,
+            validated_precision_at_k=run.validated_precision_at_k,
+            validated_recall_at_k=run.validated_recall_at_k,
+            validated_mrr=run.validated_mrr,
+            validated_ndcg=run.validated_ndcg,
+            unvalidated_pair_count=run.unvalidated_pair_count,
+            unvalidated_precision_at_k=run.unvalidated_precision_at_k,
+            unvalidated_recall_at_k=run.unvalidated_recall_at_k,
+            unvalidated_mrr=run.unvalidated_mrr,
+            unvalidated_ndcg=run.unvalidated_ndcg,
             results=[
                 EvaluationResultOut(
                     id=result.id,
@@ -72,6 +82,7 @@ class EvaluationService:
                     recall_at_k=result.recall_at_k,
                     reciprocal_rank=result.reciprocal_rank,
                     ndcg=result.ndcg,
+                    validated=result.validated,
                     retrieved_sources=[source.source for source in result.retrieved_sources],
                 )
                 for result in run.results

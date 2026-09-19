@@ -37,17 +37,6 @@ class QaPairRepository:
         )
         return result.scalars().all()
 
-    async def list_validated_by_collection(self, collection_id: uuid.UUID) -> Sequence[QaPair]:
-        """What worker/evaluation replays retrieval against (see #11) - only ever the pairs a
-        human has actually validated, never the raw generated set (unreviewed ones may be wrong,
-        which would make the evaluation itself unreliable)."""
-        result = await self.db.execute(
-            select(QaPair)
-            .where(QaPair.collection_id == collection_id, QaPair.validated.is_(True))
-            .order_by(QaPair.created_at.desc())
-        )
-        return result.scalars().all()
-
     async def get_by_ids(self, qa_pair_ids: list[uuid.UUID]) -> Sequence[QaPair]:
         if not qa_pair_ids:
             return []

@@ -27,6 +27,7 @@ class EvaluationResultOut(BaseModel):
     recall_at_k: float
     reciprocal_rank: float
     ndcg: float
+    validated: bool
     retrieved_sources: list[str]
 
 
@@ -41,8 +42,21 @@ class EvaluationRunOut(BaseModel):
     snapshot_chunk_size: int
     snapshot_chunk_overlap: int
     snapshot_embedding_model: str
+    # Global aggregate - every evaluated pair, validated and not.
     precision_at_k: float
     recall_at_k: float
     mrr: float
     ndcg: float
+    # Same four metrics, broken down by whether the QA pair was validated at evaluation time -
+    # None when that subset is empty (see EvaluationRun's own docstring).
+    validated_pair_count: int
+    validated_precision_at_k: float | None
+    validated_recall_at_k: float | None
+    validated_mrr: float | None
+    validated_ndcg: float | None
+    unvalidated_pair_count: int
+    unvalidated_precision_at_k: float | None
+    unvalidated_recall_at_k: float | None
+    unvalidated_mrr: float | None
+    unvalidated_ndcg: float | None
     results: list[EvaluationResultOut]
