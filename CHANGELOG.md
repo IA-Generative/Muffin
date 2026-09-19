@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.5.0](https://github.com/IA-Generative/Muffin/compare/v0.4.0...v0.5.0) (2026-09-19)
+
+
+### Features
+
+* **backend:** implement discussion-quality scoring ([#31](https://github.com/IA-Generative/Muffin/issues/31) - backend half) ([6cbf0c9](https://github.com/IA-Generative/Muffin/commit/6cbf0c969a8d27e3f9acd8738a4930eaa4b95b14))
+* **backend:** implement retrieval evaluation ([#11](https://github.com/IA-Generative/Muffin/issues/11) - backend half) ([9df2519](https://github.com/IA-Generative/Muffin/commit/9df25191c3887faa2e92d6ed7a58e4e5426157bb))
+* **backend:** materialize agent citations as Source rows ([af67622](https://github.com/IA-Generative/Muffin/commit/af67622fc11b12df6b0bd8a234cb6d23f3152690)), closes [#39](https://github.com/IA-Generative/Muffin/issues/39)
+* **backend:** persist and aggregate user feedback ([a4887b2](https://github.com/IA-Generative/Muffin/commit/a4887b231428ee638198f3b44b59da080ff43f90)), closes [#30](https://github.com/IA-Generative/Muffin/issues/30)
+* evaluate both validated and unvalidated QA pairs, three-way metrics ([33c92e8](https://github.com/IA-Generative/Muffin/commit/33c92e88eb042920a25a7b14164e83016fbc824a))
+* **frontend:** add a Qualité dashboard for the 4 quality metric families ([648695e](https://github.com/IA-Generative/Muffin/commit/648695e153cc122ae7f7fe223015aa677d27c32b))
+* **frontend:** sample sizes, eval-run picker, cost/latency, discussion length ([163fa5d](https://github.com/IA-Generative/Muffin/commit/163fa5d3b605669b559b7523eaa987f8412db0fd))
+* wire source ids into the frontend and feedback into FeedbackSource ([96ef9f4](https://github.com/IA-Generative/Muffin/commit/96ef9f445e30416b58f131933dc1198e8528e935)), closes [#41](https://github.com/IA-Generative/Muffin/issues/41)
+* **worker:** add score_discussion, a second task in worker/evaluation ([#31](https://github.com/IA-Generative/Muffin/issues/31)) ([4435090](https://github.com/IA-Generative/Muffin/commit/443509098a9c0d3e7c8695ee66f0a610ef882401))
+* **worker:** add worker/evaluation, a dedicated retrieval-evaluation worker ([#11](https://github.com/IA-Generative/Muffin/issues/11)) ([d2ad77c](https://github.com/IA-Generative/Muffin/commit/d2ad77cb6f30a359144fb7f6cbd518d1b9d24798))
+
+
+### Bug Fixes
+
+* **docker:** add HEALTHCHECK to all service Dockerfiles ([7a3faf5](https://github.com/IA-Generative/Muffin/commit/7a3faf5da71bb18ba6bd64c5e78a89f3a74bf56f))
+
 ## [0.5.0-rc.4](https://github.com/IA-Generative/Muffin/compare/v0.5.0-rc.3...v0.5.0-rc.4) (2026-09-19)
 
 
