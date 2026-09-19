@@ -23,6 +23,12 @@ AGENT_EXECUTION_QUEUE = "agent_execution"
 RUN_AGENT_TASK = "app.tasks.run_agent"
 RESUME_AGENT_TASK = "app.tasks.resume_agent"
 
+# Same reasoning again, for worker/evaluation (see #11) - a retrieval evaluation replays every
+# validated QA pair of a collection through search + generation, potentially long and LLM-heavy,
+# so it gets its own queue rather than competing with document_processing or agent_execution.
+EVALUATION_QUEUE = "evaluation"
+RUN_EVALUATION_TASK = "app.tasks.run_evaluation"
+
 
 def enqueue_process_document(document_id: str) -> str:
     """Returns the Celery task id, so the caller can record it (see
@@ -44,6 +50,14 @@ def enqueue_resume_agent(run_id: str, answer: str) -> str:
     name/args from enqueue_run_agent rather than overloading it, since resuming re-enters the
     same checkpointed graph execution (Command(resume=...)) instead of starting a fresh one."""
     result = _celery_app.send_task(RESUME_AGENT_TASK, args=[run_id, answer], queue=AGENT_EXECUTION_QUEUE)
+    return result.id
+
+
+def enqueue_run_evaluation(collection_id: str, k: int) -> str:
+    """Returns the Celery task id, recorded as a collection-scoped Task row (see
+    app/routers/internal_tasks.py) rather than on a pre-created EvaluationRun - the model has no
+    in-progress state, the run row only ever exists once the worker posts a fully computed one."""
+    result = _celery_app.send_task(RUN_EVALUATION_TASK, args=[collection_id, k], queue=EVALUATION_QUEUE)
     return result.id
 
 

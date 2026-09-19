@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from app.core.security.factory import RequestContext, get_current_user
 from app.db import async_session_factory
@@ -14,6 +14,7 @@ from app.models.document import Document, DocumentPage
 from app.models.feedback import Feedback, FeedbackReason, FeedbackReasonCode, FeedbackValue
 from app.models.message import Message, MessageRole
 from app.models.run import Run
+from app.models.task import Task
 
 
 @pytest.fixture
@@ -26,6 +27,7 @@ async def client():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as async_client:
         yield async_client
     async with async_session_factory() as session:
+        await session.execute(delete(Task))
         await session.execute(delete(Run))
         await session.execute(delete(Conversation))
         await session.execute(delete(Collection))
@@ -374,6 +376,53 @@ async def test_groundedness_stats_aggregates_by_collection(client):
 
 async def test_groundedness_stats_for_unknown_collection_returns_404(client):
     response = await client.get(f"/api/collections/{uuid.uuid4()}/groundedness")
+    assert response.status_code == 404
+
+
+async def test_trigger_evaluation_enqueues_and_returns_celery_task_id(client):
+    collection_id = (await client.post("/api/collections")).json()["id"]
+
+    with patch("app.services.evaluation_service.enqueue_run_evaluation", return_value="celery-eval-1") as mock_enqueue:
+        response = await client.post(f"/api/collections/{collection_id}/evaluations", json={"k": 8})
+
+    assert response.status_code == 202
+    assert response.json() == {"celery_task_id": "celery-eval-1"}
+    mock_enqueue.assert_called_once_with(collection_id, 8)
+
+    # The Task row (progress/logs tracking) is created directly here, not by a worker round-trip
+    # - see EvaluationService.trigger's docstring.
+    async with async_session_factory() as session:
+        task = (await session.execute(select(Task).where(Task.celery_task_id == "celery-eval-1"))).scalar_one()
+    assert task.owner_id == "dev-user"
+    assert task.collection_id == uuid.UUID(collection_id)
+    assert task.document_id is None
+    assert task.task_name == "app.tasks.run_evaluation"
+
+
+async def test_trigger_evaluation_defaults_k(client):
+    collection_id = (await client.post("/api/collections")).json()["id"]
+
+    with patch("app.services.evaluation_service.enqueue_run_evaluation", return_value="celery-eval-2") as mock_enqueue:
+        response = await client.post(f"/api/collections/{collection_id}/evaluations", json={})
+
+    assert response.status_code == 202
+    mock_enqueue.assert_called_once_with(collection_id, 5)
+
+
+async def test_trigger_evaluation_for_unknown_collection_returns_404(client):
+    response = await client.post(f"/api/collections/{uuid.uuid4()}/evaluations", json={})
+    assert response.status_code == 404
+
+
+async def test_list_evaluations_empty_initially(client):
+    collection_id = (await client.post("/api/collections")).json()["id"]
+    response = await client.get(f"/api/collections/{collection_id}/evaluations")
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+async def test_list_evaluations_for_unknown_collection_returns_404(client):
+    response = await client.get(f"/api/collections/{uuid.uuid4()}/evaluations")
     assert response.status_code == 404
 
 

@@ -19,6 +19,7 @@ from app.schemas.collection import (
     ShareOut,
     VisibilityUpdate,
 )
+from app.schemas.evaluation import EvaluationRunOut, EvaluationTriggerRequest
 from app.schemas.feedback import FeedbackStatsOut
 from app.schemas.pagination import Page, PaginationParams
 from app.services.collection_service import (
@@ -27,6 +28,8 @@ from app.services.collection_service import (
     CollectionService,
     ShareNotFoundError,
 )
+from app.services.evaluation_service import CollectionNotFoundError as EvaluationCollectionNotFoundError
+from app.services.evaluation_service import EvaluationService
 
 router = APIRouter(tags=["Collections"])
 
@@ -35,7 +38,12 @@ def get_collection_service(db: Annotated[AsyncSession, Depends(get_db)]) -> Coll
     return CollectionService(db)
 
 
+def get_evaluation_service(db: Annotated[AsyncSession, Depends(get_db)]) -> EvaluationService:
+    return EvaluationService(db)
+
+
 ServiceDep = Annotated[CollectionService, Depends(get_collection_service)]
+EvaluationServiceDep = Annotated[EvaluationService, Depends(get_evaluation_service)]
 UserDep = Annotated[RequestContext, Depends(get_current_user)]
 
 
@@ -129,6 +137,36 @@ async def get_feedback_stats(collection_id: uuid.UUID, user: UserDep, service: S
     try:
         return await service.get_feedback_stats(collection_id, user)
     except CollectionNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
+
+
+@router.post(
+    "/collections/{collection_id}/evaluations",
+    summary="Trigger a retrieval-evaluation run against this collection's validated QA pairs "
+    "(runs asynchronously in a dedicated worker - see #11)",
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def trigger_evaluation(
+    collection_id: uuid.UUID, body: EvaluationTriggerRequest, user: UserDep, service: EvaluationServiceDep
+) -> dict[str, str]:
+    try:
+        celery_task_id = await service.trigger(collection_id, user, body.k)
+    except EvaluationCollectionNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
+    return {"celery_task_id": celery_task_id}
+
+
+@router.get(
+    "/collections/{collection_id}/evaluations",
+    summary="List this collection's retrieval-evaluation runs, most recent first (see #11)",
+    response_model=list[EvaluationRunOut],
+)
+async def list_evaluations(
+    collection_id: uuid.UUID, user: UserDep, service: EvaluationServiceDep
+) -> list[EvaluationRunOut]:
+    try:
+        return await service.list_runs(collection_id, user)
+    except EvaluationCollectionNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
 
 
