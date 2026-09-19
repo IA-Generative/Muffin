@@ -159,6 +159,17 @@ onBeforeUnmount(() => {
           <span class="chat-message__error-label">Erreur</span>
         </div>
         <p class="chat-message__text chat-message__error-text">{{ message.content }}</p>
+        <button
+          v-if="message.role === 'assistant'"
+          type="button"
+          class="chat-message__retry"
+          @click="emit('regenerate', message.id)"
+        >
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+          </svg>
+          Rejouer
+        </button>
       </template>
       <template v-else>
         <p v-if="message.role === 'user'" class="chat-message__text">{{ renderedContent }}</p>
@@ -539,5 +550,26 @@ onBeforeUnmount(() => {
 
 .chat-message__error-text {
   color: var(--text-default-grey);
+}
+
+.chat-message__retry {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin-top: 0.5rem;
+  padding: 0.375rem 0.75rem;
+  border: 1px solid var(--border-action-high-blue-france);
+  border-radius: 0.375rem;
+  background: var(--background-alt-blue-france);
+  color: var(--text-action-high-blue-france);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.chat-message__retry:hover {
+  background: var(--background-action-high-blue-france);
+  color: var(--text-inverted-blue-france);
 }
 </style>
