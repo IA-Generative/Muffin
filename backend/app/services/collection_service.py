@@ -5,14 +5,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import storage
 from app.core.security.factory import RequestContext
-from app.core.sharing import hash_identifier, mask_email, mask_group, normalize_email, normalize_group
+from app.core.sharing import (
+    hash_identifier,
+    mask_email,
+    mask_group,
+    normalize_email,
+    normalize_group,
+)
 from app.models.collection import Collection, CollectionVisibility, ShareSubjectType
+from app.repositories.chunk_repository import ChunkRepository
 from app.repositories.collection_repository import CollectionRepository
 from app.repositories.entity_repository import EntityRepository
 from app.repositories.feedback_repository import FeedbackRepository
 from app.repositories.qa_pair_repository import QaPairRepository
 from app.repositories.run_repository import RunRepository
 from app.schemas.collection import (
+    ChunkOut,
     CollectionOut,
     CollectionSettingsUpdate,
     CollectionUpdate,
@@ -61,19 +69,23 @@ class CollectionService:
         self.entities = EntityRepository(db)
         self.runs = RunRepository(db)
         self.feedbacks = FeedbackRepository(db)
+        self.chunks = ChunkRepository(db)
 
     async def list_collections(self, user: RequestContext, pagination: PaginationParams) -> Page[CollectionOut]:
         collections, total = await self.repository.list_accessible(
             user.user_id, user.groups, limit=pagination.limit, offset=pagination.offset
         )
         return pagination.to_page(
-            [CollectionOut.from_model(collection, user.user_id) for collection in collections], total
+            [CollectionOut.from_model(collection, user.user_id) for collection in collections],
+            total,
         )
 
     async def create_collection(self, user: RequestContext) -> CollectionOut:
         embedding_model = await embedding_model_lookup.default_embedding_model(self.db) or FALLBACK_EMBEDDING_MODEL
         collection = await self.repository.create(
-            owner_id=user.user_id, name=DEFAULT_COLLECTION_NAME, embedding_model=embedding_model
+            owner_id=user.user_id,
+            name=DEFAULT_COLLECTION_NAME,
+            embedding_model=embedding_model,
         )
         await self.db.commit()
         return CollectionOut.from_model(collection, user.user_id)
@@ -104,7 +116,10 @@ class CollectionService:
         return CollectionOut.from_model(collection, user.user_id)
 
     async def update_settings(
-        self, collection_id: uuid.UUID, user: RequestContext, update: CollectionSettingsUpdate
+        self,
+        collection_id: uuid.UUID,
+        user: RequestContext,
+        update: CollectionSettingsUpdate,
     ) -> CollectionOut:
         collection = await self._get_owned(collection_id, user)
 
@@ -114,7 +129,7 @@ class CollectionService:
             chunk_size=update.chunk_size,
             chunk_overlap=update.chunk_overlap,
             embedding_model=update.embedding_model,
-            instructions=update.instructions.model_dump() if update.instructions is not None else None,
+            instructions=(update.instructions.model_dump() if update.instructions is not None else None),
             # exclude_unset, not model_dump(): only the keys the caller sent
             # should be merged in - the schema defaults every field to None,
             # so a full dump would overwrite the others with None too.
@@ -134,7 +149,10 @@ class CollectionService:
         return CollectionOut.from_model(collection, user.user_id)
 
     async def list_qa_pairs(
-        self, collection_id: uuid.UUID, user: RequestContext, document_id: uuid.UUID | None = None
+        self,
+        collection_id: uuid.UUID,
+        user: RequestContext,
+        document_id: uuid.UUID | None = None,
     ) -> list[QaPairOut]:
         await self._get_accessible(collection_id, user)
         pairs = await self.qa_pairs.list_by_collection(collection_id, document_id)
@@ -149,6 +167,30 @@ class CollectionService:
             )
             for pair in pairs
         ]
+
+    async def list_chunks(
+        self,
+        collection_id: uuid.UUID,
+        user: RequestContext,
+        pagination: PaginationParams,
+    ) -> Page[ChunkOut]:
+        await self._get_accessible(collection_id, user)
+        rows, total = await self.chunks.list_by_collection(
+            collection_id, limit=pagination.limit, offset=pagination.offset
+        )
+        return pagination.to_page(
+            [
+                ChunkOut(
+                    id=chunk.id,
+                    document_name=document_name,
+                    index=chunk.index,
+                    text=chunk.text,
+                    token_count=chunk.token_count,
+                )
+                for chunk, document_name in rows
+            ],
+            total,
+        )
 
     async def get_groundedness_stats(self, collection_id: uuid.UUID, user: RequestContext) -> GroundednessStatsOut:
         await self._get_accessible(collection_id, user)
@@ -168,7 +210,13 @@ class CollectionService:
         await self._get_accessible(collection_id, user)
         entities = await self.entities.list_by_collection(collection_id)
         return [
-            EntityOut(id=entity.id, name=entity.name, type=entity.type, mentions=entity.mentions) for entity in entities
+            EntityOut(
+                id=entity.id,
+                name=entity.name,
+                type=entity.type,
+                mentions=entity.mentions,
+            )
+            for entity in entities
         ]
 
     async def list_relations(self, collection_id: uuid.UUID, user: RequestContext) -> list[RelationOut]:
@@ -176,7 +224,10 @@ class CollectionService:
         relations = await self.entities.list_relations_by_collection(collection_id)
         return [
             RelationOut(
-                id=relation.id, from_entity=relation.from_entity.name, to=relation.to_entity.name, type=relation.type
+                id=relation.id,
+                from_entity=relation.from_entity.name,
+                to=relation.to_entity.name,
+                type=relation.type,
             )
             for relation in relations
         ]
@@ -194,7 +245,10 @@ class CollectionService:
         vector_store.delete_collection(collection_id)
 
     async def update_visibility(
-        self, collection_id: uuid.UUID, user: RequestContext, visibility: CollectionVisibility
+        self,
+        collection_id: uuid.UUID,
+        user: RequestContext,
+        visibility: CollectionVisibility,
     ) -> CollectionOut:
         collection = await self._get_owned(collection_id, user)
         await self.repository.update_visibility(collection, visibility)
@@ -220,7 +274,10 @@ class CollectionService:
 
         try:
             share = await self.repository.create_share(
-                collection_id, create.subject_type, hash_identifier(normalized), display_hint
+                collection_id,
+                create.subject_type,
+                hash_identifier(normalized),
+                display_hint,
             )
             await self.db.commit()
         except IntegrityError as error:

@@ -7,13 +7,13 @@ export const router = createRouter({
     { path: '/c/:id', name: 'chat-conversation', component: () => import('../components/ChatView.vue') },
     { path: '/collections', name: 'collections', component: () => import('../components/CollectionsView.vue') },
     {
-      path: '/collections/:id',
-      name: 'collection-detail',
+      path: '/collections/:id/documents/:documentId',
+      name: 'collection-document',
       component: () => import('../components/CollectionsView.vue'),
     },
     {
-      path: '/collections/:id/documents/:documentId',
-      name: 'collection-document',
+      path: '/collections/:id/:tab?',
+      name: 'collection-detail',
       component: () => import('../components/CollectionsView.vue'),
     },
     { path: '/tasks', name: 'tasks', component: () => import('../components/TasksView.vue') },
