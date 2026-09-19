@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.0-rc.4](https://github.com/IA-Generative/Muffin/compare/v0.5.0-rc.3...v0.5.0-rc.4) (2026-09-19)
+
+
+### Features
+
+* **backend:** implement discussion-quality scoring ([#31](https://github.com/IA-Generative/Muffin/issues/31) - backend half) ([56d6cd5](https://github.com/IA-Generative/Muffin/commit/56d6cd562204def7b7a9fbaeb308ea80b74b8d67))
+* **worker:** add score_discussion, a second task in worker/evaluation ([#31](https://github.com/IA-Generative/Muffin/issues/31)) ([2f38306](https://github.com/IA-Generative/Muffin/commit/2f38306ec1503ee4937985fa8f318e03e5edeafe))
+
 ## [0.5.0-rc.3](https://github.com/IA-Generative/Muffin/compare/v0.5.0-rc.2...v0.5.0-rc.3) (2026-09-19)
 
 
