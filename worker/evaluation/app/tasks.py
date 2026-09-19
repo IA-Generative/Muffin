@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 from loguru import logger
@@ -12,6 +13,71 @@ _ANSWER_SYSTEM_PROMPT = (
     "Answer the question using only the excerpts given below. If the excerpts don't contain "
     "enough information to answer, say so plainly rather than guessing."
 )
+
+# At least 2 assistant turns are needed for "do these answers contradict each other" to mean
+# anything - a single-turn conversation has nothing to compare across (see #31).
+_MIN_ASSISTANT_TURNS_FOR_DISCUSSION_SCORE = 2
+
+_DISCUSSION_SYSTEM_PROMPT = (
+    "You are judging the quality of a multi-turn conversation between a user and an AI assistant "
+    "that answers questions using a knowledge base. Judge two things, independently:\n"
+    "1. Coherence: do the assistant's answers contradict each other across turns? List any "
+    "specific contradictions found, quoting or paraphrasing the conflicting statements.\n"
+    "2. Context usage: when a question depends on earlier conversation context (a pronoun, or an "
+    "implicit reference to something discussed before), did the assistant correctly resolve and "
+    "use that context rather than answering as if the question were asked in isolation? Score "
+    "this from 0.0 (never handled correctly) to 1.0 (always handled correctly), and list any "
+    "turns where context was mishandled.\n"
+    'Respond only with JSON: {"coherent": bool, "coherence_issues": [array of short strings, '
+    'empty if none], "context_usage_score": number between 0.0 and 1.0, "context_usage_issues": '
+    '[array of short strings, empty if none], "reasoning": short string summarizing the verdict}.'
+)
+
+
+def _strip_code_fence(text: str) -> str:
+    stripped = text.strip()
+    if not stripped.startswith("```"):
+        return stripped
+    lines = stripped.splitlines()
+    lines = lines[1:] if lines else lines
+    if lines and lines[-1].strip() == "```":
+        lines = lines[:-1]
+    return "\n".join(lines).strip()
+
+
+def _build_transcript(messages: list[dict[str, Any]]) -> str:
+    return "\n\n".join(f"{message['role'].capitalize()}: {message['content']}" for message in messages)
+
+
+_FALLBACK_JUDGMENT: dict[str, Any] = {
+    "coherent": True,
+    "coherence_issues": [],
+    "context_usage_score": 1.0,
+    "context_usage_issues": [],
+    "reasoning": "The model's response could not be parsed as a judgment - defaulting to no "
+    "issues found rather than reporting a fabricated problem.",
+}
+
+
+def _judge_discussion(model: str, transcript: str) -> dict[str, Any]:
+    """Never lets a malformed or refused LLM response take the task down - same reasoning as
+    worker/agent_execution's json_chat: a conservative fallback (no issues found) beats crashing,
+    and beats fabricating a specific problem the model never actually reported."""
+    try:
+        raw = backend_client.llm_chat(
+            model,
+            [
+                {"role": "system", "content": _DISCUSSION_SYSTEM_PROMPT},
+                {"role": "user", "content": transcript},
+            ],
+        )
+        judgment = json.loads(_strip_code_fence(raw))
+        if not isinstance(judgment, dict) or "coherent" not in judgment or "context_usage_score" not in judgment:
+            raise ValueError(f"Expected a judgment object, got: {judgment!r}")
+        return judgment
+    except Exception:
+        logger.exception("Discussion judgment call failed, falling back to a conservative default")
+        return _FALLBACK_JUDGMENT
 
 
 def _build_answer(model: str, question: str, search_results: list[dict[str, Any]]) -> str:
@@ -146,3 +212,42 @@ def run_evaluation(self, collection_id: str, k: int | None = None) -> None:
         }
         run_id = backend_client.create_evaluation_run(collection_id, payload)
         logger.info(f"Evaluation run {run_id} created for collection {collection_id}: {len(results)} pair(s) scored")
+
+
+@celery_app.task(name="app.tasks.score_discussion", bind=True)
+def score_discussion(self, conversation_id: str) -> None:
+    """Judges a whole conversation - not any one answer - for cross-turn coherence and correct
+    use of conversational context (see #31). A single LLM judgment call, not a search-heavy loop
+    like run_evaluation, but shares its queue/service since neither needs its own. No
+    self.request.id Task registration here either, same reasoning as run_evaluation: the backend
+    already creates the Task row itself at dispatch time (see ConversationService.
+    trigger_discussion_score)."""
+    with capture_task_logs(self.request.id):
+        messages = backend_client.list_conversation_messages(conversation_id)
+        assistant_turns = sum(1 for message in messages if message["role"] == "assistant")
+        if assistant_turns < _MIN_ASSISTANT_TURNS_FOR_DISCUSSION_SCORE:
+            logger.warning(
+                f"Conversation {conversation_id} has only {assistant_turns} assistant turn(s), "
+                "nothing to compare across turns - skipping"
+            )
+            return
+
+        model = backend_client.get_default_chat_model()
+        if model is None:
+            logger.warning(f"No chat model available to score conversation {conversation_id}, skipping")
+            return
+
+        logger.info(f"Scoring conversation {conversation_id}: {len(messages)} message(s), {assistant_turns} turn(s)")
+        judgment = _judge_discussion(model, _build_transcript(messages))
+
+        payload = {
+            "message_count": len(messages),
+            "llm_model": model,
+            "coherent": bool(judgment["coherent"]),
+            "coherence_issues": judgment.get("coherence_issues", []),
+            "context_usage_score": float(judgment["context_usage_score"]),
+            "context_usage_issues": judgment.get("context_usage_issues", []),
+            "reasoning": judgment.get("reasoning"),
+        }
+        score_id = backend_client.create_discussion_score(conversation_id, payload)
+        logger.info(f"Discussion score {score_id} created for conversation {conversation_id}")
