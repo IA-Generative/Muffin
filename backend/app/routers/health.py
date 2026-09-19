@@ -4,7 +4,7 @@ from fastapi import APIRouter, Response, status
 
 from app import __name__ as app_name
 from app import __version__
-from app.connectors import db_connector, qdrant_connector, redis_connector
+from app.connectors import db_connector, meilisearch_connector, redis_connector
 from app.logger import logger
 from app.schemas.health import HealthReport
 
@@ -20,7 +20,11 @@ up_time = datetime.datetime.now().isoformat()
     response_model=HealthReport,
 )
 async def get_health(response: Response) -> HealthReport:
-    dependencies = [redis_connector.get_health(), qdrant_connector.get_health(), await db_connector.get_health()]
+    dependencies = [
+        redis_connector.get_health(),
+        meilisearch_connector.get_health(),
+        await db_connector.get_health(),
+    ]
 
     api_status = "healthy"
     for dependency in dependencies:

@@ -27,10 +27,12 @@ _openai_client = (
 
 
 class SearchService:
-    """Vector search across the selected collections (§14 of the research-agent brief) - Qdrant
-    holds the vectors, Postgres holds the text. A collection's chunks were embedded with that
-    collection's own embedding_model (worker/document_process, at chunk creation time), so the
-    query is embedded once per distinct model among the selected collections, not once overall."""
+    """Hybrid (lexical + vector) search across the selected collections (§14 of the
+    research-agent brief) - Meilisearch holds the vectors and a lexical copy of the text,
+    Postgres remains the source of truth for both. A collection's chunks were embedded with
+    that collection's own embedding_model (worker/document_process, at chunk creation time), so
+    the query is embedded once per distinct model among the selected collections, not once
+    overall."""
 
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
@@ -61,7 +63,7 @@ class SearchService:
                 logger.exception(f"Failed to embed the search query with model '{model}'")
                 continue
             for collection_id in collections_for_model:
-                for chunk_id, score in vector_store.search(collection_id, query_embedding, limit):
+                for chunk_id, score in vector_store.search(collection_id, query, query_embedding, limit):
                     scored_ids[chunk_id] = max(score, scored_ids.get(chunk_id, float("-inf")))
 
         top_ids = sorted(scored_ids, key=lambda chunk_id: scored_ids[chunk_id], reverse=True)[:limit]
@@ -99,7 +101,7 @@ class SearchService:
                 logger.exception(f"Failed to embed the QA search query with model '{model}'")
                 continue
             for collection_id in collections_for_model:
-                for qa_pair_id, score in vector_store.search_qa(collection_id, query_embedding, limit):
+                for qa_pair_id, score in vector_store.search_qa(collection_id, query, query_embedding, limit):
                     if qa_pair_id not in scored_by_id or score > scored_by_id[qa_pair_id][1]:
                         scored_by_id[qa_pair_id] = (collection_id, score)
 
@@ -133,7 +135,7 @@ class SearchService:
                 logger.exception(f"Failed to embed the summary search query with model '{model}'")
                 continue
             for collection_id in collections_for_model:
-                for document_id, score in vector_store.search_summaries(collection_id, query_embedding, limit):
+                for document_id, score in vector_store.search_summaries(collection_id, query, query_embedding, limit):
                     scored_ids[document_id] = max(score, scored_ids.get(document_id, float("-inf")))
 
         top_ids = sorted(scored_ids, key=lambda document_id: scored_ids[document_id], reverse=True)[:limit]

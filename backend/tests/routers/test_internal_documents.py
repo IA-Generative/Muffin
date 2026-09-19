@@ -125,7 +125,7 @@ async def test_create_document_page_and_chunk_with_extras(client):
     assert chunks[0].extras == {"bbox": {"x": 0, "y": 0, "width": 100, "height": 20}, "kind": "paragraph"}
 
 
-async def test_create_document_chunk_with_embedding_upserts_into_qdrant(client, monkeypatch):
+async def test_create_document_chunk_with_embedding_upserts_into_meilisearch(client, monkeypatch):
     from app.services import vector_store
 
     document_id = await _create_document(client)
@@ -140,8 +140,9 @@ async def test_create_document_chunk_with_embedding_upserts_into_qdrant(client, 
 
     assert response.status_code == 201
     assert len(upserted) == 1
-    collection_id, chunk_id, embedding = upserted[0]
+    collection_id, chunk_id, embedding, text = upserted[0]
     assert embedding == [0.1, 0.2, 0.3]
+    assert text == "Hello world"
 
     async with async_session_factory() as session:
         from sqlalchemy import select
@@ -156,7 +157,7 @@ async def test_create_document_chunk_with_embedding_upserts_into_qdrant(client, 
     assert chunk_id == chunk.id
 
 
-async def test_create_document_chunk_without_embedding_does_not_touch_qdrant(client, monkeypatch):
+async def test_create_document_chunk_without_embedding_does_not_touch_meilisearch(client, monkeypatch):
     from app.services import vector_store
 
     document_id = await _create_document(client)

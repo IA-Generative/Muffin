@@ -14,8 +14,9 @@ class ChunkRepository:
 
     async def get_by_ids(self, chunk_ids: list[uuid.UUID]) -> Sequence[tuple[Chunk, str, uuid.UUID]]:
         """Hydrates the chunk ids a vector search returned (see
-        app/services/search_service.py) back into rows with their document name and
-        collection id - Qdrant only ever stores the vector + point id, never the text."""
+        app/services/search_service.py) back into rows with their document name and collection
+        id - Meilisearch only ever stores the vector, a lexical copy of the text, and filterable
+        metadata; Postgres stays the source of truth for the text itself."""
         if not chunk_ids:
             return []
         stmt = (
