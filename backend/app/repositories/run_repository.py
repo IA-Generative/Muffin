@@ -28,7 +28,7 @@ class RunRepository:
             message_id=message_id,
             conversation_id=conversation_id,
             status=RunStatus.QUEUED,
-            pinned_collection_ids=[str(cid) for cid in pinned_collection_ids] if pinned_collection_ids else None,
+            pinned_collection_ids=([str(cid) for cid in pinned_collection_ids] if pinned_collection_ids else None),
             user_groups=user_groups or None,
             web_search_enabled=web_search_enabled,
         )
@@ -49,11 +49,29 @@ class RunRepository:
         result = await self.db.execute(select(Run).where(Run.id == run_id))
         return result.scalar_one_or_none()
 
+    async def list_active_for_conversation(self, conversation_id: uuid.UUID) -> Sequence[Run]:
+        """Non-terminal runs for a conversation - used by the frontend after a page
+        refresh to resume polling runs that were still in progress when the browser
+        lost its in-memory placeholder assistant message (see ensureMessagesLoaded)."""
+        result = await self.db.execute(
+            select(Run)
+            .where(
+                Run.conversation_id == conversation_id,
+                Run.status.notin_([RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED]),
+            )
+            .order_by(Run.created_at)
+        )
+        return result.scalars().all()
+
     async def request_cancel(self, run: Run) -> None:
         run.cancel_requested = True
 
     async def update_status(
-        self, run: Run, status: RunStatus, current_node: str | None, current_activity: str | None
+        self,
+        run: Run,
+        status: RunStatus,
+        current_node: str | None,
+        current_activity: str | None,
     ) -> None:
         run.status = status
         if current_node is not None:
@@ -150,7 +168,11 @@ class RunRepository:
         return result.scalars().all()
 
     async def add_event(
-        self, run_id: uuid.UUID, type_: str, data: dict[str, Any] | None = None, task_id: str | None = None
+        self,
+        run_id: uuid.UUID,
+        type_: str,
+        data: dict[str, Any] | None = None,
+        task_id: str | None = None,
     ) -> RunEvent:
         event = RunEvent(run_id=run_id, type=type_, data=data, task_id=task_id)
         self.db.add(event)
