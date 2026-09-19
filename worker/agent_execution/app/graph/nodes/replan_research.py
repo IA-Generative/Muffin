@@ -20,18 +20,22 @@ _WEB_SEARCH_NOTE = (
 
 
 def _valid_tools(web_search_enabled: bool) -> frozenset[str]:
-    return frozenset({"search", "web_search"}) if web_search_enabled else frozenset({"search"})
+    tools = {"search", "time"}
+    if web_search_enabled:
+        tools.add("web_search")
+    return frozenset(tools)
 
 
 def _system_prompt(web_search_enabled: bool) -> str:
-    tool_names = '"search", "web_search"' if web_search_enabled else '"search"'
+    tool_names = '"search", "time"' + (', "web_search"' if web_search_enabled else "")
     prompt = _BASE_SYSTEM_PROMPT.format(tool_names=tool_names)
     return prompt + (_WEB_SEARCH_NOTE if web_search_enabled else "")
 
 
 def replan_research(state: AgentState) -> dict[str, Any]:
     """Targeted replan (§19): only the missing_information from evaluate_coverage turns into new
-    tasks - the tasks that already completed are left untouched, never re-run from scratch."""
+    tasks - the tasks that already completed are left untouched, never re-run from scratch.
+    """
     run_id = state["run_id"]
     if is_cancelled(run_id):
         return {"cancelled": True}
@@ -40,7 +44,11 @@ def replan_research(state: AgentState) -> dict[str, Any]:
     missing = state["coverage_result"]["missing_information"]
     web_search_enabled = state["web_search_enabled"]
     set_activity(run_id, "replan_research", "Refining the research plan")
-    emit(run_id, "replan_started", {"missing_information": missing, "plan_version": next_version})
+    emit(
+        run_id,
+        "replan_started",
+        {"missing_information": missing, "plan_version": next_version},
+    )
 
     model = state["chat_model"]
     if model is None or not missing:
@@ -61,7 +69,12 @@ def replan_research(state: AgentState) -> dict[str, Any]:
     new_tasks = [
         ResearchTask(
             id=f"replan-{next_version}-{i}",
-            query=str(item.get("query", missing[i] if i < len(missing) else state["contextualized_query"])),
+            query=str(
+                item.get(
+                    "query",
+                    missing[i] if i < len(missing) else state["contextualized_query"],
+                )
+            ),
             intent=item.get("intent"),
             # Second, independent gate (see decompose_query._sanitize) against "web_search"
             # reaching a task when the run never opted in.

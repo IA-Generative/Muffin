@@ -7,13 +7,22 @@ TaskStatus = Literal["pending", "ready", "blocked", "running", "completed", "fai
 # tools): "search" is the default (evidence search over chunks); the others answer questions
 # about the knowledge bases themselves rather than their content, using data the backend
 # already scoped to this user - never a fresh, unchecked lookup by an LLM-supplied id.
-TaskTool = Literal["search", "list_collections", "collection_summary", "list_documents", "page_content", "web_search"]
+TaskTool = Literal[
+    "search",
+    "list_collections",
+    "collection_summary",
+    "list_documents",
+    "page_content",
+    "web_search",
+    "time",
+]
 
 
 class ResearchTask(TypedDict):
     """One unit of research work in the DAG built by decompose_query/build_research_plan.
     Ids are stable for the lifetime of a run - replan_research adds new tasks rather than
-    mutating a completed one, so past evidence always traces back to the task that found it."""
+    mutating a completed one, so past evidence always traces back to the task that found it.
+    """
 
     id: str
     query: str
@@ -62,7 +71,8 @@ def _merge_by_id(left: list[dict[str, Any]], right: list[dict[str, Any]]) -> lis
 
 class ResearchTaskInput(TypedDict):
     """Input schema for one `research_task` fan-out branch (§11) - deliberately narrower than
-    AgentState: a task never sees the other tasks, only its own query and the accessible VDBs."""
+    AgentState: a task never sees the other tasks, only its own query and the accessible VDBs.
+    """
 
     run_id: str
     user_id: str

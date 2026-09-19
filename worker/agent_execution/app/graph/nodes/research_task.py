@@ -9,6 +9,7 @@ from app.graph.services.document_resolver import resolve_document_page
 from app.graph.services.events import emit, is_cancelled, set_activity
 from app.graph.services.evidence import normalize_results
 from app.graph.services.llm import json_chat
+from app.graph.services.time_tool import build_time_context, format_time_context
 from app.graph.services.vdb_router import select_relevant_vdbs
 from app.graph.state import Evidence, ResearchTaskInput
 from app.searxng_client import searxng_client
@@ -336,6 +337,42 @@ def _run_web_search(
     return {"results": [{"url": r["url"]} for r in results]}, evidence
 
 
+def _run_time(
+    task: dict[str, Any],
+    _user_id: str,
+    _accessible_vdbs: list[dict[str, Any]],
+    _model: str | None,
+    _pinned_vdb_ids: list[str],
+    _web_search_enabled: bool,
+) -> tuple[dict[str, Any], list[Evidence]]:
+    """Time tool: gives the LLM precise temporal context (current time to the second) and
+    pre-computed relative periods (today, this week, last month, etc.) so it can reason about
+    time-dependent queries. No backend call needed — pure computation."""
+    ctx = build_time_context()
+    content = format_time_context(ctx)
+    evidence = [
+        Evidence(
+            id=str(uuid.uuid4()),
+            task_id=task["id"],
+            vdb_id="",
+            source_id="",
+            content=content,
+            metadata={
+                "evidence_kind": "time",
+                "now": ctx["now"],
+                "timezone": ctx["timezone"],
+                "date": ctx["date"],
+                "time": ctx["time"],
+                "week_number": ctx["week_number"],
+                "periods": ctx["periods"],
+            },
+            relevance_score=None,
+            retrieval_query=task["query"],
+        )
+    ]
+    return {"selected_vdbs": [], "results": []}, evidence
+
+
 _RUNNERS = {
     "list_collections": lambda task, user_id, accessible_vdbs, model, pinned_vdb_ids, web_search_enabled: (
         _run_list_collections(task, accessible_vdbs)
@@ -346,6 +383,7 @@ _RUNNERS = {
     "list_documents": _run_list_documents,
     "page_content": _run_page_content,
     "web_search": _run_web_search,
+    "time": _run_time,
 }
 
 

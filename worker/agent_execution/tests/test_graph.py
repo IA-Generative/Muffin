@@ -22,8 +22,20 @@ def _analysis(**overrides) -> str:
 
 def _hr_eng_vdbs() -> list[dict]:
     return [
-        {"id": "hr", "name": "HR", "description": "HR policies", "tags": [], "document_count": 3},
-        {"id": "eng", "name": "Engineering", "description": "Engineering docs", "tags": [], "document_count": 5},
+        {
+            "id": "hr",
+            "name": "HR",
+            "description": "HR policies",
+            "tags": [],
+            "document_count": 3,
+        },
+        {
+            "id": "eng",
+            "name": "Engineering",
+            "description": "Engineering docs",
+            "tags": [],
+            "document_count": 5,
+        },
     ]
 
 
@@ -87,7 +99,11 @@ def test_complex_query_fans_out_independent_tasks_in_parallel(make_run):
     # One evidence item per task, all preserved through the fan-in reducer (§16/§26) - none of
     # the three parallel branches' results were overwritten by the others.
     assert len(result["deduped_evidence"]) == 3
-    assert {e["task_id"] for e in result["deduped_evidence"]} == {"telework", "leave", "benefits"}
+    assert {e["task_id"] for e in result["deduped_evidence"]} == {
+        "telework",
+        "leave",
+        "benefits",
+    }
 
 
 def test_dependent_task_only_runs_after_its_dependencies_complete(make_run):
@@ -159,7 +175,15 @@ def test_web_search_runs_when_enabled_and_planner_picks_it(make_run):
     def router(system_prompt: str) -> str:
         if "Break the user's query" in system_prompt:
             assert "web_search" in system_prompt  # only offered to the planner when enabled
-            return json.dumps([{"id": "task-1", "query": "current weather in Paris", "dependencies": []}])
+            return json.dumps(
+                [
+                    {
+                        "id": "task-1",
+                        "query": "current weather in Paris",
+                        "dependencies": [],
+                    }
+                ]
+            )
         if "Analyze the user" in system_prompt:
             return _analysis(intent="meta", complexity="complex")
         if "Decide whether" in system_prompt:
@@ -186,7 +210,11 @@ def test_web_search_runs_when_enabled_and_planner_picks_it(make_run):
             [],
             router,
             web_results=[
-                {"title": "Paris weather", "url": "https://example.com/paris-weather", "content": "Sunny, 22°C"}
+                {
+                    "title": "Paris weather",
+                    "url": "https://example.com/paris-weather",
+                    "content": "Sunny, 22°C",
+                }
             ],
         )
         state = initial_state("What's the weather in Paris right now?", web_search_enabled=True)
@@ -206,23 +234,43 @@ def test_web_search_tool_is_never_offered_to_the_planner_when_disabled(make_run)
     def router(system_prompt: str) -> str:
         if "Break the user's query" in system_prompt:
             assert "web_search" not in system_prompt
-            return json.dumps([{"id": "task-1", "query": "current weather in Paris", "dependencies": []}])
+            return json.dumps(
+                [
+                    {
+                        "id": "task-1",
+                        "query": "current weather in Paris",
+                        "dependencies": [],
+                    }
+                ]
+            )
         if "Analyze the user" in system_prompt:
             return _analysis(intent="meta", complexity="complex")
         if "Decide whether" in system_prompt:
-            return json.dumps({"status": "insufficient", "missing_information": ["weather"], "reasoning": "n/a"})
+            return json.dumps(
+                {
+                    "status": "insufficient",
+                    "missing_information": ["weather"],
+                    "reasoning": "n/a",
+                }
+            )
         if "Check whether every" in system_prompt:
             return json.dumps({"valid": True, "unsupported_claims": []})
         return "I don't have that information [x]."
 
-    graph, fake = make_run([], router, web_results=[{"title": "Should never be reached", "url": "https://x"}])
+    graph, fake = make_run(
+        [],
+        router,
+        web_results=[{"title": "Should never be reached", "url": "https://x"}],
+    )
     state = initial_state("What's the weather in Paris right now?", web_search_enabled=False)
     graph.invoke(state, config=_config(state))
 
     assert fake.searxng.queries == []
 
 
-def test_web_search_runner_refuses_even_if_the_planner_somehow_picks_it_while_disabled(make_run):
+def test_web_search_runner_refuses_even_if_the_planner_somehow_picks_it_while_disabled(
+    make_run,
+):
     """Defense in depth (decompose_query._sanitize is the first gate, this is the second,
     independent one) - a stale/malformed task claiming "web_search" must never actually call
     out to the web on a run that didn't opt in."""
@@ -256,7 +304,9 @@ def test_web_search_runner_refuses_even_if_the_planner_somehow_picks_it_while_di
     assert result["deduped_evidence"] == []
 
 
-def test_replan_falls_back_to_web_search_when_the_users_own_collections_come_up_empty(make_run):
+def test_replan_falls_back_to_web_search_when_the_users_own_collections_come_up_empty(
+    make_run,
+):
     """Reproduces a real gap found in manual end-to-end testing: a query against zero/irrelevant
     accessible collections must still be able to reach the web via the replan loop, not just via
     decompose_query's own first-pass tool choice."""
@@ -266,7 +316,15 @@ def test_replan_falls_back_to_web_search_when_the_users_own_collections_come_up_
             return _analysis()  # simple: decompose_query short-circuits straight to a "search" task
         if "Coverage of a research query was judged insufficient" in system_prompt:
             assert "web_search" in system_prompt  # only offered because web_search_enabled=True
-            return json.dumps([{"query": "current weather in Paris", "intent": None, "tool": "web_search"}])
+            return json.dumps(
+                [
+                    {
+                        "query": "current weather in Paris",
+                        "intent": None,
+                        "tool": "web_search",
+                    }
+                ]
+            )
         if "Decide whether" in system_prompt:
             return json.dumps({"status": "sufficient", "missing_information": [], "reasoning": "ok"})
         if "Check whether every" in system_prompt:
@@ -276,7 +334,13 @@ def test_replan_falls_back_to_web_search_when_the_users_own_collections_come_up_
     graph, fake = make_run(
         [],  # no accessible collections at all - the first "search" task finds nothing
         router,
-        web_results=[{"title": "Paris weather", "url": "https://example.com/paris", "content": "Sunny, 22°C"}],
+        web_results=[
+            {
+                "title": "Paris weather",
+                "url": "https://example.com/paris",
+                "content": "Sunny, 22°C",
+            }
+        ],
     )
     state = initial_state("What's the weather in Paris right now?", web_search_enabled=True)
     result = graph.invoke(state, config=_config(state))
@@ -290,7 +354,9 @@ def test_replan_falls_back_to_web_search_when_the_users_own_collections_come_up_
     assert result["citations"][0]["url"] == "https://example.com/paris"
 
 
-def test_evaluate_coverage_does_not_wave_through_a_web_search_result_as_meta_complete(make_run):
+def test_evaluate_coverage_does_not_wave_through_a_web_search_result_as_meta_complete(
+    make_run,
+):
     """Guards the evaluate_coverage.py fix directly: a run whose *only* completed task is
     web_search must still get a real LLM sufficiency judgment, not the is_meta_only shortcut
     meant for list_collections/collection_summary/list_documents/page_content."""
@@ -312,7 +378,13 @@ def test_evaluate_coverage_does_not_wave_through_a_web_search_result_as_meta_com
             return _analysis()
         if "Decide whether" in system_prompt:
             coverage_prompts.append(system_prompt)
-            return json.dumps({"status": "insufficient", "missing_information": ["more detail"], "reasoning": "n/a"})
+            return json.dumps(
+                {
+                    "status": "insufficient",
+                    "missing_information": ["more detail"],
+                    "reasoning": "n/a",
+                }
+            )
         if "Coverage of a research query was judged insufficient" in system_prompt:
             return json.dumps([])
         if "Check whether every" in system_prompt:
@@ -321,7 +393,9 @@ def test_evaluate_coverage_does_not_wave_through_a_web_search_result_as_meta_com
 
     try:
         graph, fake = make_run(
-            [], router, web_results=[{"title": "Result", "url": "https://example.com/r", "content": "..."}]
+            [],
+            router,
+            web_results=[{"title": "Result", "url": "https://example.com/r", "content": "..."}],
         )
         state = initial_state("anything", web_search_enabled=True)
         result = graph.invoke(state, config=_config(state))
@@ -337,7 +411,8 @@ def test_evaluate_coverage_does_not_wave_through_a_web_search_result_as_meta_com
 def test_accessible_vdbs_lookup_forwards_the_run_s_user_groups(make_run):
     """load_accessible_vdbs must thread state["user_groups"] through to the backend so a
     collection shared to one of the user's Keycloak groups is part of the accessible set, not
-    just owner/public/direct-share collections (see CollectionRepository.list_all_accessible)."""
+    just owner/public/direct-share collections (see CollectionRepository.list_all_accessible).
+    """
 
     def router(system_prompt: str) -> str:
         if "Analyze the user" in system_prompt:
@@ -449,7 +524,11 @@ def test_insufficient_coverage_triggers_a_targeted_replan(make_run):
             calls["coverage"] += 1
             if calls["coverage"] == 1:
                 return json.dumps(
-                    {"status": "insufficient", "missing_information": ["2025 update"], "reasoning": "stale"}
+                    {
+                        "status": "insufficient",
+                        "missing_information": ["2025 update"],
+                        "reasoning": "stale",
+                    }
                 )
             return json.dumps({"status": "sufficient", "missing_information": [], "reasoning": "ok"})
         if "Coverage of a research query" in system_prompt:
@@ -527,7 +606,15 @@ def test_list_collections_tool_answers_from_accessible_vdbs_without_searching(ma
         if "Analyze the user" in system_prompt:
             return _analysis(intent="meta")
         if "Break the user's query" in system_prompt:
-            return json.dumps([{"id": "t1", "query": "how many collections do I have", "tool": "list_collections"}])
+            return json.dumps(
+                [
+                    {
+                        "id": "t1",
+                        "query": "how many collections do I have",
+                        "tool": "list_collections",
+                    }
+                ]
+            )
         if "Decide whether" in system_prompt:
             return json.dumps({"status": "sufficient", "missing_information": [], "reasoning": "ok"})
         if "Check whether every" in system_prompt:
@@ -564,7 +651,15 @@ def test_meta_query_skips_grounding_check(make_run):
         if "Analyze the user" in system_prompt:
             return _analysis(intent="meta")
         if "Break the user's query" in system_prompt:
-            return json.dumps([{"id": "t1", "query": "how many collections do I have", "tool": "list_collections"}])
+            return json.dumps(
+                [
+                    {
+                        "id": "t1",
+                        "query": "how many collections do I have",
+                        "tool": "list_collections",
+                    }
+                ]
+            )
         if "Decide whether" in system_prompt:
             return json.dumps({"status": "sufficient", "missing_information": [], "reasoning": "ok"})
         if "Check whether every" in system_prompt:
@@ -587,7 +682,8 @@ def test_meta_tool_never_replans_into_a_pointless_search(make_run):
     count reads as "insufficient" to that judgment, triggering a replan into a `search` task -
     which can never answer "how many collections do I have" - burning the replan budget and
     still producing a hedged "couldn't be established" answer instead of the count already in
-    hand. A meta-only task's evidence must be treated as complete without ever asking."""
+    hand. A meta-only task's evidence must be treated as complete without ever asking.
+    """
     coverage_calls = 0
 
     def router(system_prompt: str) -> str:
@@ -596,14 +692,24 @@ def test_meta_tool_never_replans_into_a_pointless_search(make_run):
             return _analysis(intent="meta")
         if "Break the user's query" in system_prompt:
             return json.dumps(
-                [{"id": "count-collections", "query": "how many collections", "tool": "list_collections"}]
+                [
+                    {
+                        "id": "count-collections",
+                        "query": "how many collections",
+                        "tool": "list_collections",
+                    }
+                ]
             )
         if "Decide whether" in system_prompt:
             coverage_calls += 1
             # The real, observed failure mode: the LLM calls a legitimate meta answer
             # insufficient because the description doesn't literally state a count.
             return json.dumps(
-                {"status": "insufficient", "missing_information": ["the number of collections"], "reasoning": "n/a"}
+                {
+                    "status": "insufficient",
+                    "missing_information": ["the number of collections"],
+                    "reasoning": "n/a",
+                }
             )
         if "Check whether every" in system_prompt:
             return json.dumps({"valid": True, "unsupported_claims": []})
@@ -625,7 +731,15 @@ def test_collection_summary_tool_resolves_a_single_collection(make_run):
         if "Analyze the user" in system_prompt:
             return _analysis(intent="meta")
         if "Break the user's query" in system_prompt:
-            return json.dumps([{"id": "t1", "query": "summarize the HR collection", "tool": "collection_summary"}])
+            return json.dumps(
+                [
+                    {
+                        "id": "t1",
+                        "query": "summarize the HR collection",
+                        "tool": "collection_summary",
+                    }
+                ]
+            )
         if "select the ones relevant" in system_prompt.lower():
             return '["hr"]'
         if "Decide whether" in system_prompt:
@@ -648,7 +762,15 @@ def test_list_documents_tool_calls_backend_for_the_resolved_collection(make_run)
         if "Analyze the user" in system_prompt:
             return _analysis(intent="meta")
         if "Break the user's query" in system_prompt:
-            return json.dumps([{"id": "t1", "query": "how many documents in HR", "tool": "list_documents"}])
+            return json.dumps(
+                [
+                    {
+                        "id": "t1",
+                        "query": "how many documents in HR",
+                        "tool": "list_documents",
+                    }
+                ]
+            )
         if "select the ones relevant" in system_prompt.lower():
             return '["hr"]'
         if "Decide whether" in system_prompt:
@@ -659,8 +781,18 @@ def test_list_documents_tool_calls_backend_for_the_resolved_collection(make_run)
 
     graph, fake = make_run(_hr_eng_vdbs(), router)
     fake.documents_by_collection["hr"] = [
-        {"id": "doc-1", "name": "handbook.pdf", "status": "indexed", "summary": "Employee handbook."},
-        {"id": "doc-2", "name": "leave-policy.pdf", "status": "indexed", "summary": "Leave policy."},
+        {
+            "id": "doc-1",
+            "name": "handbook.pdf",
+            "status": "indexed",
+            "summary": "Employee handbook.",
+        },
+        {
+            "id": "doc-2",
+            "name": "leave-policy.pdf",
+            "status": "indexed",
+            "summary": "Leave policy.",
+        },
     ]
 
     state = initial_state("How many documents are in the HR collection?")
@@ -678,7 +810,15 @@ def test_page_content_tool_resolves_document_and_page_then_fetches_it(make_run):
         if "Analyze the user" in system_prompt:
             return _analysis(intent="meta")
         if "Break the user's query" in system_prompt:
-            return json.dumps([{"id": "t1", "query": "page 3 of the handbook", "tool": "page_content"}])
+            return json.dumps(
+                [
+                    {
+                        "id": "t1",
+                        "query": "page 3 of the handbook",
+                        "tool": "page_content",
+                    }
+                ]
+            )
         if "select the ones relevant" in system_prompt.lower():
             return '["hr"]'
         if "identify which document and page number" in system_prompt.lower():
@@ -691,7 +831,12 @@ def test_page_content_tool_resolves_document_and_page_then_fetches_it(make_run):
 
     graph, fake = make_run(_hr_eng_vdbs(), router)
     fake.documents_by_collection["hr"] = [
-        {"id": "doc-1", "name": "handbook.pdf", "status": "indexed", "summary": "Employee handbook."},
+        {
+            "id": "doc-1",
+            "name": "handbook.pdf",
+            "status": "indexed",
+            "summary": "Employee handbook.",
+        },
     ]
     fake.pages[("doc-1", 3)] = {
         "page_number": 3,
@@ -709,11 +854,14 @@ def test_page_content_tool_resolves_document_and_page_then_fetches_it(make_run):
     assert evidence["source_id"] == "doc-1"
 
 
-def test_current_activity_is_updated_at_every_node_not_just_a_generic_placeholder(make_run):
+def test_current_activity_is_updated_at_every_node_not_just_a_generic_placeholder(
+    make_run,
+):
     """Regression: nodes used to only post to the run_events log (fake.events) and never called
     update_run_status, so Run.current_node/current_activity - the only two fields a client
     polling GET /api/runs/{id} actually sees change - stayed empty for the whole run. The chat
-    UI's placeholder ("Recherche en cours…") then never updated, looking like nothing happened."""
+    UI's placeholder ("Recherche en cours…") then never updated, looking like nothing happened.
+    """
 
     def router(system_prompt: str) -> str:
         # complexity="complex" - a simple single-fact lookup skips validate_grounding entirely
@@ -812,7 +960,13 @@ def test_qa_cache_miss_falls_through_to_chunk_search(make_run):
 
     graph, fake = make_run(_hr_eng_vdbs(), router)
     fake.qa_hits = [
-        {"qa_pair_id": "qa-1", "collection_id": "hr", "question": "unrelated", "answer": "unrelated", "score": 0.4}
+        {
+            "qa_pair_id": "qa-1",
+            "collection_id": "hr",
+            "question": "unrelated",
+            "answer": "unrelated",
+            "score": 0.4,
+        }
     ]
 
     state = initial_state("What is the leave policy?")
@@ -887,3 +1041,105 @@ def test_no_qa_hit_no_summary_falls_through_to_chunk_search(make_run):
 
     assert fake.searched_collection_ids == [["hr"]]
     assert result["answer"] == "The policy is X [abc]."
+
+
+def test_time_tool_provides_current_time_and_periods(make_run):
+    """The time tool gives the LLM the current date/time (second-precise) and pre-computed
+    relative periods so it can answer temporal queries like 'documents added this week'.
+    """
+
+    def router(system_prompt: str) -> str:
+        if "Analyze the user" in system_prompt:
+            return _analysis(intent="meta")
+        if "Break the user's query" in system_prompt:
+            return json.dumps(
+                [
+                    {
+                        "id": "t1",
+                        "query": "what is the current date and time",
+                        "tool": "time",
+                    }
+                ]
+            )
+        if "Decide whether" in system_prompt:
+            return json.dumps({"status": "sufficient", "missing_information": [], "reasoning": "ok"})
+        if "Check whether every" in system_prompt:
+            return json.dumps({"valid": True, "unsupported_claims": []})
+        return "Today is the current date [t1]."
+
+    graph, fake = make_run(_hr_eng_vdbs(), router)
+    state = initial_state("What is the current date and time?")
+    result = graph.invoke(state, config=_config(state))
+
+    assert len(result["deduped_evidence"]) == 1
+    evidence = result["deduped_evidence"][0]
+    assert evidence["metadata"]["evidence_kind"] == "time"
+    assert evidence["metadata"]["tool"] == "time"
+    # The content must include the current time (second-precise ISO 8601)
+    assert "Current time:" in evidence["content"]
+    assert "Relative periods" in evidence["content"]
+    # Must include common periods
+    assert "today:" in evidence["content"]
+    assert "this_week:" in evidence["content"]
+    assert "last_week:" in evidence["content"]
+    assert "this_month:" in evidence["content"]
+    assert "last_month:" in evidence["content"]
+    assert "last_7_days:" in evidence["content"]
+    assert "last_30_days:" in evidence["content"]
+    # No backend search should have been called
+    assert fake.searched_collection_ids == []
+
+
+def test_time_tool_is_offered_by_the_planner(make_run):
+    """The decompose_query prompt must list 'time' as an available tool so the planner
+    can pick it for temporal queries."""
+
+    def router(system_prompt: str) -> str:
+        if "Analyze the user" in system_prompt:
+            return _analysis(intent="meta")
+        if "Break the user's query" in system_prompt:
+            # Verify the planner prompt mentions the time tool
+            assert '"time"' in system_prompt
+            return json.dumps([{"id": "t1", "query": "current time", "tool": "time"}])
+        if "Decide whether" in system_prompt:
+            return json.dumps({"status": "sufficient", "missing_information": [], "reasoning": "ok"})
+        if "Check whether every" in system_prompt:
+            return json.dumps({"valid": True, "unsupported_claims": []})
+        return "The current time is now [t1]."
+
+    graph, fake = make_run(_hr_eng_vdbs(), router)
+    state = initial_state("What time is it?")
+    result = graph.invoke(state, config=_config(state))
+
+    assert result["completed_task_ids"] == ["t1"]
+    assert any(e["metadata"]["tool"] == "time" for e in result["deduped_evidence"])
+
+
+def test_time_tool_evidence_has_second_precision(make_run):
+    """The time tool must provide second-level precision (not just date or minute)."""
+
+    def router(system_prompt: str) -> str:
+        if "Analyze the user" in system_prompt:
+            return _analysis(intent="meta")
+        if "Break the user's query" in system_prompt:
+            return json.dumps([{"id": "t1", "query": "current time", "tool": "time"}])
+        if "Decide whether" in system_prompt:
+            return json.dumps({"status": "sufficient", "missing_information": [], "reasoning": "ok"})
+        if "Check whether every" in system_prompt:
+            return json.dumps({"valid": True, "unsupported_claims": []})
+        return "Now [t1]."
+
+    graph, fake = make_run(_hr_eng_vdbs(), router)
+    state = initial_state("What is the current time?")
+    result = graph.invoke(state, config=_config(state))
+
+    evidence = result["deduped_evidence"][0]
+    now_iso = evidence["metadata"]["now"]
+    # ISO 8601 with seconds: YYYY-MM-DDTHH:MM:SS+HHMM
+    import re
+
+    pattern = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{4}$"
+    assert re.match(pattern, now_iso), f"Expected second-precision ISO, got {now_iso}"
+    # The time field must include seconds
+    assert len(evidence["metadata"]["time"]) == 8  # HH:MM:SS
+    assert evidence["metadata"]["time"].count(":") == 2
