@@ -12,6 +12,7 @@ from app.schemas.collection import (
     CollectionSettingsUpdate,
     CollectionUpdate,
     EntityOut,
+    GroundednessStatsOut,
     QaPairOut,
     RelationOut,
     ShareCreate,
@@ -100,6 +101,19 @@ async def list_qa_pairs(
 ) -> list[QaPairOut]:
     try:
         return await service.list_qa_pairs(collection_id, user, document_id)
+    except CollectionNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
+
+
+@router.get(
+    "/collections/{collection_id}/groundedness",
+    summary="Aggregate this collection's grounding verdicts - proportion of runs whose answer "
+    "cited it but wasn't fully supported by evidence, plus recent examples",
+    response_model=GroundednessStatsOut,
+)
+async def get_groundedness_stats(collection_id: uuid.UUID, user: UserDep, service: ServiceDep) -> GroundednessStatsOut:
+    try:
+        return await service.get_groundedness_stats(collection_id, user)
     except CollectionNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
 

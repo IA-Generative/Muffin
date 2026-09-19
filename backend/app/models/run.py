@@ -91,6 +91,18 @@ class Run(UUIDMixin, TimestampMixin, Base):
     citations: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # Final claim-by-claim grounding check (see worker/agent_execution/app/graph/nodes/
+    # validate_grounding.py's GroundingResult) - null until the run completes with an answer,
+    # stays null on a failed/cancelled/waiting run. Not recomputed here: this is the same verdict
+    # already used internally to decide whether to loop through targeted_research, just persisted
+    # so it can be queried after the fact instead of only living in worker memory during the run.
+    grounding_valid: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    grounding_unsupported_claims: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
+    # How many targeted_research retries the grounding loop triggered before settling on the
+    # final verdict above (bounded by MAX_GROUNDING_RESEARCHES) - a run that needed several
+    # retries to become grounded is a weaker result than one that was grounded on the first pass.
+    grounding_research_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
     events: Mapped[list["RunEvent"]] = relationship(
         back_populates="run", cascade="all, delete-orphan", order_by="RunEvent.created_at"
     )

@@ -117,7 +117,14 @@ async def update_run_result(
     run = await repository.get_by_id(run_id)
     if run is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
-    await repository.set_result(run, update.answer, update.citations)
+    await repository.set_result(
+        run,
+        update.answer,
+        update.citations,
+        update.grounding_valid,
+        update.grounding_unsupported_claims,
+        update.grounding_research_count,
+    )
     # Persisted as a real Message, not just Run.answer, so GET /conversations/{id}/messages can
     # restore the full thread (§ conversation persistence) - Run stays about execution/status,
     # Message is the single source of truth for what the user actually sees in the chat history.

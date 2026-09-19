@@ -52,9 +52,24 @@ class BackendClient:
         )
         response.raise_for_status()
 
-    def set_run_result(self, run_id: str, answer: str, citations: list[dict[str, Any]]) -> None:
+    def set_run_result(
+        self,
+        run_id: str,
+        answer: str,
+        citations: list[dict[str, Any]],
+        grounding_valid: bool | None = None,
+        grounding_unsupported_claims: list[str] | None = None,
+        grounding_research_count: int | None = None,
+    ) -> None:
         response = self._client.patch(
-            f"/api/internal/runs/{run_id}/result", json={"answer": answer, "citations": citations}
+            f"/api/internal/runs/{run_id}/result",
+            json={
+                "answer": answer,
+                "citations": citations,
+                "grounding_valid": grounding_valid,
+                "grounding_unsupported_claims": grounding_unsupported_claims,
+                "grounding_research_count": grounding_research_count,
+            },
         )
         response.raise_for_status()
 

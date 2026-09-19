@@ -38,6 +38,7 @@ class FakeBackend:
         # {(document_id, page_number): {"page_number":..., "content":..., "screenshot_url":...}}
         self.pages: dict[tuple[str, int], dict[str, Any]] = {}
         self.conversation_titles: dict[str, str] = {}
+        self.run_results: list[dict[str, Any]] = []
 
     def get_run(self, run_id: str) -> dict[str, Any]:
         return {"cancel_requested": self.cancel_requested}
@@ -56,8 +57,24 @@ class FakeBackend:
     def update_run_state(self, *args: Any, **kwargs: Any) -> None:
         pass
 
-    def set_run_result(self, *args: Any, **kwargs: Any) -> None:
-        pass
+    def set_run_result(
+        self,
+        run_id: str,
+        answer: str,
+        citations: list[dict[str, Any]],
+        grounding_valid: bool | None = None,
+        grounding_unsupported_claims: list[str] | None = None,
+        grounding_research_count: int | None = None,
+    ) -> None:
+        self.run_results.append(
+            {
+                "answer": answer,
+                "citations": citations,
+                "grounding_valid": grounding_valid,
+                "grounding_unsupported_claims": grounding_unsupported_claims,
+                "grounding_research_count": grounding_research_count,
+            }
+        )
 
     def set_run_error(self, *args: Any, **kwargs: Any) -> None:
         pass
