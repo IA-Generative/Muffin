@@ -1,6 +1,6 @@
 # muffin
 
-![Version: 0.2.3](https://img.shields.io/badge/Version-0.2.3-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.3.1](https://img.shields.io/badge/AppVersion-0.3.1-informational?style=flat-square)
+![Version: 0.2.4](https://img.shields.io/badge/Version-0.2.4-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.3.1](https://img.shields.io/badge/AppVersion-0.3.1-informational?style=flat-square)
 
 A Helm chart to deploy Muffin.
 
@@ -15,6 +15,7 @@ Kubernetes: `>=1.25.0-0`
 | oci://registry-1.docker.io/cloudpirates | postgres(postgres) | 0.19.6 |
 | oci://registry-1.docker.io/cloudpirates | redis(redis) | 0.27.9 |
 | oci://registry-1.docker.io/cloudpirates | rustfs(rustfs) | 0.10.0 |
+| https://charts.kubito.dev | searxng | 1.1.4 |
 
 ## Values
 

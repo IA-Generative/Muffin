@@ -10,6 +10,7 @@ chart-dirs:
 chart-repos:
 - cnpg=https://cloudnative-pg.github.io/charts
 - meilisearch=https://meilisearch.github.io/meilisearch-kubernetes
+- searxng=https://charts.kubito.dev
 helm-extra-args: ''
 validate-chart-schema: true
 validate-chart-values: true
