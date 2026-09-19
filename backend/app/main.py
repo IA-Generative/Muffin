@@ -10,6 +10,7 @@ from app.routers.conversations import router as conversations_router
 from app.routers.documents import router as documents_router
 from app.routers.health import router as health_router
 from app.routers.internal_collections import router as internal_collections_router
+from app.routers.internal_conversations import router as internal_conversations_router
 from app.routers.internal_documents import router as internal_documents_router
 from app.routers.internal_evaluation import router as internal_evaluation_router
 from app.routers.internal_llm import router as internal_llm_router
@@ -63,6 +64,7 @@ app.include_router(runs_router, prefix="/api")
 app.include_router(admin_settings_router, prefix="/api")
 app.include_router(internal_documents_router, prefix="/api")
 app.include_router(internal_evaluation_router, prefix="/api")
+app.include_router(internal_conversations_router, prefix="/api")
 app.include_router(internal_collections_router, prefix="/api")
 app.include_router(internal_pipeline_router, prefix="/api")
 app.include_router(internal_tasks_router, prefix="/api")

@@ -21,3 +21,6 @@ class Conversation(UUIDMixin, TimestampMixin, Base):
         cascade="all, delete-orphan",
         order_by="Message.created_at",
     )
+    discussion_scores: Mapped[list["DiscussionScore"]] = relationship(  # noqa: F821
+        back_populates="conversation", cascade="all, delete-orphan"
+    )

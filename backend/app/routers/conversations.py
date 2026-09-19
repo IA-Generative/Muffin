@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.security.factory import RequestContext, get_current_user
 from app.db import get_db
 from app.schemas.conversation import ConversationOut, ConversationUpdate, MessageOut
+from app.schemas.discussion_score import DiscussionScoreOut
 from app.schemas.pagination import Page, PaginationParams
 from app.services.conversation_service import ConversationNotFoundError, ConversationService
 
@@ -42,6 +43,34 @@ async def list_conversation_messages(
 ) -> list[MessageOut]:
     try:
         return await service.list_messages(conversation_id, user)
+    except ConversationNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found") from error
+
+
+@router.post(
+    "/conversations/{conversation_id}/discussion-score",
+    summary="Trigger a discussion-quality judgment for this conversation (runs asynchronously in "
+    "worker/evaluation - see #31)",
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def trigger_discussion_score(conversation_id: uuid.UUID, user: UserDep, service: ServiceDep) -> dict[str, str]:
+    try:
+        celery_task_id = await service.trigger_discussion_score(conversation_id, user)
+    except ConversationNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found") from error
+    return {"celery_task_id": celery_task_id}
+
+
+@router.get(
+    "/conversations/{conversation_id}/discussion-scores",
+    summary="List this conversation's discussion-quality judgments, most recent first (see #31)",
+    response_model=list[DiscussionScoreOut],
+)
+async def list_discussion_scores(
+    conversation_id: uuid.UUID, user: UserDep, service: ServiceDep
+) -> list[DiscussionScoreOut]:
+    try:
+        return await service.list_discussion_scores(conversation_id, user)
     except ConversationNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found") from error
 
