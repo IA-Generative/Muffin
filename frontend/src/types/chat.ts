@@ -64,3 +64,28 @@ export interface Conversation {
   id: string
   title: string
 }
+
+export interface DiscussionScore {
+  id: string
+  conversationId: string
+  createdAt: string
+  messageCount: number
+  llmModel: string
+  coherent: boolean
+  coherenceIssues: string[]
+  contextUsageScore: number
+  contextUsageIssues: string[]
+  reasoning: string | null
+}
+
+export interface DiscussionFeedback {
+  id: string
+  conversationId: string
+  userId: string
+  rating: number
+  coherent: boolean
+  contextUsageScore: number | null
+  comment: string | null
+  createdAt: string
+  updatedAt: string
+}

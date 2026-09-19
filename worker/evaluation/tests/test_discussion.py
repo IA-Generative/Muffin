@@ -23,6 +23,7 @@ def test_score_discussion_persists_a_well_formed_judgment(monkeypatch):
 
     fake.list_conversation_messages.return_value = _TWO_TURN_TRANSCRIPT
     fake.get_default_chat_model.return_value = "test-model"
+    fake.find_discussion_score.return_value = None
     fake.llm_chat.return_value = json.dumps(
         {
             "coherent": True,
@@ -36,6 +37,7 @@ def test_score_discussion_persists_a_well_formed_judgment(monkeypatch):
 
     tasks.score_discussion("conv-1")
 
+    fake.find_discussion_score.assert_called_once()
     fake.llm_chat.assert_called_once()
     model, messages = fake.llm_chat.call_args.args
     assert model == "test-model"
@@ -48,8 +50,25 @@ def test_score_discussion_persists_a_well_formed_judgment(monkeypatch):
     assert payload["coherent"] is True
     assert payload["context_usage_score"] == 0.9
     assert payload["reasoning"] == "Consistent answers, context correctly reused."
+    assert payload["content_hash"]
+    assert len(payload["content_hash"]) == 64
 
     fake.set_task_logs.assert_called_once()
+
+
+def test_score_discussion_skips_when_already_scored(monkeypatch):
+    fake = MagicMock()
+    monkeypatch.setattr(tasks, "backend_client", fake)
+    monkeypatch.setattr(task_logging, "backend_client", fake)
+
+    fake.list_conversation_messages.return_value = _TWO_TURN_TRANSCRIPT
+    fake.get_default_chat_model.return_value = "test-model"
+    fake.find_discussion_score.return_value = "existing-score"
+
+    tasks.score_discussion("conv-1")
+
+    fake.llm_chat.assert_not_called()
+    fake.create_discussion_score.assert_not_called()
 
 
 def test_score_discussion_falls_back_on_malformed_json(monkeypatch):
@@ -59,6 +78,7 @@ def test_score_discussion_falls_back_on_malformed_json(monkeypatch):
 
     fake.list_conversation_messages.return_value = _TWO_TURN_TRANSCRIPT
     fake.get_default_chat_model.return_value = "test-model"
+    fake.find_discussion_score.return_value = None
     fake.llm_chat.return_value = "not json at all"
     fake.create_discussion_score.return_value = "score-1"
 
@@ -110,9 +130,16 @@ def test_score_discussion_strips_a_markdown_code_fence(monkeypatch):
 
     fake.list_conversation_messages.return_value = _TWO_TURN_TRANSCRIPT
     fake.get_default_chat_model.return_value = "test-model"
+    fake.find_discussion_score.return_value = None
     fake.llm_chat.return_value = (
         "```json\n"
-        + json.dumps({"coherent": False, "coherence_issues": ["contradiction"], "context_usage_score": 0.2})
+        + json.dumps(
+            {
+                "coherent": False,
+                "coherence_issues": ["contradiction"],
+                "context_usage_score": 0.2,
+            }
+        )
         + "\n```"
     )
     fake.create_discussion_score.return_value = "score-1"

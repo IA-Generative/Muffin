@@ -8,9 +8,16 @@ from app.core.security.worker_auth import require_worker_api_key
 from app.db import get_db
 from app.repositories.conversation_repository import ConversationRepository
 from app.repositories.discussion_score_repository import DiscussionScoreRepository
-from app.schemas.internal_discussion_score import ConversationMessageOut, DiscussionScoreCreate
+from app.schemas.internal_discussion_score import (
+    ConversationMessageOut,
+    DiscussionScoreCreate,
+)
 
-router = APIRouter(prefix="/internal", tags=["Internal"], dependencies=[Depends(require_worker_api_key)])
+router = APIRouter(
+    prefix="/internal",
+    tags=["Internal"],
+    dependencies=[Depends(require_worker_api_key)],
+)
 
 
 @router.get(
@@ -34,10 +41,29 @@ async def list_conversation_messages(
     status_code=status.HTTP_201_CREATED,
 )
 async def create_discussion_score(
-    conversation_id: uuid.UUID, body: DiscussionScoreCreate, db: Annotated[AsyncSession, Depends(get_db)]
+    conversation_id: uuid.UUID,
+    body: DiscussionScoreCreate,
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict[str, str]:
     if await ConversationRepository(db).get_by_id(conversation_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
     score = await DiscussionScoreRepository(db).create(conversation_id, body.model_dump(mode="python"))
     await db.commit()
     return {"status": "ok", "id": str(score.id)}
+
+
+@router.get(
+    "/conversations/{conversation_id}/discussion-scores/exists",
+    summary="Check whether a score already exists for this (conversation, content_hash, model) triple "
+    "- lets score_discussion skip re-judging an unchanged conversation with the same model",
+)
+async def find_discussion_score(
+    conversation_id: uuid.UUID,
+    content_hash: str,
+    llm_model: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict[str, str | None]:
+    if await ConversationRepository(db).get_by_id(conversation_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
+    score = await DiscussionScoreRepository(db).find_existing(conversation_id, content_hash, llm_model)
+    return {"id": str(score.id) if score else None}

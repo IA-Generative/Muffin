@@ -1,3 +1,4 @@
+import hashlib
 import json
 from typing import Any
 
@@ -49,6 +50,19 @@ def _build_transcript(messages: list[dict[str, Any]]) -> str:
     return "\n\n".join(f"{message['role'].capitalize()}: {message['content']}" for message in messages)
 
 
+def _transcript_hash(messages: list[dict[str, Any]]) -> str:
+    """SHA-256 of the transcript - role + content of every message, in order. This is what
+    DiscussionScore.content_hash stores: re-scoring the exact same conversation with the same
+    model is a no-op (the worker skips it), but a conversation that grows gets re-scored.
+    """
+    payload = json.dumps(
+        [{"role": m["role"], "content": m["content"]} for m in messages],
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 _FALLBACK_JUDGMENT: dict[str, Any] = {
     "coherent": True,
     "coherence_issues": [],
@@ -88,7 +102,10 @@ def _build_answer(model: str, question: str, search_results: list[dict[str, Any]
         model,
         [
             {"role": "system", "content": _ANSWER_SYSTEM_PROMPT},
-            {"role": "user", "content": f"Question: {question}\n\nExcerpts:\n{excerpts}"},
+            {
+                "role": "user",
+                "content": f"Question: {question}\n\nExcerpts:\n{excerpts}",
+            },
         ],
     )
 
@@ -237,12 +254,22 @@ def score_discussion(self, conversation_id: str) -> None:
             logger.warning(f"No chat model available to score conversation {conversation_id}, skipping")
             return
 
+        content_hash = _transcript_hash(messages)
+        existing_id = backend_client.find_discussion_score(conversation_id, content_hash, model)
+        if existing_id is not None:
+            logger.info(
+                f"Conversation {conversation_id} already scored with model {model} for this "
+                f"transcript (score {existing_id}), skipping"
+            )
+            return
+
         logger.info(f"Scoring conversation {conversation_id}: {len(messages)} message(s), {assistant_turns} turn(s)")
         judgment = _judge_discussion(model, _build_transcript(messages))
 
         payload = {
             "message_count": len(messages),
             "llm_model": model,
+            "content_hash": content_hash,
             "coherent": bool(judgment["coherent"]),
             "coherence_issues": judgment.get("coherence_issues", []),
             "context_usage_score": float(judgment["context_usage_score"]),

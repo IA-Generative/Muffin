@@ -8,7 +8,6 @@ import type {
   CollectionDocument,
   CollectionVisibility,
   Entity,
-  EvaluationResult,
   EvaluationRun,
   FieldStamp,
   GenerationModels,
@@ -708,77 +707,56 @@ async function updateInstructionField(collectionId: string, field: keyof Pipelin
   await patchSettings(collectionId, { instructions: { ...collection.instructions, [field]: value } })
 }
 
-// Pas de backend : score chaque Q/R validée avec des valeurs plausibles au
-// lieu d'interroger le vrai pipeline de retrieval. Les non-validées sont
-// exclues, sur demande explicite - une paire pas encore relue par un humain
-// ne doit pas fausser une mesure de qualité.
 const EVAL_K = 5
-// Pas encore de champ dans l'UI pour choisir le modèle de génération : fixé
-// ici en attendant, mais déjà tracé par run pour comparer plusieurs modèles
-// plus tard sans perdre l'historique des runs passés.
-const EVAL_LLM_MODEL = 'gpt-4o-mini'
 
-function mockGeneratedAnswer(pair: QaPair): string {
-  // ~1 run sur 5 simule une réponse dégradée, pour que l'écran d'évaluation
-  // montre autre chose qu'un alignement parfait entre réponse générée et attendue.
-  return Math.random() < 0.2
-    ? "Je n'ai pas trouvé d'information suffisamment fiable pour répondre avec certitude."
-    : pair.answer
-}
+// Tracks active evaluation polls so a second click doesn't start a duplicate interval.
+const evaluationPolls = new Map<string, ReturnType<typeof setInterval>>()
 
-function mockRetrievedSources(collection: Collection, pair: QaPair): string[] {
-  const others = collection.documents.map((document) => document.name).filter((name) => name !== pair.source)
-  const extra = others[Math.floor(Math.random() * others.length)]
-  return [pair.source, extra].filter((name): name is string => Boolean(name))
-}
-
-function runEvaluation(collectionId: string) {
+async function runEvaluation(collectionId: string) {
   const collection = collections.value.find((item) => item.id === collectionId)
   if (!collection) return
 
   const validated = collection.qaPairs.filter((pair) => pair.validated)
   if (!validated.length) return
 
-  const results: EvaluationResult[] = validated.map((pair) => {
-    const precisionAtK = Math.round((0.6 + Math.random() * 0.4) * 100) / 100
-    const recallAtK = Math.round((0.55 + Math.random() * 0.45) * 100) / 100
-    const reciprocalRank = Math.round((0.5 + Math.random() * 0.5) * 100) / 100
-    const ndcg = Math.round((0.6 + Math.random() * 0.4) * 100) / 100
-    return {
-      qaPairId: pair.id,
-      question: pair.question,
-      expectedAnswer: pair.answer,
-      generatedAnswer: mockGeneratedAnswer(pair),
-      retrievedSources: mockRetrievedSources(collection, pair),
-      precisionAtK,
-      recallAtK,
-      reciprocalRank,
-      ndcg,
-    }
-  })
-
-  const average = (values: number[]) =>
-    Math.round((values.reduce((sum, value) => sum + value, 0) / values.length) * 100) / 100
-
-  const run: EvaluationRun = {
-    id: crypto.randomUUID(),
-    runAt: new Date().toISOString(),
-    k: EVAL_K,
-    pairCount: results.length,
-    llmModel: EVAL_LLM_MODEL,
-    // Copie indépendante : si la config change après coup, ce run garde la
-    // trace de ce qui a réellement produit ces résultats.
-    chunkingSnapshot: { ...collection.chunkingSettings, embeddingModel: collection.embeddingModel },
-    metrics: {
-      precisionAtK: average(results.map((result) => result.precisionAtK)),
-      recallAtK: average(results.map((result) => result.recallAtK)),
-      mrr: average(results.map((result) => result.reciprocalRank)),
-      ndcg: average(results.map((result) => result.ndcg)),
-    },
-    results,
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/collections/${collectionId}/evaluations`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ k: EVAL_K }),
+    })
+    if (!response.ok) return
+  } catch {
+    return
   }
 
-  collection.evaluationRuns.unshift(run)
+  // The worker runs asynchronously (Celery queue "evaluation"); poll until the
+  // new run appears in the list, mirroring pollDocumentsWhileProcessing.
+  pollEvaluationWhileRunning(collectionId)
+}
+
+function pollEvaluationWhileRunning(collectionId: string) {
+  if (evaluationPolls.has(collectionId)) return
+  const previousRunCount = collections.value.find((item) => item.id === collectionId)?.evaluationRuns.length ?? 0
+  let attempts = 0
+  const maxAttempts = 150 // 5 min at 2s intervals
+  evaluationPolls.set(
+    collectionId,
+    setInterval(async () => {
+      attempts++
+      await refreshEvaluation(collectionId)
+      const collection = collections.value.find((item) => item.id === collectionId)
+      const currentRuns = collection?.evaluationRuns ?? []
+      if (currentRuns.length > previousRunCount || attempts >= maxAttempts) {
+        const handle = evaluationPolls.get(collectionId)
+        if (handle) {
+          clearInterval(handle)
+          evaluationPolls.delete(collectionId)
+        }
+      }
+    }, 2000),
+  )
 }
 
 export function useCollections() {

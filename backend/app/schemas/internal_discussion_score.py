@@ -9,6 +9,7 @@ class ConversationMessageOut(BaseModel):
 class DiscussionScoreCreate(BaseModel):
     message_count: int
     llm_model: str
+    content_hash: str
     coherent: bool
     coherence_issues: list[str] = []
     context_usage_score: float
