@@ -1,6 +1,6 @@
 # muffin
 
-![Version: 0.5.2-rc](https://img.shields.io/badge/Version-0.5.2--rc-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.7.0-rc](https://img.shields.io/badge/AppVersion-0.7.0--rc-informational?style=flat-square)
+![Version: 0.5.2-rc.1](https://img.shields.io/badge/Version-0.5.2--rc.1-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.7.1-rc.1](https://img.shields.io/badge/AppVersion-0.7.1--rc.1-informational?style=flat-square)
 
 A Helm chart to deploy Muffin.
 
@@ -138,8 +138,8 @@ Kubernetes: `>=1.25.0-0`
 |-----|------|---------|-------------|
 | agent_execution.image.digest | string | `""` | Image digest (`sha256:...`). When set it takes precedence over `tag`, pinning the exact image content so the same release can never resolve to a different build - preferred over a mutable tag for anything you deploy to production. |
 | agent_execution.image.pullPolicy | string | `"IfNotPresent"` | Image pull policy for the app. |
-| agent_execution.image.registry | string | `"docker.io"` | Registry to use for the app. |
-| agent_execution.image.repository | string | `"debian"` | Repository to use for the app. |
+| agent_execution.image.registry | string | `"ghcr.io"` | Registry to use for the app. |
+| agent_execution.image.repository | string | `"ia-generative/muffin-worker-agent-execution"` | Repository to use for the app. |
 | agent_execution.image.tag | string | `""` | Tag to use for the app. Overrides the image tag whose default is the chart appVersion. |
 
 #### Ingress
@@ -360,8 +360,8 @@ Kubernetes: `>=1.25.0-0`
 |-----|------|---------|-------------|
 | backend.image.digest | string | `""` | Image digest (`sha256:...`). When set it takes precedence over `tag`, pinning the exact image content so the same release can never resolve to a different build - preferred over a mutable tag for anything you deploy to production. |
 | backend.image.pullPolicy | string | `"IfNotPresent"` | Image pull policy for the app. |
-| backend.image.registry | string | `"docker.io"` | Registry to use for the app. |
-| backend.image.repository | string | `"debian"` | Repository to use for the app. |
+| backend.image.registry | string | `"ghcr.io"` | Registry to use for the app. |
+| backend.image.repository | string | `"ia-generative/muffin-backend"` | Repository to use for the app. |
 | backend.image.tag | string | `""` | Tag to use for the app. Overrides the image tag whose default is the chart appVersion. |
 
 #### Ingress
@@ -582,8 +582,8 @@ Kubernetes: `>=1.25.0-0`
 |-----|------|---------|-------------|
 | document_process.image.digest | string | `""` | Image digest (`sha256:...`). When set it takes precedence over `tag`, pinning the exact image content so the same release can never resolve to a different build - preferred over a mutable tag for anything you deploy to production. |
 | document_process.image.pullPolicy | string | `"IfNotPresent"` | Image pull policy for the app. |
-| document_process.image.registry | string | `"docker.io"` | Registry to use for the app. |
-| document_process.image.repository | string | `"debian"` | Repository to use for the app. |
+| document_process.image.registry | string | `"ghcr.io"` | Registry to use for the app. |
+| document_process.image.repository | string | `"ia-generative/muffin-worker-document-process"` | Repository to use for the app. |
 | document_process.image.tag | string | `""` | Tag to use for the app. Overrides the image tag whose default is the chart appVersion. |
 
 #### Ingress
@@ -804,8 +804,8 @@ Kubernetes: `>=1.25.0-0`
 |-----|------|---------|-------------|
 | frontend.image.digest | string | `""` | Image digest (`sha256:...`). When set it takes precedence over `tag`, pinning the exact image content so the same release can never resolve to a different build - preferred over a mutable tag for anything you deploy to production. |
 | frontend.image.pullPolicy | string | `"IfNotPresent"` | Image pull policy for the app. |
-| frontend.image.registry | string | `"docker.io"` | Registry to use for the app. |
-| frontend.image.repository | string | `"debian"` | Repository to use for the app. |
+| frontend.image.registry | string | `"ghcr.io"` | Registry to use for the app. |
+| frontend.image.repository | string | `"ia-generative/muffin-frontend"` | Repository to use for the app. |
 | frontend.image.tag | string | `""` | Tag to use for the app. Overrides the image tag whose default is the chart appVersion. |
 
 #### Ingress
@@ -1040,8 +1040,8 @@ Kubernetes: `>=1.25.0-0`
 |-----|------|---------|-------------|
 | worker_evaluation.image.digest | string | `""` | Image digest (`sha256:...`). When set it takes precedence over `tag`, pinning the exact image content so the same release can never resolve to a different build - preferred over a mutable tag for anything you deploy to production. |
 | worker_evaluation.image.pullPolicy | string | `"IfNotPresent"` | Image pull policy for the app. |
-| worker_evaluation.image.registry | string | `"docker.io"` | Registry to use for the app. |
-| worker_evaluation.image.repository | string | `"debian"` | Repository to use for the app. |
+| worker_evaluation.image.registry | string | `"ghcr.io"` | Registry to use for the app. |
+| worker_evaluation.image.repository | string | `"ia-generative/muffin-worker-evaluation"` | Repository to use for the app. |
 | worker_evaluation.image.tag | string | `""` | Tag to use for the app. Overrides the image tag whose default is the chart appVersion. |
 
 #### Ingress
