@@ -49,9 +49,20 @@ def process_tabular_document(self, document_id: str, collection_id: str, tabular
                 raise ValueError(f"Unsupported MIME type for tabular analysis: {mime_type} (document {document_id})")
 
             _shared.backend_client.update_status(document_id, status="indexing", progress=0)
-            data = _shared.storage.get_object(document["storage_key"])
 
-            with load_tabular(data, fmt) as table:
+            with load_tabular(document["storage_key"], fmt, document_id) as table:
+                # Export Parquet vers RustFS : DuckDB écrit directement vers S3
+                # via httpfs (COPY ... TO 's3://...'), pas de fichier temporaire
+                # ni de put_object. Parquet est compressé et beaucoup plus
+                # efficace pour les requêtes analytiques ultérieures que le
+                # CSV/JSON original.
+                parquet_key = f"documents/{collection_id}/{document_id}.parquet"
+                table.connection.execute(
+                    f"COPY (SELECT * FROM {table.table_name}) "
+                    f"TO 's3://{_shared.storage._bucket}/{parquet_key}' (FORMAT PARQUET)"
+                )
+                logger.info(f"Saved Parquet for document {document_id} at {parquet_key}")
+
                 profile = compute_profile(table)
                 logger.info(
                     f"Tabular profile for {document_id}: {profile.row_count} rows, "
