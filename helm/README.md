@@ -1,6 +1,6 @@
 # muffin
 
-![Version: 0.5.2](https://img.shields.io/badge/Version-0.5.2-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.7.1](https://img.shields.io/badge/AppVersion-0.7.1-informational?style=flat-square)
+![Version: 0.5.3-rc](https://img.shields.io/badge/Version-0.5.3--rc-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.7.2-rc](https://img.shields.io/badge/AppVersion-0.7.2--rc-informational?style=flat-square)
 
 A Helm chart to deploy Muffin.
 
@@ -10,9 +10,9 @@ Kubernetes: `>=1.25.0-0`
 
 | Repository | Name | Version |
 |------------|------|---------|
-| https://charts.kubito.dev | searxng | 1.1.4 |
 | https://cloudnative-pg.github.io/charts | cnpg(cluster) | 0.8.1 |
 | https://meilisearch.github.io/meilisearch-kubernetes | meilisearch | 0.39.0 |
+| https://unknowniq.github.io/helm-charts | searxng | 0.1.11 |
 | oci://registry-1.docker.io/cloudpirates | postgres(postgres) | 0.19.6 |
 | oci://registry-1.docker.io/cloudpirates | redis(redis) | 0.27.9 |
 | oci://registry-1.docker.io/cloudpirates | rustfs(rustfs) | 0.10.0 |
