@@ -13,6 +13,7 @@ TaskTool = Literal[
     "collection_summary",
     "list_documents",
     "page_content",
+    "tabular_query",
     "web_search",
     "time",
 ]
