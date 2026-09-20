@@ -4,10 +4,12 @@ Couverture :
 - ``validate_document`` : validation MIME + récupération document/settings ;
 - ``export_parquet`` : export DuckDB → S3 via httpfs ;
 - ``compute_tabular_profile`` : wrapper autour de compute_profile ;
-- ``generate_summary`` : résumé LLM + persistance ;
-- ``generate_qa_pairs`` : QA ancrées + persistance ;
-- ``persist_profile`` : sauvegarde du profil enrichi ;
-- ``serialize_to_csv_page`` : sérialisation CSV → page.
+- ``persist_profile`` : sauvegarde du profil côté backend ;
+- ``serialize_to_csv_page`` : sérialisation texte pour le chunking.
+
+Le résumé et les QA ne sont **pas** testés ici car ils sont désormais générés
+par les tâches classiques (``summarize_document`` et ``generate_qa_window``)
+dispatchées par ``chunk_document``.
 
 Chaque test mocke ``_shared`` pour isoler la logique métier des appels
 backend/LLM/storage.
@@ -34,13 +36,6 @@ def mock_shared(monkeypatch):
     """Mock toutes les dépendances externes de _shared."""
     monkeypatch.setattr(steps._shared, "backend_client", MagicMock())
     monkeypatch.setattr(steps._shared, "storage", MagicMock())
-    monkeypatch.setattr(steps._shared, "_chat", MagicMock(return_value="LLM response"))
-    monkeypatch.setattr(steps._shared, "_model_for", MagicMock(return_value="gpt-4"))
-    monkeypatch.setattr(
-        steps._shared,
-        "_windows",
-        MagicMock(return_value={"qa_questions_per_window": 3}),
-    )
     return steps._shared
 
 
@@ -151,127 +146,30 @@ class TestComputeTabularProfile:
 
 
 # ---------------------------------------------------------------------------
-# generate_summary
-# ---------------------------------------------------------------------------
-
-
-class TestGenerateSummary:
-    def test_generates_and_persists_summary(self, mock_shared, fake_profile, fake_settings):
-        mock_shared._chat.return_value = "This is a summary."
-
-        result = steps.generate_summary(fake_profile, fake_settings, "doc-1", "col-1")
-
-        assert result == "This is a summary."
-        mock_shared.backend_client.set_document_summary.assert_called_once()
-        call_args = mock_shared.backend_client.set_document_summary.call_args
-        assert call_args.args[0] == "doc-1"
-        assert call_args.args[1] == "This is a summary."
-
-    def test_returns_empty_when_no_model(self, mock_shared, fake_profile, fake_settings):
-        mock_shared._model_for.return_value = None
-
-        result = steps.generate_summary(fake_profile, fake_settings, "doc-1", "col-1")
-
-        assert result == ""
-        mock_shared.backend_client.set_document_summary.assert_not_called()
-
-    def test_embeds_summary(self, mock_shared, fake_profile, fake_settings):
-        mock_shared._chat.return_value = "Summary text"
-        mock_shared.backend_client.embed.return_value = [0.1, 0.2]
-
-        steps.generate_summary(fake_profile, fake_settings, "doc-1", "col-1")
-
-        mock_shared.backend_client.embed.assert_called_once_with("text-embedding-3-small", "Summary text")
-
-    def test_continues_on_embed_failure(self, mock_shared, fake_profile, fake_settings):
-        mock_shared._chat.return_value = "Summary text"
-        mock_shared.backend_client.embed.side_effect = RuntimeError("embed failed")
-
-        result = steps.generate_summary(fake_profile, fake_settings, "doc-1", "col-1")
-
-        assert result == "Summary text"
-        mock_shared.backend_client.set_document_summary.assert_called_once()
-
-
-# ---------------------------------------------------------------------------
-# generate_qa_pairs
-# ---------------------------------------------------------------------------
-
-
-class TestGenerateQaPairs:
-    def test_generates_and_persists_qa(self, mock_shared, fake_profile, fake_settings, monkeypatch):
-        qa_pairs = [
-            {"question": "What is the total?", "answer": "42"},
-            {"question": "Best product?", "answer": "Widget"},
-        ]
-        monkeypatch.setattr(steps, "generate_tabular_qa", lambda *a, **kw: qa_pairs)
-
-        result = steps.generate_qa_pairs(fake_profile, fake_settings, "doc-1", "col-1")
-
-        assert len(result) == 2
-        assert mock_shared.backend_client.create_qa_pair.call_count == 2
-
-    def test_returns_empty_when_no_model(self, mock_shared, fake_profile, fake_settings):
-        mock_shared._model_for.return_value = None
-
-        result = steps.generate_qa_pairs(fake_profile, fake_settings, "doc-1", "col-1")
-
-        assert result == []
-        mock_shared.backend_client.create_qa_pair.assert_not_called()
-
-    def test_embeds_each_question(self, mock_shared, fake_profile, fake_settings, monkeypatch):
-        qa_pairs = [{"question": "Q1", "answer": "A1"}]
-        monkeypatch.setattr(steps, "generate_tabular_qa", lambda *a, **kw: qa_pairs)
-        mock_shared.backend_client.embed.return_value = [0.1]
-
-        steps.generate_qa_pairs(fake_profile, fake_settings, "doc-1", "col-1")
-
-        mock_shared.backend_client.embed.assert_called_once_with("text-embedding-3-small", "Q1")
-
-    def test_continues_on_embed_failure(self, mock_shared, fake_profile, fake_settings, monkeypatch):
-        qa_pairs = [{"question": "Q1", "answer": "A1"}]
-        monkeypatch.setattr(steps, "generate_tabular_qa", lambda *a, **kw: qa_pairs)
-        mock_shared.backend_client.embed.side_effect = RuntimeError("embed failed")
-
-        result = steps.generate_qa_pairs(fake_profile, fake_settings, "doc-1", "col-1")
-
-        assert len(result) == 1
-        mock_shared.backend_client.create_qa_pair.assert_called_once()
-
-
-# ---------------------------------------------------------------------------
 # persist_profile
 # ---------------------------------------------------------------------------
 
 
 class TestPersistProfile:
-    def test_persists_enriched_profile(self, mock_shared, fake_profile):
-        steps.persist_profile(
-            fake_profile,
-            "doc-1",
-            "Summary text",
-            [
-                {"question": "Q1", "answer": "A1"},
-                {"question": "Q2", "answer": "A2"},
-            ],
-        )
+    def test_persists_profile_with_document_id(self, mock_shared, fake_profile):
+        steps.persist_profile(fake_profile, "doc-1")
 
         mock_shared.backend_client.set_tabular_profile.assert_called_once()
         call_args = mock_shared.backend_client.set_tabular_profile.call_args
         assert call_args.args[0] == "doc-1"
         profile_dict = call_args.args[1]
         assert profile_dict["document_id"] == "doc-1"
-        assert profile_dict["summary"] == "Summary text"
-        assert profile_dict["suggested_questions"] == ["Q1", "Q2"]
         assert profile_dict["row_count"] == 5
         assert profile_dict["format"] == "csv"
 
-    def test_persists_empty_questions(self, mock_shared, fake_profile):
-        steps.persist_profile(fake_profile, "doc-1", "", [])
+    def test_does_not_include_summary_or_questions(self, mock_shared, fake_profile):
+        """Le résumé et les QA sont gérés par les tâches classiques, pas
+        par le profil tabulaire."""
+        steps.persist_profile(fake_profile, "doc-1")
 
         profile_dict = mock_shared.backend_client.set_tabular_profile.call_args.args[1]
-        assert profile_dict["suggested_questions"] == []
-        assert profile_dict["summary"] == ""
+        assert "summary" not in profile_dict
+        assert "suggested_questions" not in profile_dict
 
 
 # ---------------------------------------------------------------------------
