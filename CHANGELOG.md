@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.1](https://github.com/IA-Generative/Muffin/compare/v0.7.0...v0.7.1) (2026-09-20)
+
+
+### Bug Fixes
+
+* make default aws variable name ([c7d9a94](https://github.com/IA-Generative/Muffin/commit/c7d9a94b0cfe2d84211c9352d46f2fdbb738a961))
+* update agent_execution test assertions for latency/token kwargs ([cb7f24b](https://github.com/IA-Generative/Muffin/commit/cb7f24b1c35e5135d6be413a01294d5aad5cdd2e))
+
 ## [0.7.1-rc.1](https://github.com/IA-Generative/Muffin/compare/v0.7.1-rc...v0.7.1-rc.1) (2026-09-20)
 
 
