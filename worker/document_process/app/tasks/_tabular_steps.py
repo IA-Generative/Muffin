@@ -5,12 +5,17 @@ Découpe ``process_tabular_document`` en sous-fonctions testables :
 - ``export_parquet`` : export DuckDB → S3 (RustFS) via httpfs ;
 - ``compute_tabular_profile`` : calcul du profil descriptif ;
 - ``persist_profile`` : sauvegarde du profil côté backend ;
-- ``serialize_to_csv_page`` : sérialisation texte pour le chunking.
+- ``serialize_to_csv_page`` : sérialisation texte pour le chunking ;
+- ``generate_summary`` : résumé LLM basé sur le profil (prompt tabulaire,
+  mais même envoi LLM et même sauvegarde que les documents classiques) ;
+- ``generate_qa_pairs`` : paires QA ancrées dans les stats (prompt tabulaire,
+  mais même envoi LLM et même sauvegarde que les documents classiques).
 
-Le résumé et les QA ne sont **pas** générés ici : ils sont pris en charge par
-les tâches classiques (``summarize_document`` et ``generate_qa_window``)
-dispatchées par ``chunk_document``, exactement comme pour les documents
-classiques. Le profil tabulaire ne contient donc que les stats descriptives.
+Le résumé et les QA utilisent les prompts tabulaires (``app.tabular.summarize``)
+car le profil est plus compact et pertinent qu'un dump CSV, mais ils sont
+envoyés via ``_shared._chat`` et sauvés via ``set_document_summary`` /
+``create_qa_pair`` — exactement comme ``summarize_document`` et
+``generate_qa_window`` le font pour les documents classiques.
 
 Chaque fonction reçoit ses dépendances explicites (connection, client, etc.)
 pour faciliter le test unitaire.
@@ -24,6 +29,11 @@ from loguru import logger
 
 from app.tabular.loader import LoadedTable
 from app.tabular.stats import TabularProfile, compute_profile
+from app.tabular.summarize import (
+    build_qa_prompt,
+    build_summary_prompt,
+    parse_qa_response,
+)
 from app.tasks import _shared
 
 
@@ -98,3 +108,83 @@ def serialize_to_csv_page(table: LoadedTable, document_id: str) -> None:
     ).fetchall()
     page_content = "\n".join(row[0] for row in csv_text if row and row[0])
     _shared.backend_client.add_page(document_id, page_number=1, content=page_content)
+
+
+def generate_summary(
+    profile: TabularProfile,
+    document_id: str,
+    collection_id: str,
+    settings: dict[str, Any],
+) -> str:
+    """Génère le résumé LLM du fichier tabulaire à partir de son profil.
+
+    Utilise le prompt tabulaire (``build_summary_prompt``) car le profil est
+    plus compact et pertinent qu'un dump CSV, mais utilise le même mécanisme
+    d'envoi LLM (``_shared._chat``) et la même sauvegarde
+    (``set_document_summary`` avec embedding) que ``summarize_document`` pour
+    les documents classiques.
+
+    Returns: le texte du résumé généré.
+    """
+    model = _shared._model_for(settings, "summary")
+    if model is None:
+        logger.warning(f"No summary model configured for collection {collection_id}, skipping tabular summary")
+        return ""
+
+    instructions = settings["instructions"].get("summary", "")
+    system, user_content = build_summary_prompt(profile, instructions)
+    logger.info(f"Generating tabular summary for document {document_id} (model={model})")
+    summary = _shared._chat(model, system, user_content)
+
+    # Best-effort embedding, same fail-soft as summarize_document.
+    summary_embedding = None
+    try:
+        summary_embedding = _shared.backend_client.embed(settings["embedding_model"], summary)
+    except Exception:
+        logger.exception(f"Failed to embed tabular summary for document {document_id}")
+
+    _shared.backend_client.set_document_summary(document_id, summary, summary_embedding)
+    logger.info(f"Tabular summary for document {document_id} saved ({len(summary)} chars)")
+    return summary
+
+
+def generate_qa_pairs(
+    profile: TabularProfile,
+    document_id: str,
+    collection_id: str,
+    settings: dict[str, Any],
+) -> list[dict[str, str]]:
+    """Génère des paires QA ancrées dans les stats tabulaires.
+
+    Utilise le prompt tabulaire (``build_qa_prompt``) car les questions
+    portent sur des comptages/agrégations déduits des stats, mais utilise le
+    même mécanisme d'envoi LLM (``_shared._chat``) et la même sauvegarde
+    (``create_qa_pair`` avec embedding) que ``generate_qa_window`` pour les
+    documents classiques.
+
+    Returns: la liste des paires {"question": ..., "answer": ...} générées.
+    """
+    model = _shared._model_for(settings, "qa")
+    if model is None:
+        logger.warning(f"No QA model configured for collection {collection_id}, skipping tabular QA")
+        return []
+
+    instructions = settings["instructions"].get("qa", "")
+    k = _shared._windows(settings)["qa_questions_per_window"]
+    system, user_content = build_qa_prompt(profile, instructions, k)
+    logger.info(f"Generating {k} tabular QA pairs for document {document_id} (model={model})")
+    raw = _shared._chat(model, system, user_content)
+    pairs = parse_qa_response(raw)
+    logger.info(f"Generated {len(pairs)} tabular QA pairs for document {document_id}")
+
+    for pair in pairs:
+        question, answer = pair["question"], pair["answer"]
+        # Best-effort embedding, same fail-soft as generate_qa_window.
+        embedding = None
+        try:
+            embedding = _shared.backend_client.embed(settings["embedding_model"], question)
+        except Exception:
+            logger.exception(f"Failed to embed tabular QA question for document {document_id}")
+        _shared.backend_client.create_qa_pair(collection_id, document_id, question, answer, embedding)
+
+    return pairs

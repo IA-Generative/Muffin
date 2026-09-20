@@ -135,8 +135,7 @@ def load_tabular(storage_key: str, format: TabularFormat, document_id: str) -> I
     """Charge un fichier tabulaire dans une connexion DuckDB temporaire.
 
     Lit directement depuis RustFS/S3 via l'extension ``httpfs`` de DuckDB -
-    pas de ``get_object`` préalable, pas de fichier temporaire pour le source
-    (sauf XLSX qui nécessite openpyxl).
+    pas de ``get_object`` préalable, pas de fichier temporaire pour le source.
 
     La table DuckDB est nommée d'après ``document_id`` : permet de coexister
     avec d'autres tables dans la même connexion si besoin, et rend les logs
@@ -166,7 +165,7 @@ def load_tabular(storage_key: str, format: TabularFormat, document_id: str) -> I
     _configure_s3(connection)
 
     # XLSX : l'extension ``spatial`` de DuckDB sait lire le format Excel
-    # directement depuis S3 (via GDAL), pas besoin de get_object ni openpyxl.
+    # directement depuis S3 (via GDAL), pas besoin de get_object.
     if format == TabularFormat.XLSX:
         _configure_spatial(connection)
 
