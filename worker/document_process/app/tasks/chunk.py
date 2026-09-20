@@ -19,14 +19,33 @@ from app.windows import sliding_windows
 
 
 @celery_app.task(name="app.tasks.chunk_document", bind=True)
-def chunk_document(self, document_id: str, collection_id: str) -> None:
+def chunk_document(
+    self,
+    document_id: str,
+    collection_id: str,
+    skip_summary: bool = False,
+    skip_qa: bool = False,
+    skip_chunking: bool = False,
+) -> None:
     """Applies the collection's configured chunking strategy to the pages
     process_document wrote. Chunking is what gates "indexed" - summary,
     tagging, QA generation and entity extraction all run after this, async,
     and never block it. Summary/tagging run sequentially (tagging reads the
     summary); QA generation and entity extraction are dispatched immediately,
     one task per sliding window, so partial results stream in as they finish
-    instead of waiting for the whole document."""
+    instead of waiting for the whole document.
+
+    ``skip_summary`` and ``skip_qa`` are used by the tabular pipeline, which
+    generates its own summary and QA from the tabular profile (more compact
+    and relevant than a CSV dump) before calling chunk_document. The tabular
+    pipeline still uses the same LLM calls (``_shared._chat``) and the same
+    persistence (``set_document_summary``, ``create_qa_pair``) as the classic
+    tasks — only the prompt differs.
+
+    ``skip_chunking`` is also used by the tabular pipeline: a CSV dump chunked
+    into text is not useful for vector search (the Parquet export + profile
+    already cover data access), so the tabular pipeline skips chunking
+    entirely and goes straight to "indexed" + tagging + extraction."""
     with capture_task_logs(self.request.id):
         try:
             settings = _shared.backend_client.get_collection_settings(collection_id)
@@ -37,62 +56,70 @@ def chunk_document(self, document_id: str, collection_id: str) -> None:
                 f"over {len(pages)} page(s)"
             )
 
-            chunks = chunk_pages(
-                pages,
-                strategy=settings["chunking_strategy"],
-                chunk_size=settings["chunk_size"],
-                chunk_overlap=settings["chunk_overlap"],
-                window_pages=windows["chunking_window_pages"],
-                slide_pages=windows["chunking_slide_pages"],
-            )
-            logger.info(f"Produced {len(chunks)} chunk(s) for document {document_id}")
-            for index, chunk in enumerate(chunks):
-                # The collection's own embedding_model (unlike the collection-description
-                # embedding above, chunk search never compares across collections - each one is
-                # searched on its own once VDB routing has already picked it, see
-                # docs/research-agent-plan.md). Best-effort: a chunk with no embedding is just
-                # not searchable, it still exists for its text/summary/QA/extraction uses.
-                embedding = None
-                try:
-                    embedding = _shared.backend_client.embed(settings["embedding_model"], chunk.text)
-                except Exception:
-                    logger.exception(f"Failed to embed chunk {index} of document {document_id}")
-
-                _shared.backend_client.add_chunk(
-                    document_id,
-                    index=index,
-                    text=chunk.text,
-                    token_count=round(len(chunk.text) * _shared.TOKENS_PER_CHAR),
-                    extras={"page_start": chunk.page_start, "page_end": chunk.page_end},
-                    embedding=embedding,
+            if not skip_chunking:
+                chunks = chunk_pages(
+                    pages,
+                    strategy=settings["chunking_strategy"],
+                    chunk_size=settings["chunk_size"],
+                    chunk_overlap=settings["chunk_overlap"],
+                    window_pages=windows["chunking_window_pages"],
+                    slide_pages=windows["chunking_slide_pages"],
                 )
+                logger.info(f"Produced {len(chunks)} chunk(s) for document {document_id}")
+                for index, chunk in enumerate(chunks):
+                    # The collection's own embedding_model (unlike the collection-description
+                    # embedding above, chunk search never compares across collections - each one is
+                    # searched on its own once VDB routing has already picked it, see
+                    # docs/research-agent-plan.md). Best-effort: a chunk with no embedding is just
+                    # not searchable, it still exists for its text/summary/QA/extraction uses.
+                    embedding = None
+                    try:
+                        embedding = _shared.backend_client.embed(settings["embedding_model"], chunk.text)
+                    except Exception:
+                        logger.exception(f"Failed to embed chunk {index} of document {document_id}")
+
+                    _shared.backend_client.add_chunk(
+                        document_id,
+                        index=index,
+                        text=chunk.text,
+                        token_count=round(len(chunk.text) * _shared.TOKENS_PER_CHAR),
+                        extras={
+                            "page_start": chunk.page_start,
+                            "page_end": chunk.page_end,
+                        },
+                        embedding=embedding,
+                    )
+            else:
+                logger.info(f"Skipping chunking for document {document_id} (tabular pipeline)")
 
             _shared.backend_client.update_status(document_id, status="indexed", progress=100)
 
             parent_id = self.request.id
-            _shared._spawn(
-                summarize_document,
-                [document_id, collection_id],
-                "app.tasks.summarize_document",
-                document_id,
-                parent_id,
-            )
-
-            total_pages = len(pages)
-            for start, end in sliding_windows(total_pages, windows["qa_window_pages"], windows["qa_slide_pages"]):
+            if not skip_summary:
                 _shared._spawn(
-                    generate_qa_window,
-                    [
-                        document_id,
-                        collection_id,
-                        start,
-                        end,
-                        windows["qa_questions_per_window"],
-                    ],
-                    "app.tasks.generate_qa_window",
+                    summarize_document,
+                    [document_id, collection_id],
+                    "app.tasks.summarize_document",
                     document_id,
                     parent_id,
                 )
+
+            total_pages = len(pages)
+            if not skip_qa:
+                for start, end in sliding_windows(total_pages, windows["qa_window_pages"], windows["qa_slide_pages"]):
+                    _shared._spawn(
+                        generate_qa_window,
+                        [
+                            document_id,
+                            collection_id,
+                            start,
+                            end,
+                            windows["qa_questions_per_window"],
+                        ],
+                        "app.tasks.generate_qa_window",
+                        document_id,
+                        parent_id,
+                    )
             for start, end in sliding_windows(
                 total_pages,
                 windows["extraction_window_pages"],
