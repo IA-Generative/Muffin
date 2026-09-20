@@ -44,8 +44,8 @@ dependencies:
     version: 0.39.0
     condition: meilisearch.enabled
   - name: searxng
-    repository: https://charts.kubito.dev
-    version: 1.1.4
+    repository: https://unknowniq.github.io/helm-charts
+    version: 0.1.11
     condition: searxng.enabled
 sources: []
 # - https://github.com/this-is-tobi/helm-charts
