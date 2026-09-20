@@ -65,6 +65,19 @@ _SQL_GEN_SYSTEM_PROMPT = (
     "- Quote column names with double quotes if they contain spaces or special characters.\n"
     "- Limit results to 100 rows unless the question explicitly asks for more.\n"
     "- If the question can't be answered from the schema, return sql=null.\n"
+    "\n"
+    "Handling nulls and type conversions:\n"
+    '- CSV files may contain the literal string "Null", "null", "NULL", "N/A", "" (empty) or '
+    '"None" to represent missing values. These are NOT real SQL NULLs - they are text.\n'
+    "- Use TRY_CAST instead of CAST for type conversions. TRY_CAST returns NULL on failure "
+    'instead of raising an error. Example: TRY_CAST(TRIM("col") AS DOUBLE).\n'
+    "- For numeric columns that may contain null-like strings, always filter them out or use "
+    'TRY_CAST. Example: WHERE TRY_CAST(TRIM("col") AS DOUBLE) IS NOT NULL.\n'
+    "- Prefer DOUBLE over BIGINT/INT for numeric columns that may contain decimals.\n"
+    "- Use TRIM() around string columns before casting to remove whitespace.\n"
+    "- For aggregations (AVG, SUM, MAX, MIN), use TRY_CAST to convert the column first, and "
+    'filter out NULLs: AVG(TRY_CAST(TRIM("col") AS DOUBLE)) or '
+    'MAX(TRY_CAST(TRIM("col") AS DOUBLE)).\n'
 )
 
 
@@ -168,6 +181,10 @@ def _duckdb_connection() -> Iterator[duckdb.DuckDBPyConnection]:
         connection.execute(f"SET s3_access_key_id='{settings.RUSTFS_ACCESS_KEY}'")
         connection.execute(f"SET s3_secret_access_key='{settings.RUSTFS_SECRET_KEY}'")
         connection.execute("SET s3_url_style='path'")
+        # RustFS runs on plain HTTP in dev - DuckDB defaults to HTTPS which causes
+        # SSL connect errors. Disable SSL when the endpoint is not HTTPS.
+        if not settings.RUSTFS_ENDPOINT_URL.startswith("https://"):
+            connection.execute("SET s3_use_ssl=false")
         yield connection
     finally:
         connection.close()

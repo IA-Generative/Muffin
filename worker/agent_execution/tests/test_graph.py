@@ -1405,3 +1405,36 @@ def test_tabular_query_skips_document_on_execution_failure(make_run, monkeypatch
     # The task completes (doesn't crash) but produces no evidence
     assert result["completed_task_ids"] == ["t1"]
     assert len(result["deduped_evidence"]) == 0
+
+
+def test_analytical_query_does_not_short_circuit_to_search(make_run):
+    """A simple-looking query that contains an analytical keyword (average, total, count, etc.)
+    must NOT short-circuit to a plain 'search' task. It must go through the LLM planner so it can
+    pick 'tabular_query' when appropriate. Without this, 'quel est le revenu moyen ?' would be
+    classified as simple/lookup and forced to 'search', missing tabular data entirely.
+    """
+
+    planner_called = False
+
+    def router(system_prompt: str) -> str:
+        if "Analyze the user" in system_prompt:
+            return _analysis()  # simple/lookup - would short-circuit without the analytical guard
+        if "Break the user" in system_prompt:
+            nonlocal planner_called
+            planner_called = True
+            return json.dumps([{"id": "t1", "query": "average revenue", "tool": "tabular_query"}])
+        if "Decide whether" in system_prompt:
+            return json.dumps({"status": "sufficient", "missing_information": [], "reasoning": "ok"})
+        if "Check whether every" in system_prompt:
+            return json.dumps({"valid": True, "unsupported_claims": []})
+        return "The average is 15308.89 [t1]."
+
+    graph, fake = make_run(_hr_eng_vdbs(), router)
+    fake.tabular_documents_by_collection["hr"] = [_tabular_doc()]
+
+    state = initial_state("Quel est le revenu fiscal de reference moyen ?")
+    result = graph.invoke(state, config=_config(state))
+
+    # The planner must have been called (not short-circuited to search)
+    assert planner_called, "analytical query must go through the LLM planner, not short-circuit to search"
+    assert result["completed_task_ids"] == ["t1"]

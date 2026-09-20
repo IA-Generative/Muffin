@@ -1,3 +1,4 @@
+import re
 from typing import Any
 
 from app.graph.services.events import emit, is_cancelled, set_activity
@@ -14,6 +15,100 @@ _BASE_TOOLS: tuple[str, ...] = (
     "time",
 )
 
+# Keywords (FR + EN) that strongly signal an analytical question - one that requires computing
+# over data rows (aggregation, counting, averaging, sorting) rather than reading document text.
+# When the query matches, decompose_query must NOT short-circuit to a plain "search" fallback:
+# the LLM planner is the only one that can decide whether tabular_query is the right tool, and
+# short-circuiting would silently force "search" and miss tabular data entirely.
+_ANALYTICAL_KEYWORDS: tuple[str, ...] = (
+    # French
+    "moyen",
+    "moyenne",
+    "moyennes",
+    "total",
+    "totaux",
+    "somme",
+    "sommes",
+    "nombre",
+    "compte",
+    "compter",
+    "dénombr",
+    "combien",
+    "min",
+    "max",
+    "minimum",
+    "maximum",
+    "médiane",
+    "mediane",
+    "écart-type",
+    "ecart-type",
+    "variance",
+    "pourcentage",
+    "ratio",
+    "proportion",
+    "agrégat",
+    "agregat",
+    "classement",
+    "classé",
+    "classés",
+    "trié",
+    "triés",
+    "top",
+    "pire",
+    "meilleur",
+    "pire",
+    "plus grand",
+    "plus petit",
+    "plus élevé",
+    "plus bas",
+    "supérieur à",
+    "inférieur à",
+    "par groupe",
+    "groupé par",
+    "regroup",
+    "filtre",
+    "filtrer",
+    "distinct",
+    "unique",
+    # English
+    "average",
+    "mean",
+    "sum",
+    "count",
+    "how many",
+    "minimum",
+    "maximum",
+    "median",
+    "standard deviation",
+    "variance",
+    "percentage",
+    "ratio",
+    "proportion",
+    "aggregate",
+    "ranking",
+    "ranked",
+    "sorted",
+    "group by",
+    "grouped by",
+    "filter",
+    "distinct",
+    "unique",
+)
+
+# Pre-compiled regex: matches any analytical keyword as a whole word (case-insensitive).
+_ANALYTICAL_RE = re.compile(
+    r"\b(" + "|".join(re.escape(kw) for kw in _ANALYTICAL_KEYWORDS) + r")\b",
+    re.IGNORECASE,
+)
+
+
+def _looks_analytical(query: str) -> bool:
+    """True when the query contains an aggregation/analytical keyword. Used to prevent the
+    simple-search short-circuit from forcing 'search' on a question that should go through
+    the LLM planner so it can pick 'tabular_query'."""
+    return bool(_ANALYTICAL_RE.search(query))
+
+
 _BASE_TOOL_GUIDE = (
     "Tool guide:\n"
     '- "search": look for information inside document content - the default for most questions.\n'
@@ -22,9 +117,14 @@ _BASE_TOOL_GUIDE = (
     '- "list_documents": the user asks how many documents are in a collection, or wants a document\'s summary.\n'
     '- "page_content": the user wants the text and/or screenshot of one specific page of one document.\n'
     '- "tabular_query": the user asks an analytical question about tabular data (CSV/XLSX/Parquet/JSON) - '
-    "aggregations, counts, averages, filters, sorting, grouping. Use this when the question requires "
-    'computing over data rows rather than reading document text. Examples: "how many rows have X > 100?", '
-    '"what is the average of column Y grouped by Z?", "show me the top 5 by revenue".\n'
+    "aggregations, counts, averages, sums, filters, sorting, grouping, min/max. Use this when the question "
+    "requires computing over data rows rather than reading document text. This is the correct tool for ANY "
+    'question involving: averages/means, totals/sums, counts ("how many"), min/max, medians, rankings, '
+    'grouping, filtering, or comparisons across rows. Examples: "how many rows have X > 100?", '
+    '"what is the average of column Y grouped by Z?", "show me the top 5 by revenue", '
+    '"quel est le revenu moyen ?", "combien y a-t-il de déclarants ?". '
+    "When in doubt between search and tabular_query for a question that involves numbers or "
+    "aggregation, prefer tabular_query.\n"
     '- "time": the user asks about the current date/time, or references relative periods (today, this week, '
     "last month, etc.) to filter or compare documents/tasks. Always pick this tool when the query needs "
     "temporal context the LLM cannot infer alone.\n"
@@ -152,7 +252,11 @@ def decompose_query(state: AgentState) -> dict[str, Any]:
     # (vs. the user's own documents). Skipping it means a simple-looking query like "qui est le
     # président actuel ?" always falls back to "search" and the web_search tool is never picked,
     # even though the user explicitly toggled it on.
-    if is_simple_search and not web_search_enabled:
+    #
+    # Likewise, never short-circuit when the query looks analytical (averages, counts, sums, etc.):
+    # the simple-search fallback forces "search", but an analytical question may need "tabular_query"
+    # to run SQL over CSV/XLSX data. Only the LLM planner can make that call.
+    if is_simple_search and not web_search_enabled and not _looks_analytical(query):
         tasks = _sanitize(_fallback_task(query), query, web_search_enabled)
     else:
         model = state["chat_model"]

@@ -186,44 +186,49 @@ class TestPersistProfile:
 
 class TestSerializeToCsvPage:
     def test_writes_csv_as_single_page(self, mock_shared, fake_table):
+        fake_table.connection.description = [("col1",), ("col2",)]
         fake_table.connection.execute.return_value.fetchall.return_value = [
-            ("col1,col2\nval1,val2",),
-            ("val3,val4",),
+            ("val1", "val2"),
+            ("val3", "val4"),
         ]
 
         steps.serialize_to_csv_page(fake_table, "doc-1")
 
         fake_table.connection.execute.assert_called_once()
         sql = fake_table.connection.execute.call_args.args[0]
-        assert "COPY" in sql
-        assert "/dev/stdout" in sql
+        assert "SELECT * FROM" in sql
         mock_shared.backend_client.add_page.assert_called_once()
         call = mock_shared.backend_client.add_page.call_args
         assert call.kwargs["page_number"] == 1
         assert "col1,col2" in call.kwargs["content"]
         assert "val3,val4" in call.kwargs["content"]
 
-    def test_skips_empty_rows(self, mock_shared, fake_table):
+    def test_handles_non_string_values(self, mock_shared, fake_table):
+        """Les entiers et autres types non-string doivent être sérialisés."""
+        fake_table.connection.description = [("id",), ("price",)]
         fake_table.connection.execute.return_value.fetchall.return_value = [
-            ("data1",),
-            ("",),
-            ("data2",),
+            (1, 100),
+            (2, 200),
         ]
 
         steps.serialize_to_csv_page(fake_table, "doc-1")
 
         content = mock_shared.backend_client.add_page.call_args.kwargs["content"]
-        assert "data1" in content
-        assert "data2" in content
-        # La ligne vide ne doit pas ajouter de ligne supplémentaire
-        assert content.count("\n") == 1
+        assert "id,price" in content
+        assert "1,100" in content
+        assert "2,200" in content
 
     def test_handles_empty_table(self, mock_shared, fake_table):
+        fake_table.connection.description = [("col1",), ("col2",)]
         fake_table.connection.execute.return_value.fetchall.return_value = []
 
         steps.serialize_to_csv_page(fake_table, "doc-1")
 
-        mock_shared.backend_client.add_page.assert_called_once_with("doc-1", page_number=1, content="")
+        mock_shared.backend_client.add_page.assert_called_once()
+        call = mock_shared.backend_client.add_page.call_args
+        assert call.kwargs["page_number"] == 1
+        # Header only, no data rows
+        assert call.kwargs["content"].strip() == "col1,col2"
 
 
 # ---------------------------------------------------------------------------
