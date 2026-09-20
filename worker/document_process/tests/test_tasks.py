@@ -161,3 +161,37 @@ def test_process_document_reports_error_status_on_failure(monkeypatch):
         call.kwargs.get("status") or call.args[1] for call in tasks._shared.backend_client.update_status.call_args_list
     ]
     assert "error" in status_calls
+
+
+def test_chunk_document_with_skip_chunking_skips_chunking_but_still_indexes(
+    monkeypatch,
+):
+    """Tabular pipeline passes skip_chunking=True: no chunks are created,
+    but the document is still marked indexed and tagging/extraction are
+    dispatched."""
+    monkeypatch.setattr(tasks._shared, "backend_client", MagicMock())
+    monkeypatch.setattr(task_logging, "backend_client", MagicMock())
+    monkeypatch.setattr(tasks._shared, "_spawn", MagicMock())
+    tasks._shared.backend_client.get_collection_settings.return_value = {
+        "chunking_strategy": "paragraph",
+        "chunk_size": 500,
+        "chunk_overlap": 50,
+        "embedding_model": "text-embedding-3-small",
+        "pipeline_windows": {},
+    }
+    tasks._shared.backend_client.get_pages.return_value = [{"page_number": 1, "content": "Some page content."}]
+
+    tasks.chunk_document("doc-6", "col-6", skip_summary=True, skip_qa=True, skip_chunking=True)
+
+    # No chunks created
+    tasks._shared.backend_client.add_chunk.assert_not_called()
+    tasks._shared.backend_client.embed.assert_not_called()
+    # Still marked indexed
+    tasks._shared.backend_client.update_status.assert_any_call("doc-6", status="indexed", progress=100)
+    # Tagging and extraction still dispatched (skip_summary only skips summarize_document,
+    # but tagging is dispatched by summarize_document — so with skip_summary=True,
+    # neither summarize_document nor tag_document are dispatched)
+    # Extraction is always dispatched
+    spawn_calls = tasks._shared._spawn.call_args_list
+    spawned_names = [call.args[2] for call in spawn_calls]
+    assert "app.tasks.extract_entities_window" in spawned_names

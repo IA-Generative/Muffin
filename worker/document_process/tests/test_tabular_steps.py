@@ -5,11 +5,11 @@ Couverture :
 - ``export_parquet`` : export DuckDB → S3 via httpfs ;
 - ``compute_tabular_profile`` : wrapper autour de compute_profile ;
 - ``persist_profile`` : sauvegarde du profil côté backend ;
-- ``serialize_to_csv_page`` : sérialisation texte pour le chunking.
-
-Le résumé et les QA ne sont **pas** testés ici car ils sont désormais générés
-par les tâches classiques (``summarize_document`` et ``generate_qa_window``)
-dispatchées par ``chunk_document``.
+- ``serialize_to_csv_page`` : sérialisation texte pour le chunking ;
+- ``generate_summary`` : résumé LLM basé sur le profil (prompt tabulaire,
+  mais même envoi LLM et même sauvegarde que les documents classiques) ;
+- ``generate_qa_pairs`` : paires QA ancrées dans les stats (prompt tabulaire,
+  mais même envoi LLM et même sauvegarde que les documents classiques).
 
 Chaque test mocke ``_shared`` pour isoler la logique métier des appels
 backend/LLM/storage.
@@ -36,6 +36,13 @@ def mock_shared(monkeypatch):
     """Mock toutes les dépendances externes de _shared."""
     monkeypatch.setattr(steps._shared, "backend_client", MagicMock())
     monkeypatch.setattr(steps._shared, "storage", MagicMock())
+    monkeypatch.setattr(steps._shared, "_chat", MagicMock(return_value="LLM response"))
+    monkeypatch.setattr(steps._shared, "_model_for", MagicMock(return_value="gpt-4o"))
+    monkeypatch.setattr(
+        steps._shared,
+        "_windows",
+        MagicMock(return_value={"qa_questions_per_window": 3}),
+    )
     return steps._shared
 
 
@@ -217,3 +224,102 @@ class TestSerializeToCsvPage:
         steps.serialize_to_csv_page(fake_table, "doc-1")
 
         mock_shared.backend_client.add_page.assert_called_once_with("doc-1", page_number=1, content="")
+
+
+# ---------------------------------------------------------------------------
+# generate_summary
+# ---------------------------------------------------------------------------
+
+
+class TestGenerateSummary:
+    def test_sends_tabular_prompt_and_saves_summary(self, mock_shared, fake_profile, fake_settings):
+        mock_shared.backend_client.embed.return_value = [0.1, 0.2]
+        mock_shared._chat.return_value = "This dataset contains sales data."
+
+        result = steps.generate_summary(fake_profile, "doc-1", "col-1", fake_settings)
+
+        assert result == "This dataset contains sales data."
+        # Same LLM call mechanism as classic summarize_document
+        mock_shared._chat.assert_called_once()
+        args = mock_shared._chat.call_args.args
+        assert args[0] == "gpt-4o"  # model
+        assert "analyste de données" in args[1]  # system prompt (tabular)
+        assert "csv" in args[2]  # user content includes format
+        # Same persistence as classic summarize_document
+        mock_shared.backend_client.set_document_summary.assert_called_once()
+        call = mock_shared.backend_client.set_document_summary.call_args
+        assert call.args[0] == "doc-1"
+        assert call.args[1] == "This dataset contains sales data."
+        assert call.args[2] == [0.1, 0.2]  # embedding
+
+    def test_tolerates_embedding_failure(self, mock_shared, fake_profile, fake_settings):
+        mock_shared.backend_client.embed.side_effect = RuntimeError("LLM hub unavailable")
+        mock_shared._chat.return_value = "Summary text."
+
+        result = steps.generate_summary(fake_profile, "doc-1", "col-1", fake_settings)
+
+        assert result == "Summary text."
+        mock_shared.backend_client.set_document_summary.assert_called_once_with("doc-1", "Summary text.", None)
+
+    def test_skips_when_no_model_configured(self, mock_shared, fake_profile, fake_settings):
+        mock_shared._model_for.return_value = None
+
+        result = steps.generate_summary(fake_profile, "doc-1", "col-1", fake_settings)
+
+        assert result == ""
+        mock_shared._chat.assert_not_called()
+        mock_shared.backend_client.set_document_summary.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# generate_qa_pairs
+# ---------------------------------------------------------------------------
+
+
+class TestGenerateQaPairs:
+    def test_sends_tabular_prompt_and_saves_qa_pairs(self, mock_shared, fake_profile, fake_settings):
+        mock_shared._chat.return_value = '[{"question": "How many rows?", "answer": "5"}]'
+        mock_shared.backend_client.embed.return_value = [0.3, 0.4]
+
+        result = steps.generate_qa_pairs(fake_profile, "doc-1", "col-1", fake_settings)
+
+        assert len(result) == 1
+        assert result[0]["question"] == "How many rows?"
+        assert result[0]["answer"] == "5"
+        # Same LLM call mechanism as classic generate_qa_window
+        mock_shared._chat.assert_called_once()
+        args = mock_shared._chat.call_args.args
+        assert args[0] == "gpt-4o"  # model
+        assert "3" in args[1]  # k=3 in system prompt
+        # Same persistence as classic generate_qa_window
+        mock_shared.backend_client.create_qa_pair.assert_called_once()
+        call = mock_shared.backend_client.create_qa_pair.call_args
+        assert call.args[0] == "col-1"
+        assert call.args[1] == "doc-1"
+        assert call.args[2] == "How many rows?"
+        assert call.args[3] == "5"
+        assert call.args[4] == [0.3, 0.4]  # embedding
+
+    def test_tolerates_embedding_failure(self, mock_shared, fake_profile, fake_settings):
+        mock_shared._chat.return_value = '[{"question": "Q?", "answer": "A"}]'
+        mock_shared.backend_client.embed.side_effect = RuntimeError("LLM hub unavailable")
+
+        result = steps.generate_qa_pairs(fake_profile, "doc-1", "col-1", fake_settings)
+
+        assert len(result) == 1
+        mock_shared.backend_client.create_qa_pair.assert_called_once_with("col-1", "doc-1", "Q?", "A", None)
+
+    def test_skips_when_no_model_configured(self, mock_shared, fake_profile, fake_settings):
+        mock_shared._model_for.return_value = None
+
+        result = steps.generate_qa_pairs(fake_profile, "doc-1", "col-1", fake_settings)
+
+        assert result == []
+        mock_shared._chat.assert_not_called()
+        mock_shared.backend_client.create_qa_pair.assert_not_called()
+
+    def test_raises_on_invalid_json(self, mock_shared, fake_profile, fake_settings):
+        mock_shared._chat.return_value = "not json at all"
+
+        with pytest.raises(ValueError):
+            steps.generate_qa_pairs(fake_profile, "doc-1", "col-1", fake_settings)
