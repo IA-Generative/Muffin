@@ -11,11 +11,12 @@ plus compact et pertinent qu'un dump CSV), mais utilisent le même mécanisme
 d'envoi LLM (``_shared._chat``) et la même sauvegarde
 (``set_document_summary``, ``create_qa_pair``) que les documents classiques.
 ``chunk_document`` est ensuite appelé avec ``skip_summary=True``,
-``skip_qa=True`` et ``skip_chunking=True`` : le chunking texte d'un CSV
-n'est pas pertinent pour la recherche vectorielle (le Parquet exporté et le
-profil couvrent déjà l'accès aux données), donc on passe directement à
-"indexed" puis on dispatche le tagging et l'extraction d'entités.
-
+    ``skip_qa=True``, ``skip_chunking=True`` et ``skip_extraction=True`` :
+    le chunking texte d'un CSV n'est pas pertinent pour la recherche
+    vectorielle (le Parquet exporté et le profil couvrent déjà l'accès aux
+    données), et l'extraction d'entités sur des lignes CSV est lente et
+    faible valeur (le profil capture déjà la structure), donc on passe
+    directement à "indexed".
 Les étapes du pipeline sont découpées dans ``app/tasks/_tabular_steps.py``
 pour faciliter le test unitaire de chaque phase.
 """
@@ -75,7 +76,8 @@ def process_tabular_document(self, document_id: str, collection_id: str, tabular
                     True,
                     True,
                     True,
-                ],  # skip_summary, skip_qa, skip_chunking
+                    True,
+                ],  # skip_summary, skip_qa, skip_chunking, skip_extraction
                 "app.tasks.chunk_document",
                 document_id,
                 self.request.id,

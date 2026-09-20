@@ -181,17 +181,24 @@ def test_chunk_document_with_skip_chunking_skips_chunking_but_still_indexes(
     }
     tasks._shared.backend_client.get_pages.return_value = [{"page_number": 1, "content": "Some page content."}]
 
-    tasks.chunk_document("doc-6", "col-6", skip_summary=True, skip_qa=True, skip_chunking=True)
+    tasks.chunk_document(
+        "doc-6",
+        "col-6",
+        skip_summary=True,
+        skip_qa=True,
+        skip_chunking=True,
+        skip_extraction=True,
+    )
 
     # No chunks created
     tasks._shared.backend_client.add_chunk.assert_not_called()
     tasks._shared.backend_client.embed.assert_not_called()
     # Still marked indexed
     tasks._shared.backend_client.update_status.assert_any_call("doc-6", status="indexed", progress=100)
-    # Tagging and extraction still dispatched (skip_summary only skips summarize_document,
-    # but tagging is dispatched by summarize_document — so with skip_summary=True,
-    # neither summarize_document nor tag_document are dispatched)
-    # Extraction is always dispatched
+    # Tabular pipeline skips summary (and thus tagging, which is dispatched by
+    # summarize_document), QA, and entity extraction — none should be dispatched.
     spawn_calls = tasks._shared._spawn.call_args_list
     spawned_names = [call.args[2] for call in spawn_calls]
-    assert "app.tasks.extract_entities_window" in spawned_names
+    assert "app.tasks.extract_entities_window" not in spawned_names
+    assert "app.tasks.summarize_document" not in spawned_names
+    assert "app.tasks.generate_qa_window" not in spawned_names

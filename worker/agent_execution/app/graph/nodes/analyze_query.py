@@ -17,7 +17,14 @@ _SYSTEM_PROMPT = (
     'Use "meta" when the query is about the knowledge bases themselves rather than their content - e.g. '
     "how many collections/documents the user has access to, a collection's or document's summary, or the "
     "content/screenshot of one specific page, rather than a document/policy question that content search "
-    "should answer."
+    "should answer.\n\n"
+    'IMPORTANT - be very conservative with "ambiguous": only set it to true if the question is truly '
+    "unanswerable without more information. The user has already selected one or more collections to query "
+    'against, so references like "le fichier", "les données", "the data", "the file" are NOT ambiguous - '
+    "they refer to the selected collection(s). Questions about columns, rows, averages, counts, sums, or "
+    "any analytical operation on tabular data are NOT ambiguous even if they don't name a specific file. "
+    "When in doubt, set ambiguous to false - it is better to attempt an answer than to block the user with "
+    "a clarification question."
 )
 
 _FALLBACK: dict[str, Any] = {

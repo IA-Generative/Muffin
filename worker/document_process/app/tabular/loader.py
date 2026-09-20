@@ -120,6 +120,10 @@ def _configure_s3(connection: duckdb.DuckDBPyConnection) -> None:
     connection.execute(f"SET s3_access_key_id='{settings.RUSTFS_ACCESS_KEY}'")
     connection.execute(f"SET s3_secret_access_key='{settings.RUSTFS_SECRET_KEY}'")
     connection.execute("SET s3_url_style='path'")
+    # RustFS runs on plain HTTP in dev - DuckDB defaults to HTTPS which causes
+    # SSL connect errors. Disable SSL when the endpoint is not HTTPS.
+    if not settings.RUSTFS_ENDPOINT_URL.startswith("https://"):
+        connection.execute("SET s3_use_ssl=false")
 
 
 def _configure_spatial(connection: duckdb.DuckDBPyConnection) -> None:
