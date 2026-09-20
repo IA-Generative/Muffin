@@ -3,6 +3,9 @@ name: Unit Tests
 # Backend only for now: the frontend has no unit test suite yet (see
 # frontend/scripts/screenshot.mjs - visual checks only), just typecheck+build
 # covered by lint.yml. Add a frontend job here once one exists.
+#
+# All three Python workers (document_process, agent_execution, evaluation) run
+# the same uv sync --group dev + pytest pattern.
 
 on:
   workflow_call:
@@ -34,7 +37,7 @@ jobs:
           POSTGRES_PASSWORD: muffin
           POSTGRES_DB: muffin
         ports:
-        - 5432:5432
+          - 5432:5432
         options: >-
           --health-cmd "pg_isready -U muffin"
           --health-interval 5s
@@ -43,7 +46,7 @@ jobs:
       redis:
         image: redis:7-alpine
         ports:
-        - 6379:6379
+          - 6379:6379
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 5s
@@ -53,27 +56,27 @@ jobs:
       DATABASE_URL: postgresql+asyncpg://muffin:muffin@localhost:5432/muffin
       REDIS_URL: redis://localhost:6379/0
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6.1.0
+      - name: Checkout repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
-    - name: Set up uv
-      uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78  # v7.6.0
-      with:
-        python-version: ${{ inputs.PYTHON_VERSION }}
-        enable-cache: true
-        cache-dependency-glob: backend/uv.lock
+      - name: Set up uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+        with:
+          python-version: ${{ inputs.PYTHON_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
 
-    - name: Install backend dependencies
-      working-directory: backend
-      run: uv sync --group dev
+      - name: Install backend dependencies
+        working-directory: backend
+        run: uv sync --group dev
 
-    - name: Apply database migrations
-      working-directory: backend
-      run: uv run alembic upgrade head
+      - name: Apply database migrations
+        working-directory: backend
+        run: uv run alembic upgrade head
 
-    - name: Run tests
-      working-directory: backend
-      run: uv run pytest --cov=app --cov-report=term-missing
+      - name: Run tests
+        working-directory: backend
+        run: uv run pytest --cov=app --cov-report=term-missing
 
   unit-tests-worker-document-process:
     name: worker/document_process
@@ -81,23 +84,47 @@ jobs:
     permissions:
       contents: read
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6.1.0
+      - name: Checkout repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
-    - name: Set up uv
-      uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78  # v7.6.0
-      with:
-        python-version: ${{ inputs.PYTHON_VERSION }}
-        enable-cache: true
-        cache-dependency-glob: worker/document_process/uv.lock
+      - name: Set up uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+        with:
+          python-version: ${{ inputs.PYTHON_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: worker/document_process/uv.lock
 
-    - name: Install worker dependencies
-      working-directory: worker/document_process
-      run: uv sync --group dev
+      - name: Install worker dependencies
+        working-directory: worker/document_process
+        run: uv sync --group dev
 
-    - name: Run tests
-      working-directory: worker/document_process
-      run: uv run pytest
+      - name: Run tests
+        working-directory: worker/document_process
+        run: uv run pytest
+
+  unit-tests-worker-agent-execution:
+    name: worker/agent_execution
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+        with:
+          python-version: ${{ inputs.PYTHON_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: worker/agent_execution/uv.lock
+
+      - name: Install worker dependencies
+        working-directory: worker/agent_execution
+        run: uv sync --group dev
+
+      - name: Run tests
+        working-directory: worker/agent_execution
+        run: uv run pytest
 
   unit-tests-worker-evaluation:
     name: worker/evaluation
@@ -105,20 +132,20 @@ jobs:
     permissions:
       contents: read
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6.1.0
+      - name: Checkout repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
-    - name: Set up uv
-      uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78  # v7.6.0
-      with:
-        python-version: ${{ inputs.PYTHON_VERSION }}
-        enable-cache: true
-        cache-dependency-glob: worker/evaluation/uv.lock
+      - name: Set up uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+        with:
+          python-version: ${{ inputs.PYTHON_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: worker/evaluation/uv.lock
 
-    - name: Install worker dependencies
-      working-directory: worker/evaluation
-      run: uv sync --group dev
+      - name: Install worker dependencies
+        working-directory: worker/evaluation
+        run: uv sync --group dev
 
-    - name: Run tests
-      working-directory: worker/evaluation
-      run: uv run pytest
+      - name: Run tests
+        working-directory: worker/evaluation
+        run: uv run pytest
