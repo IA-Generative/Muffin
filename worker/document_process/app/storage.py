@@ -36,6 +36,13 @@ class RustFsStorage:
         response = self._client.get_object(Bucket=self._bucket, Key=key)
         return response["Body"].read()
 
+    def head_object(self, key: str) -> dict:
+        """Récupère les métadonnées d'un objet (Content-Type, taille, etc.)
+        sans télécharger le contenu. Utilise HEAD via boto3 - un ordre de
+        grandeur plus léger qu'un GET pour valider le type d'un fichier."""
+        self._ensure_bucket()
+        return self._client.head_object(Bucket=self._bucket, Key=key)
+
     def put_object(self, key: str, data: bytes, content_type: str = "application/octet-stream") -> None:
         self._ensure_bucket()
         self._client.put_object(Bucket=self._bucket, Key=key, Body=data, ContentType=content_type)
