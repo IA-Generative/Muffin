@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.7.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.6.0...v0.7.0-rc) (2026-09-20)
+
+
+### Features
+
+* add tabular process ([db3b4ca](https://github.com/IA-Generative/Muffin/commit/db3b4caf5f60c30d3e0cfadf5b7078a5136afe76))
+* agent execution for tabular data ([2e55bb6](https://github.com/IA-Generative/Muffin/commit/2e55bb60f654adbb4e3c1e5dcb59160c8176e163))
+* head object ([738ef82](https://github.com/IA-Generative/Muffin/commit/738ef8227a5779bd4f5c939aa0482e66a5cdaa95))
+* summarize tabular data ([2416fb2](https://github.com/IA-Generative/Muffin/commit/2416fb297e4d2c9e1328afcaf15b2a06fba8e764))
+* tabular ([222be3e](https://github.com/IA-Generative/Muffin/commit/222be3e84041f30646f316945a01008412f1c2c4))
+* tabular analysis ([c4b2da1](https://github.com/IA-Generative/Muffin/commit/c4b2da1a3ada45d368b43700eb287877618718b1))
+
+
+### Bug Fixes
+
+* loader tabular data ([b8dc73f](https://github.com/IA-Generative/Muffin/commit/b8dc73ff239e24d018d6a7e7ab9634c840fb6e65))
+* separate tabular ([973018d](https://github.com/IA-Generative/Muffin/commit/973018de2c635b5787278aaf4fdac3b26c8ffd43))
+* tabular query pipeline — planner selection, SQL null handling, markdown answers ([645853e](https://github.com/IA-Generative/Muffin/commit/645853ee0f991066baca42bfe489c44bef52d96b))
+
+
+### Code Refactoring
+
+* tasks ([4bb65f5](https://github.com/IA-Generative/Muffin/commit/4bb65f51b8ee6b2a04bb9c0418a0d0f9fd002064))
+
 ## [0.6.0](https://github.com/IA-Generative/Muffin/compare/v0.5.0...v0.6.0) (2026-09-19)
 
 
