@@ -225,6 +225,20 @@ class DocumentRepository:
         )
         return result.scalar_one_or_none()
 
+    async def list_tabular_documents(self, collection_id: uuid.UUID) -> list[tuple[Document, DocumentTabularProfile]]:
+        """Returns (document, profile) pairs for every document in the collection that has a
+        tabular profile - i.e. the ones the research agent can query with DuckDB."""
+        result = await self.db.execute(
+            select(Document, DocumentTabularProfile)
+            .join(
+                DocumentTabularProfile,
+                DocumentTabularProfile.document_id == Document.id,
+            )
+            .where(Document.collection_id == collection_id)
+            .order_by(Document.created_at)
+        )
+        return [(doc, profile) for doc, profile in result.all()]
+
     async def replace_tags(self, document: Document, tags: list[str]) -> None:
         # Adds directly rather than assigning `document.tags = [...]`: that
         # relationship isn't eager-loaded by `get()`, and reassigning it would

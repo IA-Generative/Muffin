@@ -175,6 +175,14 @@ class BackendClient:
         response.raise_for_status()
         return response.json()
 
+    def list_tabular_documents(self, user_id: str, collection_id: str) -> list[dict[str, Any]]:
+        """Lists tabular documents in a collection that the agent can query with DuckDB.
+        Returns id/name/storage_key/format + the full tabular profile (columns, classification)
+        so the SQL generator has the schema without an extra round-trip."""
+        response = self._client.get(f"/api/internal/users/{user_id}/collections/{collection_id}/tabular-documents")
+        response.raise_for_status()
+        return response.json()
+
     def get_document_page(self, user_id: str, document_id: str, page_number: int) -> dict[str, Any]:
         response = self._client.get(f"/api/internal/users/{user_id}/documents/{document_id}/pages/{page_number}")
         response.raise_for_status()

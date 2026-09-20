@@ -29,6 +29,7 @@ from app.schemas.internal_run import (
     SearchRequest,
     SearchResultOut,
     SummarySearchResultOut,
+    TabularDocumentOut,
 )
 from app.services.search_service import SearchService
 
@@ -249,6 +250,35 @@ async def list_collection_documents(
             summary=document.summary,
         )
         for document in documents
+    ]
+
+
+@router.get(
+    "/users/{user_id}/collections/{collection_id}/tabular-documents",
+    summary="List tabular documents the agent can query with DuckDB (storage_key + profile) - "
+    "same ownership barrier as list_collection_documents",
+    response_model=list[TabularDocumentOut],
+)
+async def list_tabular_documents(
+    user_id: str, collection_id: uuid.UUID, db: Annotated[AsyncSession, Depends(get_db)]
+) -> list[TabularDocumentOut]:
+    if await CollectionRepository(db).get(collection_id, user_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found")
+    pairs = await DocumentRepository(db).list_tabular_documents(collection_id)
+    return [
+        TabularDocumentOut(
+            id=document.id,
+            name=document.name,
+            storage_key=document.storage_key,
+            format=profile.format,
+            row_count=profile.row_count,
+            column_count=profile.column_count,
+            columns=profile.columns,
+            measures=profile.measures,
+            dimensions=profile.dimensions,
+            text_columns=profile.text_columns,
+        )
+        for document, profile in pairs
     ]
 
 

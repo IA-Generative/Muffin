@@ -7,6 +7,15 @@ class WorkerSettings(BaseSettings):
 
     BACKEND_API_URL: str = "http://localhost:8000"
     WORKER_API_KEY: str = ""
+
+    # RustFS/S3 credentials for DuckDB httpfs - the tabular_query tool reads tabular files
+    # directly from object storage (same pattern as worker/document_process), never downloads
+    # them to disk first.
+    RUSTFS_ENDPOINT_URL: str = "http://localhost:9000"
+    RUSTFS_ACCESS_KEY: str = "rustfsadmin"
+    RUSTFS_SECRET_KEY: str = "rustfsadmin"
+    RUSTFS_BUCKET: str = "muffin-documents"
+
     # Only ever called when a run's own web_search_enabled is true (see AgentState) - never
     # reachable by default, matching how the chat composer's web-search toggle itself defaults
     # to off (§ security: the issue this ships for explicitly calls out never leaking private
