@@ -1,0 +1,321 @@
+"""Tests unitaires pour les étapes du pipeline tabulaire.
+
+Couverture :
+- ``validate_document`` : validation MIME + récupération document/settings ;
+- ``export_parquet`` : export DuckDB → S3 via httpfs ;
+- ``compute_tabular_profile`` : wrapper autour de compute_profile ;
+- ``generate_summary`` : résumé LLM + persistance ;
+- ``generate_qa_pairs`` : QA ancrées + persistance ;
+- ``persist_profile`` : sauvegarde du profil enrichi ;
+- ``serialize_to_csv_page`` : sérialisation CSV → page.
+
+Chaque test mocke ``_shared`` pour isoler la logique métier des appels
+backend/LLM/storage.
+"""
+
+from __future__ import annotations
+
+from unittest.mock import MagicMock
+
+import pytest
+
+from app.tabular.detect import TabularFormat
+from app.tabular.loader import LoadedTable
+from app.tabular.stats import TabularProfile
+from app.tasks import _tabular_steps as steps
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def mock_shared(monkeypatch):
+    """Mock toutes les dépendances externes de _shared."""
+    monkeypatch.setattr(steps._shared, "backend_client", MagicMock())
+    monkeypatch.setattr(steps._shared, "storage", MagicMock())
+    monkeypatch.setattr(steps._shared, "_chat", MagicMock(return_value="LLM response"))
+    monkeypatch.setattr(steps._shared, "_model_for", MagicMock(return_value="gpt-4"))
+    monkeypatch.setattr(
+        steps._shared,
+        "_windows",
+        MagicMock(return_value={"qa_questions_per_window": 3}),
+    )
+    return steps._shared
+
+
+@pytest.fixture
+def fake_document():
+    return {
+        "id": "doc-1",
+        "name": "sales.csv",
+        "storage_key": "docs/sales.csv",
+        "mime_type": "text/csv",
+        "collection_id": "col-1",
+    }
+
+
+@pytest.fixture
+def fake_settings():
+    return {
+        "embedding_model": "text-embedding-3-small",
+        "instructions": {"summary": "Summarize this", "qa": "Generate QA"},
+    }
+
+
+@pytest.fixture
+def fake_profile():
+    return TabularProfile(
+        row_count=5,
+        column_count=3,
+        columns=[],
+        sample_rows=[],
+        format="csv",
+        measures=["price"],
+        dimensions=["product"],
+        text_columns=[],
+    )
+
+
+@pytest.fixture
+def fake_table():
+    return LoadedTable(connection=MagicMock(), format=TabularFormat.CSV, table_name="t_doc1")
+
+
+# ---------------------------------------------------------------------------
+# validate_document
+# ---------------------------------------------------------------------------
+
+
+class TestValidateDocument:
+    def test_returns_document_settings_and_format(self, mock_shared, fake_document, fake_settings):
+        mock_shared.backend_client.get_document.return_value = fake_document
+        mock_shared.backend_client.get_collection_settings.return_value = fake_settings
+
+        document, settings, fmt = steps.validate_document("doc-1", "col-1", "csv")
+
+        assert document == fake_document
+        assert settings == fake_settings
+        assert fmt == TabularFormat.CSV
+
+    def test_raises_on_unsupported_mime(self, mock_shared, fake_document, fake_settings):
+        fake_document["mime_type"] = "application/x-unknown"
+        mock_shared.backend_client.get_document.return_value = fake_document
+        mock_shared.backend_client.get_collection_settings.return_value = fake_settings
+
+        with pytest.raises(ValueError, match="Unsupported MIME type"):
+            steps.validate_document("doc-1", "col-1", "csv")
+
+    def test_accepts_empty_mime_type(self, mock_shared, fake_document, fake_settings):
+        fake_document["mime_type"] = ""
+        mock_shared.backend_client.get_document.return_value = fake_document
+        mock_shared.backend_client.get_collection_settings.return_value = fake_settings
+
+        document, _, fmt = steps.validate_document("doc-1", "col-1", "csv")
+        assert document == fake_document
+        assert fmt == TabularFormat.CSV
+
+
+# ---------------------------------------------------------------------------
+# export_parquet
+# ---------------------------------------------------------------------------
+
+
+class TestExportParquet:
+    def test_executes_copy_to_s3(self, mock_shared, fake_table):
+        mock_shared.storage._bucket = "muffin-docs"
+
+        parquet_key = steps.export_parquet(fake_table, "col-1", "doc-1")
+
+        assert parquet_key == "documents/col-1/doc-1.parquet"
+        fake_table.connection.execute.assert_called_once()
+        sql = fake_table.connection.execute.call_args.args[0]
+        assert "COPY" in sql
+        assert "s3://muffin-docs/documents/col-1/doc-1.parquet" in sql
+        assert "FORMAT PARQUET" in sql
+
+
+# ---------------------------------------------------------------------------
+# compute_tabular_profile
+# ---------------------------------------------------------------------------
+
+
+class TestComputeTabularProfile:
+    def test_calls_compute_profile_and_logs(self, mock_shared, fake_table, monkeypatch):
+        expected_profile = TabularProfile(row_count=10, column_count=2, columns=[], sample_rows=[], format="csv")
+        monkeypatch.setattr(steps, "compute_profile", lambda table: expected_profile)
+
+        result = steps.compute_tabular_profile(fake_table, "doc-1")
+
+        assert result is expected_profile
+
+
+# ---------------------------------------------------------------------------
+# generate_summary
+# ---------------------------------------------------------------------------
+
+
+class TestGenerateSummary:
+    def test_generates_and_persists_summary(self, mock_shared, fake_profile, fake_settings):
+        mock_shared._chat.return_value = "This is a summary."
+
+        result = steps.generate_summary(fake_profile, fake_settings, "doc-1", "col-1")
+
+        assert result == "This is a summary."
+        mock_shared.backend_client.set_document_summary.assert_called_once()
+        call_args = mock_shared.backend_client.set_document_summary.call_args
+        assert call_args.args[0] == "doc-1"
+        assert call_args.args[1] == "This is a summary."
+
+    def test_returns_empty_when_no_model(self, mock_shared, fake_profile, fake_settings):
+        mock_shared._model_for.return_value = None
+
+        result = steps.generate_summary(fake_profile, fake_settings, "doc-1", "col-1")
+
+        assert result == ""
+        mock_shared.backend_client.set_document_summary.assert_not_called()
+
+    def test_embeds_summary(self, mock_shared, fake_profile, fake_settings):
+        mock_shared._chat.return_value = "Summary text"
+        mock_shared.backend_client.embed.return_value = [0.1, 0.2]
+
+        steps.generate_summary(fake_profile, fake_settings, "doc-1", "col-1")
+
+        mock_shared.backend_client.embed.assert_called_once_with("text-embedding-3-small", "Summary text")
+
+    def test_continues_on_embed_failure(self, mock_shared, fake_profile, fake_settings):
+        mock_shared._chat.return_value = "Summary text"
+        mock_shared.backend_client.embed.side_effect = RuntimeError("embed failed")
+
+        result = steps.generate_summary(fake_profile, fake_settings, "doc-1", "col-1")
+
+        assert result == "Summary text"
+        mock_shared.backend_client.set_document_summary.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# generate_qa_pairs
+# ---------------------------------------------------------------------------
+
+
+class TestGenerateQaPairs:
+    def test_generates_and_persists_qa(self, mock_shared, fake_profile, fake_settings, monkeypatch):
+        qa_pairs = [
+            {"question": "What is the total?", "answer": "42"},
+            {"question": "Best product?", "answer": "Widget"},
+        ]
+        monkeypatch.setattr(steps, "generate_tabular_qa", lambda *a, **kw: qa_pairs)
+
+        result = steps.generate_qa_pairs(fake_profile, fake_settings, "doc-1", "col-1")
+
+        assert len(result) == 2
+        assert mock_shared.backend_client.create_qa_pair.call_count == 2
+
+    def test_returns_empty_when_no_model(self, mock_shared, fake_profile, fake_settings):
+        mock_shared._model_for.return_value = None
+
+        result = steps.generate_qa_pairs(fake_profile, fake_settings, "doc-1", "col-1")
+
+        assert result == []
+        mock_shared.backend_client.create_qa_pair.assert_not_called()
+
+    def test_embeds_each_question(self, mock_shared, fake_profile, fake_settings, monkeypatch):
+        qa_pairs = [{"question": "Q1", "answer": "A1"}]
+        monkeypatch.setattr(steps, "generate_tabular_qa", lambda *a, **kw: qa_pairs)
+        mock_shared.backend_client.embed.return_value = [0.1]
+
+        steps.generate_qa_pairs(fake_profile, fake_settings, "doc-1", "col-1")
+
+        mock_shared.backend_client.embed.assert_called_once_with("text-embedding-3-small", "Q1")
+
+    def test_continues_on_embed_failure(self, mock_shared, fake_profile, fake_settings, monkeypatch):
+        qa_pairs = [{"question": "Q1", "answer": "A1"}]
+        monkeypatch.setattr(steps, "generate_tabular_qa", lambda *a, **kw: qa_pairs)
+        mock_shared.backend_client.embed.side_effect = RuntimeError("embed failed")
+
+        result = steps.generate_qa_pairs(fake_profile, fake_settings, "doc-1", "col-1")
+
+        assert len(result) == 1
+        mock_shared.backend_client.create_qa_pair.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# persist_profile
+# ---------------------------------------------------------------------------
+
+
+class TestPersistProfile:
+    def test_persists_enriched_profile(self, mock_shared, fake_profile):
+        steps.persist_profile(
+            fake_profile,
+            "doc-1",
+            "Summary text",
+            [
+                {"question": "Q1", "answer": "A1"},
+                {"question": "Q2", "answer": "A2"},
+            ],
+        )
+
+        mock_shared.backend_client.set_tabular_profile.assert_called_once()
+        call_args = mock_shared.backend_client.set_tabular_profile.call_args
+        assert call_args.args[0] == "doc-1"
+        profile_dict = call_args.args[1]
+        assert profile_dict["document_id"] == "doc-1"
+        assert profile_dict["summary"] == "Summary text"
+        assert profile_dict["suggested_questions"] == ["Q1", "Q2"]
+        assert profile_dict["row_count"] == 5
+        assert profile_dict["format"] == "csv"
+
+    def test_persists_empty_questions(self, mock_shared, fake_profile):
+        steps.persist_profile(fake_profile, "doc-1", "", [])
+
+        profile_dict = mock_shared.backend_client.set_tabular_profile.call_args.args[1]
+        assert profile_dict["suggested_questions"] == []
+        assert profile_dict["summary"] == ""
+
+
+# ---------------------------------------------------------------------------
+# serialize_to_csv_page
+# ---------------------------------------------------------------------------
+
+
+class TestSerializeToCsvPage:
+    def test_writes_csv_as_single_page(self, mock_shared, fake_table):
+        fake_table.connection.execute.return_value.fetchall.return_value = [
+            ("col1,col2\nval1,val2",),
+            ("val3,val4",),
+        ]
+
+        steps.serialize_to_csv_page(fake_table, "doc-1")
+
+        fake_table.connection.execute.assert_called_once()
+        sql = fake_table.connection.execute.call_args.args[0]
+        assert "COPY" in sql
+        assert "/dev/stdout" in sql
+        mock_shared.backend_client.add_page.assert_called_once()
+        call = mock_shared.backend_client.add_page.call_args
+        assert call.kwargs["page_number"] == 1
+        assert "col1,col2" in call.kwargs["content"]
+        assert "val3,val4" in call.kwargs["content"]
+
+    def test_skips_empty_rows(self, mock_shared, fake_table):
+        fake_table.connection.execute.return_value.fetchall.return_value = [
+            ("data1",),
+            ("",),
+            ("data2",),
+        ]
+
+        steps.serialize_to_csv_page(fake_table, "doc-1")
+
+        content = mock_shared.backend_client.add_page.call_args.kwargs["content"]
+        assert "data1" in content
+        assert "data2" in content
+        # La ligne vide ne doit pas ajouter de ligne supplémentaire
+        assert content.count("\n") == 1
+
+    def test_handles_empty_table(self, mock_shared, fake_table):
+        fake_table.connection.execute.return_value.fetchall.return_value = []
+
+        steps.serialize_to_csv_page(fake_table, "doc-1")
+
+        mock_shared.backend_client.add_page.assert_called_once_with("doc-1", page_number=1, content="")
