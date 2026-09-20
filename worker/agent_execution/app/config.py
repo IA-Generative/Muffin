@@ -11,10 +11,10 @@ class WorkerSettings(BaseSettings):
     # RustFS/S3 credentials for DuckDB httpfs - the tabular_query tool reads tabular files
     # directly from object storage (same pattern as worker/document_process), never downloads
     # them to disk first.
-    RUSTFS_ENDPOINT_URL: str = "http://localhost:9000"
-    RUSTFS_ACCESS_KEY: str = "rustfsadmin"
-    RUSTFS_SECRET_KEY: str = "rustfsadmin"
-    RUSTFS_BUCKET: str = "muffin-documents"
+    AWS_ENDPOINT_URL: str = "http://localhost:9000"
+    AWS_ACCESS_KEY_ID: str = "rustfsadmin"
+    AWS_SECRET_ACCESS_KEY: str = "rustfsadmin"
+    AWS_BUCKET: str = "muffin-documents"
 
     # Only ever called when a run's own web_search_enabled is true (see AgentState) - never
     # reachable by default, matching how the chat composer's web-search toggle itself defaults
