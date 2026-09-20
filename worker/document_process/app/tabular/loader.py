@@ -67,7 +67,7 @@ def _s3_url(storage_key: str) -> str:
     l'extension ``httpfs`` de DuckDB, à condition d'avoir configuré les
     credentials via ``SET s3_access_key_id`` / ``SET s3_secret_access_key``.
     """
-    return f"s3://{settings.RUSTFS_BUCKET}/{storage_key}"
+    return f"s3://{settings.AWS_BUCKET}/{storage_key}"
 
 
 def _load_statement(format: TabularFormat, source: str, table_name: str) -> str:
@@ -114,15 +114,13 @@ def _configure_s3(connection: duckdb.DuckDBPyConnection) -> None:
     """
     connection.execute("INSTALL httpfs")
     connection.execute("LOAD httpfs")
-    connection.execute(
-        f"SET s3_endpoint='{settings.RUSTFS_ENDPOINT_URL.replace('http://', '').replace('https://', '')}'"
-    )
-    connection.execute(f"SET s3_access_key_id='{settings.RUSTFS_ACCESS_KEY}'")
-    connection.execute(f"SET s3_secret_access_key='{settings.RUSTFS_SECRET_KEY}'")
+    connection.execute(f"SET s3_endpoint='{settings.AWS_ENDPOINT_URL.replace('http://', '').replace('https://', '')}'")
+    connection.execute(f"SET s3_access_key_id='{settings.AWS_ACCESS_KEY_ID}'")
+    connection.execute(f"SET s3_secret_access_key='{settings.AWS_SECRET_ACCESS_KEY}'")
     connection.execute("SET s3_url_style='path'")
     # RustFS runs on plain HTTP in dev - DuckDB defaults to HTTPS which causes
     # SSL connect errors. Disable SSL when the endpoint is not HTTPS.
-    if not settings.RUSTFS_ENDPOINT_URL.startswith("https://"):
+    if not settings.AWS_ENDPOINT_URL.startswith("https://"):
         connection.execute("SET s3_use_ssl=false")
 
 

@@ -28,7 +28,7 @@ from app.tabular.detect import TabularFormat
 class TestS3Url:
     def test_builds_s3_url_with_bucket_and_key(self):
         url = loader._s3_url("documents/col1/doc1.csv")
-        # RUSTFS_BUCKET par défaut = "muffin-documents"
+        # AWS_BUCKET par défaut = "muffin-documents"
         assert url == "s3://muffin-documents/documents/col1/doc1.csv"
 
     def test_preserves_nested_keys(self):
@@ -337,7 +337,7 @@ class TestConfigureS3:
 
         endpoint_calls = [call.args[0] for call in conn.execute.call_args_list if "s3_endpoint" in str(call.args[0])]
         assert len(endpoint_calls) == 1
-        # RUSTFS_ENDPOINT_URL par défaut = "http://localhost:9000"
+        # AWS_ENDPOINT_URL par défaut = "http://localhost:9000"
         assert "localhost:9000" in endpoint_calls[0]
         assert "http://" not in endpoint_calls[0].split("=")[1]
 
