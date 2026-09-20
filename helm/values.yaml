@@ -233,10 +233,10 @@ backend:
   image:
     # -- Registry to use for the app.
     # @section -- Backend
-    registry: "docker.io"
+    registry: "ghcr.io"
     # -- Repository to use for the app.
     # @section -- Backend
-    repository: "debian"
+    repository: "ia-generative/muffin-backend"
     # -- Image pull policy for the app.
     # @section -- Backend
     pullPolicy: "IfNotPresent"
@@ -1253,10 +1253,10 @@ frontend:
   image:
     # -- Registry to use for the app.
     # @section -- Frontend
-    registry: "docker.io"
+    registry: "ghcr.io"
     # -- Repository to use for the app.
     # @section -- Frontend
-    repository: "debian"
+    repository: "ia-generative/muffin-frontend"
     # -- Image pull policy for the app.
     # @section -- Frontend
     pullPolicy: "IfNotPresent"
@@ -2087,10 +2087,10 @@ document_process:
   image:
     # -- Registry to use for the app.
     # @section -- Document_process
-    registry: "docker.io"
+    registry: "ghcr.io"
     # -- Repository to use for the app.
     # @section -- Document_process
-    repository: "debian"
+    repository: "ia-generative/muffin-worker-document-process"
     # -- Image pull policy for the app.
     # @section -- Document_process
     pullPolicy: "IfNotPresent"
@@ -2921,10 +2921,10 @@ agent_execution:
   image:
     # -- Registry to use for the app.
     # @section -- Agent_execution
-    registry: "docker.io"
+    registry: "ghcr.io"
     # -- Repository to use for the app.
     # @section -- Agent_execution
-    repository: "debian"
+    repository: "ia-generative/muffin-worker-agent-execution"
     # -- Image pull policy for the app.
     # @section -- Agent_execution
     pullPolicy: "IfNotPresent"
@@ -3756,10 +3756,10 @@ worker_evaluation:
   image:
     # -- Registry to use for the app.
     # @section -- Worker_evaluation
-    registry: "docker.io"
+    registry: "ghcr.io"
     # -- Repository to use for the app.
     # @section -- Worker_evaluation
-    repository: "debian"
+    repository: "ia-generative/muffin-worker-evaluation"
     # -- Image pull policy for the app.
     # @section -- Worker_evaluation
     pullPolicy: "IfNotPresent"

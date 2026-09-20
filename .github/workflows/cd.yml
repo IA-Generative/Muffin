@@ -108,11 +108,30 @@ jobs:
     permissions:
       packages: write
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - name: frontend
+            context: frontend
+            dockerfile: frontend/Dockerfile
+          - name: backend
+            context: backend
+            dockerfile: backend/Dockerfile
+          - name: worker-document-process
+            context: worker/document_process
+            dockerfile: worker/document_process/Dockerfile
+          - name: worker-agent-execution
+            context: worker/agent_execution
+            dockerfile: worker/agent_execution/Dockerfile
+          - name: worker-evaluation
+            context: worker/evaluation
+            dockerfile: worker/evaluation/Dockerfile
     with:
-      IMAGE_NAME: ${{ needs.expose-vars.outputs.IMAGE_BASE }}/frontend
+      IMAGE_NAME: ${{ needs.expose-vars.outputs.IMAGE_BASE }}-${{ matrix.service.name }}
       IMAGE_TAG: ${{ needs.release.outputs.version }}
-      IMAGE_CONTEXT: frontend
-      IMAGE_DOCKERFILE: frontend/Dockerfile
+      IMAGE_CONTEXT: ${{ matrix.service.context }}
+      IMAGE_DOCKERFILE: ${{ matrix.service.dockerfile }}
       IMAGE_TARGET: runtime
       BUILD_AMD64: ${{ needs.expose-vars.outputs.BUILD_AMD64 == 'true' }}
       BUILD_ARM64: ${{ needs.expose-vars.outputs.BUILD_ARM64 == 'true' }}

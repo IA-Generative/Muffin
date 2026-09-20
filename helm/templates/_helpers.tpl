@@ -389,7 +389,7 @@ spec:
   initContainers: {{- tpl (toYaml $job.initContainers) $root | nindent 2 }}
   {{- end }}
   containers:
-  - name: {{ $name }}
+  - name: {{ $name | replace "_" "-" }}
     {{- if $job.securityContext }}
     securityContext: {{- toYaml $job.securityContext | nindent 6 }}
     {{- end }}
@@ -520,7 +520,7 @@ spec:
   initContainers: {{- tpl (toYaml $component.initContainers) $root | nindent 2 }}
   {{- end }}
   containers:
-  - name: {{ $name }}
+  - name: {{ $name | replace "_" "-" }}
     {{- if $component.securityContext }}
     securityContext: {{- toYaml $component.securityContext | nindent 6 }}
     {{- end }}
