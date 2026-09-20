@@ -92,6 +92,9 @@ def test_finalize_reports_the_grounding_verdict_alongside_the_result(monkeypatch
         grounding_valid=False,
         grounding_unsupported_claims=["25 days is a minimum, not a guarantee"],
         grounding_research_count=2,
+        latency_ms=None,
+        prompt_tokens=None,
+        completion_tokens=None,
     )
 
 
@@ -112,6 +115,9 @@ def test_finalize_reports_no_grounding_verdict_when_validate_grounding_was_skipp
         grounding_valid=None,
         grounding_unsupported_claims=None,
         grounding_research_count=None,
+        latency_ms=None,
+        prompt_tokens=None,
+        completion_tokens=None,
     )
 
 
