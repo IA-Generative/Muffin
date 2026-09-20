@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.1-rc.1](https://github.com/IA-Generative/Muffin/compare/v0.7.1-rc...v0.7.1-rc.1) (2026-09-20)
+
+
+### Bug Fixes
+
+* update agent_execution test assertions for latency/token kwargs ([2f14cd8](https://github.com/IA-Generative/Muffin/commit/2f14cd83c6b6d219db5714ca47d188b447726ccc))
+
 ## [0.7.1-rc](https://github.com/IA-Generative/Muffin/compare/v0.7.0...v0.7.1-rc) (2026-09-20)
 
 
