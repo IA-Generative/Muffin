@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.2-rc](https://github.com/IA-Generative/Muffin/compare/v0.7.1...v0.7.2-rc) (2026-09-20)
+
+
+### Bug Fixes
+
+* switch searxng chart to unknowniq repo v0.1.11 ([c921d8d](https://github.com/IA-Generative/Muffin/commit/c921d8dbfdcc67792a3203e8fb566512e0d8242a))
+
 ## [0.7.1](https://github.com/IA-Generative/Muffin/compare/v0.7.0...v0.7.1) (2026-09-20)
 
 
