@@ -1143,3 +1143,265 @@ def test_time_tool_evidence_has_second_precision(make_run):
     # The time field must include seconds
     assert len(evidence["metadata"]["time"]) == 8  # HH:MM:SS
     assert evidence["metadata"]["time"].count(":") == 2
+
+
+# ─── tabular_query tool ──────────────────────────────────────────────────────
+
+
+def _tabular_doc(collection_id: str = "hr", doc_id: str = "tab-1") -> dict:
+    """A tabular document as returned by the backend's list_tabular_documents endpoint."""
+    return {
+        "id": doc_id,
+        "name": "sales_data.csv",
+        "storage_key": f"collections/{collection_id}/{doc_id}/sales_data.csv",
+        "format": "csv",
+        "row_count": 1000,
+        "column_count": 3,
+        "columns": [
+            {
+                "name": "category",
+                "type": "VARCHAR",
+                "semantic_type": "category",
+                "null_count": 0,
+                "distinct_count": 5,
+            },
+            {
+                "name": "amount",
+                "type": "DOUBLE",
+                "semantic_type": "measure",
+                "null_count": 10,
+                "distinct_count": 950,
+            },
+            {
+                "name": "date",
+                "type": "DATE",
+                "semantic_type": "datetime",
+                "null_count": 0,
+                "distinct_count": 365,
+            },
+        ],
+        "measures": ["amount"],
+        "dimensions": ["category", "date"],
+        "text_columns": [],
+    }
+
+
+def test_tabular_query_tool_is_offered_by_the_planner(make_run):
+    """The decompose_query prompt must list 'tabular_query' as an available tool so the planner
+    can pick it for analytical questions on tabular data."""
+
+    def router(system_prompt: str) -> str:
+        if "Analyze the user" in system_prompt:
+            return _analysis(intent="meta")
+        if "Break the user's query" in system_prompt:
+            # Verify the planner prompt mentions the tabular_query tool
+            assert '"tabular_query"' in system_prompt
+            return json.dumps(
+                [
+                    {
+                        "id": "t1",
+                        "query": "total amount by category",
+                        "tool": "tabular_query",
+                    }
+                ]
+            )
+        if "Decide whether" in system_prompt:
+            return json.dumps({"status": "sufficient", "missing_information": [], "reasoning": "ok"})
+        if "Check whether every" in system_prompt:
+            return json.dumps({"valid": True, "unsupported_claims": []})
+        return "The total is 5000 [t1]."
+
+    graph, fake = make_run(_hr_eng_vdbs(), router)
+    state = initial_state("What is the total amount by category?")
+    result = graph.invoke(state, config=_config(state))
+
+    assert result["completed_task_ids"] == ["t1"]
+
+
+def test_tabular_query_tool_runs_duckdb_query_and_produces_evidence(make_run, monkeypatch):
+    """The tabular_query tool lists tabular documents, generates SQL via the LLM, executes it
+    in DuckDB, and produces evidence with the results."""
+
+    # The SQL generation LLM call returns a valid SELECT.
+    # The VDB selection LLM call returns the HR collection.
+    def router(system_prompt: str) -> str:
+        if "Analyze the user" in system_prompt:
+            return _analysis(intent="meta")
+        if "Break the user's query" in system_prompt:
+            return json.dumps(
+                [
+                    {
+                        "id": "t1",
+                        "query": "total amount by category",
+                        "tool": "tabular_query",
+                    }
+                ]
+            )
+        if "select the ones relevant" in system_prompt.lower():
+            return '["hr"]'
+        if "You are a SQL expert" in system_prompt:
+            return json.dumps(
+                {
+                    "sql": "SELECT category, SUM(amount) AS total FROM source GROUP BY category",
+                    "explanation": "Groups by category",
+                }
+            )
+        if "Decide whether" in system_prompt:
+            return json.dumps({"status": "sufficient", "missing_information": [], "reasoning": "ok"})
+        if "Check whether every" in system_prompt:
+            return json.dumps({"valid": True, "unsupported_claims": []})
+        return "The total is 5000 [t1]."
+
+    graph, fake = make_run(_hr_eng_vdbs(), router)
+    fake.tabular_documents_by_collection["hr"] = [_tabular_doc()]
+
+    # Mock execute_tabular_query to avoid needing a real DuckDB+S3 connection.
+    from app.graph.services.tabular_query import TabularResult
+
+    def _fake_execute(storage_key, format, sql):
+        return TabularResult(
+            columns=["category", "total"],
+            rows=[["electronics", 3500], ["books", 1500]],
+            row_count=2,
+            truncated=False,
+        )
+
+    monkeypatch.setattr("app.graph.nodes.research_task.execute_tabular_query", _fake_execute)
+
+    state = initial_state("What is the total amount by category?")
+    result = graph.invoke(state, config=_config(state))
+
+    assert result["completed_task_ids"] == ["t1"]
+    assert len(result["deduped_evidence"]) == 1
+    evidence = result["deduped_evidence"][0]
+    assert evidence["metadata"]["evidence_kind"] == "tabular"
+    assert evidence["metadata"]["document_name"] == "sales_data.csv"
+    assert "SELECT category, SUM(amount)" in evidence["content"]
+    assert "| electronics | 3500 |" in evidence["content"]
+    assert "| books | 1500 |" in evidence["content"]
+    assert evidence["source_id"] == "tab-1"
+    assert evidence["vdb_id"] == "hr"
+
+
+def test_tabular_query_produces_no_evidence_when_no_tabular_documents(make_run, monkeypatch):
+    """When the selected collection has no tabular documents, the tool returns empty evidence
+    and the run still completes (coverage evaluation decides if that's enough)."""
+
+    def router(system_prompt: str) -> str:
+        if "Analyze the user" in system_prompt:
+            return _analysis(intent="meta")
+        if "Break the user's query" in system_prompt:
+            return json.dumps(
+                [
+                    {
+                        "id": "t1",
+                        "query": "total amount by category",
+                        "tool": "tabular_query",
+                    }
+                ]
+            )
+        if "select the ones relevant" in system_prompt.lower():
+            return '["hr"]'
+        if "You are a SQL expert" in system_prompt:
+            return json.dumps({"sql": "SELECT 1", "explanation": "noop"})
+        if "Decide whether" in system_prompt:
+            return json.dumps({"status": "sufficient", "missing_information": [], "reasoning": "ok"})
+        if "Check whether every" in system_prompt:
+            return json.dumps({"valid": True, "unsupported_claims": []})
+        return "No data available [t1]."
+
+    graph, fake = make_run(_hr_eng_vdbs(), router)
+    # No tabular documents seeded for the HR collection.
+
+    state = initial_state("What is the total amount by category?")
+    result = graph.invoke(state, config=_config(state))
+
+    assert result["completed_task_ids"] == ["t1"]
+    assert len(result["deduped_evidence"]) == 0
+
+
+def test_tabular_query_produces_no_evidence_when_llm_cant_generate_sql(make_run, monkeypatch):
+    """When the LLM can't generate a valid SQL query (returns sql=null), the tool skips that
+    document and produces no evidence for it."""
+
+    def router(system_prompt: str) -> str:
+        if "Analyze the user" in system_prompt:
+            return _analysis(intent="meta")
+        if "Break the user's query" in system_prompt:
+            return json.dumps(
+                [
+                    {
+                        "id": "t1",
+                        "query": "what color is the sky",
+                        "tool": "tabular_query",
+                    }
+                ]
+            )
+        if "select the ones relevant" in system_prompt.lower():
+            return '["hr"]'
+        if "You are a SQL expert" in system_prompt:
+            # LLM can't answer from the schema
+            return json.dumps({"sql": None, "explanation": "Can't answer from this schema"})
+        if "Decide whether" in system_prompt:
+            return json.dumps({"status": "sufficient", "missing_information": [], "reasoning": "ok"})
+        if "Check whether every" in system_prompt:
+            return json.dumps({"valid": True, "unsupported_claims": []})
+        return "I can't answer that [t1]."
+
+    graph, fake = make_run(_hr_eng_vdbs(), router)
+    fake.tabular_documents_by_collection["hr"] = [_tabular_doc()]
+
+    # execute_tabular_query should never be called since SQL generation returns None.
+    def _should_not_be_called(*args, **kwargs):
+        raise AssertionError("execute_tabular_query should not be called when SQL generation fails")
+
+    monkeypatch.setattr("app.graph.nodes.research_task.execute_tabular_query", _should_not_be_called)
+
+    state = initial_state("What color is the sky?")
+    result = graph.invoke(state, config=_config(state))
+
+    assert result["completed_task_ids"] == ["t1"]
+    assert len(result["deduped_evidence"]) == 0
+
+
+def test_tabular_query_skips_document_on_execution_failure(make_run, monkeypatch):
+    """When DuckDB execution fails (e.g. file not found, SQL error), the tool logs the error
+    and continues to the next document instead of crashing the run."""
+
+    def router(system_prompt: str) -> str:
+        if "Analyze the user" in system_prompt:
+            return _analysis(intent="meta")
+        if "Break the user's query" in system_prompt:
+            return json.dumps(
+                [
+                    {
+                        "id": "t1",
+                        "query": "total amount by category",
+                        "tool": "tabular_query",
+                    }
+                ]
+            )
+        if "select the ones relevant" in system_prompt.lower():
+            return '["hr"]'
+        if "You are a SQL expert" in system_prompt:
+            return json.dumps({"sql": "SELECT * FROM source", "explanation": "all rows"})
+        if "Decide whether" in system_prompt:
+            return json.dumps({"status": "sufficient", "missing_information": [], "reasoning": "ok"})
+        if "Check whether every" in system_prompt:
+            return json.dumps({"valid": True, "unsupported_claims": []})
+        return "No data available [t1]."
+
+    graph, fake = make_run(_hr_eng_vdbs(), router)
+    fake.tabular_documents_by_collection["hr"] = [_tabular_doc()]
+
+    def _failing_execute(*args, **kwargs):
+        raise RuntimeError("DuckDB connection failed")
+
+    monkeypatch.setattr("app.graph.nodes.research_task.execute_tabular_query", _failing_execute)
+
+    state = initial_state("What is the total amount by category?")
+    result = graph.invoke(state, config=_config(state))
+
+    # The task completes (doesn't crash) but produces no evidence
+    assert result["completed_task_ids"] == ["t1"]
+    assert len(result["deduped_evidence"]) == 0

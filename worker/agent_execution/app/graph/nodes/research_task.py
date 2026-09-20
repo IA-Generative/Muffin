@@ -9,6 +9,11 @@ from app.graph.services.document_resolver import resolve_document_page
 from app.graph.services.events import emit, is_cancelled, set_activity
 from app.graph.services.evidence import normalize_results
 from app.graph.services.llm import json_chat
+from app.graph.services.tabular_query import (
+    execute_tabular_query,
+    format_tabular_evidence,
+    generate_sql,
+)
 from app.graph.services.time_tool import build_time_context, format_time_context
 from app.graph.services.vdb_router import select_relevant_vdbs
 from app.graph.state import Evidence, ResearchTaskInput
@@ -373,6 +378,84 @@ def _run_time(
     return {"selected_vdbs": [], "results": []}, evidence
 
 
+def _run_tabular_query(
+    task: dict[str, Any],
+    user_id: str,
+    accessible_vdbs: list[dict[str, Any]],
+    model: str | None,
+    pinned_vdb_ids: list[str],
+    _web_search_enabled: bool,
+) -> tuple[dict[str, Any], list[Evidence]]:
+    """Tabular data analysis tool: loads tabular files in DuckDB and runs LLM-generated SQL
+    to answer analytical questions (aggregations, filters, counts) that vector search over
+    text chunks can't handle.
+
+    Flow per selected collection:
+    1. List tabular documents (those with a tabular profile) via the backend.
+    2. For each, ask the LLM to generate a SELECT query from the profile schema + the question.
+    3. Execute the query in DuckDB (reading the file directly from RustFS/S3).
+    4. Format results as evidence.
+
+    If no model is configured or no tabular documents are found, returns empty evidence -
+    evaluate_coverage will decide if the surviving tasks are enough.
+    """
+    if model is None:
+        logger.warning(f"Task {task['id']} requested tabular_query but no chat model is configured")
+        return {"selected_vdbs": [], "results": []}, []
+
+    selected_vdbs = select_relevant_vdbs(task["query"], accessible_vdbs, model, pinned_vdb_ids)
+    if not selected_vdbs:
+        return {"selected_vdbs": [], "results": []}, []
+
+    evidence: list[Evidence] = []
+    for vdb in selected_vdbs:
+        tabular_docs = backend_client.list_tabular_documents(user_id, str(vdb["id"]))
+        if not tabular_docs:
+            continue
+        for doc in tabular_docs:
+            profile = {
+                "row_count": doc["row_count"],
+                "column_count": doc["column_count"],
+                "columns": doc["columns"],
+                "measures": doc.get("measures", []),
+                "dimensions": doc.get("dimensions", []),
+                "text_columns": doc.get("text_columns", []),
+            }
+            sql = generate_sql(profile, task["query"], model)
+            if sql is None:
+                logger.info(f"No SQL generated for document {doc['name']} (task {task['id']})")
+                continue
+            try:
+                result = execute_tabular_query(
+                    storage_key=doc["storage_key"],
+                    format=doc["format"],
+                    sql=sql,
+                )
+            except Exception as error:
+                logger.exception(f"Tabular query failed for document {doc['name']} (task {task['id']}): {error}")
+                continue
+            content = format_tabular_evidence(task["query"], sql, result, doc["name"])
+            evidence.append(
+                Evidence(
+                    id=str(uuid.uuid4()),
+                    task_id=task["id"],
+                    vdb_id=str(vdb["id"]),
+                    source_id=str(doc["id"]),
+                    content=content,
+                    metadata={
+                        "document_name": doc["name"],
+                        "evidence_kind": "tabular",
+                        "sql": sql,
+                        "row_count": result.row_count,
+                        "truncated": result.truncated,
+                    },
+                    relevance_score=None,
+                    retrieval_query=task["query"],
+                )
+            )
+    return {"selected_vdbs": [str(v["id"]) for v in selected_vdbs]}, evidence
+
+
 _RUNNERS = {
     "list_collections": lambda task, user_id, accessible_vdbs, model, pinned_vdb_ids, web_search_enabled: (
         _run_list_collections(task, accessible_vdbs)
@@ -382,6 +465,7 @@ _RUNNERS = {
     ),
     "list_documents": _run_list_documents,
     "page_content": _run_page_content,
+    "tabular_query": _run_tabular_query,
     "web_search": _run_web_search,
     "time": _run_time,
 }

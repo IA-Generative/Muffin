@@ -128,6 +128,23 @@ class DocumentSummaryOut(BaseModel):
     summary: str | None
 
 
+class TabularDocumentOut(BaseModel):
+    """A tabular document the research agent can query with DuckDB - the storage_key lets the
+    agent load the file directly from RustFS, the profile columns give the LLM the schema it
+    needs to generate SQL without a round-trip to read the file first."""
+
+    id: uuid.UUID
+    name: str
+    storage_key: str
+    format: str
+    row_count: int
+    column_count: int
+    columns: list[dict[str, Any]]
+    measures: list[str]
+    dimensions: list[str]
+    text_columns: list[str]
+
+
 class DocumentPageContentOut(BaseModel):
     page_number: int
     content: str

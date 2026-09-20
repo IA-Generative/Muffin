@@ -35,6 +35,10 @@ class FakeBackend:
         self.summary_hits: list[dict[str, Any]] = []
         # {collection_id: [{"id":..., "name":..., "status":..., "summary":...}, ...]}
         self.documents_by_collection: dict[str, list[dict[str, Any]]] = {}
+        # {collection_id: [{"id":..., "name":..., "storage_key":..., "format":..., "row_count":...,
+        #                    "column_count":..., "columns":[...], "measures":[...],
+        #                    "dimensions":[...], "text_columns":[...]}, ...]}
+        self.tabular_documents_by_collection: dict[str, list[dict[str, Any]]] = {}
         # {(document_id, page_number): {"page_number":..., "content":..., "screenshot_url":...}}
         self.pages: dict[tuple[str, int], dict[str, Any]] = {}
         self.conversation_titles: dict[str, str] = {}
@@ -44,12 +48,20 @@ class FakeBackend:
         return {"cancel_requested": self.cancel_requested}
 
     def add_run_event(
-        self, run_id: str, type_: str, data: dict[str, Any] | None = None, task_id: str | None = None
+        self,
+        run_id: str,
+        type_: str,
+        data: dict[str, Any] | None = None,
+        task_id: str | None = None,
     ) -> None:
         self.events.append((type_, task_id))
 
     def update_run_status(
-        self, run_id: str, status: str, current_node: str | None = None, current_activity: str | None = None
+        self,
+        run_id: str,
+        status: str,
+        current_node: str | None = None,
+        current_activity: str | None = None,
     ) -> None:
         if current_node is not None and current_activity is not None:
             self.activities.append((current_node, current_activity))
@@ -107,11 +119,27 @@ class FakeBackend:
     def llm_chat(self, model: str, messages: list[dict[str, str]], max_tokens: int | None = None) -> str:
         return self.llm_router(messages[0]["content"])
 
+    def llm_chat_with_usage(
+        self, model: str, messages: list[dict[str, str]], max_tokens: int | None = None
+    ) -> dict[str, Any]:
+        """Same contract as the real backend_client: returns content + token usage.
+        The content comes from the llm_router (keyed on the system prompt), and token
+        counts are stubbed since tests don't assert on them."""
+        content = self.llm_router(messages[0]["content"])
+        return {
+            "content": content,
+            "prompt_tokens": 100,
+            "completion_tokens": 50,
+        }
+
     def get_default_chat_model(self) -> str | None:
         return "test-model"
 
     def list_collection_documents(self, user_id: str, collection_id: str) -> list[dict[str, Any]]:
         return self.documents_by_collection.get(collection_id, [])
+
+    def list_tabular_documents(self, user_id: str, collection_id: str) -> list[dict[str, Any]]:
+        return self.tabular_documents_by_collection.get(collection_id, [])
 
     def get_document_page(self, user_id: str, document_id: str, page_number: int) -> dict[str, Any]:
         return self.pages[(document_id, page_number)]
