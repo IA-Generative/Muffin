@@ -75,10 +75,10 @@ passe par le backend (`/internal/llm/*`), qui est seul à détenir la clé.
 
 | Variable | Définition | Défaut | Utilisée par |
 |---|---|---|---|
-| `RUSTFS_ENDPOINT_URL` | Endpoint S3 de RustFS | `http://localhost:9000` | **backend** (`app/config/rustfs.py` → `app/core/storage.py`, URLs présignées), **worker/document_process** (upload des fichiers/screenshots de page) |
-| `RUSTFS_ACCESS_KEY` | Clé d'accès S3 | `rustfsadmin` (dev only) | idem |
-| `RUSTFS_SECRET_KEY` | Clé secrète S3 | `rustfsadmin` (dev only) | idem |
-| `RUSTFS_BUCKET` | Bucket utilisé pour tous les documents/screenshots | `muffin-documents` | idem |
+| `AWS_ENDPOINT_URL` | Endpoint S3 de RustFS | `http://localhost:9000` | **backend** (`app/config/rustfs.py` → `app/core/storage.py`, URLs présignées), **worker/document_process** (upload des fichiers/screenshots de page) |
+| `AWS_ACCESS_KEY_ID` | Clé d'accès S3 | `rustfsadmin` (dev only) | idem |
+| `AWS_SECRET_ACCESS_KEY` | Clé secrète S3 | `rustfsadmin` (dev only) | idem |
+| `AWS_BUCKET` | Bucket utilisé pour tous les documents/screenshots | `muffin-documents` | idem |
 
 Sans ces variables, `RustFsSettings` retombe sur son défaut `localhost:9000`, qui ne résout à rien
 depuis l'intérieur d'un conteneur — les uploads échouent silencieusement avant même la création de

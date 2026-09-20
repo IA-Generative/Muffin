@@ -58,10 +58,10 @@ services:
       # Without these, RustFsSettings falls back to its localhost:9000
       # default, which inside this container resolves to nothing - file
       # uploads fail silently before a Document row is even created.
-      RUSTFS_ENDPOINT_URL: http://rustfs:9000
-      RUSTFS_ACCESS_KEY: rustfsadmin
-      RUSTFS_SECRET_KEY: rustfsadmin
-      RUSTFS_BUCKET: muffin-documents
+      AWS_ENDPOINT_URL: http://rustfs:9000
+      AWS_ACCESS_KEY_ID: rustfsadmin
+      AWS_SECRET_ACCESS_KEY: rustfsadmin
+      AWS_BUCKET: muffin-documents
       MEILI_URL: http://meilisearch:7700
       MEILI_API_KEY: ${MEILI_MASTER_KEY:-dev-only-meili-key-not-for-prod}
     depends_on:
@@ -87,10 +87,10 @@ services:
       REDIS_URL: redis://redis:6379/0
       BACKEND_API_URL: http://backend:8000
       WORKER_API_KEY: ${WORKER_API_KEY:-dev-only-worker-key-not-for-prod}
-      RUSTFS_ENDPOINT_URL: http://rustfs:9000
-      RUSTFS_ACCESS_KEY: rustfsadmin
-      RUSTFS_SECRET_KEY: rustfsadmin
-      RUSTFS_BUCKET: muffin-documents
+      AWS_ENDPOINT_URL: http://rustfs:9000
+      AWS_ACCESS_KEY_ID: rustfsadmin
+      AWS_SECRET_ACCESS_KEY: rustfsadmin
+      AWS_BUCKET: muffin-documents
     depends_on:
       redis:
         condition: service_healthy
@@ -109,10 +109,10 @@ services:
       BACKEND_API_URL: http://backend:8000
       WORKER_API_KEY: ${WORKER_API_KEY:-dev-only-worker-key-not-for-prod}
       # DuckDB httpfs reads tabular files directly from RustFS/S3.
-      RUSTFS_ENDPOINT_URL: http://rustfs:9000
-      RUSTFS_ACCESS_KEY: rustfsadmin
-      RUSTFS_SECRET_KEY: rustfsadmin
-      RUSTFS_BUCKET: muffin-documents
+      AWS_ENDPOINT_URL: http://rustfs:9000
+      AWS_ACCESS_KEY_ID: rustfsadmin
+      AWS_SECRET_ACCESS_KEY: rustfsadmin
+      AWS_BUCKET: muffin-documents
       # Only ever called when a run opted in (chat composer's web-search toggle, off by
       # default) - see worker/agent_execution/app/searxng_client.py.
       SEARXNG_URL: http://searxng:8080
