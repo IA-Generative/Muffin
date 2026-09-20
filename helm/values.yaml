@@ -519,7 +519,7 @@ backend:
       httpGet:
         # -- Backend container healthcheck endpoint (startupProbe is defined using `toYaml` so it is possible to override it completely).
         # @section -- Backend
-        path: "/"
+        path: "/api/health"
         # -- Port to use for healthcheck (defaults to container port).
         # @section -- Backend
         port: *backendContainerPort
@@ -542,7 +542,7 @@ backend:
       httpGet:
         # -- Backend container healthcheck endpoint (readinessProbe is defined using `toYaml` so it is possible to override it completely).
         # @section -- Backend
-        path: "/"
+        path: "/api/health"
         # -- Port to use for healthcheck (defaults to container port).
         # @section -- Backend
         port: *backendContainerPort
@@ -565,7 +565,7 @@ backend:
       httpGet:
         # -- Backend container healthcheck endpoint (livenessProbe is defined using `toYaml` so it is possible to override it completely).
         # @section -- Backend
-        path: "/"
+        path: "/api/health"
         # -- Port to use for healthcheck (defaults to container port).
         # @section -- Backend
         port: *backendContainerPort
@@ -2285,7 +2285,7 @@ document_process:
   # -- Document_process container port number. Set to `null`/`0` (and disable `service`/probes) for
   # components that don't listen on any port (e.g. a queue consumer).
   # @section -- Document_process
-  containerPort: &document_processContainerPort 8080
+  containerPort: &document_processContainerPort null
   # -- Document_process container port name.
   # @section -- Document_process
   containerPortName: "http"
@@ -2370,13 +2370,18 @@ document_process:
   ## defaults straight back in.
   probes:
     startupProbe:
-      httpGet:
-        # -- Document_process container healthcheck endpoint (startupProbe is defined using `toYaml` so it is possible to override it completely).
-        # @section -- Document_process
-        path: "/"
-        # -- Port to use for healthcheck (defaults to container port).
-        # @section -- Document_process
-        port: *document_processContainerPort
+      # -- Document_process container healthcheck (startupProbe is defined using `toYaml` so it is possible to override it completely).
+      # Uses `celery inspect ping` since Celery workers don't expose an HTTP endpoint.
+      # @section -- Document_process
+      exec:
+        command:
+          - celery
+          - -A
+          - app.celery_app
+          - inspect
+          - ping
+          - -d
+          - celery@$(HOSTNAME)
       # -- Number of seconds after the container has started before probe is initiated.
       # @section -- Document_process
       initialDelaySeconds: 0
@@ -2393,13 +2398,18 @@ document_process:
       # @section -- Document_process
       timeoutSeconds: 5
     readinessProbe:
-      httpGet:
-        # -- Document_process container healthcheck endpoint (readinessProbe is defined using `toYaml` so it is possible to override it completely).
-        # @section -- Document_process
-        path: "/"
-        # -- Port to use for healthcheck (defaults to container port).
-        # @section -- Document_process
-        port: *document_processContainerPort
+      # -- Document_process container healthcheck (readinessProbe is defined using `toYaml` so it is possible to override it completely).
+      # Uses `celery inspect ping` since Celery workers don't expose an HTTP endpoint.
+      # @section -- Document_process
+      exec:
+        command:
+          - celery
+          - -A
+          - app.celery_app
+          - inspect
+          - ping
+          - -d
+          - celery@$(HOSTNAME)
       # -- Number of seconds after the container has started before probe is initiated.
       # @section -- Document_process
       initialDelaySeconds: 10
@@ -2416,13 +2426,18 @@ document_process:
       # @section -- Document_process
       timeoutSeconds: 5
     livenessProbe:
-      httpGet:
-        # -- Document_process container healthcheck endpoint (livenessProbe is defined using `toYaml` so it is possible to override it completely).
-        # @section -- Document_process
-        path: "/"
-        # -- Port to use for healthcheck (defaults to container port).
-        # @section -- Document_process
-        port: *document_processContainerPort
+      # -- Document_process container healthcheck (livenessProbe is defined using `toYaml` so it is possible to override it completely).
+      # Uses `celery inspect ping` since Celery workers don't expose an HTTP endpoint.
+      # @section -- Document_process
+      exec:
+        command:
+          - celery
+          - -A
+          - app.celery_app
+          - inspect
+          - ping
+          - -d
+          - celery@$(HOSTNAME)
       # -- Number of seconds after the container has started before probe is initiated.
       # @section -- Document_process
       initialDelaySeconds: 30
@@ -3119,7 +3134,7 @@ agent_execution:
   # -- Agent_execution container port number. Set to `null`/`0` (and disable `service`/probes) for
   # components that don't listen on any port (e.g. a queue consumer).
   # @section -- Agent_execution
-  containerPort: &agent_executionContainerPort 8080
+  containerPort: &agent_executionContainerPort null
   # -- Agent_execution container port name.
   # @section -- Agent_execution
   containerPortName: "http"
@@ -3204,13 +3219,18 @@ agent_execution:
   ## defaults straight back in.
   probes:
     startupProbe:
-      httpGet:
-        # -- Agent_execution container healthcheck endpoint (startupProbe is defined using `toYaml` so it is possible to override it completely).
-        # @section -- Agent_execution
-        path: "/"
-        # -- Port to use for healthcheck (defaults to container port).
-        # @section -- Agent_execution
-        port: *agent_executionContainerPort
+      # -- Agent_execution container healthcheck (startupProbe is defined using `toYaml` so it is possible to override it completely).
+      # Uses `celery inspect ping` since Celery workers don't expose an HTTP endpoint.
+      # @section -- Agent_execution
+      exec:
+        command:
+          - celery
+          - -A
+          - app.celery_app
+          - inspect
+          - ping
+          - -d
+          - celery@$(HOSTNAME)
       # -- Number of seconds after the container has started before probe is initiated.
       # @section -- Agent_execution
       initialDelaySeconds: 0
@@ -3227,13 +3247,18 @@ agent_execution:
       # @section -- Agent_execution
       timeoutSeconds: 5
     readinessProbe:
-      httpGet:
-        # -- Agent_execution container healthcheck endpoint (readinessProbe is defined using `toYaml` so it is possible to override it completely).
-        # @section -- Agent_execution
-        path: "/"
-        # -- Port to use for healthcheck (defaults to container port).
-        # @section -- Agent_execution
-        port: *agent_executionContainerPort
+      # -- Agent_execution container healthcheck (readinessProbe is defined using `toYaml` so it is possible to override it completely).
+      # Uses `celery inspect ping` since Celery workers don't expose an HTTP endpoint.
+      # @section -- Agent_execution
+      exec:
+        command:
+          - celery
+          - -A
+          - app.celery_app
+          - inspect
+          - ping
+          - -d
+          - celery@$(HOSTNAME)
       # -- Number of seconds after the container has started before probe is initiated.
       # @section -- Agent_execution
       initialDelaySeconds: 10
@@ -3250,13 +3275,18 @@ agent_execution:
       # @section -- Agent_execution
       timeoutSeconds: 5
     livenessProbe:
-      httpGet:
-        # -- Agent_execution container healthcheck endpoint (livenessProbe is defined using `toYaml` so it is possible to override it completely).
-        # @section -- Agent_execution
-        path: "/"
-        # -- Port to use for healthcheck (defaults to container port).
-        # @section -- Agent_execution
-        port: *agent_executionContainerPort
+      # -- Agent_execution container healthcheck (livenessProbe is defined using `toYaml` so it is possible to override it completely).
+      # Uses `celery inspect ping` since Celery workers don't expose an HTTP endpoint.
+      # @section -- Agent_execution
+      exec:
+        command:
+          - celery
+          - -A
+          - app.celery_app
+          - inspect
+          - ping
+          - -d
+          - celery@$(HOSTNAME)
       # -- Number of seconds after the container has started before probe is initiated.
       # @section -- Agent_execution
       initialDelaySeconds: 30
@@ -3954,7 +3984,7 @@ worker_evaluation:
   # -- Worker_evaluation container port number. Set to `null`/`0` (and disable `service`/probes) for
   # components that don't listen on any port (e.g. a queue consumer).
   # @section -- Worker_evaluation
-  containerPort: &agent_executionContainerPort 8080
+  containerPort: &worker_evaluationContainerPort null
   # -- Worker_evaluation container port name.
   # @section -- Worker_evaluation
   containerPortName: "http"
@@ -4039,13 +4069,18 @@ worker_evaluation:
   ## defaults straight back in.
   probes:
     startupProbe:
-      httpGet:
-        # -- Worker_evaluation container healthcheck endpoint (startupProbe is defined using `toYaml` so it is possible to override it completely).
-        # @section -- Worker_evaluation
-        path: "/"
-        # -- Port to use for healthcheck (defaults to container port).
-        # @section -- Worker_evaluation
-        port: *agent_executionContainerPort
+      # -- Worker_evaluation container healthcheck (startupProbe is defined using `toYaml` so it is possible to override it completely).
+      # Uses `celery inspect ping` since Celery workers don't expose an HTTP endpoint.
+      # @section -- Worker_evaluation
+      exec:
+        command:
+          - celery
+          - -A
+          - app.celery_app
+          - inspect
+          - ping
+          - -d
+          - celery@$(HOSTNAME)
       # -- Number of seconds after the container has started before probe is initiated.
       # @section -- Worker_evaluation
       initialDelaySeconds: 0
@@ -4062,13 +4097,18 @@ worker_evaluation:
       # @section -- Worker_evaluation
       timeoutSeconds: 5
     readinessProbe:
-      httpGet:
-        # -- Worker_evaluation container healthcheck endpoint (readinessProbe is defined using `toYaml` so it is possible to override it completely).
-        # @section -- Worker_evaluation
-        path: "/"
-        # -- Port to use for healthcheck (defaults to container port).
-        # @section -- Worker_evaluation
-        port: *agent_executionContainerPort
+      # -- Worker_evaluation container healthcheck (readinessProbe is defined using `toYaml` so it is possible to override it completely).
+      # Uses `celery inspect ping` since Celery workers don't expose an HTTP endpoint.
+      # @section -- Worker_evaluation
+      exec:
+        command:
+          - celery
+          - -A
+          - app.celery_app
+          - inspect
+          - ping
+          - -d
+          - celery@$(HOSTNAME)
       # -- Number of seconds after the container has started before probe is initiated.
       # @section -- Worker_evaluation
       initialDelaySeconds: 10
@@ -4085,13 +4125,18 @@ worker_evaluation:
       # @section -- Worker_evaluation
       timeoutSeconds: 5
     livenessProbe:
-      httpGet:
-        # -- Worker_evaluation container healthcheck endpoint (livenessProbe is defined using `toYaml` so it is possible to override it completely).
-        # @section -- Worker_evaluation
-        path: "/"
-        # -- Port to use for healthcheck (defaults to container port).
-        # @section -- Worker_evaluation
-        port: *agent_executionContainerPort
+      # -- Worker_evaluation container healthcheck (livenessProbe is defined using `toYaml` so it is possible to override it completely).
+      # Uses `celery inspect ping` since Celery workers don't expose an HTTP endpoint.
+      # @section -- Worker_evaluation
+      exec:
+        command:
+          - celery
+          - -A
+          - app.celery_app
+          - inspect
+          - ping
+          - -d
+          - celery@$(HOSTNAME)
       # -- Number of seconds after the container has started before probe is initiated.
       # @section -- Worker_evaluation
       initialDelaySeconds: 30
