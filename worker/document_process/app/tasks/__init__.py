@@ -48,10 +48,10 @@ from app.tasks.process import (  # noqa: F401
     _process_file,
     _process_url,
     process_document,
-    process_tabular_document,
 )
 from app.tasks.qa import generate_collection_qa, generate_qa_window  # noqa: F401
 from app.tasks.summarize import summarize_document, tag_document  # noqa: F401
+from app.tasks.tabular import process_tabular_document  # noqa: F401
 
 __all__ = [
     # Constants
