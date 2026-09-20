@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.1-rc](https://github.com/IA-Generative/Muffin/compare/v0.7.0...v0.7.1-rc) (2026-09-20)
+
+
+### Bug Fixes
+
+* make default aws variable name ([3fee939](https://github.com/IA-Generative/Muffin/commit/3fee9394238664e7c83870d7bc06f496c1cb31ff))
+
 ## [0.7.0](https://github.com/IA-Generative/Muffin/compare/v0.6.0...v0.7.0) (2026-09-20)
 
 
