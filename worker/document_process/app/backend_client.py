@@ -22,7 +22,11 @@ class BackendClient:
         return response.json()
 
     def update_status(
-        self, document_id: str, status: str, progress: int | None = None, summary: str | None = None
+        self,
+        document_id: str,
+        status: str,
+        progress: int | None = None,
+        summary: str | None = None,
     ) -> None:
         body: dict[str, Any] = {"status": status}
         if progress is not None:
@@ -32,10 +36,20 @@ class BackendClient:
         response = self._client.patch(f"/api/internal/documents/{document_id}/status", json=body)
         response.raise_for_status()
 
-    def add_page(self, document_id: str, page_number: int, content: str, screenshot: str | None = None) -> None:
+    def add_page(
+        self,
+        document_id: str,
+        page_number: int,
+        content: str,
+        screenshot: str | None = None,
+    ) -> None:
         response = self._client.post(
             f"/api/internal/documents/{document_id}/pages",
-            json={"page_number": page_number, "content": content, "screenshot": screenshot},
+            json={
+                "page_number": page_number,
+                "content": content,
+                "screenshot": screenshot,
+            },
         )
         response.raise_for_status()
 
@@ -55,18 +69,31 @@ class BackendClient:
     ) -> None:
         response = self._client.post(
             f"/api/internal/documents/{document_id}/chunks",
-            json={"index": index, "text": text, "token_count": token_count, "extras": extras, "embedding": embedding},
+            json={
+                "index": index,
+                "text": text,
+                "token_count": token_count,
+                "extras": extras,
+                "embedding": embedding,
+            },
         )
         response.raise_for_status()
 
     def set_document_summary(self, document_id: str, summary: str, embedding: list[float] | None = None) -> None:
         response = self._client.patch(
-            f"/api/internal/documents/{document_id}/summary", json={"summary": summary, "embedding": embedding}
+            f"/api/internal/documents/{document_id}/summary",
+            json={"summary": summary, "embedding": embedding},
         )
         response.raise_for_status()
 
     def set_document_error(self, document_id: str, error: str) -> None:
         response = self._client.patch(f"/api/internal/documents/{document_id}/error", json={"error": error})
+        response.raise_for_status()
+
+    def set_tabular_profile(self, document_id: str, profile: dict[str, Any]) -> None:
+        """Persiste le profil tabulaire (stats DuckDB) d'un document via
+        l'endpoint interne dédié. Le profil est un JSONB côté backend."""
+        response = self._client.post(f"/api/internal/documents/{document_id}/tabular-profile", json=profile)
         response.raise_for_status()
 
     def replace_document_tags(self, document_id: str, tags: list[str]) -> None:
@@ -88,22 +115,42 @@ class BackendClient:
     ) -> None:
         response = self._client.post(
             f"/api/internal/collections/{collection_id}/qa-pairs",
-            json={"document_id": document_id, "question": question, "answer": answer, "embedding": embedding},
+            json={
+                "document_id": document_id,
+                "question": question,
+                "answer": answer,
+                "embedding": embedding,
+            },
         )
         response.raise_for_status()
 
     def upsert_entity(
-        self, collection_id: str, document_id: str, name: str, type_: str, mentions_delta: int = 1
+        self,
+        collection_id: str,
+        document_id: str,
+        name: str,
+        type_: str,
+        mentions_delta: int = 1,
     ) -> dict[str, Any]:
         response = self._client.post(
             f"/api/internal/collections/{collection_id}/entities",
-            json={"document_id": document_id, "name": name, "type": type_, "mentions_delta": mentions_delta},
+            json={
+                "document_id": document_id,
+                "name": name,
+                "type": type_,
+                "mentions_delta": mentions_delta,
+            },
         )
         response.raise_for_status()
         return response.json()
 
     def create_relation(
-        self, collection_id: str, document_id: str, from_entity_id: str, to_entity_id: str, type_: str
+        self,
+        collection_id: str,
+        document_id: str,
+        from_entity_id: str,
+        to_entity_id: str,
+        type_: str,
     ) -> None:
         response = self._client.post(
             f"/api/internal/collections/{collection_id}/relations",
@@ -117,7 +164,11 @@ class BackendClient:
         response.raise_for_status()
 
     def create_task(
-        self, celery_task_id: str, task_name: str, document_id: str, parent_celery_task_id: str | None = None
+        self,
+        celery_task_id: str,
+        task_name: str,
+        document_id: str,
+        parent_celery_task_id: str | None = None,
     ) -> None:
         response = self._client.post(
             "/api/internal/tasks",
@@ -136,7 +187,8 @@ class BackendClient:
 
     def llm_chat(self, model: str, messages: list[dict[str, str]], max_tokens: int | None = None) -> str:
         response = self._client.post(
-            "/api/internal/llm/chat", json={"model": model, "messages": messages, "max_tokens": max_tokens}
+            "/api/internal/llm/chat",
+            json={"model": model, "messages": messages, "max_tokens": max_tokens},
         )
         response.raise_for_status()
         return response.json()["content"]
@@ -158,7 +210,8 @@ class BackendClient:
 
     def update_collection_description(self, collection_id: str, description: str) -> None:
         response = self._client.patch(
-            f"/api/internal/collections/{collection_id}/description", json={"description": description}
+            f"/api/internal/collections/{collection_id}/description",
+            json={"description": description},
         )
         response.raise_for_status()
 
