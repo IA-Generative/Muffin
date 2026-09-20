@@ -7,15 +7,26 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.security.factory import RequestContext, get_current_user
 from app.db import get_db
 from app.schemas.collection import EntityOut, RelationOut
-from app.schemas.document import DocumentDetailOut, DocumentOut, DocumentPageOut, DocumentUrlCreate
+from app.schemas.document import (
+    DocumentDetailOut,
+    DocumentOut,
+    DocumentPageOut,
+    DocumentUrlCreate,
+    TabularProfileOut,
+)
 from app.schemas.pagination import Page, PaginationParams
 from app.services.collection_service import CollectionNotFoundError
-from app.services.document_upload_service import DocumentNotFoundError, DocumentUploadService
+from app.services.document_upload_service import (
+    DocumentNotFoundError,
+    DocumentUploadService,
+)
 
 router = APIRouter(tags=["Documents"])
 
 
-def get_document_upload_service(db: Annotated[AsyncSession, Depends(get_db)]) -> DocumentUploadService:
+def get_document_upload_service(
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> DocumentUploadService:
     return DocumentUploadService(db)
 
 
@@ -56,7 +67,11 @@ async def get_document(
     summary="Stream a page's screenshot through the backend (never a direct/public storage URL)",
 )
 async def get_page_screenshot(
-    collection_id: uuid.UUID, document_id: uuid.UUID, page_number: int, user: UserDep, service: ServiceDep
+    collection_id: uuid.UUID,
+    document_id: uuid.UUID,
+    page_number: int,
+    user: UserDep,
+    service: ServiceDep,
 ) -> Response:
     try:
         content, content_type = await service.get_page_screenshot(collection_id, user, document_id, page_number)
@@ -81,6 +96,22 @@ async def list_document_pages(
 ) -> Page[DocumentPageOut]:
     try:
         return await service.list_pages(collection_id, user, document_id, pagination)
+    except CollectionNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
+    except DocumentNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found") from error
+
+
+@router.get(
+    "/collections/{collection_id}/documents/{document_id}/tabular-profile",
+    summary="Get the tabular profile (stats, schema, classification) of a tabular document",
+    response_model=TabularProfileOut | None,
+)
+async def get_tabular_profile(
+    collection_id: uuid.UUID, document_id: uuid.UUID, user: UserDep, service: ServiceDep
+) -> TabularProfileOut | None:
+    try:
+        return await service.get_tabular_profile(collection_id, user, document_id)
     except CollectionNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
     except DocumentNotFoundError as error:
@@ -131,7 +162,11 @@ async def create_file_document(
     try:
         content = await file.read()
         return await service.create_file_document(
-            collection_id, user, file.filename or "document", content, file.content_type or "application/octet-stream"
+            collection_id,
+            user,
+            file.filename or "document",
+            content,
+            file.content_type or "application/octet-stream",
         )
     except CollectionNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
@@ -144,7 +179,10 @@ async def create_file_document(
     response_model=DocumentOut,
 )
 async def create_url_document(
-    collection_id: uuid.UUID, body: DocumentUrlCreate, user: UserDep, service: ServiceDep
+    collection_id: uuid.UUID,
+    body: DocumentUrlCreate,
+    user: UserDep,
+    service: ServiceDep,
 ) -> DocumentOut:
     try:
         return await service.create_url_document(collection_id, user, body.url)

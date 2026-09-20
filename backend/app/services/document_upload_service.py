@@ -12,7 +12,12 @@ from app.repositories.document_repository import DocumentRepository
 from app.repositories.entity_repository import EntityRepository
 from app.repositories.task_repository import TaskRepository
 from app.schemas.collection import EntityOut, RelationOut
-from app.schemas.document import DocumentDetailOut, DocumentOut, DocumentPageOut
+from app.schemas.document import (
+    DocumentDetailOut,
+    DocumentOut,
+    DocumentPageOut,
+    TabularProfileOut,
+)
 from app.schemas.pagination import Page, PaginationParams
 from app.services import vector_store
 
@@ -124,6 +129,16 @@ class DocumentUploadService:
             tags=[tag.tag for tag in document.tags],
             page_count=page_count,
         )
+
+    async def get_tabular_profile(
+        self, collection_id: uuid.UUID, user: RequestContext, document_id: uuid.UUID
+    ) -> TabularProfileOut | None:
+        await self._get_owned_collection(collection_id, user)
+        await self._get_owned_document(collection_id, document_id)
+        profile = await self.documents.get_tabular_profile(document_id)
+        if profile is None:
+            return None
+        return TabularProfileOut.model_validate(profile)
 
     async def list_pages(
         self,

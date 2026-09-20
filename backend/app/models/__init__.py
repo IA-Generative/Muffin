@@ -20,6 +20,7 @@ from app.models.document import (
     DocumentTag,
     DocumentType,
 )
+from app.models.document_tabular_profile import DocumentTabularProfile
 from app.models.entity import Entity, EntityType, Relation
 from app.models.evaluation import (
     EvaluationResult,
@@ -57,6 +58,7 @@ __all__ = [
     "DocumentPage",
     "DocumentStatus",
     "DocumentTag",
+    "DocumentTabularProfile",
     "DocumentType",
     "Entity",
     "EntityType",
