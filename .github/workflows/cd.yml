@@ -41,7 +41,7 @@ env:
   CHART_NAME: helm
   # Only the plain-HTTP dependencies need declaring; the cloudpirates charts
   # are pulled straight from their OCI registry.
-  HELM_REPOS: cnpg=https://cloudnative-pg.github.io/charts,meilisearch=https://meilisearch.github.io/meilisearch-kubernetes,searxng=https://charts.kubito.dev
+  HELM_REPOS: cnpg=https://cloudnative-pg.github.io/charts,meilisearch=https://meilisearch.github.io/meilisearch-kubernetes,searxng=https://unknowniq.github.io/helm-charts
 
 jobs:
   expose-vars:
