@@ -4619,3 +4619,57 @@ worker_evaluation:
           # -- Prometheus ServiceMonitor tlsConfig.
           # @section -- Worker_evaluation
           tlsConfig: {}
+
+## ---------------------------------------------------------------------------
+## SearXNG subchart configuration.
+## ---------------------------------------------------------------------------
+## The unknowniq/searxng chart (v0.1.11) ships with an embedded Valkey
+## subchart, disabled by default. When Valkey is disabled, the chart still
+## renders `valkey.url: "false"` in settings.yml — SearXNG interprets the
+## string "false" as a URL and tries to connect to `searxng-cache:6379`,
+## causing a ConnectionRefusedError crash loop.
+## We point SearXNG at the existing muffin-redis service instead and disable
+## the embedded Valkey subchart.
+searxng:
+  # -- Enable the SearXNG subchart.
+  enabled: true
+
+  # -- Disable the embedded Valkey subchart; we use the top-level `redis`
+  # subchart (service: muffin-redis:6379) instead.
+  valkey:
+    enabled: false
+
+  # -- Pod-level security context. The chart defaults to runAsUser: 977
+  # (the `searxng` user inside the image) with fsGroup: 977. We add
+  # `fsGroupChangePolicy: Always` so Kubernetes recursively chowns the
+  # emptyDir contents on every pod start, ensuring /etc/searxng files are
+  # owned by searxng:searxng (the init container copies from a root-owned
+  # ConfigMap and cannot chown itself since it runs non-root).
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 977
+    runAsGroup: 977
+    fsGroup: 977
+    fsGroupChangePolicy: Always
+
+  # -- SearXNG settings.yml overrides merged on top of the chart defaults.
+  # `extraConfig` is deep-merged via Helm's `mergeOverwrite`, so only the
+  # keys below are overridden — the rest (engines, brand, outgoing...) come
+  # from the chart's built-in defaults.
+  extraConfig:
+    valkey:
+      # Point SearXNG at the existing Redis service deployed by the top-level
+      # `redis` subchart. Using the `valkey://` scheme is fine — SearXNG uses
+      # the `valkey` Python client which is Redis-protocol compatible.
+      url: "valkey://muffin-redis:6379/0"
+    server:
+      # Enable the rate limiter now that we have a working Valkey/Redis backend.
+      limiter: true
+
+  # -- Persistence for the config directory. Disabled by default — the init
+  # container copies settings.yml from the ConfigMap into an emptyDir on
+  # every pod start, which is the desired behaviour (config changes via
+  # Helm upgrade, not persisted across restarts).
+  persistence:
+    config:
+      enabled: false
