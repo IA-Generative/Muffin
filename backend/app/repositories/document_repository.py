@@ -14,6 +14,7 @@ from app.models.document import (
     DocumentTag,
     DocumentType,
 )
+from app.models.document_tabular_profile import DocumentTabularProfile
 
 
 class DocumentRepository:
@@ -174,6 +175,55 @@ class DocumentRepository:
 
     async def set_error(self, document: Document, error: str) -> None:
         document.error = error
+
+    async def upsert_tabular_profile(
+        self,
+        document_id: uuid.UUID,
+        row_count: int,
+        column_count: int,
+        format_: str,
+        columns: list[dict[str, Any]],
+        sample_rows: list[dict[str, Any]],
+        measures: list[str] | None = None,
+        dimensions: list[str] | None = None,
+        text_columns: list[str] | None = None,
+    ) -> DocumentTabularProfile:
+        """Insert or replace the tabular profile for a document. A reindex
+        would call this again with fresh stats - we replace rather than
+        error on the unique constraint."""
+        existing = await self.db.scalar(
+            select(DocumentTabularProfile).where(DocumentTabularProfile.document_id == document_id)
+        )
+        if existing is not None:
+            existing.row_count = row_count
+            existing.column_count = column_count
+            existing.format = format_
+            existing.columns = columns
+            existing.sample_rows = sample_rows
+            existing.measures = measures or []
+            existing.dimensions = dimensions or []
+            existing.text_columns = text_columns or []
+            return existing
+        profile = DocumentTabularProfile(
+            document_id=document_id,
+            row_count=row_count,
+            column_count=column_count,
+            format=format_,
+            columns=columns,
+            sample_rows=sample_rows,
+            measures=measures or [],
+            dimensions=dimensions or [],
+            text_columns=text_columns or [],
+        )
+        self.db.add(profile)
+        await self.db.flush()
+        return profile
+
+    async def get_tabular_profile(self, document_id: uuid.UUID) -> DocumentTabularProfile | None:
+        result = await self.db.execute(
+            select(DocumentTabularProfile).where(DocumentTabularProfile.document_id == document_id)
+        )
+        return result.scalar_one_or_none()
 
     async def replace_tags(self, document: Document, tags: list[str]) -> None:
         # Adds directly rather than assigning `document.tags = [...]`: that

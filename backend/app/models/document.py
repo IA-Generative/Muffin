@@ -51,6 +51,9 @@ class Document(UUIDMixin, TimestampMixin, Base):
         back_populates="document", cascade="all, delete-orphan", order_by="Chunk.index"
     )
     tags: Mapped[list["DocumentTag"]] = relationship(back_populates="document", cascade="all, delete-orphan")
+    tabular_profile: Mapped["DocumentTabularProfile | None"] = relationship(  # noqa: F821
+        back_populates="document", cascade="all, delete-orphan", uselist=False
+    )
 
 
 class DocumentTag(Base):

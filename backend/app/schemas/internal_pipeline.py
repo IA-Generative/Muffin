@@ -1,4 +1,5 @@
 import uuid
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -116,6 +117,32 @@ class CollectionTagsUpdate(BaseModel):
 class CollectionDescriptionEmbeddingUpdate(BaseModel):
     model: str
     embedding: list[float]
+
+
+class ColumnStatsIn(BaseModel):
+    name: str
+    type: str
+    semantic_type: str = "other"
+    null_count: int
+    distinct_count: int
+    top_values: list[dict[str, Any]] = []
+    numeric_stats: dict[str, float | int | None] | None = None
+    date_stats: dict[str, str | None] | None = None
+    text_stats: dict[str, int | float | None] | None = None
+
+
+class TabularProfileCreate(BaseModel):
+    """Profil tabulaire envoyé par le worker document_process après analyse
+    DuckDB d'un fichier CSV/XLSX/Parquet/JSON - voir issue #69."""
+
+    row_count: int
+    column_count: int
+    columns: list[ColumnStatsIn]
+    sample_rows: list[dict[str, Any]]
+    format: str
+    measures: list[str] = []
+    dimensions: list[str] = []
+    text_columns: list[str] = []
 
 
 class LlmEmbedRequest(BaseModel):

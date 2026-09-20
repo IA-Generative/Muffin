@@ -4,8 +4,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.chunk import Chunk
 from app.models.document import Document, DocumentPage, DocumentStatus
+from app.models.document_tabular_profile import DocumentTabularProfile
 from app.repositories.document_repository import DocumentRepository
-from app.schemas.internal_document import ChunkCreate, DocumentPageCreate, DocumentStatusUpdate
+from app.schemas.internal_document import (
+    ChunkCreate,
+    DocumentPageCreate,
+    DocumentStatusUpdate,
+)
+from app.schemas.internal_pipeline import TabularProfileCreate
 from app.services import vector_store
 
 
@@ -60,6 +66,29 @@ class DocumentService:
         document = await self.get_document(document_id)
         await self.repository.set_error(document, error)
         await self.db.commit()
+
+    async def set_tabular_profile(
+        self, document_id: uuid.UUID, profile: TabularProfileCreate
+    ) -> DocumentTabularProfile:
+        await self.get_document(document_id)
+        created = await self.repository.upsert_tabular_profile(
+            document_id=document_id,
+            row_count=profile.row_count,
+            column_count=profile.column_count,
+            format_=profile.format,
+            columns=[col.model_dump() for col in profile.columns],
+            sample_rows=profile.sample_rows,
+            measures=profile.measures,
+            dimensions=profile.dimensions,
+            text_columns=profile.text_columns,
+        )
+        await self.db.commit()
+        await self.db.refresh(created)
+        return created
+
+    async def get_tabular_profile(self, document_id: uuid.UUID) -> DocumentTabularProfile | None:
+        await self.get_document(document_id)
+        return await self.repository.get_tabular_profile(document_id)
 
     async def replace_tags(self, document_id: uuid.UUID, tags: list[str]) -> None:
         document = await self.get_document(document_id)
