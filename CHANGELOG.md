@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.3-rc](https://github.com/IA-Generative/Muffin/compare/v0.7.2...v0.7.3-rc) (2026-09-20)
+
+
+### Bug Fixes
+
+* **helm:** configure SearXNG to use existing Redis and fix permissions ([5a62726](https://github.com/IA-Generative/Muffin/commit/5a62726cfb704ab2529a5b33803de419caab06bc))
+* **helm:** correct probes to prevent production restart loop ([1b5c07b](https://github.com/IA-Generative/Muffin/commit/1b5c07b04582afd3783edbb1deeb47f316131715))
+
 ## [0.7.2](https://github.com/IA-Generative/Muffin/compare/v0.7.1...v0.7.2) (2026-09-20)
 
 
