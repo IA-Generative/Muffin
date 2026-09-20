@@ -26,6 +26,7 @@ def chunk_document(
     skip_summary: bool = False,
     skip_qa: bool = False,
     skip_chunking: bool = False,
+    skip_extraction: bool = False,
 ) -> None:
     """Applies the collection's configured chunking strategy to the pages
     process_document wrote. Chunking is what gates "indexed" - summary,
@@ -45,7 +46,12 @@ def chunk_document(
     ``skip_chunking`` is also used by the tabular pipeline: a CSV dump chunked
     into text is not useful for vector search (the Parquet export + profile
     already cover data access), so the tabular pipeline skips chunking
-    entirely and goes straight to "indexed" + tagging + extraction."""
+    entirely and goes straight to "indexed".
+
+    ``skip_extraction`` is also used by the tabular pipeline: entity extraction
+    on raw CSV rows is slow (LLM per window) and low-value for tabular data
+    where the profile already captures the structure. The tabular pipeline
+    skips it entirely."""
     with capture_task_logs(self.request.id):
         try:
             settings = _shared.backend_client.get_collection_settings(collection_id)
@@ -120,18 +126,19 @@ def chunk_document(
                         document_id,
                         parent_id,
                     )
-            for start, end in sliding_windows(
-                total_pages,
-                windows["extraction_window_pages"],
-                windows["extraction_slide_pages"],
-            ):
-                _shared._spawn(
-                    extract_entities_window,
-                    [document_id, collection_id, start, end],
-                    "app.tasks.extract_entities_window",
-                    document_id,
-                    parent_id,
-                )
+            if not skip_extraction:
+                for start, end in sliding_windows(
+                    total_pages,
+                    windows["extraction_window_pages"],
+                    windows["extraction_slide_pages"],
+                ):
+                    _shared._spawn(
+                        extract_entities_window,
+                        [document_id, collection_id, start, end],
+                        "app.tasks.extract_entities_window",
+                        document_id,
+                        parent_id,
+                    )
         except Exception as error:
             _shared.backend_client.update_status(document_id, status="error")
             _shared._fail(document_id, "chunk", error)

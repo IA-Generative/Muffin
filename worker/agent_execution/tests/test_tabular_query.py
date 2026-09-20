@@ -319,3 +319,13 @@ class TestBuildSqlGenPrompt:
         assert "Question: what is the sum of x?" in prompt
         assert '"x" INTEGER' in prompt
         assert "Table: source (50 rows, 1 columns)" in prompt
+
+    def test_prompt_instructs_try_cast_for_null_handling(self):
+        """The SQL gen system prompt must tell the LLM to use TRY_CAST (not CAST) and to handle
+        null-like strings ('Null', 'null', 'N/A', '') in CSV data - without this, a CAST
+        on a column containing the literal string 'Null' raises a Conversion Error."""
+        from app.graph.services.tabular_query import _SQL_GEN_SYSTEM_PROMPT
+
+        assert "TRY_CAST" in _SQL_GEN_SYSTEM_PROMPT
+        assert "Null" in _SQL_GEN_SYSTEM_PROMPT or "null" in _SQL_GEN_SYSTEM_PROMPT
+        assert "DOUBLE" in _SQL_GEN_SYSTEM_PROMPT

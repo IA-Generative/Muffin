@@ -11,7 +11,16 @@ _SYSTEM_PROMPT = (
     "some information is missing, say so plainly instead of guessing or narrating your internal process. "
     'If the query asks for a count (e.g. "how many collections/documents"), each excerpt below already '
     "represents one distinct item unless it says otherwise - count the excerpts and state that number "
-    "directly. Never refuse to count just because no single excerpt states the total as a sentence."
+    "directly. Never refuse to count just because no single excerpt states the total as a sentence.\n\n"
+    "Formatting:\n"
+    "- Use markdown for structure: **bold** for key numbers, `code` for column names.\n"
+    "- When the evidence contains tabular results (SQL query results with rows and columns), "
+    "format the answer as a markdown table with proper headers and alignment.\n"
+    "- When listing multiple items (e.g. top 5, rankings), use a markdown table with a rank column.\n"
+    "- For a single value answer (e.g. a count, an average), state it directly and prominently in bold.\n"
+    "- For grouped/comparison results, always use a markdown table - never a plain text list.\n"
+    "- Keep the answer concise: lead with the direct answer, then the supporting table or breakdown.\n"
+    "- Respond in the same language as the user's query."
 )
 
 

@@ -23,6 +23,8 @@ pour faciliter le test unitaire.
 
 from __future__ import annotations
 
+import csv
+import io
 from typing import Any
 
 from loguru import logger
@@ -103,10 +105,13 @@ def persist_profile(profile: TabularProfile, document_id: str) -> None:
 def serialize_to_csv_page(table: LoadedTable, document_id: str) -> None:
     """Sérialise la table en CSV (depuis DuckDB) et l'écrit comme une
     seule page de texte pour le chunker classique."""
-    csv_text = table.connection.execute(
-        f"COPY (SELECT * FROM {table.table_name}) TO '/dev/stdout' (HEADER, DELIMITER ',')"
-    ).fetchall()
-    page_content = "\n".join(row[0] for row in csv_text if row and row[0])
+    rows = table.connection.execute(f"SELECT * FROM {table.table_name}").fetchall()
+    columns = [desc[0] for desc in table.connection.description]
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(columns)
+    writer.writerows(rows)
+    page_content = buffer.getvalue()
     _shared.backend_client.add_page(document_id, page_number=1, content=page_content)
 
 
