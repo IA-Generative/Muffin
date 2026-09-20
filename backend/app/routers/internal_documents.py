@@ -13,15 +13,26 @@ from app.schemas.internal_document import (
     DocumentStatusUpdate,
     InternalDocumentOut,
 )
-from app.schemas.internal_pipeline import DocumentErrorUpdate, DocumentSummaryUpdate, DocumentTagsUpdate
+from app.schemas.internal_pipeline import (
+    DocumentErrorUpdate,
+    DocumentSummaryUpdate,
+    DocumentTagsUpdate,
+    TabularProfileCreate,
+)
 from app.services.document_service import DocumentNotFoundError, DocumentService
 
 # Not user-facing: called by the document-processing worker, authenticated
 # with a shared API key instead of a Keycloak session.
-router = APIRouter(prefix="/internal", tags=["Internal"], dependencies=[Depends(require_worker_api_key)])
+router = APIRouter(
+    prefix="/internal",
+    tags=["Internal"],
+    dependencies=[Depends(require_worker_api_key)],
+)
 
 
-def get_document_service(db: Annotated[AsyncSession, Depends(get_db)]) -> DocumentService:
+def get_document_service(
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> DocumentService:
     return DocumentService(db)
 
 
@@ -99,7 +110,10 @@ async def list_document_pages(document_id: uuid.UUID, service: ServiceDep) -> li
     return [DocumentPageOut(page_number=page.page_number, content=page.content) for page in pages]
 
 
-@router.patch("/documents/{document_id}/summary", summary="Report the generated summary for a document")
+@router.patch(
+    "/documents/{document_id}/summary",
+    summary="Report the generated summary for a document",
+)
 async def update_document_summary(
     document_id: uuid.UUID, update: DocumentSummaryUpdate, service: ServiceDep
 ) -> dict[str, str]:
@@ -110,7 +124,10 @@ async def update_document_summary(
     return {"status": "ok"}
 
 
-@router.patch("/documents/{document_id}/error", summary="Report a pipeline-step error for a document")
+@router.patch(
+    "/documents/{document_id}/error",
+    summary="Report a pipeline-step error for a document",
+)
 async def update_document_error(
     document_id: uuid.UUID, update: DocumentErrorUpdate, service: ServiceDep
 ) -> dict[str, str]:
@@ -127,6 +144,21 @@ async def replace_document_tags(
 ) -> dict[str, str]:
     try:
         await service.replace_tags(document_id, update.tags)
+    except DocumentNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found") from error
+    return {"status": "ok"}
+
+
+@router.post(
+    "/documents/{document_id}/tabular-profile",
+    summary="Persist the DuckDB-computed statistical profile of a tabular document",
+    status_code=status.HTTP_201_CREATED,
+)
+async def set_tabular_profile(
+    document_id: uuid.UUID, profile: TabularProfileCreate, service: ServiceDep
+) -> dict[str, str]:
+    try:
+        await service.set_tabular_profile(document_id, profile)
     except DocumentNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found") from error
     return {"status": "ok"}
