@@ -1,6 +1,6 @@
 # muffin
 
-![Version: 0.5.3](https://img.shields.io/badge/Version-0.5.3-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.7.2](https://img.shields.io/badge/AppVersion-0.7.2-informational?style=flat-square)
+![Version: 0.5.4](https://img.shields.io/badge/Version-0.5.4-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.7.3](https://img.shields.io/badge/AppVersion-0.7.3-informational?style=flat-square)
 
 A Helm chart to deploy Muffin.
 
@@ -64,7 +64,7 @@ Kubernetes: `>=1.25.0-0`
 | agent_execution.args | list | `[]` | Agent_execution container command args. |
 | agent_execution.automountServiceAccountToken | bool | `false` | Mount the ServiceAccount token into the app pods. Defaults to false so a compromised container holds no API credentials; the API server does not need the token unless the app actually talks to the Kubernetes API. Applied at pod level so it holds even when `serviceAccount.name` points at an SA that automounts. |
 | agent_execution.command | list | `[]` | Agent_execution container command. |
-| agent_execution.containerPort | int | `8080` | Agent_execution container port number. Set to `null`/`0` (and disable `service`/probes) for components that don't listen on any port (e.g. a queue consumer). |
+| agent_execution.containerPort | string | `nil` | Agent_execution container port number. Set to `null`/`0` (and disable `service`/probes) for components that don't listen on any port (e.g. a queue consumer). |
 | agent_execution.containerPortName | string | `"http"` | Agent_execution container port name. |
 | agent_execution.deploymentType | string | `"Deployment"` | Workload kind to deploy the app as. One of "Deployment", "StatefulSet" or "DaemonSet" (validated at render time - an unknown value fails instead of producing a release with no workload). Use the top-level `jobs` / `cronjobs` maps for one-off or scheduled workloads. Some values only apply to certain kinds: `replicaCount`/`autoscaling` and `strategy` are Deployment-only (`autoscaling` also works on a StatefulSet), `volumeClaims`/`extraVolumeClaims` are StatefulSet-only, and `updateStrategy` covers StatefulSet and DaemonSet. |
 | agent_execution.dnsConfig | object | `{}` | Pod DNS configuration, merged with `dnsPolicy` by the kubelet. |
@@ -211,23 +211,20 @@ Kubernetes: `>=1.25.0-0`
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
+| agent_execution.probes.livenessProbe.exec | object | `{"command":["celery","-A","app.celery_app","inspect","ping","-d","celery@$(HOSTNAME)"]}` | Agent_execution container healthcheck (livenessProbe is defined using `toYaml` so it is possible to override it completely). Uses `celery inspect ping` since Celery workers don't expose an HTTP endpoint. |
 | agent_execution.probes.livenessProbe.failureThreshold | int | `3` | Minimum consecutive failures for the probe to be considered failed after having succeeded. |
-| agent_execution.probes.livenessProbe.httpGet.path | string | `"/"` | Agent_execution container healthcheck endpoint (livenessProbe is defined using `toYaml` so it is possible to override it completely). |
-| agent_execution.probes.livenessProbe.httpGet.port | int | `8080` | Port to use for healthcheck (defaults to container port). |
 | agent_execution.probes.livenessProbe.initialDelaySeconds | int | `30` | Number of seconds after the container has started before probe is initiated. |
 | agent_execution.probes.livenessProbe.periodSeconds | int | `30` | How often (in seconds) to perform the probe. |
 | agent_execution.probes.livenessProbe.successThreshold | int | `1` | Minimum consecutive successes for the probe to be considered successful after having failed. |
 | agent_execution.probes.livenessProbe.timeoutSeconds | int | `5` | Number of seconds after which the probe times out. |
+| agent_execution.probes.readinessProbe.exec | object | `{"command":["celery","-A","app.celery_app","inspect","ping","-d","celery@$(HOSTNAME)"]}` | Agent_execution container healthcheck (readinessProbe is defined using `toYaml` so it is possible to override it completely). Uses `celery inspect ping` since Celery workers don't expose an HTTP endpoint. |
 | agent_execution.probes.readinessProbe.failureThreshold | int | `2` | Minimum consecutive failures for the probe to be considered failed after having succeeded. |
-| agent_execution.probes.readinessProbe.httpGet.path | string | `"/"` | Agent_execution container healthcheck endpoint (readinessProbe is defined using `toYaml` so it is possible to override it completely). |
-| agent_execution.probes.readinessProbe.httpGet.port | int | `8080` | Port to use for healthcheck (defaults to container port). |
 | agent_execution.probes.readinessProbe.initialDelaySeconds | int | `10` | Number of seconds after the container has started before probe is initiated. |
 | agent_execution.probes.readinessProbe.periodSeconds | int | `10` | How often (in seconds) to perform the probe. |
 | agent_execution.probes.readinessProbe.successThreshold | int | `2` | Minimum consecutive successes for the probe to be considered successful after having failed. |
 | agent_execution.probes.readinessProbe.timeoutSeconds | int | `5` | Number of seconds after which the probe times out. |
+| agent_execution.probes.startupProbe.exec | object | `{"command":["celery","-A","app.celery_app","inspect","ping","-d","celery@$(HOSTNAME)"]}` | Agent_execution container healthcheck (startupProbe is defined using `toYaml` so it is possible to override it completely). Uses `celery inspect ping` since Celery workers don't expose an HTTP endpoint. |
 | agent_execution.probes.startupProbe.failureThreshold | int | `10` | Minimum consecutive failures for the probe to be considered failed after having succeeded. |
-| agent_execution.probes.startupProbe.httpGet.path | string | `"/"` | Agent_execution container healthcheck endpoint (startupProbe is defined using `toYaml` so it is possible to override it completely). |
-| agent_execution.probes.startupProbe.httpGet.port | int | `8080` | Port to use for healthcheck (defaults to container port). |
 | agent_execution.probes.startupProbe.initialDelaySeconds | int | `0` | Number of seconds after the container has started before probe is initiated. |
 | agent_execution.probes.startupProbe.periodSeconds | int | `10` | How often (in seconds) to perform the probe. |
 | agent_execution.probes.startupProbe.successThreshold | int | `1` | Minimum consecutive successes for the probe to be considered successful after having failed. |
@@ -434,21 +431,21 @@ Kubernetes: `>=1.25.0-0`
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | backend.probes.livenessProbe.failureThreshold | int | `3` | Minimum consecutive failures for the probe to be considered failed after having succeeded. |
-| backend.probes.livenessProbe.httpGet.path | string | `"/"` | Backend container healthcheck endpoint (livenessProbe is defined using `toYaml` so it is possible to override it completely). |
+| backend.probes.livenessProbe.httpGet.path | string | `"/api/health"` | Backend container healthcheck endpoint (livenessProbe is defined using `toYaml` so it is possible to override it completely). |
 | backend.probes.livenessProbe.httpGet.port | int | `8080` | Port to use for healthcheck (defaults to container port). |
 | backend.probes.livenessProbe.initialDelaySeconds | int | `30` | Number of seconds after the container has started before probe is initiated. |
 | backend.probes.livenessProbe.periodSeconds | int | `30` | How often (in seconds) to perform the probe. |
 | backend.probes.livenessProbe.successThreshold | int | `1` | Minimum consecutive successes for the probe to be considered successful after having failed. |
 | backend.probes.livenessProbe.timeoutSeconds | int | `5` | Number of seconds after which the probe times out. |
 | backend.probes.readinessProbe.failureThreshold | int | `2` | Minimum consecutive failures for the probe to be considered failed after having succeeded. |
-| backend.probes.readinessProbe.httpGet.path | string | `"/"` | Backend container healthcheck endpoint (readinessProbe is defined using `toYaml` so it is possible to override it completely). |
+| backend.probes.readinessProbe.httpGet.path | string | `"/api/health"` | Backend container healthcheck endpoint (readinessProbe is defined using `toYaml` so it is possible to override it completely). |
 | backend.probes.readinessProbe.httpGet.port | int | `8080` | Port to use for healthcheck (defaults to container port). |
 | backend.probes.readinessProbe.initialDelaySeconds | int | `10` | Number of seconds after the container has started before probe is initiated. |
 | backend.probes.readinessProbe.periodSeconds | int | `10` | How often (in seconds) to perform the probe. |
 | backend.probes.readinessProbe.successThreshold | int | `2` | Minimum consecutive successes for the probe to be considered successful after having failed. |
 | backend.probes.readinessProbe.timeoutSeconds | int | `5` | Number of seconds after which the probe times out. |
 | backend.probes.startupProbe.failureThreshold | int | `10` | Minimum consecutive failures for the probe to be considered failed after having succeeded. |
-| backend.probes.startupProbe.httpGet.path | string | `"/"` | Backend container healthcheck endpoint (startupProbe is defined using `toYaml` so it is possible to override it completely). |
+| backend.probes.startupProbe.httpGet.path | string | `"/api/health"` | Backend container healthcheck endpoint (startupProbe is defined using `toYaml` so it is possible to override it completely). |
 | backend.probes.startupProbe.httpGet.port | int | `8080` | Port to use for healthcheck (defaults to container port). |
 | backend.probes.startupProbe.initialDelaySeconds | int | `0` | Number of seconds after the container has started before probe is initiated. |
 | backend.probes.startupProbe.periodSeconds | int | `10` | How often (in seconds) to perform the probe. |
@@ -508,7 +505,7 @@ Kubernetes: `>=1.25.0-0`
 | document_process.args | list | `[]` | Document_process container command args. |
 | document_process.automountServiceAccountToken | bool | `false` | Mount the ServiceAccount token into the app pods. Defaults to false so a compromised container holds no API credentials; the API server does not need the token unless the app actually talks to the Kubernetes API. Applied at pod level so it holds even when `serviceAccount.name` points at an SA that automounts. |
 | document_process.command | list | `[]` | Document_process container command. |
-| document_process.containerPort | int | `8080` | Document_process container port number. Set to `null`/`0` (and disable `service`/probes) for components that don't listen on any port (e.g. a queue consumer). |
+| document_process.containerPort | string | `nil` | Document_process container port number. Set to `null`/`0` (and disable `service`/probes) for components that don't listen on any port (e.g. a queue consumer). |
 | document_process.containerPortName | string | `"http"` | Document_process container port name. |
 | document_process.deploymentType | string | `"Deployment"` | Workload kind to deploy the app as. One of "Deployment", "StatefulSet" or "DaemonSet" (validated at render time - an unknown value fails instead of producing a release with no workload). Use the top-level `jobs` / `cronjobs` maps for one-off or scheduled workloads. Some values only apply to certain kinds: `replicaCount`/`autoscaling` and `strategy` are Deployment-only (`autoscaling` also works on a StatefulSet), `volumeClaims`/`extraVolumeClaims` are StatefulSet-only, and `updateStrategy` covers StatefulSet and DaemonSet. |
 | document_process.dnsConfig | object | `{}` | Pod DNS configuration, merged with `dnsPolicy` by the kubelet. |
@@ -655,23 +652,20 @@ Kubernetes: `>=1.25.0-0`
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
+| document_process.probes.livenessProbe.exec | object | `{"command":["celery","-A","app.celery_app","inspect","ping","-d","celery@$(HOSTNAME)"]}` | Document_process container healthcheck (livenessProbe is defined using `toYaml` so it is possible to override it completely). Uses `celery inspect ping` since Celery workers don't expose an HTTP endpoint. |
 | document_process.probes.livenessProbe.failureThreshold | int | `3` | Minimum consecutive failures for the probe to be considered failed after having succeeded. |
-| document_process.probes.livenessProbe.httpGet.path | string | `"/"` | Document_process container healthcheck endpoint (livenessProbe is defined using `toYaml` so it is possible to override it completely). |
-| document_process.probes.livenessProbe.httpGet.port | int | `8080` | Port to use for healthcheck (defaults to container port). |
 | document_process.probes.livenessProbe.initialDelaySeconds | int | `30` | Number of seconds after the container has started before probe is initiated. |
 | document_process.probes.livenessProbe.periodSeconds | int | `30` | How often (in seconds) to perform the probe. |
 | document_process.probes.livenessProbe.successThreshold | int | `1` | Minimum consecutive successes for the probe to be considered successful after having failed. |
 | document_process.probes.livenessProbe.timeoutSeconds | int | `5` | Number of seconds after which the probe times out. |
+| document_process.probes.readinessProbe.exec | object | `{"command":["celery","-A","app.celery_app","inspect","ping","-d","celery@$(HOSTNAME)"]}` | Document_process container healthcheck (readinessProbe is defined using `toYaml` so it is possible to override it completely). Uses `celery inspect ping` since Celery workers don't expose an HTTP endpoint. |
 | document_process.probes.readinessProbe.failureThreshold | int | `2` | Minimum consecutive failures for the probe to be considered failed after having succeeded. |
-| document_process.probes.readinessProbe.httpGet.path | string | `"/"` | Document_process container healthcheck endpoint (readinessProbe is defined using `toYaml` so it is possible to override it completely). |
-| document_process.probes.readinessProbe.httpGet.port | int | `8080` | Port to use for healthcheck (defaults to container port). |
 | document_process.probes.readinessProbe.initialDelaySeconds | int | `10` | Number of seconds after the container has started before probe is initiated. |
 | document_process.probes.readinessProbe.periodSeconds | int | `10` | How often (in seconds) to perform the probe. |
 | document_process.probes.readinessProbe.successThreshold | int | `2` | Minimum consecutive successes for the probe to be considered successful after having failed. |
 | document_process.probes.readinessProbe.timeoutSeconds | int | `5` | Number of seconds after which the probe times out. |
+| document_process.probes.startupProbe.exec | object | `{"command":["celery","-A","app.celery_app","inspect","ping","-d","celery@$(HOSTNAME)"]}` | Document_process container healthcheck (startupProbe is defined using `toYaml` so it is possible to override it completely). Uses `celery inspect ping` since Celery workers don't expose an HTTP endpoint. |
 | document_process.probes.startupProbe.failureThreshold | int | `10` | Minimum consecutive failures for the probe to be considered failed after having succeeded. |
-| document_process.probes.startupProbe.httpGet.path | string | `"/"` | Document_process container healthcheck endpoint (startupProbe is defined using `toYaml` so it is possible to override it completely). |
-| document_process.probes.startupProbe.httpGet.port | int | `8080` | Port to use for healthcheck (defaults to container port). |
 | document_process.probes.startupProbe.initialDelaySeconds | int | `0` | Number of seconds after the container has started before probe is initiated. |
 | document_process.probes.startupProbe.periodSeconds | int | `10` | How often (in seconds) to perform the probe. |
 | document_process.probes.startupProbe.successThreshold | int | `1` | Minimum consecutive successes for the probe to be considered successful after having failed. |
@@ -956,6 +950,18 @@ Kubernetes: `>=1.25.0-0`
 | gateway.listeners | list | `[]` | Gateway listeners configuration. |
 | gateway.name | string | `""` | Name of the Gateway resource. If not set, uses the release fullname. |
 
+### Searxng
+
+#### General
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| searxng.enabled | bool | `true` | Enable the SearXNG subchart. |
+| searxng.extraConfig | object | `{"server":{"limiter":true},"valkey":{"url":"valkey://muffin-redis:6379/0"}}` | SearXNG settings.yml overrides merged on top of the chart defaults. `extraConfig` is deep-merged via Helm's `mergeOverwrite`, so only the keys below are overridden — the rest (engines, brand, outgoing...) come from the chart's built-in defaults. |
+| searxng.persistence | object | `{"config":{"enabled":false}}` | Persistence for the config directory. Disabled by default — the init container copies settings.yml from the ConfigMap into an emptyDir on every pod start, which is the desired behaviour (config changes via Helm upgrade, not persisted across restarts). |
+| searxng.podSecurityContext | object | `{"fsGroup":977,"fsGroupChangePolicy":"Always","runAsGroup":977,"runAsNonRoot":true,"runAsUser":977}` | Pod-level security context. The chart defaults to runAsUser: 977 (the `searxng` user inside the image) with fsGroup: 977. We add `fsGroupChangePolicy: Always` so Kubernetes recursively chowns the emptyDir contents on every pod start, ensuring /etc/searxng files are owned by searxng:searxng (the init container copies from a root-owned ConfigMap and cannot chown itself since it runs non-root). |
+| searxng.valkey | object | `{"enabled":false}` | Disable the embedded Valkey subchart; we use the top-level `redis` subchart (service: muffin-redis:6379) instead. |
+
 ### WorkerEvaluation
 
 #### General
@@ -966,7 +972,7 @@ Kubernetes: `>=1.25.0-0`
 | worker_evaluation.args | list | `[]` | Worker_evaluation container command args. |
 | worker_evaluation.automountServiceAccountToken | bool | `false` | Mount the ServiceAccount token into the app pods. Defaults to false so a compromised container holds no API credentials; the API server does not need the token unless the app actually talks to the Kubernetes API. Applied at pod level so it holds even when `serviceAccount.name` points at an SA that automounts. |
 | worker_evaluation.command | list | `[]` | Worker_evaluation container command. |
-| worker_evaluation.containerPort | int | `8080` | Worker_evaluation container port number. Set to `null`/`0` (and disable `service`/probes) for components that don't listen on any port (e.g. a queue consumer). |
+| worker_evaluation.containerPort | string | `nil` | Worker_evaluation container port number. Set to `null`/`0` (and disable `service`/probes) for components that don't listen on any port (e.g. a queue consumer). |
 | worker_evaluation.containerPortName | string | `"http"` | Worker_evaluation container port name. |
 | worker_evaluation.deploymentType | string | `"Deployment"` | Workload kind to deploy the app as. One of "Deployment", "StatefulSet" or "DaemonSet" (validated at render time - an unknown value fails instead of producing a release with no workload). Use the top-level `jobs` / `cronjobs` maps for one-off or scheduled workloads. Some values only apply to certain kinds: `replicaCount`/`autoscaling` and `strategy` are Deployment-only (`autoscaling` also works on a StatefulSet), `volumeClaims`/`extraVolumeClaims` are StatefulSet-only, and `updateStrategy` covers StatefulSet and DaemonSet. |
 | worker_evaluation.dnsConfig | object | `{}` | Pod DNS configuration, merged with `dnsPolicy` by the kubelet. |
@@ -1113,23 +1119,20 @@ Kubernetes: `>=1.25.0-0`
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
+| worker_evaluation.probes.livenessProbe.exec | object | `{"command":["celery","-A","app.celery_app","inspect","ping","-d","celery@$(HOSTNAME)"]}` | Worker_evaluation container healthcheck (livenessProbe is defined using `toYaml` so it is possible to override it completely). Uses `celery inspect ping` since Celery workers don't expose an HTTP endpoint. |
 | worker_evaluation.probes.livenessProbe.failureThreshold | int | `3` | Minimum consecutive failures for the probe to be considered failed after having succeeded. |
-| worker_evaluation.probes.livenessProbe.httpGet.path | string | `"/"` | Worker_evaluation container healthcheck endpoint (livenessProbe is defined using `toYaml` so it is possible to override it completely). |
-| worker_evaluation.probes.livenessProbe.httpGet.port | int | `8080` | Port to use for healthcheck (defaults to container port). |
 | worker_evaluation.probes.livenessProbe.initialDelaySeconds | int | `30` | Number of seconds after the container has started before probe is initiated. |
 | worker_evaluation.probes.livenessProbe.periodSeconds | int | `30` | How often (in seconds) to perform the probe. |
 | worker_evaluation.probes.livenessProbe.successThreshold | int | `1` | Minimum consecutive successes for the probe to be considered successful after having failed. |
 | worker_evaluation.probes.livenessProbe.timeoutSeconds | int | `5` | Number of seconds after which the probe times out. |
+| worker_evaluation.probes.readinessProbe.exec | object | `{"command":["celery","-A","app.celery_app","inspect","ping","-d","celery@$(HOSTNAME)"]}` | Worker_evaluation container healthcheck (readinessProbe is defined using `toYaml` so it is possible to override it completely). Uses `celery inspect ping` since Celery workers don't expose an HTTP endpoint. |
 | worker_evaluation.probes.readinessProbe.failureThreshold | int | `2` | Minimum consecutive failures for the probe to be considered failed after having succeeded. |
-| worker_evaluation.probes.readinessProbe.httpGet.path | string | `"/"` | Worker_evaluation container healthcheck endpoint (readinessProbe is defined using `toYaml` so it is possible to override it completely). |
-| worker_evaluation.probes.readinessProbe.httpGet.port | int | `8080` | Port to use for healthcheck (defaults to container port). |
 | worker_evaluation.probes.readinessProbe.initialDelaySeconds | int | `10` | Number of seconds after the container has started before probe is initiated. |
 | worker_evaluation.probes.readinessProbe.periodSeconds | int | `10` | How often (in seconds) to perform the probe. |
 | worker_evaluation.probes.readinessProbe.successThreshold | int | `2` | Minimum consecutive successes for the probe to be considered successful after having failed. |
 | worker_evaluation.probes.readinessProbe.timeoutSeconds | int | `5` | Number of seconds after which the probe times out. |
+| worker_evaluation.probes.startupProbe.exec | object | `{"command":["celery","-A","app.celery_app","inspect","ping","-d","celery@$(HOSTNAME)"]}` | Worker_evaluation container healthcheck (startupProbe is defined using `toYaml` so it is possible to override it completely). Uses `celery inspect ping` since Celery workers don't expose an HTTP endpoint. |
 | worker_evaluation.probes.startupProbe.failureThreshold | int | `10` | Minimum consecutive failures for the probe to be considered failed after having succeeded. |
-| worker_evaluation.probes.startupProbe.httpGet.path | string | `"/"` | Worker_evaluation container healthcheck endpoint (startupProbe is defined using `toYaml` so it is possible to override it completely). |
-| worker_evaluation.probes.startupProbe.httpGet.port | int | `8080` | Port to use for healthcheck (defaults to container port). |
 | worker_evaluation.probes.startupProbe.initialDelaySeconds | int | `0` | Number of seconds after the container has started before probe is initiated. |
 | worker_evaluation.probes.startupProbe.periodSeconds | int | `10` | How often (in seconds) to perform the probe. |
 | worker_evaluation.probes.startupProbe.successThreshold | int | `1` | Minimum consecutive successes for the probe to be considered successful after having failed. |

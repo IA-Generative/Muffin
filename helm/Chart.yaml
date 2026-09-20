@@ -1,8 +1,8 @@
 apiVersion: v2
 name: muffin
 type: application
-version: 0.5.3
-appVersion: "0.7.2"
+version: 0.5.4
+appVersion: "0.7.3"
 description: A Helm chart to deploy Muffin.
 # Floor set by the core APIs the chart renders (autoscaling/v2, policy/v1). The Gateway API
 # resources additionally need the gateway.networking.k8s.io CRDs installed in the cluster.
