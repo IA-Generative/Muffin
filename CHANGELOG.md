@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0-rc.4](https://github.com/IA-Generative/Muffin/compare/v0.8.0-rc.3...v0.8.0-rc.4) (2026-09-21)
+
+
+### Features
+
+* **a11y:** read assistant answers aloud (text-to-speech) ([#111](https://github.com/IA-Generative/Muffin/issues/111)) ([23dcc05](https://github.com/IA-Generative/Muffin/commit/23dcc057ae7878eb33b4a1e9fd0cb8800c8b57ca))
+
 ## [0.8.0-rc.3](https://github.com/IA-Generative/Muffin/compare/v0.8.0-rc.2...v0.8.0-rc.3) (2026-09-21)
 
 
