@@ -9,6 +9,7 @@ from app.core.security import worker_auth
 from app.core.security.factory import RequestContext, get_current_user
 from app.db import async_session_factory
 from app.main import app
+from app.models.collection import Collection
 from app.models.conversation import Conversation
 from app.models.run import Run
 from app.models.task import Task
@@ -30,6 +31,7 @@ async def client():
         await session.execute(delete(Task))
         await session.execute(delete(Run))
         await session.execute(delete(Conversation))
+        await session.execute(delete(Collection))
         await session.commit()
 
 
@@ -252,4 +254,155 @@ async def test_list_discussion_scores_empty_initially(client):
 
 async def test_list_discussion_scores_unknown_conversation_returns_404(client):
     response = await client.get(f"/api/conversations/{uuid.uuid4()}/discussion-scores")
+    assert response.status_code == 404
+
+
+async def test_upload_conversation_file_creates_temporary_collection(client):
+    run = await _create_run(client)
+    conversation_id = run["conversation_id"]
+
+    with (
+        patch("app.services.document_upload_service.storage.put_object") as mock_put,
+        patch(
+            "app.services.document_upload_service.enqueue_process_document",
+            return_value="celery-upload-1",
+        ) as mock_enqueue,
+    ):
+        response = await client.post(
+            f"/api/conversations/{conversation_id}/documents/file",
+            files={"file": ("notes.txt", b"hello", "text/plain")},
+        )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["name"] == "notes.txt"
+    assert body["type"] == "file"
+    assert body["status"] == "pending"
+    mock_put.assert_called_once()
+    mock_enqueue.assert_called_once_with(body["id"])
+
+    async with async_session_factory() as session:
+        collection = (
+            await session.execute(select(Collection).where(Collection.conversation_id == uuid.UUID(conversation_id)))
+        ).scalar_one()
+    assert collection.is_temporary is True
+    assert collection.visibility.value == "private"
+
+
+async def test_upload_conversation_file_reuses_the_same_collection_across_uploads(client):
+    run = await _create_run(client)
+    conversation_id = run["conversation_id"]
+
+    with (
+        patch("app.services.document_upload_service.storage.put_object"),
+        patch(
+            "app.services.document_upload_service.enqueue_process_document",
+            side_effect=["celery-a", "celery-b"],
+        ),
+    ):
+        await client.post(
+            f"/api/conversations/{conversation_id}/documents/file",
+            files={"file": ("a.txt", b"a", "text/plain")},
+        )
+        await client.post(
+            f"/api/conversations/{conversation_id}/documents/file",
+            files={"file": ("b.txt", b"b", "text/plain")},
+        )
+
+    async with async_session_factory() as session:
+        collections = (
+            (await session.execute(select(Collection).where(Collection.conversation_id == uuid.UUID(conversation_id))))
+            .scalars()
+            .all()
+        )
+    assert len(collections) == 1
+
+
+async def test_upload_conversation_file_requires_ownership(client):
+    app.dependency_overrides[get_current_user] = _as_user("user-a", "a@example.com")
+    run = await _create_run(client)
+
+    app.dependency_overrides[get_current_user] = _as_user("user-b", "b@example.com")
+    response = await client.post(
+        f"/api/conversations/{run['conversation_id']}/documents/file",
+        files={"file": ("notes.txt", b"hello", "text/plain")},
+    )
+
+    assert response.status_code == 404
+
+
+async def test_upload_to_unknown_conversation_returns_404(client):
+    response = await client.post(
+        f"/api/conversations/{uuid.uuid4()}/documents/file",
+        files={"file": ("notes.txt", b"hello", "text/plain")},
+    )
+    assert response.status_code == 404
+
+
+async def test_list_conversation_documents_empty_before_any_upload(client):
+    run = await _create_run(client)
+    response = await client.get(f"/api/conversations/{run['conversation_id']}/documents")
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+async def test_list_conversation_documents_after_upload(client):
+    run = await _create_run(client)
+    conversation_id = run["conversation_id"]
+
+    with (
+        patch("app.services.document_upload_service.storage.put_object"),
+        patch("app.services.document_upload_service.enqueue_process_document", return_value="celery-list-1"),
+    ):
+        await client.post(
+            f"/api/conversations/{conversation_id}/documents/file",
+            files={"file": ("notes.txt", b"hello", "text/plain")},
+        )
+
+    response = await client.get(f"/api/conversations/{conversation_id}/documents")
+    assert response.status_code == 200
+    names = [doc["name"] for doc in response.json()]
+    assert names == ["notes.txt"]
+
+
+async def test_list_conversation_documents_unknown_conversation_returns_404(client):
+    response = await client.get(f"/api/conversations/{uuid.uuid4()}/documents")
+    assert response.status_code == 404
+
+
+async def test_delete_conversation_document(client):
+    run = await _create_run(client)
+    conversation_id = run["conversation_id"]
+
+    with (
+        patch("app.services.document_upload_service.storage.put_object"),
+        patch("app.services.document_upload_service.enqueue_process_document", return_value="celery-del-1"),
+    ):
+        upload = await client.post(
+            f"/api/conversations/{conversation_id}/documents/file",
+            files={"file": ("notes.txt", b"hello", "text/plain")},
+        )
+    document_id = upload.json()["id"]
+
+    with (
+        patch("app.services.document_upload_service.storage.delete_objects") as mock_delete,
+        patch("app.services.document_upload_service.vector_store.delete_document_embeddings"),
+    ):
+        response = await client.delete(f"/api/conversations/{conversation_id}/documents/{document_id}")
+
+    assert response.status_code == 204
+    mock_delete.assert_called_once()
+
+    listed = await client.get(f"/api/conversations/{conversation_id}/documents")
+    assert listed.json() == []
+
+
+async def test_delete_conversation_document_before_any_upload_returns_404(client):
+    run = await _create_run(client)
+    response = await client.delete(f"/api/conversations/{run['conversation_id']}/documents/{uuid.uuid4()}")
+    assert response.status_code == 404
+
+
+async def test_delete_conversation_document_unknown_conversation_returns_404(client):
+    response = await client.delete(f"/api/conversations/{uuid.uuid4()}/documents/{uuid.uuid4()}")
     assert response.status_code == 404
