@@ -4,6 +4,8 @@ import { marked } from 'marked'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { ChatMessage, FeedbackDetails } from '../types/chat'
 import { useChat } from '../composables/useChat'
+import { useVoiceOutput } from '../composables/useVoiceOutput'
+import { toPlainText } from '../utils/plainText'
 import FeedbackModal from './FeedbackModal.vue'
 
 const props = defineProps<{
@@ -27,6 +29,13 @@ const renderedContent = computed(() =>
     ? DOMPurify.sanitize(marked.parse(props.message.content, { async: false }))
     : props.message.content,
 )
+
+const voiceOutput = useVoiceOutput()
+const isSpeaking = computed(() => voiceOutput.speakingId.value === props.message.id)
+
+function toggleSpeech() {
+  voiceOutput.toggle(props.message.id, toPlainText(props.message.content))
+}
 
 const copied = ref(false)
 const feedback = ref<'up' | 'down' | null>(props.message.feedback ?? null)
@@ -145,6 +154,9 @@ onBeforeUnmount(() => {
   clearTimeout(copiedTimeout)
   stopElapsedTimer()
   document.removeEventListener('click', handleOutsideClick)
+  // Switching conversation/regenerating unmounts this message - don't leave a voice reading a
+  // bubble that's no longer even on screen.
+  if (isSpeaking.value) voiceOutput.stop()
 })
 </script>
 
@@ -216,6 +228,37 @@ onBeforeUnmount(() => {
           </svg>
           <svg v-else viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
             <path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+          </svg>
+        </button>
+
+        <button
+          v-if="voiceOutput.isSupported"
+          type="button"
+          class="chat-message__action"
+          :class="{ 'chat-message__action--active': isSpeaking }"
+          :aria-pressed="isSpeaking"
+          :aria-label="isSpeaking ? 'Arrêter la lecture' : 'Lire la réponse à voix haute'"
+          :title="isSpeaking ? 'Arrêter la lecture' : 'Lire à voix haute'"
+          @click="toggleSpeech"
+        >
+          <svg
+            v-if="!isSpeaking"
+            viewBox="0 0 24 24"
+            width="17"
+            height="17"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+            aria-hidden="true"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M11 5 6 9H2v6h4l5 4V5ZM15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"
+            />
+          </svg>
+          <svg v-else viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+            <rect x="6" y="6" width="12" height="12" rx="1.5" fill="currentColor" />
           </svg>
         </button>
 
