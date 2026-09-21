@@ -33,7 +33,8 @@ Route : `/admin` (voir [`frontend/src/router/index.ts`](../../../frontend/src/ro
 
 Une seule colonne centrée (`max-width: 48rem`), scroll interne (`.admin-view`, pas le body).
 Deux sections empilées : **Modèle d'embedding** puis **Prompts de l'agent**. Voir
-[`screenshots/admin-overview.png`](screenshots/admin-overview.png) pour l'ensemble de la page.
+[`screenshots/prompt-carousel-overview.png`](screenshots/prompt-carousel-overview.png) pour
+l'ensemble de la page.
 
 ### 1. Modèle d'embedding
 
@@ -65,9 +66,9 @@ voir [`docs/research-agent-plan.md`](../../research-agent-plan.md)). Texte d'int
 version prend effet sans redéploiement du worker (cache rafraîchi côté worker dans la minute),
 et l'historique permet un rollback à tout moment.
 
-En dessous, une carte [`PromptEditor.vue`](../../../frontend/src/components/PromptEditor.vue)
-**par prompt** existant. Aujourd'hui il y en a 6, dans cet ordre (déterminé par le tri
-alphabétique du backend) :
+En dessous, un **carrousel** : une seule carte [`PromptEditor.vue`](../../../frontend/src/components/PromptEditor.vue)
+visible à la fois, une par prompt existant. Aujourd'hui il y en a 6, dans cet ordre (déterminé
+par le tri alphabétique du backend) :
 
 1. `analyze_query`
 2. `decompose_query`
@@ -81,39 +82,55 @@ Ce sont les prompts système des nodes du graphe LangGraph de l'agent
 (police monospace) est directement le nom technique utilisé comme clé API — pas de libellé
 humain séparé.
 
+#### Le carrousel
+
+Au-dessus de la carte : flèche précédente (`aria-label="Prompt précédent"`), une rangée de
+points cliquables (un par prompt, `aria-current` sur celui affiché), flèche suivante
+(`aria-label="Prompt suivant"`), puis un compteur texte `N / 6`. Naviguer change la carte
+affichée (`AdminSettingsView.vue::promptIndex`) - la carte est démontée/remontée à chaque
+changement (`:key="prompts[promptIndex].name"`), donc **son état interne (brouillon en cours,
+version sélectionnée) ne survit pas au changement de carte**, elle repart toujours sur la
+version active. Voir [`screenshots/prompt-carousel-second-card.png`](screenshots/prompt-carousel-second-card.png)
+(carte 2/6, `decompose_query`, fraîche).
+
 #### Anatomie d'une carte prompt
 
-Voir [`screenshots/admin-overview.png`](screenshots/admin-overview.png) (état replié, les 6
-cartes) et [`screenshots/prompt-history-expanded.png`](screenshots/prompt-history-expanded.png)
-(une carte avec historique déplié).
+Voir [`screenshots/prompt-carousel-overview.png`](screenshots/prompt-carousel-overview.png)
+(carte en mode édition, version active) et
+[`screenshots/prompt-past-version-readonly.png`](screenshots/prompt-past-version-readonly.png)
+(une version passée sélectionnée, lecture seule).
 
-- **En-tête** : nom du prompt + badge. Badge bleu-vert "v`N` active" si une version est active,
-  badge gris "Aucune version active" sinon (ne devrait pas arriver en pratique : la migration
-  Alembic seed les 6 prompts en v1 active dès l'installation).
-- **Textarea** (`.prompt-editor__textarea`) : pré-remplie avec le contenu de la version active
-  au chargement (`watch` sur `activeVersion`). Éditable librement, redimensionnable
-  verticalement. Voir [`screenshots/prompt-editing-draft.png`](screenshots/prompt-editing-draft.png)
-  pour l'état "brouillon modifié".
-- **Bouton "Voir l'historique" / "Masquer l'historique"** : toggle. À l'ouverture, appelle `GET
-  /api/admin/prompts/{name}/versions` (une fois par prompt, mise en cache côté composable —
-  rouvrir ne refetch pas sauf après une publication/activation).
-- **Bouton "Publier cette version"** : désactivé si la textarea est vide/inchangée-vide ou
-  pendant la publication (`disabled="!draft.trim() || publishing"`, libellé devient
-  "Publication…"). Au clic :
-  1. `POST /api/admin/prompts/{name}/versions` avec `{ "content": "<texte>" }` → crée une
-     nouvelle version, **non active** par défaut (numéro = max existant + 1).
-  2. Le front refetch l'historique pour connaître le numéro de version qui vient d'être créé
-     (c'est le premier élément, l'API trie par version décroissante).
-  3. `POST /api/admin/prompts/{name}/versions/{version}/activate` sur cette version → **publier
-     = créer + activer immédiatement**, il n'y a pas d'état "brouillon sauvegardé mais pas
-     publié" dans l'UI actuelle.
-  4. Un texte "Publié" apparaît brièvement (2s).
-- **Liste d'historique** (si dépliée) : une ligne par version, plus récente en premier
-  (`v{n}`, date formatée `Intl.DateTimeFormat('fr-FR', dateStyle: 'medium', timeStyle: 'short')`,
-  badge "active" si c'est la version courante). Chaque version **non active** a un bouton
-  "Revenir à cette version" (`disabled` + libellé "Activation…" pendant l'appel) qui appelle
-  directement `POST /api/admin/prompts/{name}/versions/{version}/activate` — **c'est le
-  mécanisme de rollback**, pas de confirmation demandée.
+- **En-tête** : nom du prompt + badge "v`N` active" (badge gris "Aucune version active" si
+  aucune - ne devrait pas arriver, la migration Alembic seed les 6 prompts en v1 active), et à
+  droite un **sélecteur de version** (`<select>`). Ses options : "Actuelle (éditable) - v`N`" en
+  premier, puis chaque version passée (`v{n} - <date>`), triées version décroissante. **Les
+  versions passées ne sont jamais modifiables** - éditer crée toujours une nouvelle version, il
+  n'y a pas de "modifier v2 en place".
+- Sélectionner "Actuelle" (ou au premier chargement) → **mode édition** :
+  - **Textarea** pré-remplie avec le contenu de la version active, éditable, redimensionnable.
+  - **Bouton "Publier cette version"** : désactivé si la textarea est vide ou pendant la
+    publication (libellé devient "Publication…"). Au clic :
+    1. `POST /api/admin/prompts/{name}/versions` avec `{ "content": "<texte>" }` → crée une
+       nouvelle version, non active par défaut (numéro = max existant + 1).
+    2. Le front refetch l'historique du prompt pour connaître ce numéro (premier élément, trié
+       version décroissante).
+    3. `POST /api/admin/prompts/{name}/versions/{version}/activate` sur cette version → **publier
+       = créer + activer immédiatement**, pas d'état "brouillon sauvegardé mais pas publié".
+    4. Refetch à nouveau (pour que le badge/sélecteur reflètent tout de suite le nouveau
+       numéro actif), puis un texte "Publié" apparaît brièvement (2s).
+- Sélectionner une version passée dans le menu → **mode lecture seule** :
+  - Un bandeau bleu rappelle que la version est passée, en lecture seule, et qu'il faut revenir
+    à la version actuelle pour éditer (ou l'activer pour en faire la nouvelle version courante).
+  - La textarea devient `readonly` (grisée), affiche le contenu figé de cette version.
+  - Le bouton "Publier" est remplacé par **"Revenir à cette version"** (`disabled` + libellé
+    "Activation…" pendant l'appel), qui appelle `POST
+    /api/admin/prompts/{name}/versions/{version}/activate` — **c'est le mécanisme de rollback**,
+    aucune confirmation demandée. Après succès, la carte revient automatiquement en mode édition
+    sur la nouvelle version active.
+
+L'historique complet d'un prompt est chargé dès le montage de sa carte (`onMounted ⇒
+fetchVersions`), pas seulement à l'ouverture d'un historique déplié - nécessaire pour peupler le
+`<select>` dès l'affichage.
 
 Composable : [`frontend/src/composables/usePrompts.ts`](../../../frontend/src/composables/usePrompts.ts)
 (`fetchPrompts`, `fetchVersions`, `createVersion`, `activateVersion`).
@@ -123,7 +140,7 @@ API (admin, auth Keycloak + `is_admin`) — backend
 
 | Méthode | Route | Usage |
 |---|---|---|
-| GET | `/api/admin/prompts` | Liste les prompts + leur version active (alimente les 6 cartes) |
+| GET | `/api/admin/prompts` | Liste les prompts + leur version active (alimente le carrousel et ses points) |
 | GET | `/api/admin/prompts/{name}/versions` | Historique complet d'un prompt, trié version desc |
 | POST | `/api/admin/prompts/{name}/versions` | Crée une version (`{content}`), jamais active d'office |
 | POST | `/api/admin/prompts/{name}/versions/{version}/activate` | Active cette version (publication ou rollback) |

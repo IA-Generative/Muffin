@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { usePrompts } from '../composables/usePrompts'
 
 const props = defineProps<{
@@ -9,22 +9,38 @@ const props = defineProps<{
 
 const { versionsByName, fetchVersions, createVersion, activateVersion } = usePrompts()
 
+// null = viewing/editing the active version (the only editable state). A number = read-only
+// view of that past version - old versions are immutable, editing always creates a new one.
+const selectedVersion = ref<number | null>(null)
 const draft = ref(props.activeVersion?.content ?? '')
-watch(
-  () => props.activeVersion,
-  (value) => {
-    if (value) draft.value = value.content
-  },
-)
-
-const showHistory = ref(false)
 const publishing = ref(false)
 const published = ref(false)
-const activatingVersion = ref<number | null>(null)
+const rollingBack = ref(false)
 
-async function toggleHistory() {
-  showHistory.value = !showHistory.value
-  if (showHistory.value) await fetchVersions(props.name)
+const versions = computed(() => versionsByName.value[props.name] ?? [])
+// Derived from the fetched history, not the `activeVersion` prop: the parent's summary list
+// (usePrompts().summaries) is only fetched once on page load, so it goes stale the moment this
+// card publishes or rolls back a version. `versions` is refetched locally after every mutation
+// (see publish/rollback below), so it's always the source of truth for what's active now.
+const currentActive = computed(() => versions.value.find((v) => v.is_active) ?? props.activeVersion)
+const viewedVersion = computed(() =>
+  selectedVersion.value === null ? null : versions.value.find((v) => v.version === selectedVersion.value),
+)
+const isViewingPast = computed(() => selectedVersion.value !== null)
+
+onMounted(() => fetchVersions(props.name))
+
+watch(
+  currentActive,
+  (value) => {
+    if (value && selectedVersion.value === null) draft.value = value.content
+  },
+  { immediate: true },
+)
+
+function selectVersion(version: number | null) {
+  selectedVersion.value = version
+  draft.value = version === null ? currentActive.value?.content ?? '' : (viewedVersion.value?.content ?? '')
 }
 
 async function publish() {
@@ -32,23 +48,23 @@ async function publish() {
   publishing.value = true
   const created = await createVersion(props.name, draft.value)
   if (created) {
-    // Newly created version is always max+1 for this name - re-fetch to know its number,
-    // then activate it so "publier" means "this is now live", not just "saved as a draft".
     await fetchVersions(props.name)
     const latest = versionsByName.value[props.name]?.[0]
     if (latest) await activateVersion(props.name, latest.version)
-    if (showHistory.value) await fetchVersions(props.name)
+    await fetchVersions(props.name)
     published.value = true
     setTimeout(() => (published.value = false), 2000)
   }
   publishing.value = false
 }
 
-async function rollback(version: number) {
-  activatingVersion.value = version
-  await activateVersion(props.name, version)
+async function rollback() {
+  if (selectedVersion.value === null) return
+  rollingBack.value = true
+  await activateVersion(props.name, selectedVersion.value)
   await fetchVersions(props.name)
-  activatingVersion.value = null
+  selectVersion(null)
+  rollingBack.value = false
 }
 
 const dateFormatter = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })
@@ -61,18 +77,52 @@ function formatDate(iso: string) {
   <div class="prompt-editor">
     <div class="prompt-editor__header">
       <h3 class="prompt-editor__name">{{ name }}</h3>
-      <span v-if="activeVersion" class="prompt-editor__badge">v{{ activeVersion.version }} active</span>
+      <span v-if="currentActive" class="prompt-editor__badge">v{{ currentActive.version }} active</span>
       <span v-else class="prompt-editor__badge prompt-editor__badge--none">Aucune version active</span>
+
+      <label class="prompt-editor__version-picker">
+        <span class="prompt-editor__version-picker-label">Version</span>
+        <select
+          class="fr-select"
+          :value="selectedVersion ?? 'active'"
+          @change="selectVersion(($event.target as HTMLSelectElement).value === 'active' ? null : Number(($event.target as HTMLSelectElement).value))"
+        >
+          <option value="active">Actuelle (éditable) - v{{ currentActive?.version ?? '?' }}</option>
+          <option v-for="version in versions.filter((v) => !v.is_active)" :key="version.id" :value="version.version">
+            v{{ version.version }} - {{ formatDate(version.created_at) }}
+          </option>
+        </select>
+      </label>
     </div>
 
-    <textarea v-model="draft" class="prompt-editor__textarea fr-input" rows="6" />
+    <p v-if="isViewingPast" class="prompt-editor__readonly-hint">
+      Version passée en lecture seule (v{{ selectedVersion }}, {{ formatDate(viewedVersion?.created_at ?? '') }}) -
+      les anciennes versions ne peuvent pas être modifiées. Revenez à la version actuelle pour éditer, ou activez
+      celle-ci pour en faire la nouvelle version courante.
+    </p>
+
+    <textarea
+      v-model="draft"
+      class="prompt-editor__textarea fr-input"
+      :class="{ 'prompt-editor__textarea--readonly': isViewingPast }"
+      :aria-label="`Contenu du prompt ${name}`"
+      :readonly="isViewingPast"
+      rows="6"
+    />
 
     <div class="prompt-editor__footer">
-      <button type="button" class="fr-btn fr-btn--tertiary fr-btn--sm" @click="toggleHistory">
-        {{ showHistory ? "Masquer l'historique" : "Voir l'historique" }}
-      </button>
       <span v-if="published" class="prompt-editor__saved">Publié</span>
       <button
+        v-if="isViewingPast"
+        type="button"
+        class="fr-btn fr-btn--sm"
+        :disabled="rollingBack"
+        @click="rollback"
+      >
+        {{ rollingBack ? 'Activation…' : 'Revenir à cette version' }}
+      </button>
+      <button
+        v-else
         type="button"
         class="fr-btn fr-btn--sm"
         :disabled="!draft.trim() || publishing"
@@ -81,46 +131,18 @@ function formatDate(iso: string) {
         {{ publishing ? 'Publication…' : 'Publier cette version' }}
       </button>
     </div>
-
-    <ul v-if="showHistory" class="prompt-editor__history">
-      <li v-for="version in versionsByName[name] ?? []" :key="version.id" class="prompt-editor__history-item">
-        <div class="prompt-editor__history-info">
-          <span class="prompt-editor__history-version">v{{ version.version }}</span>
-          <span class="prompt-editor__history-date">{{ formatDate(version.created_at) }}</span>
-          <span v-if="version.is_active" class="prompt-editor__badge">active</span>
-        </div>
-        <button
-          v-if="!version.is_active"
-          type="button"
-          class="fr-btn fr-btn--tertiary fr-btn--sm"
-          :disabled="activatingVersion === version.version"
-          @click="rollback(version.version)"
-        >
-          {{ activatingVersion === version.version ? 'Activation…' : 'Revenir à cette version' }}
-        </button>
-      </li>
-      <li v-if="(versionsByName[name] ?? []).length === 0" class="prompt-editor__history-empty">
-        Aucun historique.
-      </li>
-    </ul>
   </div>
 </template>
 
 <style scoped>
 .prompt-editor {
   padding: 1.25rem;
-  border: 1px solid var(--border-default-grey);
-  border-radius: 0.75rem;
-  background: var(--background-default-grey);
-}
-
-.prompt-editor + .prompt-editor {
-  margin-top: 1rem;
 }
 
 .prompt-editor__header {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 0.625rem;
   margin-bottom: 0.75rem;
 }
@@ -145,12 +167,41 @@ function formatDate(iso: string) {
   color: var(--text-mention-grey);
 }
 
+.prompt-editor__version-picker {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--text-mention-grey);
+}
+
+.prompt-editor__version-picker select {
+  font-size: 0.8125rem;
+  padding: 0.25rem 0.5rem;
+}
+
+.prompt-editor__readonly-hint {
+  margin: 0 0 0.625rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.375rem;
+  background: var(--background-alt-blue-france);
+  color: var(--text-action-high-blue-france);
+  font-size: 0.8125rem;
+}
+
 .prompt-editor__textarea {
   width: 100%;
   box-sizing: border-box;
   font-family: 'Consolas', monospace;
   font-size: 0.8125rem;
   resize: vertical;
+}
+
+.prompt-editor__textarea--readonly {
+  background: var(--background-alt-grey);
+  color: var(--text-mention-grey);
+  cursor: default;
 }
 
 .prompt-editor__footer {
@@ -164,42 +215,5 @@ function formatDate(iso: string) {
 .prompt-editor__saved {
   font-size: 0.875rem;
   color: var(--text-default-success);
-}
-
-.prompt-editor__history {
-  list-style: none;
-  margin: 0.75rem 0 0;
-  padding: 0.75rem 0 0;
-  border-top: 1px solid var(--border-default-grey);
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.prompt-editor__history-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-}
-
-.prompt-editor__history-info {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.8125rem;
-}
-
-.prompt-editor__history-version {
-  font-weight: 600;
-}
-
-.prompt-editor__history-date {
-  color: var(--text-mention-grey);
-}
-
-.prompt-editor__history-empty {
-  font-size: 0.8125rem;
-  color: var(--text-mention-grey);
 }
 </style>
