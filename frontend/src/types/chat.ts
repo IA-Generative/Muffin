@@ -65,6 +65,16 @@ export interface Conversation {
   title: string
 }
 
+export interface ConversationFile {
+  id: string
+  name: string
+  // 'queued': selected before this conversation has a real backend id yet (see useChat.ts's
+  // attachFile) - uploaded automatically once the first message creates one, never a real
+  // backend status. The rest mirror CollectionDocument's indexing pipeline.
+  status: 'queued' | 'pending' | 'indexing' | 'indexed' | 'error'
+  progress: number
+}
+
 export interface DiscussionScore {
   id: string
   conversationId: string
