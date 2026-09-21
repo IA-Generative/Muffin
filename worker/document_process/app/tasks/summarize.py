@@ -67,6 +67,13 @@ def summarize_document(self, document_id: str, collection_id: str) -> None:
             _shared.backend_client.set_document_summary(document_id, summary, summary_embedding)
             logger.info(f"Summary for document {document_id} saved ({len(summary)} chars)")
 
+            # Best-effort, fire-and-forget - a no-op unless this document sits in a conversation's
+            # temporary collection (§122), and never worth failing the summary itself over.
+            try:
+                _shared.backend_client.suggest_filing(document_id)
+            except Exception:
+                logger.exception(f"Failed to compute a filing suggestion for document {document_id}")
+
             parent_id = self.request.id
             _shared._spawn(
                 tag_document,

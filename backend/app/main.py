@@ -9,6 +9,7 @@ from app.routers.auth import router as auth_router
 from app.routers.collections import router as collections_router
 from app.routers.conversations import router as conversations_router
 from app.routers.documents import router as documents_router
+from app.routers.filing import router as filing_router
 from app.routers.health import router as health_router
 from app.routers.internal_collections import router as internal_collections_router
 from app.routers.internal_conversations import router as internal_conversations_router
@@ -89,6 +90,7 @@ app.include_router(models_router, prefix="/api")
 app.include_router(collections_router, prefix="/api")
 app.include_router(conversations_router, prefix="/api")
 app.include_router(documents_router, prefix="/api")
+app.include_router(filing_router, prefix="/api")
 app.include_router(tasks_router, prefix="/api")
 app.include_router(runs_router, prefix="/api")
 app.include_router(admin_settings_router, prefix="/api")

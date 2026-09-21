@@ -198,6 +198,14 @@ class CollectionOut(BaseModel):
         )
 
 
+class CollectionCreate(BaseModel):
+    # Both optional - a plain "+ Nouvelle collection" click sends neither (defaults apply, same
+    # as before this existed). Set from the filing review page's "Créer une collection" shortcut
+    # (§122 follow-up) to pre-fill from an unfiled document's name/summary.
+    name: str | None = None
+    description: str | None = None
+
+
 class CollectionUpdate(BaseModel):
     name: str | None = None
     description: str | None = None

@@ -44,7 +44,7 @@ function indexedCount(documents: { status: string }[]) {
   <section v-else class="collections-view">
     <div class="collections-view__header">
       <h1>Collections</h1>
-      <button type="button" class="fr-btn" @click="createCollection">+ Nouvelle collection</button>
+      <button type="button" class="fr-btn" @click="createCollection()">+ Nouvelle collection</button>
     </div>
     <p class="collections-view__intro">
       Regroupez vos documents par sujet pour que l'assistant y réponde de façon ciblée.

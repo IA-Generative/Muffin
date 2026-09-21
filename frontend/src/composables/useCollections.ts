@@ -276,8 +276,16 @@ function closeCollection(options: { navigate?: boolean } = {}) {
   }
 }
 
-async function createCollection() {
-  const response = await fetch(`${API_BASE_URL}/api/collections`, { method: 'POST', credentials: 'include' })
+// name/description: pre-filled from an unfiled file's own name/summary when creating a
+// collection straight from the filing review page's "Créer une collection" shortcut (§122
+// follow-up) - omitted (defaults apply server-side) for the plain "+ Nouvelle collection" click.
+async function createCollection(name?: string, description?: string) {
+  const response = await fetch(`${API_BASE_URL}/api/collections`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, description }),
+  })
   if (!response.ok) return
   const collection = toCollection(await response.json())
   collections.value.unshift(collection)

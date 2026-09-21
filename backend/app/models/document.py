@@ -1,7 +1,9 @@
 import enum
 import uuid
+from typing import Any
 
-from sqlalchemy import Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Enum, Float, ForeignKey, Integer, String, Text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDMixin
@@ -41,7 +43,36 @@ class Document(UUIDMixin, TimestampMixin, Base):
     # clobber a real summary a previous run already produced, and vice versa.
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    collection: Mapped["Collection"] = relationship(back_populates="documents")  # noqa: F821
+    # Who uploaded this document (§122) - the Keycloak sub, for an eventual "my files" filter,
+    # and a label already resolved at upload time (e.g. "Jean D.") rather than the raw sub, which
+    # is meaningless in the UI and never resolved anywhere else in this codebase either (see
+    # Collection.description_updated_by). Both None for a document created before this existed.
+    added_by_user_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    added_by_display: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    # Filing suggestion (§122/§124): set once a file uploaded straight into a conversation has
+    # been summarized, by comparing its summary embedding to every collection description the
+    # uploader owns. SET NULL (not CASCADE) if the suggested collection is later deleted - the
+    # suggestion itself becomes moot, but the document and its other fields must survive that.
+    suggested_collection_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("collections.id", ondelete="SET NULL"), nullable=True
+    )
+    suggested_collection_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Top-K candidates behind suggested_collection_id/score above (which is just candidates[0]) -
+    # [{"collection_id": str, "collection_name": str, "collection_description": str, "score":
+    # float}, ...], denormalized rather than a join table: it's a point-in-time snapshot of a
+    # suggestion (§122 quality metrics want "what was predicted" preserved even if the candidate
+    # collection is later renamed, redescribed or deleted), not a live relationship.
+    filing_candidates: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
+    # The user chose "Ne rien faire" (§122) - suppresses the chat notification for this file
+    # without moving it, and without the next suggestion computation re-nagging about it. Never
+    # reset automatically; only a fresh upload starts unset again.
+    filing_dismissed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+
+    collection: Mapped["Collection"] = relationship(back_populates="documents", foreign_keys=[collection_id])  # noqa: F821
+    suggested_collection: Mapped["Collection | None"] = relationship(  # noqa: F821
+        foreign_keys=[suggested_collection_id]
+    )
     pages: Mapped[list["DocumentPage"]] = relationship(
         back_populates="document",
         cascade="all, delete-orphan",
