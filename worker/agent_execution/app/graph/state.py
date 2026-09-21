@@ -155,6 +155,11 @@ class AgentState(TypedDict):
     grounding_result: GroundingResult | None
     grounding_research_count: int
 
+    # Prompt version ids actually used by this run (§ issue #96 traceability) - each node
+    # fetching a versioned prompt appends its id here; operator.add since several nodes (and a
+    # replanning node run more than once) each contribute their own entry across the graph.
+    prompt_usages: Annotated[list[str], operator.add]
+
     # --- lifecycle (§30) ---
     execution_status: str
     cancelled: bool

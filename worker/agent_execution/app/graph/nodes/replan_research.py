@@ -2,6 +2,7 @@ from typing import Any
 
 from app.graph.services.events import emit, is_cancelled, set_activity
 from app.graph.services.llm import json_chat
+from app.graph.services.prompts import get_prompt
 from app.graph.state import AgentState, ResearchTask
 
 _BASE_SYSTEM_PROMPT = (
@@ -26,10 +27,11 @@ def _valid_tools(web_search_enabled: bool) -> frozenset[str]:
     return frozenset(tools)
 
 
-def _system_prompt(web_search_enabled: bool) -> str:
+def _system_prompt(web_search_enabled: bool) -> tuple[str, str | None]:
     tool_names = '"search", "time"' + (', "web_search"' if web_search_enabled else "")
-    prompt = _BASE_SYSTEM_PROMPT.format(tool_names=tool_names)
-    return prompt + (_WEB_SEARCH_NOTE if web_search_enabled else "")
+    template, prompt_version_id = get_prompt("replan_research", fallback=_BASE_SYSTEM_PROMPT)
+    prompt = template.format(tool_names=tool_names)
+    return prompt + (_WEB_SEARCH_NOTE if web_search_enabled else ""), prompt_version_id
 
 
 def replan_research(state: AgentState) -> dict[str, Any]:
@@ -51,14 +53,18 @@ def replan_research(state: AgentState) -> dict[str, Any]:
     )
 
     model = state["chat_model"]
+    prompt_usages: list[str] = []
     if model is None or not missing:
         new_queries = [{"query": gap, "intent": None, "tool": "search"} for gap in missing] or [
             {"query": state["contextualized_query"], "intent": None, "tool": "search"}
         ]
     else:
+        system_prompt, prompt_version_id = _system_prompt(web_search_enabled)
+        if prompt_version_id:
+            prompt_usages.append(prompt_version_id)
         new_queries = json_chat(
             model,
-            _system_prompt(web_search_enabled),
+            system_prompt,
             f"Original query: {state['contextualized_query']}\n\nMissing information: {missing}",
             fallback=[{"query": gap, "intent": None, "tool": "search"} for gap in missing],
         )
@@ -96,4 +102,5 @@ def replan_research(state: AgentState) -> dict[str, Any]:
         "research_tasks": new_tasks,
         "plan_version": next_version,
         "replan_count": state["replan_count"] + 1,
+        "prompt_usages": prompt_usages,
     }

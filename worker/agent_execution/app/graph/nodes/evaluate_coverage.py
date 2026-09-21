@@ -2,6 +2,7 @@ from typing import Any
 
 from app.graph.services.events import emit, is_cancelled, set_activity
 from app.graph.services.llm import json_chat
+from app.graph.services.prompts import get_prompt
 from app.graph.state import AgentState, CoverageResult
 
 _SYSTEM_PROMPT = (
@@ -31,6 +32,7 @@ def evaluate_coverage(state: AgentState) -> dict[str, Any]:
     completed_ids = set(state["completed_task_ids"])
     completed_tasks = [t for t in state["research_tasks"] if t["id"] in completed_ids]
     is_meta_only = bool(completed_tasks) and all(t.get("tool", "search") not in _CONTENT_TOOLS for t in completed_tasks)
+    prompt_usages: list[str] = []
 
     if is_meta_only:
         # A knowledge-base lookup (list_collections, collection_summary, list_documents,
@@ -52,9 +54,12 @@ def evaluate_coverage(state: AgentState) -> dict[str, Any]:
             )
         else:
             excerpts = "\n\n".join(f"[{e['id']}] {e['content'][:500]}" for e in evidence)
+            system_prompt, prompt_version_id = get_prompt("evaluate_coverage", fallback=_SYSTEM_PROMPT)
+            if prompt_version_id:
+                prompt_usages.append(prompt_version_id)
             raw = json_chat(
                 model,
-                _SYSTEM_PROMPT,
+                system_prompt,
                 f"Original query: {state['contextualized_query']}\n\nEvidence:\n{excerpts}",
                 fallback={"status": "sufficient", "missing_information": [], "reasoning": None},
             )
@@ -67,4 +72,4 @@ def evaluate_coverage(state: AgentState) -> dict[str, Any]:
             )
 
     emit(run_id, "coverage_evaluation_completed", dict(coverage))
-    return {"coverage_result": coverage}
+    return {"coverage_result": coverage, "prompt_usages": prompt_usages}
