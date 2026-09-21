@@ -14,6 +14,7 @@ import app.graph.nodes.targeted_research as targeted_research_module
 import app.graph.services.events as events_module
 import app.graph.services.llm as llm_module
 import app.graph.services.prompts as prompts_module
+import app.graph.services.vdb_router as vdb_router_module
 from app.graph.graph import build_graph
 
 
@@ -29,6 +30,10 @@ class FakeBackend:
         self.activities: list[tuple[str, str]] = []  # [(node, activity), ...]
         self.searched_collection_ids: list[list[str]] = []
         self.accessible_collections_groups_requested: list[list[str]] = []
+        # [] by default - the vector pre-filter (§124) then falls back to every accessible VDB,
+        # same as today's behaviour, unless a test seeds a scored subset here.
+        self.collection_search_hits: list[dict[str, Any]] = []
+        self.collection_search_calls: list[list[str]] = []
         # Empty by default - tests exercising the search tool go straight to tier 3 (chunk
         # search) unless a test explicitly seeds a QA-cache hit for tier 1.
         self.qa_hits: list[dict[str, Any]] = []
@@ -108,6 +113,10 @@ class FakeBackend:
 
     def search_summaries(self, collection_ids: list[str], query: str, limit: int) -> list[dict[str, Any]]:
         return self.summary_hits
+
+    def search_collections(self, collection_ids: list[str], query: str, limit: int) -> list[dict[str, Any]]:
+        self.collection_search_calls.append(collection_ids)
+        return self.collection_search_hits
 
     def search(self, collection_ids: list[str], query: str, limit: int) -> list[dict[str, Any]]:
         self.searched_collection_ids.append(collection_ids)
@@ -190,6 +199,7 @@ _PATCHED_MODULES = (
     generate_answer_module,
     answer_identity_module,
     prompts_module,
+    vdb_router_module,
 )
 
 
