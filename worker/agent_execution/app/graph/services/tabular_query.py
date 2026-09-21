@@ -174,8 +174,13 @@ def _duckdb_connection() -> Iterator[duckdb.DuckDBPyConnection]:
     try:
         connection.execute(f"PRAGMA memory_limit='{DUCKDB_MEMORY_LIMIT}'")
         connection.execute(f"PRAGMA threads={DUCKDB_THREADS}")
-        connection.execute("INSTALL httpfs")
-        connection.execute("LOAD httpfs")
+        # Load httpfs (pre-installed in Docker image for readOnlyRootFilesystem).
+        # Falls back to INSTALL in dev where extensions aren't pre-installed.
+        try:
+            connection.execute("LOAD httpfs")
+        except duckdb.IOException:
+            connection.execute("INSTALL httpfs")
+            connection.execute("LOAD httpfs")
         endpoint = settings.AWS_ENDPOINT_URL.replace("http://", "").replace("https://", "")
         connection.execute(f"SET s3_endpoint='{endpoint}'")
         connection.execute(f"SET s3_access_key_id='{settings.AWS_ACCESS_KEY_ID}'")

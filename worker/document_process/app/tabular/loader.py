@@ -105,6 +105,20 @@ def _load_statement(format: TabularFormat, source: str, table_name: str) -> str:
     raise ValueError(f"Unsupported tabular format for DuckDB loading: {format}")
 
 
+def _ensure_extension(connection: duckdb.DuckDBPyConnection, name: str) -> None:
+    """Charge une extension DuckDB, en l'installant si nécessaire.
+
+    En production (readOnlyRootFilesystem), les extensions sont pré-installées
+    dans l'image Docker : ``LOAD`` suffit et n'écrit rien sur disque.
+    En développement, ``INSTALL`` télécharge l'extension au premier usage.
+    """
+    try:
+        connection.execute(f"LOAD {name}")
+    except duckdb.IOException:
+        connection.execute(f"INSTALL {name}")
+        connection.execute(f"LOAD {name}")
+
+
 def _configure_s3(connection: duckdb.DuckDBPyConnection) -> None:
     """Configure l'extension httpfs de DuckDB pour lire/écrire sur RustFS.
 
@@ -112,8 +126,7 @@ def _configure_s3(connection: duckdb.DuckDBPyConnection) -> None:
     d'installer l'extension ``httpfs`` et de configurer les credentials.
     RustFS étant S3-compatible, on pointe vers son endpoint.
     """
-    connection.execute("INSTALL httpfs")
-    connection.execute("LOAD httpfs")
+    _ensure_extension(connection, "httpfs")
     connection.execute(f"SET s3_endpoint='{settings.AWS_ENDPOINT_URL.replace('http://', '').replace('https://', '')}'")
     connection.execute(f"SET s3_access_key_id='{settings.AWS_ACCESS_KEY_ID}'")
     connection.execute(f"SET s3_secret_access_key='{settings.AWS_SECRET_ACCESS_KEY}'")
@@ -128,8 +141,7 @@ def _configure_spatial(connection: duckdb.DuckDBPyConnection) -> None:
     """Installe l'extension ``spatial`` de DuckDB, nécessaire pour lire le
     XLSX via ``st_read``. L'extension ``spatial`` embarque GDAL qui sait
     décoder le format Excel (entre autres)."""
-    connection.execute("INSTALL spatial")
-    connection.execute("LOAD spatial")
+    _ensure_extension(connection, "spatial")
 
 
 @contextmanager
