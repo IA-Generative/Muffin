@@ -47,6 +47,10 @@ class FakeBackend:
         self.run_results: list[dict[str, Any]] = []
         self.active_prompts: dict[str, dict[str, Any]] = {}
         self.recorded_prompt_usages: list[str] = []
+        # Every [system, user] messages list passed to llm_chat/llm_chat_with_usage, in order -
+        # the router callback only ever sees the system prompt, so tests that need to assert on
+        # the user content (e.g. a hint injected into it) read it from here instead.
+        self.llm_calls: list[list[dict[str, str]]] = []
 
     def get_run(self, run_id: str) -> dict[str, Any]:
         return {"cancel_requested": self.cancel_requested}
@@ -121,6 +125,7 @@ class FakeBackend:
         ]
 
     def llm_chat(self, model: str, messages: list[dict[str, str]], max_tokens: int | None = None) -> str:
+        self.llm_calls.append(messages)
         return self.llm_router(messages[0]["content"])
 
     def llm_chat_with_usage(
@@ -129,6 +134,7 @@ class FakeBackend:
         """Same contract as the real backend_client: returns content + token usage.
         The content comes from the llm_router (keyed on the system prompt), and token
         counts are stubbed since tests don't assert on them."""
+        self.llm_calls.append(messages)
         content = self.llm_router(messages[0]["content"])
         return {
             "content": content,
