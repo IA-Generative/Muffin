@@ -224,10 +224,12 @@ class BackendClient:
         response.raise_for_status()
         return response.json()["embedding"]
 
-    def update_collection_description_embedding(self, collection_id: str, model: str, embedding: list[float]) -> None:
+    def update_collection_description_embedding(self, collection_id: str, embedding: list[float]) -> None:
+        """Not persisted in Postgres - indexed straight into Meilisearch (§124), which is now
+        the only place a collection's description embedding lives."""
         response = self._client.patch(
             f"/api/internal/collections/{collection_id}/description-embedding",
-            json={"model": model, "embedding": embedding},
+            json={"embedding": embedding},
         )
         response.raise_for_status()
 

@@ -86,7 +86,8 @@ async def _default_chat_model() -> str | None:
 async def _default_embedding_model(db: AsyncSession) -> str | None:
     """The admin-configured global embedding model (app_settings.embedding_model)
     if one was set, otherwise the hub's first embedding-capable model. Always
-    global, never per-collection - see CollectionDescriptionEmbedding."""
+    global, never per-collection - every collection's description embedding
+    (the "collections" Meilisearch index, §124) must live in the same space."""
     app_settings = await AppSettingsRepository(db).get()
     if app_settings and app_settings.embedding_model:
         return app_settings.embedding_model

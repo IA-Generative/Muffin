@@ -115,7 +115,6 @@ class CollectionTagsUpdate(BaseModel):
 
 
 class CollectionDescriptionEmbeddingUpdate(BaseModel):
-    model: str
     embedding: list[float]
 
 
