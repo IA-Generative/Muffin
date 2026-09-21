@@ -21,6 +21,11 @@ def after_analyze_query(state: AgentState) -> str:
         return "cancelled"
     if state["query_analysis"].get("ambiguous"):
         return "request_clarification"
+    # A question about the agent itself (§ issue #99) never needs a clarification pass either -
+    # "qui es-tu ?" is never ambiguous, and searching the user's collections for it would only
+    # ever come back empty (§ issue #97).
+    if state["query_analysis"].get("intent") == "identity":
+        return "answer_identity"
     return "decompose_query"
 
 
