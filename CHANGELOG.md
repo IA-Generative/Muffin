@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.8.0-rc.3](https://github.com/IA-Generative/Muffin/compare/v0.8.0-rc.2...v0.8.0-rc.3) (2026-09-21)
+
+
+### Features
+
+* **a11y:** voice dictation in the chat composer ([#108](https://github.com/IA-Generative/Muffin/issues/108)) ([f158ffc](https://github.com/IA-Generative/Muffin/commit/f158ffcbdd046fadf517f770bddf8d73eef1548a))
+
+
+### Bug Fixes
+
+* **frontend:** declare SpeechRecognition types explicitly ([9513b68](https://github.com/IA-Generative/Muffin/commit/9513b68d20461166ea21270599b0f4eefdec7215))
+
 ## [0.8.0-rc.2](https://github.com/IA-Generative/Muffin/compare/v0.8.0-rc.1...v0.8.0-rc.2) (2026-09-21)
 
 
