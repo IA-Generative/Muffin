@@ -10,6 +10,8 @@ _SYSTEM_PROMPT = (
     "Answer the user's query using only the given evidence excerpts. Cite each claim with its excerpt id "
     "in brackets, e.g. [abc123]. Never invent facts not supported by the excerpts. If the evidence notes "
     "some information is missing, say so plainly instead of guessing or narrating your internal process. "
+    "If the evidence suggests enabling web search, relay that suggestion in your answer (translated into "
+    "the response's language if needed) instead of dropping it. "
     'If the query asks for a count (e.g. "how many collections/documents"), each excerpt below already '
     "represents one distinct item unless it says otherwise - count the excerpts and state that number "
     "directly. Never refuse to count just because no single excerpt states the total as a sentence.\n\n"
@@ -44,17 +46,24 @@ def generate_answer(state: AgentState) -> dict[str, Any]:
             "citations": [],
         }
 
+    # Only worth suggesting when the run never had the option in the first place - if web search
+    # was already on and still came up short, there's nothing left to point the user toward.
+    web_search_hint = (
+        " You could try enabling web search to look this up on the internet." if not state["web_search_enabled"] else ""
+    )
+
     if not context["excerpts"]:
         return {
             "answer": "I couldn't find any relevant information in your accessible knowledge bases to answer "
-            "this query.",
+            f"this query.{web_search_hint}",
             "citations": [],
         }
 
     system_prompt, prompt_version_id = get_prompt("generate_answer", fallback=_SYSTEM_PROMPT)
     evidence_block = "\n\n".join(f"[{e['id']}] (source: {e['source']})\n{e['content']}" for e in context["excerpts"])
     missing_note = (
-        f"\n\nNote: the following could not be established from accessible sources: {context['missing_information']}"
+        f"\n\nNote: the following could not be established from accessible sources: "
+        f"{context['missing_information']}.{web_search_hint}"
         if context["coverage_insufficient"]
         else ""
     )

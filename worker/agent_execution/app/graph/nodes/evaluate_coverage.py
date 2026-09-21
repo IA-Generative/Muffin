@@ -8,7 +8,11 @@ from app.graph.state import AgentState, CoverageResult
 _SYSTEM_PROMPT = (
     "Decide whether the given evidence excerpts are enough to answer the original query. Respond only with "
     'a JSON object: {"status": "sufficient" or "insufficient", "missing_information": [array of short '
-    'strings describing what is missing, empty if sufficient], "reasoning": short string}.'
+    'strings describing what is missing, empty if sufficient], "reasoning": short string}.\n\n'
+    "If the query asks for a count, sum, average, or other computation over items already listed in the "
+    "excerpts (e.g. rows, documents, entries), treat that as sufficient as soon as the raw items are present "
+    "- the answer does not need to already be spelled out as a sentence, it can be computed from what's "
+    "there. Only mark it insufficient if the underlying items themselves are missing."
 )
 
 # Tools that produce real content evidence needing an actual sufficiency judgment - everything

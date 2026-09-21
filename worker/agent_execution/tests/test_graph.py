@@ -1468,3 +1468,53 @@ def test_identity_query_short_circuits_to_answer_identity(make_run):
     assert result["citations"] == []
     # No evidence to fact-check, no grounding pass either.
     assert result["grounding_result"] is None
+
+
+def test_insufficient_coverage_suggests_web_search_when_not_enabled(make_run):
+    """§ issue #95 - when the run never opted into web search and coverage stays insufficient
+    through every replan attempt, generate_answer must be told to suggest enabling it."""
+
+    def router(system_prompt: str) -> str:
+        if "Analyze the user" in system_prompt:
+            return _analysis()
+        if "select the ones relevant" in system_prompt.lower():
+            return '["hr"]'
+        if "Decide whether" in system_prompt:
+            return json.dumps({"status": "insufficient", "missing_information": ["2025 update"], "reasoning": "x"})
+        if "Coverage of a research query" in system_prompt:
+            return json.dumps([{"query": "2025 policy update", "intent": None}])
+        if "Answer the user's query" in system_prompt:
+            return "I couldn't find that, but you could enable web search."
+        return "unexpected prompt"
+
+    graph, fake = make_run([{"id": "hr", "name": "HR", "description": "HR", "tags": []}], router)
+    state = initial_state("What is the 2025 leave policy?", web_search_enabled=False)
+    graph.invoke(state, config=_config(state))
+
+    answer_call = next(call for call in fake.llm_calls if "Answer the user's query" in call[0]["content"])
+    assert "enabling web search" in answer_call[1]["content"]
+
+
+def test_insufficient_coverage_does_not_repeat_web_search_suggestion_when_already_enabled(make_run):
+    """§ issue #95 - if web search was already on for this run and still came up short, there's
+    nothing left to suggest enabling."""
+
+    def router(system_prompt: str) -> str:
+        if "Analyze the user" in system_prompt:
+            return _analysis()
+        if "select the ones relevant" in system_prompt.lower():
+            return '["hr"]'
+        if "Decide whether" in system_prompt:
+            return json.dumps({"status": "insufficient", "missing_information": ["2025 update"], "reasoning": "x"})
+        if "Coverage of a research query" in system_prompt:
+            return json.dumps([{"query": "2025 policy update", "intent": None}])
+        if "Answer the user's query" in system_prompt:
+            return "I still couldn't find that."
+        return "unexpected prompt"
+
+    graph, fake = make_run([{"id": "hr", "name": "HR", "description": "HR", "tags": []}], router)
+    state = initial_state("What is the 2025 leave policy?", web_search_enabled=True)
+    graph.invoke(state, config=_config(state))
+
+    answer_call = next(call for call in fake.llm_calls if "Answer the user's query" in call[0]["content"])
+    assert "enabling web search" not in answer_call[1]["content"]
