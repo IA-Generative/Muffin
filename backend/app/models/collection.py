@@ -70,9 +70,6 @@ class Collection(UUIDMixin, TimestampMixin, Base):
     settings: Mapped["CollectionSettings"] = relationship(
         back_populates="collection", cascade="all, delete-orphan", uselist=False
     )
-    description_embedding: Mapped["CollectionDescriptionEmbedding | None"] = relationship(
-        back_populates="collection", cascade="all, delete-orphan", uselist=False
-    )
     documents: Mapped[list["Document"]] = relationship(  # noqa: F821
         back_populates="collection", cascade="all, delete-orphan"
     )
@@ -178,20 +175,3 @@ class CollectionSettings(Base):
     pipeline_windows: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
 
     collection: Mapped["Collection"] = relationship(back_populates="settings")
-
-
-class CollectionDescriptionEmbedding(Base):
-    """One-to-one, kept out of the `collections` table itself (it's large
-    and rewritten on every description change, unlike the rest of that row).
-    Always computed with the LLM hub's default embedding model - global
-    across every collection, not user-configurable, because comparing a
-    query's embedding against collections to pick the right one only works
-    if they all live in the same embedding space."""
-
-    __tablename__ = "collection_description_embeddings"
-
-    collection_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("collections.id", ondelete="CASCADE"), primary_key=True)
-    model: Mapped[str] = mapped_column(String, nullable=False)
-    embedding: Mapped[list[float]] = mapped_column(JSONB, nullable=False)
-
-    collection: Mapped["Collection"] = relationship(back_populates="description_embedding")

@@ -115,21 +115,20 @@ async def update_collection_tags(
 
 @router.patch(
     "/collections/{collection_id}/description-embedding",
-    summary="Report the embedding vector for a collection's description, used to match a query to the right collection",
+    summary="Report the embedding vector for a collection's description, indexed in Meilisearch "
+    "(§124) to match a query to the right collection - not persisted anywhere in Postgres",
 )
 async def update_collection_description_embedding(
     collection_id: uuid.UUID,
     update: CollectionDescriptionEmbeddingUpdate,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict[str, str]:
-    repository = CollectionRepository(db)
-    collection = await repository.get_by_id(collection_id)
+    collection = await CollectionRepository(db).get_by_id(collection_id)
     if collection is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found")
-    await repository.upsert_description_embedding(collection_id, update.model, update.embedding)
-    await db.commit()
-    # Best-effort, same reasoning as above - the Postgres embedding (the source of truth) is
-    # already committed regardless of whether this indexing step succeeds.
+    # Best-effort, same reasoning as elsewhere in this router - a Meilisearch failure here must
+    # never surface as an error to the worker; the collection's description/tags themselves are
+    # unaffected either way, only this search index falls behind until the next successful call.
     try:
         vector_store.upsert_collection_description(
             collection_id, collection.description, [tag.tag for tag in collection.tags], update.embedding

@@ -71,9 +71,7 @@ def update_collection_description(self, document_id: str, collection_id: str) ->
                     embedding_model = _shared.backend_client.get_default_embedding_model()
                     if embedding_model is not None:
                         embedding = _shared.backend_client.embed(embedding_model, new_description)
-                        _shared.backend_client.update_collection_description_embedding(
-                            collection_id, embedding_model, embedding
-                        )
+                        _shared.backend_client.update_collection_description_embedding(collection_id, embedding)
                 except Exception:
                     logger.exception(f"Failed to embed the new description for collection {collection_id}")
 

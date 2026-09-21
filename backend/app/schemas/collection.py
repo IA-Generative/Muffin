@@ -104,7 +104,7 @@ class PipelineWindowsOut(BaseModel):
     chunking_slide_pages: int = 1
     # Not a document-level step like the others above - how many QA pairs
     # generate_collection_qa produces from the collection's description each
-    # time it changes (see app/models/collection.py's description_embedding).
+    # time it changes (see the "collections" Meilisearch index, §124).
     collection_qa_count: int = 3
 
 

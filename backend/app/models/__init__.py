@@ -4,7 +4,6 @@ from app.models.chunk import Chunk
 from app.models.collection import (
     ChunkingStrategy,
     Collection,
-    CollectionDescriptionEmbedding,
     CollectionSettings,
     CollectionShare,
     CollectionTag,
@@ -48,7 +47,6 @@ __all__ = [
     "Chunk",
     "ChunkingStrategy",
     "Collection",
-    "CollectionDescriptionEmbedding",
     "CollectionSettings",
     "CollectionShare",
     "CollectionTag",
