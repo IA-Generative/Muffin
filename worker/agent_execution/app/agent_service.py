@@ -111,6 +111,7 @@ class AgentService:
                 "citations": [],
                 "grounding_result": None,
                 "grounding_research_count": 0,
+                "prompt_usages": [],
                 "execution_status": "queued",
                 "cancelled": False,
             }
@@ -168,6 +169,12 @@ class AgentService:
         )
         backend_client.update_run_status(run_id, "completed")
         backend_client.add_run_event(run_id, "run_completed", {"citation_count": len(final_state["citations"])})
+        # Dedupe: replan_research can contribute the same prompt version id more than once
+        # (one per replan pass) - the join table stores which versions this run used, not how
+        # many times each one fired.
+        prompt_usages = final_state.get("prompt_usages") or []
+        if prompt_usages:
+            backend_client.add_prompt_usages(run_id, list(dict.fromkeys(prompt_usages)))
         _generate_conversation_title(
             final_state["conversation_id"],
             final_state["original_query"],

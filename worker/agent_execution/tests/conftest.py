@@ -12,6 +12,7 @@ import app.graph.nodes.research_task as research_task_module
 import app.graph.nodes.targeted_research as targeted_research_module
 import app.graph.services.events as events_module
 import app.graph.services.llm as llm_module
+import app.graph.services.prompts as prompts_module
 from app.graph.graph import build_graph
 
 
@@ -43,6 +44,8 @@ class FakeBackend:
         self.pages: dict[tuple[str, int], dict[str, Any]] = {}
         self.conversation_titles: dict[str, str] = {}
         self.run_results: list[dict[str, Any]] = []
+        self.active_prompts: dict[str, dict[str, Any]] = {}
+        self.recorded_prompt_usages: list[str] = []
 
     def get_run(self, run_id: str) -> dict[str, Any]:
         return {"cancel_requested": self.cancel_requested}
@@ -147,6 +150,15 @@ class FakeBackend:
     def update_conversation_title(self, conversation_id: str, title: str) -> None:
         self.conversation_titles[conversation_id] = title
 
+    def get_active_prompt(self, name: str) -> dict[str, Any] | None:
+        """Empty by default - get_prompt() then falls back to each node's own hardcoded
+        constant, same system prompt text existing tests already assert on via llm_router.
+        Tests exercising prompt versioning itself seed `fake.active_prompts[name]`."""
+        return self.active_prompts.get(name)
+
+    def add_prompt_usages(self, run_id: str, prompt_version_ids: list[str]) -> None:
+        self.recorded_prompt_usages.extend(prompt_version_ids)
+
 
 class FakeSearxng:
     """Stand-in for the real searxng_client - same fake-HTTP-boundary reasoning as FakeBackend."""
@@ -169,6 +181,7 @@ _PATCHED_MODULES = (
     targeted_research_module,
     build_research_plan_module,
     generate_answer_module,
+    prompts_module,
 )
 
 
@@ -186,6 +199,9 @@ def make_run():
         fake = FakeBackend(accessible_vdbs, llm_router)
         for module in _PATCHED_MODULES:
             module.backend_client = fake
+        # get_prompt() caches by name across calls (see prompts.py) - stale across tests
+        # otherwise, since the module-level cache dict outlives any single fake backend.
+        prompts_module._cache.clear()
         # Attached to `fake` (not a 3rd return value) so every existing `graph, fake =
         # make_run(...)` call site keeps working unchanged - only tests that care about web
         # search reach for `fake.searxng`.

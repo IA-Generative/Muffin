@@ -2,6 +2,7 @@ from typing import Any
 
 from app.graph.services.events import emit, is_cancelled, set_activity
 from app.graph.services.llm import json_chat
+from app.graph.services.prompts import get_prompt
 from app.graph.state import AgentState, GroundingResult
 
 _SYSTEM_PROMPT = (
@@ -23,6 +24,7 @@ def validate_grounding(state: AgentState) -> dict[str, Any]:
     emit(run_id, "grounding_validation_started")
     answer = state["answer"] or ""
     excerpts = state["answer_context"]["excerpts"] if state.get("answer_context") else []
+    prompt_usages: list[str] = []
 
     if not excerpts:
         # No evidence means generate_answer already refused to answer substantively - nothing to
@@ -34,9 +36,12 @@ def validate_grounding(state: AgentState) -> dict[str, Any]:
             result = GroundingResult(valid=True, unsupported_claims=[])
         else:
             evidence_block = "\n\n".join(f"[{e['id']}] {e['content'][:500]}" for e in excerpts)
+            system_prompt, prompt_version_id = get_prompt("validate_grounding", fallback=_SYSTEM_PROMPT)
+            if prompt_version_id:
+                prompt_usages.append(prompt_version_id)
             raw = json_chat(
                 model,
-                _SYSTEM_PROMPT,
+                system_prompt,
                 f"Answer:\n{answer}\n\nEvidence:\n{evidence_block}",
                 fallback={"valid": True, "unsupported_claims": []},
             )
@@ -45,4 +50,4 @@ def validate_grounding(state: AgentState) -> dict[str, Any]:
             result = GroundingResult(valid=bool(raw["valid"]), unsupported_claims=raw.get("unsupported_claims", []))
 
     emit(run_id, "grounding_validation_completed", dict(result))
-    return {"grounding_result": result}
+    return {"grounding_result": result, "prompt_usages": prompt_usages}

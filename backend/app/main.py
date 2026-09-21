@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
 from app.config import KeycloakSettings
+from app.routers.admin_prompts import router as admin_prompts_router
 from app.routers.admin_settings import router as admin_settings_router
 from app.routers.auth import router as auth_router
 from app.routers.collections import router as collections_router
@@ -15,6 +16,7 @@ from app.routers.internal_documents import router as internal_documents_router
 from app.routers.internal_evaluation import router as internal_evaluation_router
 from app.routers.internal_llm import router as internal_llm_router
 from app.routers.internal_pipeline import router as internal_pipeline_router
+from app.routers.internal_prompts import router as internal_prompts_router
 from app.routers.internal_runs import router as internal_runs_router
 from app.routers.internal_tasks import router as internal_tasks_router
 from app.routers.models import router as models_router
@@ -90,6 +92,7 @@ app.include_router(documents_router, prefix="/api")
 app.include_router(tasks_router, prefix="/api")
 app.include_router(runs_router, prefix="/api")
 app.include_router(admin_settings_router, prefix="/api")
+app.include_router(admin_prompts_router, prefix="/api")
 app.include_router(quality_router, prefix="/api")
 app.include_router(internal_documents_router, prefix="/api")
 app.include_router(internal_evaluation_router, prefix="/api")
@@ -99,3 +102,4 @@ app.include_router(internal_pipeline_router, prefix="/api")
 app.include_router(internal_tasks_router, prefix="/api")
 app.include_router(internal_llm_router, prefix="/api")
 app.include_router(internal_runs_router, prefix="/api")
+app.include_router(internal_prompts_router, prefix="/api")
