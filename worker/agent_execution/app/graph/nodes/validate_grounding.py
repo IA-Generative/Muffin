@@ -8,7 +8,11 @@ from app.graph.state import AgentState, GroundingResult
 _SYSTEM_PROMPT = (
     "Check whether every important factual claim in the answer is supported by the given evidence "
     'excerpts. Respond only with a JSON object: {"valid": bool, "unsupported_claims": [array of short '
-    "strings quoting or paraphrasing each unsupported claim, empty if valid]}."
+    "strings quoting or paraphrasing each unsupported claim, empty if valid]}.\n\n"
+    "A claim that computes a count, sum, average, or other aggregate over items listed in the excerpts is "
+    "supported as long as those underlying items are actually there - it does not need to appear as a "
+    "pre-stated number in any single excerpt. Only flag it if the underlying items themselves are missing "
+    "or the computation contradicts what's in the excerpts."
 )
 
 
