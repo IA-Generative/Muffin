@@ -7,10 +7,10 @@ from app.graph.state import AgentState
 
 _SYSTEM_PROMPT = (
     "Analyze the user's current question, in light of the conversation so far if any is given. Respond only "
-    'with a JSON object with keys: "intent" (one of "lookup", "comparison", "synthesis", "meta"), "topics" '
-    '(array of short strings), "requires_multiple_sources" (bool), "complexity" (one of "simple", "complex"), '
-    '"ambiguous" (bool - true only if the question is still unclear once the conversation history is taken '
-    'into account), "clarification_question" (string or null, only set if ambiguous is true), '
+    'with a JSON object with keys: "intent" (one of "lookup", "comparison", "synthesis", "meta", "identity"), '
+    '"topics" (array of short strings), "requires_multiple_sources" (bool), "complexity" (one of "simple", '
+    '"complex"), "ambiguous" (bool - true only if the question is still unclear once the conversation history '
+    'is taken into account), "clarification_question" (string or null, only set if ambiguous is true), '
     '"standalone_query" (string - the current question rewritten to stand on its own, resolving any pronoun '
     'or reference back to something said earlier in the conversation, e.g. "elle"/"it" -> the thing it '
     "refers to; if the question is already self-contained or there is no conversation history, repeat it "
@@ -19,6 +19,9 @@ _SYSTEM_PROMPT = (
     "how many collections/documents the user has access to, a collection's or document's summary, or the "
     "content/screenshot of one specific page, rather than a document/policy question that content search "
     "should answer.\n\n"
+    'Use "identity" when the query is about the agent itself rather than about the user\'s documents - e.g. '
+    '"who are you?", "what can you do?", "what is your name?" - never for a question that happens to mention '
+    '"you" while still asking about document content.\n\n'
     'IMPORTANT - be very conservative with "ambiguous": only set it to true if the question is truly '
     "unanswerable without more information. The user has already selected one or more collections to query "
     'against, so references like "le fichier", "les données", "the data", "the file" are NOT ambiguous - '
