@@ -73,7 +73,7 @@ class CollectionService:
 
     async def list_collections(self, user: RequestContext, pagination: PaginationParams) -> Page[CollectionOut]:
         collections, total = await self.repository.list_accessible(
-            user.user_id, user.groups, limit=pagination.limit, offset=pagination.offset
+            user.user_id, user.groups, limit=pagination.limit, offset=pagination.offset, exclude_temporary=True
         )
         return pagination.to_page(
             [CollectionOut.from_model(collection, user.user_id) for collection in collections],
