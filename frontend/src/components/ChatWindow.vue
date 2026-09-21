@@ -24,9 +24,29 @@ const emit = defineEmits<{
   showDiscussionScore: []
 }>()
 
-const { activeId } = useChat()
+const { activeId, activeAttachedFiles, attachFile, removeAttachedFile } = useChat()
 
 const { collections } = useCollections()
+
+const fileInput = ref<HTMLInputElement>()
+
+function openFilePicker() {
+  fileInput.value?.click()
+}
+
+function handleFilesSelected(event: Event) {
+  const target = event.target as HTMLInputElement
+  if (target.files) for (const file of target.files) attachFile(activeId.value, file)
+  target.value = '' // lets the same file be re-selected later
+}
+
+const FILE_STATUS_ICON: Record<string, string> = {
+  queued: '⏳',
+  pending: '⏳',
+  indexing: '⏳',
+  indexed: '✅',
+  error: '❌',
+}
 
 const draft = ref('')
 
@@ -156,6 +176,26 @@ watch(
           :conversation-id="activeId"
           @open="emit('showDiscussionScore')"
         />
+        <ul v-if="activeAttachedFiles.length > 0" class="chat-window__chips">
+          <li
+            v-for="file in activeAttachedFiles"
+            :key="file.id"
+            class="chat-window__chip"
+            :class="{ 'chat-window__chip--error': file.status === 'error' }"
+            :title="file.status === 'queued' ? 'Sera envoyé avec votre message' : file.name"
+          >
+            <span aria-hidden="true">{{ FILE_STATUS_ICON[file.status] }}</span>
+            <span>{{ file.name }}</span>
+            <button type="button" aria-label="Retirer ce fichier" @click="removeAttachedFile(activeId, file.id)">
+              <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true">
+                <path
+                  fill="currentColor"
+                  d="M6.4 5L5 6.4 10.6 12 5 17.6 6.4 19 12 13.4 17.6 19 19 17.6 13.4 12 19 6.4 17.6 5 12 10.6z"
+                />
+              </svg>
+            </button>
+          </li>
+        </ul>
         <ul v-if="pinnedCollectionIds.length > 0" class="chat-window__chips">
           <li v-for="id in pinnedCollectionIds" :key="id" class="chat-window__chip">
             <span>{{ collections.find((collection) => collection.id === id)?.name ?? id }}</span>
@@ -171,6 +211,29 @@ watch(
         </ul>
         <div class="chat-window__composer">
           <CollectionPicker v-model="pinnedCollectionIds" v-model:web-search-enabled="webSearchEnabled" />
+          <input
+            ref="fileInput"
+            type="file"
+            multiple
+            class="chat-window__file-input"
+            aria-label="Choisir des fichiers à joindre"
+            @change="handleFilesSelected"
+          />
+          <button
+            type="button"
+            class="chat-window__attach"
+            aria-label="Joindre des fichiers"
+            title="Joindre des fichiers"
+            @click="openFilePicker"
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M17.5 8.5 9.62 16.38a3 3 0 0 1-4.24-4.24l8.13-8.13a2 2 0 0 1 2.83 2.83l-7.78 7.78a1 1 0 0 1-1.41-1.41l7.07-7.07"
+              />
+            </svg>
+          </button>
           <textarea
             ref="textarea"
             v-model="draft"
@@ -288,6 +351,12 @@ watch(
   font-size: 0.75rem;
 }
 
+.chat-window__chip--error {
+  border-color: var(--border-plain-error);
+  background: var(--background-contrast-error);
+  color: var(--text-default-error);
+}
+
 .chat-window__chip button {
   display: flex;
   align-items: center;
@@ -344,6 +413,29 @@ watch(
   background: var(--background-disabled-grey);
   color: var(--text-disabled-grey);
   cursor: not-allowed;
+}
+
+.chat-window__file-input {
+  display: none;
+}
+
+.chat-window__attach {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-mention-grey);
+  cursor: pointer;
+}
+
+.chat-window__attach:hover {
+  background: var(--background-alt-grey-hover);
+  color: var(--text-default-grey);
 }
 
 .chat-window__mic {

@@ -1,6 +1,15 @@
 import { computed, ref } from 'vue'
 import { router } from '../router'
-import type { ChatMessage, Conversation, DiscussionFeedback, DiscussionScore, ExecutionEvent, FeedbackDetails, Source } from '../types/chat'
+import type {
+  ChatMessage,
+  Conversation,
+  ConversationFile,
+  DiscussionFeedback,
+  DiscussionScore,
+  ExecutionEvent,
+  FeedbackDetails,
+  Source,
+} from '../types/chat'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
 
@@ -97,6 +106,16 @@ const pendingClarifications: Record<string, { runId: string; messageId: string }
 // conversation (newConversation()) skip a fetch that would just 404.
 const loadedConversationIds = new Set<string>()
 
+// Files attached directly to a conversation (§ conv-files, #88/#89/#90/#91) - the composer's
+// paperclip button, not a collection's own document list. Keyed the same way as
+// messagesByConversation (placeholder id until migrateConversationId renames it).
+const attachedFilesByConversation = ref<Record<string, ConversationFile[]>>({})
+const filePolls = new Map<string, ReturnType<typeof setInterval>>()
+// A file attached before the conversation has a real backend id yet (e.g. the very first
+// message of a brand-new chat) can't be uploaded - there's nothing to attach it to. Queued here
+// instead, and flushed once migrateConversationId resolves a real id.
+const queuedFileUploads = new Map<string, { tempId: string; file: File }[]>()
+
 function resolveConversationId(id: string): string {
   let resolved = id
   while (conversationAliases[resolved]) resolved = conversationAliases[resolved]
@@ -114,6 +133,11 @@ function migrateConversationId(placeholderId: string, realId: string): string {
     ...(messagesByConversation.value[currentId] ?? []),
   ]
   delete messagesByConversation.value[currentId]
+  attachedFilesByConversation.value[realId] = [
+    ...(attachedFilesByConversation.value[realId] ?? []),
+    ...(attachedFilesByConversation.value[currentId] ?? []),
+  ]
+  delete attachedFilesByConversation.value[currentId]
   conversationAliases[currentId] = realId
 
   const conversation = conversations.value.find((item) => item.id === currentId)
@@ -121,6 +145,12 @@ function migrateConversationId(placeholderId: string, realId: string): string {
   if (activeId.value === currentId) {
     activeId.value = realId
     router.replace(`/c/${realId}`)
+  }
+
+  const queued = queuedFileUploads.get(currentId)
+  if (queued) {
+    queuedFileUploads.delete(currentId)
+    for (const { tempId, file } of queued) uploadAttachedFile(realId, file, tempId)
   }
   return realId
 }
@@ -274,10 +304,144 @@ async function ensureMessagesLoaded(conversationId: string) {
     } catch {
       // Best-effort - the messages are already loaded, active run recovery is a bonus.
     }
+    refreshAttachedFiles(conversationId) // best-effort itself, see its own try/catch
   } catch {
     if (!messagesByConversation.value[conversationId]) messagesByConversation.value[conversationId] = []
   }
 }
+
+// --- Files attached directly to a conversation (§ conv-files, #88/#89/#90/#91/#92) ---
+
+interface ConversationDocumentOut {
+  id: string
+  name: string
+  status: ConversationFile['status']
+  progress: number
+}
+
+async function fetchConversationFiles(conversationId: string): Promise<ConversationDocumentOut[]> {
+  const response = await fetch(`${API_BASE_URL}/api/conversations/${conversationId}/documents`, {
+    credentials: 'include',
+  })
+  if (!response.ok) throw new Error(`${response.status}`)
+  return response.json()
+}
+
+async function refreshAttachedFiles(conversationId: string) {
+  const resolvedId = resolveConversationId(conversationId)
+  if (!confirmedConversationIds.has(resolvedId)) return // local-only placeholder, nothing to fetch yet
+  try {
+    const items = await fetchConversationFiles(resolvedId)
+    attachedFilesByConversation.value[resolvedId] = items.map((item) => ({
+      id: item.id,
+      name: item.name,
+      status: item.status,
+      progress: item.progress,
+    }))
+  } catch {
+    // Best-effort, same pattern as refreshDiscussionScores - a stale chip list just means the
+    // next poll tick (or conversation switch) picks up the real state.
+  }
+}
+
+function pollAttachedFilesWhileProcessing(conversationId: string) {
+  if (filePolls.has(conversationId)) return
+  filePolls.set(
+    conversationId,
+    setInterval(async () => {
+      await refreshAttachedFiles(conversationId)
+      const stillProcessing = (attachedFilesByConversation.value[conversationId] ?? []).some(
+        (file) => file.status === 'pending' || file.status === 'indexing',
+      )
+      if (!stillProcessing) {
+        clearInterval(filePolls.get(conversationId))
+        filePolls.delete(conversationId)
+      }
+    }, 2000),
+  )
+}
+
+function replaceAttachedFile(conversationId: string, fileId: string, file: ConversationFile | null) {
+  const list = attachedFilesByConversation.value[conversationId] ?? []
+  const index = list.findIndex((item) => item.id === fileId)
+  if (file === null) {
+    if (index !== -1) list.splice(index, 1)
+  } else if (index === -1) {
+    list.push(file)
+  } else {
+    list[index] = file
+  }
+  attachedFilesByConversation.value[conversationId] = [...list]
+}
+
+// Actually uploads a file to a conversation that's known to have a real backend id - called
+// either immediately (conversation already confirmed) or once migrateConversationId resolves one
+// for a file attached before the first message was ever sent (see attachFile below).
+async function uploadAttachedFile(conversationId: string, file: File, tempId: string) {
+  const formData = new FormData()
+  formData.append('file', file)
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/conversations/${conversationId}/documents/file`, {
+      method: 'POST',
+      credentials: 'include',
+      body: formData,
+    })
+    if (!response.ok) throw new Error(`${response.status}`)
+    const created: ConversationDocumentOut = await response.json()
+    replaceAttachedFile(conversationId, tempId, {
+      id: created.id,
+      name: created.name,
+      status: created.status,
+      progress: created.progress,
+    })
+    pollAttachedFilesWhileProcessing(conversationId)
+  } catch {
+    replaceAttachedFile(conversationId, tempId, { id: tempId, name: file.name, status: 'error', progress: 0 })
+  }
+}
+
+// Attaches a file to the active conversation from the composer's paperclip button - shown
+// immediately as a chip (optimistic), queued rather than uploaded right away if this is a
+// brand-new conversation with no backend id yet (see migrateConversationId's flush).
+function attachFile(conversationId: string, file: File) {
+  const resolvedId = resolveConversationId(conversationId)
+  const tempId = crypto.randomUUID()
+  replaceAttachedFile(resolvedId, tempId, {
+    id: tempId,
+    name: file.name,
+    status: confirmedConversationIds.has(resolvedId) ? 'pending' : 'queued',
+    progress: 0,
+  })
+  if (confirmedConversationIds.has(resolvedId)) {
+    uploadAttachedFile(resolvedId, file, tempId)
+  } else {
+    const queued = queuedFileUploads.get(resolvedId) ?? []
+    queued.push({ tempId, file })
+    queuedFileUploads.set(resolvedId, queued)
+  }
+}
+
+async function removeAttachedFile(conversationId: string, fileId: string) {
+  const resolvedId = resolveConversationId(conversationId)
+  const file = (attachedFilesByConversation.value[resolvedId] ?? []).find((item) => item.id === fileId)
+  replaceAttachedFile(resolvedId, fileId, null)
+  if (file?.status === 'queued') {
+    const queued = queuedFileUploads.get(resolvedId)
+    if (queued) queuedFileUploads.set(resolvedId, queued.filter((item) => item.tempId !== fileId))
+    return // never reached the backend, nothing to delete there
+  }
+  try {
+    await fetch(`${API_BASE_URL}/api/conversations/${resolvedId}/documents/${fileId}`, {
+      method: 'DELETE',
+      credentials: 'include',
+    })
+  } catch {
+    // Best-effort: already removed from the composer regardless - a stale server-side row isn't
+    // visible anywhere the user would notice, same tradeoff as deleteConversation.
+  }
+}
+
+const activeAttachedFiles = computed(() => attachedFilesByConversation.value[resolveConversationId(activeId.value)] ?? [])
 
 // `navigate: false` is used when a route change already triggered this (see
 // ChatView's route watcher) - pushing again there would just double the entry.
@@ -1008,5 +1172,8 @@ export function useChat() {
     activeDiscussionFeedback,
     submitDiscussionFeedback,
     refreshDiscussionFeedback,
+    activeAttachedFiles,
+    attachFile,
+    removeAttachedFile,
   }
 }
