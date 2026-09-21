@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.8.0](https://github.com/IA-Generative/Muffin/compare/v0.7.5...v0.8.0) (2026-09-21)
+
+
+### Features
+
+* **a11y:** read assistant answers aloud (text-to-speech) ([#111](https://github.com/IA-Generative/Muffin/issues/111)) ([a77eefa](https://github.com/IA-Generative/Muffin/commit/a77eefaf85d427c45994eeba6fb62ed9fe92d599))
+* **a11y:** voice dictation in the chat composer ([#108](https://github.com/IA-Generative/Muffin/issues/108)) ([85db72e](https://github.com/IA-Generative/Muffin/commit/85db72e14d1c84b5fb439598c74ef17090f14e98))
+* **agent:** identity node, answers 'who are you' without searching ([#99](https://github.com/IA-Generative/Muffin/issues/99)) ([ab2f77c](https://github.com/IA-Generative/Muffin/commit/ab2f77c1c693ec05303fc0ad427490a332f31ad5))
+* **agent:** suggest enabling web search when knowledge bases fall short ([#95](https://github.com/IA-Generative/Muffin/issues/95)) ([e33fcd3](https://github.com/IA-Generative/Muffin/commit/e33fcd3d6d6711823047f9c4f111d74297cc890f))
+* **prompts:** version the agent's system prompts, admin-editable ([4d1c4eb](https://github.com/IA-Generative/Muffin/commit/4d1c4eb05ac69f489a2e4931ae6738bba6297071))
+
+
+### Bug Fixes
+
+* **frontend:** declare SpeechRecognition types explicitly ([b41379a](https://github.com/IA-Generative/Muffin/commit/b41379a134959cd3b50f75a98f815dfb997f4eef))
+* **worker/document_process:** update DuckDB extension tests for lazy LOAD ([c7839d4](https://github.com/IA-Generative/Muffin/commit/c7839d4da0434ff0b6faa3ccb4ee46ac732d2a33))
+
+
+### Code Refactoring
+
+* **admin:** carousel + version dropdown for prompt editing ([8fcc964](https://github.com/IA-Generative/Muffin/commit/8fcc964e88f4c8f438075ddc9530e9e23122a9a5))
+
 ## [0.8.0-rc.4](https://github.com/IA-Generative/Muffin/compare/v0.8.0-rc.3...v0.8.0-rc.4) (2026-09-21)
 
 
