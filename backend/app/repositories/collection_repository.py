@@ -126,6 +126,38 @@ class CollectionRepository:
         await self.db.refresh(collection, attribute_names=["tags", "settings"])
         return collection
 
+    async def get_temporary_for_conversation(self, conversation_id: uuid.UUID) -> Collection | None:
+        """The collection backing files uploaded directly into this conversation (§ conv-files),
+        or None if nothing has been uploaded into it yet - never creates one, see
+        get_or_create_temporary_for_conversation for the lazy-create path."""
+        result = await self.db.execute(self._base_query().where(Collection.conversation_id == conversation_id))
+        return result.scalar_one_or_none()
+
+    async def get_or_create_temporary_for_conversation(
+        self, conversation_id: uuid.UUID, owner_id: str, *, embedding_model: str
+    ) -> Collection:
+        """Lazy, idempotent: called on every file upload into a conversation, only the first
+        call actually creates the collection (uq_collections_conversation_id makes a second one
+        for the same conversation impossible even under a race - the loser's INSERT just fails
+        and the caller would retry into the now-existing row)."""
+        existing = await self.get_temporary_for_conversation(conversation_id)
+        if existing is not None:
+            return existing
+
+        collection = Collection(
+            owner_id=owner_id,
+            name="Fichiers de la conversation",
+            description="",
+            visibility=CollectionVisibility.PRIVATE,
+            is_temporary=True,
+            conversation_id=conversation_id,
+        )
+        collection.settings = CollectionSettings(embedding_model=embedding_model)
+        self.db.add(collection)
+        await self.db.flush()
+        await self.db.refresh(collection, attribute_names=["tags", "settings"])
+        return collection
+
     async def update_name(self, collection: Collection, name: str) -> None:
         collection.name = name
 
