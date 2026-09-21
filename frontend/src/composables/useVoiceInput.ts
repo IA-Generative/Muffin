@@ -35,8 +35,11 @@ function start(onResult: (transcript: string, isFinal: boolean) => void) {
   }
 
   recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+    // "not-allowed" is what the spec actually defines for a denied/blocked mic permission -
+    // "permission-denied" was a legacy value some old Chrome builds used, never a real member
+    // of the standard error code union.
     error.value =
-      event.error === 'not-allowed' || event.error === 'permission-denied'
+      event.error === 'not-allowed'
         ? 'Accès au micro refusé - autorisez-le dans les paramètres du navigateur pour utiliser la dictée vocale.'
         : 'La dictée vocale a rencontré un problème. Réessayez, ou écrivez votre message.'
     isListening.value = false
