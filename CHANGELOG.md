@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0-rc.2](https://github.com/IA-Generative/Muffin/compare/v0.8.0-rc.1...v0.8.0-rc.2) (2026-09-21)
+
+
+### Features
+
+* **agent:** suggest enabling web search when knowledge bases fall short ([#95](https://github.com/IA-Generative/Muffin/issues/95)) ([1918456](https://github.com/IA-Generative/Muffin/commit/19184565c259a0dc6fbcbc5523c2ffb815f6809e))
+
 ## [0.8.0-rc.1](https://github.com/IA-Generative/Muffin/compare/v0.8.0-rc...v0.8.0-rc.1) (2026-09-21)
 
 
