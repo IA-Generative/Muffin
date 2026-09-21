@@ -11,6 +11,17 @@ const { summaries: prompts, isLoading: isLoadingPrompts, error: promptsError, fe
 onMounted(fetchAdminSettings)
 onMounted(fetchPrompts)
 
+const promptIndex = ref(0)
+watch(prompts, (value) => {
+  if (promptIndex.value >= value.length) promptIndex.value = 0
+})
+function prevPrompt() {
+  promptIndex.value = promptIndex.value === 0 ? prompts.value.length - 1 : promptIndex.value - 1
+}
+function nextPrompt() {
+  promptIndex.value = promptIndex.value === prompts.value.length - 1 ? 0 : promptIndex.value + 1
+}
+
 const draft = ref('')
 watch(
   embeddingModel,
@@ -74,14 +85,48 @@ async function save() {
       </p>
       <p v-if="promptsError" class="admin-view__error" role="alert">{{ promptsError }}</p>
       <p v-else-if="isLoadingPrompts" class="admin-view__empty">Chargement…</p>
-      <template v-else>
+      <p v-else-if="prompts.length === 0" class="admin-view__empty">Aucun prompt.</p>
+      <div v-else class="prompt-carousel">
+        <div class="prompt-carousel__nav">
+          <button
+            type="button"
+            class="fr-btn fr-btn--tertiary fr-btn--sm prompt-carousel__arrow"
+            aria-label="Prompt précédent"
+            :disabled="prompts.length < 2"
+            @click="prevPrompt"
+          >
+            ‹
+          </button>
+          <div class="prompt-carousel__dots">
+            <button
+              v-for="(prompt, index) in prompts"
+              :key="prompt.name"
+              type="button"
+              class="prompt-carousel__dot"
+              :class="{ 'prompt-carousel__dot--active': index === promptIndex }"
+              :aria-label="`Aller au prompt ${prompt.name}`"
+              :aria-current="index === promptIndex"
+              @click="promptIndex = index"
+            />
+          </div>
+          <button
+            type="button"
+            class="fr-btn fr-btn--tertiary fr-btn--sm prompt-carousel__arrow"
+            aria-label="Prompt suivant"
+            :disabled="prompts.length < 2"
+            @click="nextPrompt"
+          >
+            ›
+          </button>
+        </div>
+        <p class="prompt-carousel__position">{{ promptIndex + 1 }} / {{ prompts.length }}</p>
         <PromptEditor
-          v-for="prompt in prompts"
-          :key="prompt.name"
-          :name="prompt.name"
-          :active-version="prompt.active_version"
+          :key="prompts[promptIndex].name"
+          class="prompt-carousel__card"
+          :name="prompts[promptIndex].name"
+          :active-version="prompts[promptIndex].active_version"
         />
-      </template>
+      </div>
     </section>
   </section>
 </template>
@@ -185,5 +230,51 @@ async function save() {
 
 .admin-view__intro--section {
   margin: 0 0 1rem;
+}
+
+.prompt-carousel__nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+}
+
+.prompt-carousel__arrow {
+  font-size: 1.25rem;
+  line-height: 1;
+  padding: 0.25rem 0.75rem;
+}
+
+.prompt-carousel__dots {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.prompt-carousel__dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--border-default-grey);
+  cursor: pointer;
+}
+
+.prompt-carousel__dot--active {
+  background: var(--background-action-high-blue-france);
+}
+
+.prompt-carousel__position {
+  margin: 0.375rem 0 0.75rem;
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--text-mention-grey);
+}
+
+.prompt-carousel__card {
+  border: 1px solid var(--border-default-grey);
+  border-radius: 0.75rem;
+  background: var(--background-default-grey);
 }
 </style>
