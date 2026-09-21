@@ -139,6 +139,17 @@ class BackendClient:
         response.raise_for_status()
         return response.json()
 
+    def search_collections(self, collection_ids: list[str], query: str, limit: int) -> list[dict[str, Any]]:
+        """Vector search over collection *descriptions* (§ VDB routing pre-filter, #124) -
+        restricted to `collection_ids`, so the backend never returns a collection the caller
+        didn't already establish the user can access."""
+        response = self._client.post(
+            "/api/internal/collections/search",
+            json={"collection_ids": collection_ids, "query": query, "limit": limit},
+        )
+        response.raise_for_status()
+        return response.json()
+
     def llm_chat(self, model: str, messages: list[dict[str, str]], max_tokens: int | None = None) -> str:
         response = self._client.post(
             "/api/internal/llm/chat",

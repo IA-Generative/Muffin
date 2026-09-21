@@ -15,6 +15,7 @@ from app.repositories.collection_repository import CollectionRepository
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.qa_pair_repository import QaPairRepository
 from app.services import vector_store
+from app.services.embedding_model_lookup import default_embedding_model
 
 # Module attribute (not closed over), same reasoning as app/routers/internal_llm.py: tests
 # swap this out with monkeypatch.setattr without a live LLM hub.
@@ -141,6 +142,27 @@ class SearchService:
         top_ids = sorted(scored_ids, key=lambda document_id: scored_ids[document_id], reverse=True)[:limit]
         rows = await self.documents.get_by_ids(top_ids)
         return sorted(((document, scored_ids[document.id]) for document in rows), key=lambda row: row[1], reverse=True)
+
+    async def search_collections(
+        self, collection_ids: list[uuid.UUID], query: str, limit: int
+    ) -> Sequence[tuple[uuid.UUID, float]]:
+        """Vector search over collection *descriptions*, not their content (§ VDB routing
+        pre-filter, §122 file-filing suggestion). Unlike search/search_qa/search_summaries
+        above, every collection's description shares one embedding space (the admin-configured
+        default_embedding_model - see app/services/embedding_model_lookup.py and
+        worker/document_process's update_collection_description), so the query is only ever
+        embedded once here, never once per collection's own chunk embedding_model."""
+        if _openai_client is None or not collection_ids:
+            return []
+        model = await default_embedding_model(self.db)
+        if model is None:
+            return []
+        try:
+            query_embedding = await self._embed(model, query)
+        except Exception:
+            logger.exception("Failed to embed the collection-search query")
+            return []
+        return vector_store.search_collections(query, query_embedding, collection_ids, limit)
 
     async def _embed(self, model: str, text: str) -> list[float]:
         return await embed_text(model, text)
