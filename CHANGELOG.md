@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0-rc.1](https://github.com/IA-Generative/Muffin/compare/v0.8.0-rc...v0.8.0-rc.1) (2026-09-21)
+
+
+### Features
+
+* **agent:** identity node, answers 'who are you' without searching ([#99](https://github.com/IA-Generative/Muffin/issues/99)) ([d39e20a](https://github.com/IA-Generative/Muffin/commit/d39e20aa498c28ba0d248a4fe1179a89415adf8f))
+
 ## [0.8.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.7.6-rc...v0.8.0-rc) (2026-09-21)
 
 
