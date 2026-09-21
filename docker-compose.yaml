@@ -38,7 +38,11 @@ services:
       KEYCLOAK_REALM: muffin
       KEYCLOAK_CLIENT_ID: muffin-backend
       KEYCLOAK_CLIENT_SECRET: dev-only-secret-not-for-prod
-      BACKEND_PUBLIC_URL: http://localhost:8000
+      # Public URL the browser uses to reach the backend. Used to build the
+      # fixed OAuth2 redirect_uri registered in Keycloak
+      # ({BACKEND_PUBLIC_URL}/api/auth/callback). Override in .env when the
+      # backend is exposed through a different host/port (reverse-proxy, etc.).
+      BACKEND_PUBLIC_URL: ${BACKEND_PUBLIC_URL:-http://localhost:8000}
       # :8081 by default (the dockerized frontend service below). Override to
       # http://localhost:5173 in a local .env when running `make front`
       # instead - the redirect after login and CORS both key off this single

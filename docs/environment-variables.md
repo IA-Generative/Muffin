@@ -49,7 +49,7 @@ sa valeur par défaut en pratique).
 | `KEYCLOAK_REALM` | Nom du realm Keycloak | `muffin` | idem |
 | `KEYCLOAK_CLIENT_ID` | Client OAuth2 confidentiel du backend | `muffin-backend` | idem |
 | `KEYCLOAK_CLIENT_SECRET` | Secret de ce client | `None` | idem |
-| `BACKEND_PUBLIC_URL` | URL publique du backend, utilisée pour construire le `redirect_uri` OAuth2 fixe enregistré côté Keycloak (`{BACKEND_PUBLIC_URL}/api/auth/callback`) | `http://localhost:8000` | idem |
+| `BACKEND_PUBLIC_URL` | URL publique du backend, utilisée pour construire le `redirect_uri` OAuth2 fixe enregistré côté Keycloak (`{BACKEND_PUBLIC_URL}/api/auth/callback`) | `http://localhost:8000` (code) / `http://localhost:8000` (docker-compose, surchargeable via `.env`) | idem |
 | `FRONTEND_URL` | Origine du frontend : cible de redirection après login/logout, et unique origine autorisée en CORS | `http://localhost:5173` (code) / `http://localhost:8081` (docker-compose, le frontend dockerisé) | **backend** (`app/routers/auth.py`, config CORS) |
 | `SESSION_COOKIE_NAME` | Nom du cookie de session | `muffin_session` | **backend** (`app/core/security/factory.py`) |
 | `SESSION_COOKIE_SECURE` | Flag `Secure` du cookie de session (doit être `false` en dev HTTP, `true` en prod HTTPS) | `true` | idem |

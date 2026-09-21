@@ -147,7 +147,7 @@ async function fetchOverview(
   error.value = null
   currentPage.value = page
   try {
-    const url = new URL(`${API_BASE_URL}/api/quality/overview`)
+    const url = new URL(`${API_BASE_URL}/api/quality/overview`, window.location.origin)
     if (collectionId) url.searchParams.set('collection_id', collectionId)
     url.searchParams.set('page', String(page))
     url.searchParams.set('page_size', String(pageSize.value))
@@ -175,6 +175,7 @@ async function scoreConversation(
   try {
     const url = new URL(
       `${API_BASE_URL}/api/quality/conversations/${conversationId}/score`,
+      window.location.origin,
     )
     if (model) url.searchParams.set('model', model)
     const response = await fetch(url.toString(), {
@@ -214,7 +215,7 @@ async function scoreAll(
 ) {
   isScoringAll.value = true
   try {
-    const url = new URL(`${API_BASE_URL}/api/quality/conversations/score-all`)
+    const url = new URL(`${API_BASE_URL}/api/quality/conversations/score-all`, window.location.origin)
     if (collectionId) url.searchParams.set('collection_id', collectionId)
     if (model) url.searchParams.set('model', model)
     const response = await fetch(url.toString(), {

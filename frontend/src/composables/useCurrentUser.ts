@@ -38,7 +38,10 @@ async function fetchMe() {
 }
 
 function login(redirect: string = window.location.pathname) {
-  const url = new URL(`${API_BASE_URL}/api/auth/login`)
+  // When API_BASE_URL is empty (same-origin, ingress-routed prod), fall back
+  // to window.location.origin so `new URL` gets a valid base. In dev,
+  // API_BASE_URL is an absolute URL (http://localhost:8000) and is used as-is.
+  const url = new URL(`${API_BASE_URL}/api/auth/login`, window.location.origin)
   url.searchParams.set('redirect', redirect)
   window.location.href = url.toString()
 }
