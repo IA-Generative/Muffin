@@ -19,9 +19,9 @@ from app.schemas.document import (
     TabularProfileOut,
 )
 from app.schemas.pagination import Page, PaginationParams
-from app.services import vector_store
+from app.services import embedding_model_lookup, vector_store
 
-from .collection_service import CollectionNotFoundError
+from .collection_service import FALLBACK_EMBEDDING_MODEL, CollectionNotFoundError
 
 
 class DocumentNotFoundError(Exception):
@@ -66,6 +66,24 @@ class DocumentUploadService:
         )
         await self.db.commit()
         return DocumentOut.model_validate(document)
+
+    async def create_conversation_file_document(
+        self,
+        conversation_id: uuid.UUID,
+        user: RequestContext,
+        filename: str,
+        content: bytes,
+        content_type: str,
+    ) -> DocumentOut:
+        """Upload a file straight into a conversation (§ conv-files) rather than a permanent
+        collection the user manages explicitly. Gets or lazily creates the conversation's
+        temporary collection, then hands off to create_file_document unchanged - no separate
+        storage/indexing path, a conversation file is an ordinary Document like any other."""
+        embedding_model = await embedding_model_lookup.default_embedding_model(self.db) or FALLBACK_EMBEDDING_MODEL
+        collection = await self.collections.get_or_create_temporary_for_conversation(
+            conversation_id, user.user_id, embedding_model=embedding_model
+        )
+        return await self.create_file_document(collection.id, user, filename, content, content_type)
 
     async def create_url_document(self, collection_id: uuid.UUID, user: RequestContext, url: str) -> DocumentOut:
         await self._get_owned_collection(collection_id, user)
