@@ -10,6 +10,7 @@ from app.db import async_session_factory
 from app.main import app
 from app.models.conversation import Conversation
 from app.models.run import Run
+from app.models.task import Task
 
 
 @pytest.fixture
@@ -18,6 +19,11 @@ async def client():
         yield async_client
     app.dependency_overrides.pop(get_current_user, None)
     async with async_session_factory() as session:
+        # Conversation cascades to Task (via Document) and to a temporary Collection
+        # (both DB-level ondelete=CASCADE) - Task is still deleted explicitly first since
+        # a bulk DELETE doesn't itself depend on that, and it's the row whose
+        # ix_tasks_celery_task_id unique index bites hardest if ever left behind.
+        await session.execute(delete(Task))
         await session.execute(delete(Run))
         await session.execute(delete(Conversation))
         await session.commit()
@@ -359,3 +365,69 @@ async def test_run_out_exposes_pending_human_action(client):
 
     response = await client.get(f"/api/runs/{created['id']}")
     assert response.json()["pending_human_action"] == {"question": "Which department do you mean?"}
+
+
+async def test_create_run_auto_pins_the_conversation_s_temporary_collection(client):
+    first = await _create_run(client)
+    conversation_id = first.json()["conversation_id"]
+
+    with (
+        patch("app.services.document_upload_service.storage.put_object"),
+        patch("app.services.document_upload_service.enqueue_process_document", return_value="celery-upload-1"),
+    ):
+        await client.post(
+            f"/api/conversations/{conversation_id}/documents/file",
+            files={"file": ("notes.txt", b"hello", "text/plain")},
+        )
+
+    async with async_session_factory() as session:
+        from app.models.collection import Collection
+
+        temp_collection = (
+            await session.execute(select(Collection).where(Collection.conversation_id == uuid.UUID(conversation_id)))
+        ).scalar_one()
+
+    with patch("app.services.run_service.enqueue_run_agent", return_value="celery-run-2"):
+        second = await client.post(
+            "/api/runs", json={"query": "What does the file say?", "conversation_id": conversation_id}
+        )
+    assert second.status_code == 202
+
+    async with async_session_factory() as session:
+        run = await session.get(Run, uuid.UUID(second.json()["id"]))
+    assert run.pinned_collection_ids == [str(temp_collection.id)]
+
+
+async def test_create_run_does_not_duplicate_an_already_pinned_temporary_collection(client):
+    first = await _create_run(client)
+    conversation_id = first.json()["conversation_id"]
+
+    with (
+        patch("app.services.document_upload_service.storage.put_object"),
+        patch("app.services.document_upload_service.enqueue_process_document", return_value="celery-upload-1"),
+    ):
+        await client.post(
+            f"/api/conversations/{conversation_id}/documents/file",
+            files={"file": ("notes.txt", b"hello", "text/plain")},
+        )
+
+    async with async_session_factory() as session:
+        from app.models.collection import Collection
+
+        temp_collection = (
+            await session.execute(select(Collection).where(Collection.conversation_id == uuid.UUID(conversation_id)))
+        ).scalar_one()
+
+    with patch("app.services.run_service.enqueue_run_agent", return_value="celery-run-2"):
+        second = await client.post(
+            "/api/runs",
+            json={
+                "query": "What does the file say?",
+                "conversation_id": conversation_id,
+                "collection_ids": [str(temp_collection.id)],
+            },
+        )
+
+    async with async_session_factory() as session:
+        run = await session.get(Run, uuid.UUID(second.json()["id"]))
+    assert run.pinned_collection_ids == [str(temp_collection.id)]

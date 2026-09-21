@@ -7,6 +7,7 @@ from app.core.tasks import enqueue_resume_agent, enqueue_run_agent, revoke_task
 from app.models.feedback import FeedbackSourceRole
 from app.models.message import MessageRole
 from app.models.run import RunStatus
+from app.repositories.collection_repository import CollectionRepository
 from app.repositories.conversation_repository import ConversationRepository
 from app.repositories.feedback_repository import FeedbackRepository
 from app.repositories.run_repository import RunRepository
@@ -39,6 +40,7 @@ class RunService:
         self.db = db
         self.runs = RunRepository(db)
         self.conversations = ConversationRepository(db)
+        self.collections = CollectionRepository(db)
         self.feedbacks = FeedbackRepository(db)
         self.sources = SourceRepository(db)
 
@@ -53,12 +55,22 @@ class RunService:
         # The run's strong link is to this message, not directly to the
         # conversation - see app/models/run.py.
         message = await self.conversations.add_message(conversation.id, MessageRole.USER, body.query)
+
+        # Auto-pin the conversation's temporary collection (§ conv-files, #88/#89) so the agent
+        # always searches files uploaded straight into this conversation, without the user
+        # having to pin it explicitly like a regular collection. None if nothing has ever been
+        # uploaded into this conversation - nothing to pin, same as today.
+        collection_ids = list(body.collection_ids or [])
+        temp_collection = await self.collections.get_temporary_for_conversation(conversation.id)
+        if temp_collection is not None and temp_collection.id not in collection_ids:
+            collection_ids.append(temp_collection.id)
+
         run = await self.runs.create(
             user.user_id,
             body.query,
             message.id,
             conversation.id,
-            body.collection_ids,
+            collection_ids,
             user.groups,
             body.web_search_enabled,
         )

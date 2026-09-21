@@ -54,9 +54,15 @@ class CollectionRepository:
         )
 
     async def list_accessible(
-        self, user_id: str, group_ids: Sequence[str], *, limit: int, offset: int
+        self, user_id: str, group_ids: Sequence[str], *, limit: int, offset: int, exclude_temporary: bool = False
     ) -> tuple[Sequence[Collection], int]:
         where = self._accessible_where(user_id, group_ids)
+        if exclude_temporary:
+            # The user-facing listing (§ conv-files) - a temporary collection is conversation-
+            # scoped and auto-pinned (see RunService.create_run), never something the user picks
+            # from a list of their collections. list_all_accessible below must NOT get this
+            # filter: the agent's pinned/accessible intersection still needs to find it there.
+            where = where & (Collection.is_temporary.is_(False))
 
         total = await self.db.scalar(select(func.count()).select_from(Collection).where(where))
 

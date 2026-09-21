@@ -124,6 +124,32 @@ async def test_create_and_list_collections(client):
     assert body["items"][0]["id"] == created["id"]
 
 
+async def test_list_collections_excludes_temporary_collections(client):
+    with patch("app.services.run_service.enqueue_run_agent", return_value="celery-run-1"):
+        run = (await client.post("/api/runs", json={"query": "hi"})).json()
+
+    with (
+        patch("app.services.document_upload_service.storage.put_object"),
+        patch("app.services.document_upload_service.enqueue_process_document", return_value="celery-upload-1"),
+    ):
+        await client.post(
+            f"/api/conversations/{run['conversation_id']}/documents/file",
+            files={"file": ("notes.txt", b"hello", "text/plain")},
+        )
+
+    async with async_session_factory() as session:
+        temp_collection = (
+            await session.execute(
+                select(Collection).where(Collection.conversation_id == uuid.UUID(run["conversation_id"]))
+            )
+        ).scalar_one()
+    assert temp_collection.is_temporary is True
+
+    body = (await client.get("/api/collections")).json()
+    assert body["items"] == []
+    assert body["total"] == 0
+
+
 async def test_get_collection_not_found_returns_404(client):
     response = await client.get("/api/collections/00000000-0000-0000-0000-000000000000")
     assert response.status_code == 404
