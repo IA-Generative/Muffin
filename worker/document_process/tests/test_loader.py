@@ -318,16 +318,44 @@ class TestConfigureS3:
         # en lecture seule). On utilise un mock de connexion à la place.
         from unittest.mock import MagicMock
 
+        # LOAD suffit et ne lève pas (extension déjà installée, cas nominal en
+        # prod comme dans ce mock) - voir _ensure_extension. INSTALL n'est
+        # appelé qu'en repli, testé séparément ci-dessous.
         conn = MagicMock()
         loader._configure_s3(conn)
 
         executed_sql = [call.args[0] for call in conn.execute.call_args_list]
-        assert "INSTALL httpfs" in executed_sql
+        assert "INSTALL httpfs" not in executed_sql
         assert "LOAD httpfs" in executed_sql
         assert any("SET s3_access_key_id=" in sql for sql in executed_sql)
         assert any("SET s3_secret_access_key=" in sql for sql in executed_sql)
         assert any("SET s3_endpoint=" in sql for sql in executed_sql)
         assert any("SET s3_url_style='path'" in sql for sql in executed_sql)
+
+    def test_installs_extension_when_load_fails(self):
+        # En dev, l'extension n'est pas pré-installée dans l'image : LOAD
+        # lève duckdb.IOException, ce qui doit déclencher un repli sur
+        # INSTALL puis un nouveau LOAD (voir _ensure_extension).
+        from unittest.mock import MagicMock
+
+        conn = MagicMock()
+
+        def execute_side_effect(sql, *args, **kwargs):
+            if sql == "LOAD httpfs":
+                execute_side_effect.calls += 1
+                if execute_side_effect.calls == 1:
+                    raise duckdb.IOException("extension not found")
+            return MagicMock()
+
+        execute_side_effect.calls = 0
+        conn.execute.side_effect = execute_side_effect
+
+        loader._configure_s3(conn)
+
+        executed_sql = [call.args[0] for call in conn.execute.call_args_list]
+        assert executed_sql.count("LOAD httpfs") == 2
+        assert "INSTALL httpfs" in executed_sql
+        assert executed_sql.index("INSTALL httpfs") > executed_sql.index("LOAD httpfs")
 
     def test_strips_http_scheme_from_endpoint(self):
         from unittest.mock import MagicMock
@@ -343,12 +371,34 @@ class TestConfigureS3:
 
 
 class TestConfigureSpatial:
-    def test_installs_and_loads_spatial(self):
+    def test_loads_spatial(self):
         from unittest.mock import MagicMock
 
         conn = MagicMock()
         loader._configure_spatial(conn)
 
         executed_sql = [call.args[0] for call in conn.execute.call_args_list]
-        assert "INSTALL spatial" in executed_sql
+        assert "INSTALL spatial" not in executed_sql
         assert "LOAD spatial" in executed_sql
+
+    def test_installs_spatial_when_load_fails(self):
+        from unittest.mock import MagicMock
+
+        conn = MagicMock()
+
+        def execute_side_effect(sql, *args, **kwargs):
+            if sql == "LOAD spatial":
+                execute_side_effect.calls += 1
+                if execute_side_effect.calls == 1:
+                    raise duckdb.IOException("extension not found")
+            return MagicMock()
+
+        execute_side_effect.calls = 0
+        conn.execute.side_effect = execute_side_effect
+
+        loader._configure_spatial(conn)
+
+        executed_sql = [call.args[0] for call in conn.execute.call_args_list]
+        assert executed_sql.count("LOAD spatial") == 2
+        assert "INSTALL spatial" in executed_sql
+        assert executed_sql.index("INSTALL spatial") > executed_sql.index("LOAD spatial")
