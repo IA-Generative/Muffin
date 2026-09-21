@@ -9,6 +9,7 @@ from app.core.sharing import SharingNotConfiguredError
 from app.db import get_db
 from app.schemas.collection import (
     ChunkOut,
+    CollectionCreate,
     CollectionOut,
     CollectionSettingsUpdate,
     CollectionUpdate,
@@ -76,8 +77,10 @@ async def list_collections(
     status_code=status.HTTP_201_CREATED,
     response_model=CollectionOut,
 )
-async def create_collection(user: UserDep, service: ServiceDep) -> CollectionOut:
-    return await service.create_collection(user)
+async def create_collection(user: UserDep, service: ServiceDep, body: CollectionCreate | None = None) -> CollectionOut:
+    return await service.create_collection(
+        user, name=body.name if body else None, description=body.description if body else None
+    )
 
 
 @router.get(

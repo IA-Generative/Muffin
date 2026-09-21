@@ -223,6 +223,168 @@ async def test_update_document_error_does_not_clobber_summary(client):
     assert body["summary"] == "Kept summary."
 
 
+async def _create_temporary_collection_document(
+    *, owner_id: str = "dev-user", summary: str | None = "A summary."
+) -> uuid.UUID:
+    async with async_session_factory() as session:
+        from app.models.document import Document
+
+        collection = Collection(
+            owner_id=owner_id, name="Fichiers de la conversation", description="", is_temporary=True
+        )
+        collection.settings = CollectionSettings(embedding_model="text-embedding-3-small")
+        session.add(collection)
+        await session.flush()
+        document = Document(
+            collection_id=collection.id, name="notes.txt", type="file", storage_key="k", summary=summary
+        )
+        session.add(document)
+        await session.commit()
+        return document.id
+
+
+async def test_suggest_filing_not_found(client):
+    response = await client.post(f"/api/internal/documents/{uuid.uuid4()}/suggest-filing", headers=_headers())
+    assert response.status_code == 404
+
+
+async def test_suggest_filing_skips_non_temporary_collection(client, monkeypatch):
+    from app.services import document_service
+
+    document_id = await _create_document(client, storage_key="k")
+    calls = []
+    monkeypatch.setattr(document_service, "default_embedding_model", lambda db: calls.append(1))
+
+    response = await client.post(f"/api/internal/documents/{document_id}/suggest-filing", headers=_headers())
+
+    assert response.status_code == 200
+    assert calls == []  # never even tried - not a conversation file
+
+
+async def test_suggest_filing_skips_document_without_summary(client, monkeypatch):
+    from app.services import document_service
+
+    document_id = await _create_temporary_collection_document(summary=None)
+    calls = []
+    monkeypatch.setattr(document_service, "default_embedding_model", lambda db: calls.append(1))
+
+    response = await client.post(f"/api/internal/documents/{document_id}/suggest-filing", headers=_headers())
+
+    assert response.status_code == 200
+    assert calls == []
+
+
+async def test_suggest_filing_sets_the_best_matching_owned_collection(client, monkeypatch):
+    from app.services import document_service
+
+    document_id = await _create_temporary_collection_document(owner_id="dev-user")
+    async with async_session_factory() as session:
+        target = Collection(owner_id="dev-user", name="Rapports", description="Rapports trimestriels.")
+        target.settings = CollectionSettings(embedding_model="text-embedding-3-small")
+        session.add(target)
+        await session.commit()
+        target_id = target.id
+
+    async def fake_default_embedding_model(db):
+        return "text-embedding-3-small"
+
+    async def fake_embed_text(model, text):
+        return [0.1, 0.2]
+
+    monkeypatch.setattr(document_service, "default_embedding_model", fake_default_embedding_model)
+    monkeypatch.setattr(document_service, "embed_text", fake_embed_text)
+    monkeypatch.setattr(
+        document_service.vector_store,
+        "search_collections",
+        lambda query, query_embedding, collection_ids, limit: [(target_id, 0.83)],
+    )
+
+    response = await client.post(f"/api/internal/documents/{document_id}/suggest-filing", headers=_headers())
+
+    assert response.status_code == 200
+    async with async_session_factory() as session:
+        from sqlalchemy import select
+
+        from app.models.document import Document
+
+        document = (await session.execute(select(Document).where(Document.id == document_id))).scalar_one()
+    assert document.suggested_collection_id == target_id
+    assert document.suggested_collection_score == 0.83
+    assert document.filing_candidates == [
+        {
+            "collection_id": str(target_id),
+            "collection_name": "Rapports",
+            "collection_description": "Rapports trimestriels.",
+            "score": 0.83,
+        }
+    ]
+
+
+async def test_suggest_filing_keeps_the_top_k_candidates_in_rank_order(client, monkeypatch):
+    from app.services import document_service
+
+    document_id = await _create_temporary_collection_document(owner_id="dev-user")
+    async with async_session_factory() as session:
+        first = Collection(owner_id="dev-user", name="Rapports", description="Rapports trimestriels.")
+        first.settings = CollectionSettings(embedding_model="text-embedding-3-small")
+        second = Collection(owner_id="dev-user", name="Comptabilité", description="Bilans comptables.")
+        second.settings = CollectionSettings(embedding_model="text-embedding-3-small")
+        session.add_all([first, second])
+        await session.commit()
+        first_id, second_id = first.id, second.id
+
+    async def fake_default_embedding_model(db):
+        return "text-embedding-3-small"
+
+    async def fake_embed_text(model, text):
+        return [0.1, 0.2]
+
+    monkeypatch.setattr(document_service, "default_embedding_model", fake_default_embedding_model)
+    monkeypatch.setattr(document_service, "embed_text", fake_embed_text)
+    monkeypatch.setattr(
+        document_service.vector_store,
+        "search_collections",
+        lambda query, query_embedding, collection_ids, limit: [(first_id, 0.9), (second_id, 0.6)],
+    )
+
+    response = await client.post(f"/api/internal/documents/{document_id}/suggest-filing", headers=_headers())
+
+    assert response.status_code == 200
+    async with async_session_factory() as session:
+        from sqlalchemy import select
+
+        from app.models.document import Document
+
+        document = (await session.execute(select(Document).where(Document.id == document_id))).scalar_one()
+    # Top-1 mirrors the first (highest-ranked) candidate.
+    assert document.suggested_collection_id == first_id
+    assert document.suggested_collection_score == 0.9
+    assert [c["collection_id"] for c in document.filing_candidates] == [str(first_id), str(second_id)]
+    assert [c["score"] for c in document.filing_candidates] == [0.9, 0.6]
+
+
+async def test_suggest_filing_no_embedding_model_configured_is_a_no_op(client, monkeypatch):
+    from app.services import document_service
+
+    document_id = await _create_temporary_collection_document()
+
+    async def fake_default_embedding_model(db):
+        return None
+
+    monkeypatch.setattr(document_service, "default_embedding_model", fake_default_embedding_model)
+
+    response = await client.post(f"/api/internal/documents/{document_id}/suggest-filing", headers=_headers())
+
+    assert response.status_code == 200
+    async with async_session_factory() as session:
+        from sqlalchemy import select
+
+        from app.models.document import Document
+
+        document = (await session.execute(select(Document).where(Document.id == document_id))).scalar_one()
+    assert document.suggested_collection_id is None
+
+
 async def test_replace_document_tags(client):
     document_id = await _create_document(client)
 

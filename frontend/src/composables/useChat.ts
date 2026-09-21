@@ -312,11 +312,42 @@ async function ensureMessagesLoaded(conversationId: string) {
 
 // --- Files attached directly to a conversation (§ conv-files, #88/#89/#90/#91/#92) ---
 
+interface ConversationFilingCandidateOut {
+  collection_id: string
+  collection_name: string
+  collection_description: string
+  score: number
+}
+
 interface ConversationDocumentOut {
   id: string
   name: string
   status: ConversationFile['status']
   progress: number
+  suggested_collection_id: string | null
+  suggested_collection_name: string | null
+  suggested_collection_score: number | null
+  filing_candidates: ConversationFilingCandidateOut[] | null
+  filing_dismissed: boolean
+}
+
+function toConversationFile(item: ConversationDocumentOut): ConversationFile {
+  return {
+    id: item.id,
+    name: item.name,
+    status: item.status,
+    progress: item.progress,
+    suggestedCollectionId: item.suggested_collection_id ?? undefined,
+    suggestedCollectionName: item.suggested_collection_name ?? undefined,
+    suggestedCollectionScore: item.suggested_collection_score ?? undefined,
+    filingCandidates: (item.filing_candidates ?? []).map((candidate) => ({
+      collectionId: candidate.collection_id,
+      collectionName: candidate.collection_name,
+      collectionDescription: candidate.collection_description,
+      score: candidate.score,
+    })),
+    filingDismissed: item.filing_dismissed,
+  }
 }
 
 async function fetchConversationFiles(conversationId: string): Promise<ConversationDocumentOut[]> {
@@ -332,12 +363,7 @@ async function refreshAttachedFiles(conversationId: string) {
   if (!confirmedConversationIds.has(resolvedId)) return // local-only placeholder, nothing to fetch yet
   try {
     const items = await fetchConversationFiles(resolvedId)
-    attachedFilesByConversation.value[resolvedId] = items.map((item) => ({
-      id: item.id,
-      name: item.name,
-      status: item.status,
-      progress: item.progress,
-    }))
+    attachedFilesByConversation.value[resolvedId] = items.map(toConversationFile)
   } catch {
     // Best-effort, same pattern as refreshDiscussionScores - a stale chip list just means the
     // next poll tick (or conversation switch) picks up the real state.
@@ -388,15 +414,17 @@ async function uploadAttachedFile(conversationId: string, file: File, tempId: st
     })
     if (!response.ok) throw new Error(`${response.status}`)
     const created: ConversationDocumentOut = await response.json()
-    replaceAttachedFile(conversationId, tempId, {
-      id: created.id,
-      name: created.name,
-      status: created.status,
-      progress: created.progress,
-    })
+    replaceAttachedFile(conversationId, tempId, toConversationFile(created))
     pollAttachedFilesWhileProcessing(conversationId)
   } catch {
-    replaceAttachedFile(conversationId, tempId, { id: tempId, name: file.name, status: 'error', progress: 0 })
+    replaceAttachedFile(conversationId, tempId, {
+      id: tempId,
+      name: file.name,
+      status: 'error',
+      progress: 0,
+      filingCandidates: [],
+      filingDismissed: false,
+    })
   }
 }
 
@@ -411,6 +439,8 @@ function attachFile(conversationId: string, file: File) {
     name: file.name,
     status: confirmedConversationIds.has(resolvedId) ? 'pending' : 'queued',
     progress: 0,
+    filingCandidates: [],
+    filingDismissed: false,
   })
   if (confirmedConversationIds.has(resolvedId)) {
     uploadAttachedFile(resolvedId, file, tempId)
@@ -442,6 +472,19 @@ async function removeAttachedFile(conversationId: string, fileId: string) {
 }
 
 const activeAttachedFiles = computed(() => attachedFilesByConversation.value[resolveConversationId(activeId.value)] ?? [])
+
+// Local-only updates for the chat's file-filing modal (§122) - the actual API call goes through
+// useFiling().decideFiling, shared with the "Fichiers à ranger" review page; these two just keep
+// the composer's chips in sync with its result, without a second network round-trip.
+function markAttachedFileDismissed(conversationId: string, fileId: string) {
+  const resolvedId = resolveConversationId(conversationId)
+  const file = (attachedFilesByConversation.value[resolvedId] ?? []).find((item) => item.id === fileId)
+  if (file) replaceAttachedFile(resolvedId, fileId, { ...file, filingDismissed: true })
+}
+
+function dropAttachedFileLocally(conversationId: string, fileId: string) {
+  replaceAttachedFile(resolveConversationId(conversationId), fileId, null)
+}
 
 // `navigate: false` is used when a route change already triggered this (see
 // ChatView's route watcher) - pushing again there would just double the entry.
@@ -576,7 +619,17 @@ async function initializeConversations() {
     conversations.value = items.map((item) => ({ id: item.id, title: item.title || 'Nouvelle conversation' }))
     for (const item of items) confirmedConversationIds.add(item.id)
 
-    if (activeId.value === 'default' && (messagesByConversation.value.default ?? []).length === 0) {
+    // window.location.pathname, not router.currentRoute.value.path: this runs at module load
+    // time, before Vue Router's own async initial navigation has necessarily resolved (no
+    // `router.isReady()` await in main.ts) - currentRoute could still read its default '/' even
+    // when the real URL is e.g. /tasks. Without this check at all, a hard reload/direct visit to
+    // any non-chat route got silently hijacked back to the most recent conversation - activeId
+    // starts as 'default' regardless of which route the page actually loaded on.
+    if (
+      activeId.value === 'default' &&
+      (messagesByConversation.value.default ?? []).length === 0 &&
+      window.location.pathname === '/'
+    ) {
       const mostRecentId = items[0].id
       await ensureMessagesLoaded(mostRecentId)
       delete messagesByConversation.value.default
@@ -1175,5 +1228,7 @@ export function useChat() {
     activeAttachedFiles,
     attachFile,
     removeAttachedFile,
+    markAttachedFileDismissed,
+    dropAttachedFileLocally,
   }
 }

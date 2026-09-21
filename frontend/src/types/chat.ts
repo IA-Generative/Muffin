@@ -65,6 +65,13 @@ export interface Conversation {
   title: string
 }
 
+export interface FilingSuggestionCandidate {
+  collectionId: string
+  collectionName: string
+  collectionDescription: string
+  score: number
+}
+
 export interface ConversationFile {
   id: string
   name: string
@@ -73,6 +80,14 @@ export interface ConversationFile {
   // backend status. The rest mirror CollectionDocument's indexing pipeline.
   status: 'queued' | 'pending' | 'indexing' | 'indexed' | 'error'
   progress: number
+  // Filing suggestion (§122) - set once this file's summary is ready, if a matching collection
+  // was found among the ones the uploader owns. Never set on a 'queued'/'pending' chip (no
+  // summary yet), and filingDismissed silences the notification without changing anything else.
+  suggestedCollectionId?: string
+  suggestedCollectionName?: string
+  suggestedCollectionScore?: number
+  filingCandidates: FilingSuggestionCandidate[]
+  filingDismissed: boolean
 }
 
 export interface DiscussionScore {

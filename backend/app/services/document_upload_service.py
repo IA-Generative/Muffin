@@ -16,6 +16,7 @@ from app.schemas.document import (
     DocumentDetailOut,
     DocumentOut,
     DocumentPageOut,
+    FilingCandidateOut,
     TabularProfileOut,
 )
 from app.schemas.pagination import Page, PaginationParams
@@ -26,6 +27,31 @@ from .collection_service import FALLBACK_EMBEDDING_MODEL, CollectionNotFoundErro
 
 class DocumentNotFoundError(Exception):
     pass
+
+
+class InvalidFilingDecisionError(Exception):
+    pass
+
+
+def _uploader_display(user: RequestContext) -> str:
+    """ "Jean D." style (first name + last-name initial), rather than a hash (no recognition
+    value) or the full name (unnecessarily exposed everywhere it's shown) - see §122. Falls back
+    to the email's local part, then the raw user id, for an identity provider that doesn't
+    populate first_name/last_name."""
+    if user.first_name and user.last_name:
+        return f"{user.first_name} {user.last_name[0]}."
+    if user.first_name:
+        return user.first_name
+    if user.email:
+        return user.email.split("@")[0]
+    return user.user_id
+
+
+def _document_out(document: Document) -> DocumentOut:
+    out = DocumentOut.model_validate(document)
+    if document.suggested_collection is not None:
+        out.suggested_collection_name = document.suggested_collection.name
+    return out
 
 
 class DocumentUploadService:
@@ -39,7 +65,7 @@ class DocumentUploadService:
     async def list_documents(self, collection_id: uuid.UUID, user: RequestContext) -> list[DocumentOut]:
         await self._get_owned_collection(collection_id, user)
         documents = await self.documents.list_by_collection(collection_id)
-        return [DocumentOut.model_validate(document) for document in documents]
+        return [_document_out(document) for document in documents]
 
     async def create_file_document(
         self,
@@ -54,7 +80,9 @@ class DocumentUploadService:
         storage_key = f"documents/{collection_id}/{uuid.uuid4()}-{safe_name}"
         storage.put_object(storage_key, content, content_type=content_type)
 
-        document = await self.documents.create_file(collection_id, safe_name, storage_key)
+        document = await self.documents.create_file(
+            collection_id, safe_name, storage_key, user.user_id, _uploader_display(user)
+        )
         await self.db.commit()
         celery_task_id = enqueue_process_document(str(document.id))
         await self.tasks.create(
@@ -82,6 +110,23 @@ class DocumentUploadService:
         embedding_model = await embedding_model_lookup.default_embedding_model(self.db) or FALLBACK_EMBEDDING_MODEL
         collection = await self.collections.get_or_create_temporary_for_conversation(
             conversation_id, user.user_id, embedding_model=embedding_model
+        )
+        return await self.create_file_document(collection.id, user, filename, content, content_type)
+
+    async def upload_standalone_for_filing(
+        self,
+        user: RequestContext,
+        filename: str,
+        content: bytes,
+        content_type: str,
+    ) -> DocumentOut:
+        """Upload a file straight to the "Fichiers à ranger" review page (§122 follow-up) - no
+        conversation at all, unlike create_conversation_file_document. Gets or lazily creates
+        this user's own standalone holding collection, then hands off to create_file_document
+        unchanged, same reasoning as the conversation path."""
+        embedding_model = await embedding_model_lookup.default_embedding_model(self.db) or FALLBACK_EMBEDDING_MODEL
+        collection = await self.collections.get_or_create_personal_holding(
+            user.user_id, embedding_model=embedding_model
         )
         return await self.create_file_document(collection.id, user, filename, content, content_type)
 
@@ -266,6 +311,94 @@ class DocumentUploadService:
         await self.documents.delete(document)
         await self.db.commit()
         storage.delete_objects(rustfs_keys)
+
+    async def list_files_to_file(self, user: RequestContext) -> list[FilingCandidateOut]:
+        """The "Fichiers à ranger" review page (§122): every file this user uploaded that isn't
+        sitting in a permanent collection they still control - either still in its conversation's
+        temporary collection, or in a collection whose ownership changed since (see
+        DocumentRepository.list_to_file)."""
+        documents = await self.documents.list_to_file(user.user_id)
+        return [
+            FilingCandidateOut(
+                id=document.id,
+                name=document.name,
+                added_by_display=document.added_by_display,
+                collection_id=document.collection.id,
+                collection_name=document.collection.name,
+                collection_is_temporary=document.collection.is_temporary,
+                collection_editable=document.collection.owner_id == user.user_id,
+                suggested_collection_id=document.suggested_collection_id,
+                suggested_collection_name=(
+                    document.suggested_collection.name if document.suggested_collection else None
+                ),
+                suggested_collection_score=document.suggested_collection_score,
+                filing_candidates=document.filing_candidates,
+                filing_dismissed=document.filing_dismissed,
+                created_at=document.created_at,
+            )
+            for document in documents
+        ]
+
+    async def decide_filing(
+        self,
+        document_id: uuid.UUID,
+        user: RequestContext,
+        *,
+        action: str,
+        target_collection_id: uuid.UUID | None,
+    ) -> DocumentOut:
+        """The user's answer to a filing suggestion (§122) - "accept" files into
+        suggested_collection_id, "choose_other" into target_collection_id (must be one they
+        own), "dismiss" leaves the file exactly where it is, just silences the chat notification.
+        Authorization is "did I upload this file" (added_by_user_id), not "do I own its current
+        collection" - the whole point is surfacing files that ended up somewhere the uploader no
+        longer controls, and dismissing/refiling one of those must still work."""
+        document = await self.documents.get_with_suggestion(document_id)
+        if document is None or document.added_by_user_id != user.user_id:
+            raise DocumentNotFoundError(str(document_id))
+
+        if action == "dismiss":
+            await self.documents.set_filing_dismissed(document)
+            await self.db.commit()
+            return _document_out(document)
+
+        if action == "accept":
+            resolved_target = document.suggested_collection_id
+        elif action == "choose_other":
+            resolved_target = target_collection_id
+        else:
+            raise InvalidFilingDecisionError(action)
+        if resolved_target is None:
+            raise InvalidFilingDecisionError(action)
+
+        await self._get_owned_collection(resolved_target, user)
+        await self._move_document_to_collection(document, resolved_target, user)
+        return _document_out(document)
+
+    async def _move_document_to_collection(
+        self, document: Document, target_collection_id: uuid.UUID, user: RequestContext
+    ) -> None:
+        """Re-homes a document in place (stable id, see DocumentRepository.move_to_collection)
+        and fully reprocesses it under the target collection's own chunking/embedding settings -
+        never a raw vector copy, since the source and target collections aren't guaranteed to
+        share the same embedding_model. Same building blocks as reindex_collection."""
+        old_collection_id = document.collection_id
+        chunk_ids = await self.documents.list_chunk_ids(document.id)
+        vector_store.delete_document_embeddings(old_collection_id, document.id, chunk_ids)
+        orphaned_screenshot_keys = await self.documents.clear_content(document.id)
+        await self.documents.move_to_collection(document, target_collection_id)
+        await self.db.commit()
+        storage.delete_objects(orphaned_screenshot_keys)
+
+        celery_task_id = enqueue_process_document(str(document.id))
+        await self.tasks.create(
+            celery_task_id,
+            PROCESS_DOCUMENT_TASK,
+            user.user_id,
+            document_id=document.id,
+            collection_id=target_collection_id,
+        )
+        await self.db.commit()
 
     async def _get_owned_collection(self, collection_id: uuid.UUID, user: RequestContext) -> None:
         collection = await self.collections.get(collection_id, user.user_id)

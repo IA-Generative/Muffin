@@ -80,11 +80,14 @@ class CollectionService:
             total,
         )
 
-    async def create_collection(self, user: RequestContext) -> CollectionOut:
+    async def create_collection(
+        self, user: RequestContext, *, name: str | None = None, description: str | None = None
+    ) -> CollectionOut:
         embedding_model = await embedding_model_lookup.default_embedding_model(self.db) or FALLBACK_EMBEDDING_MODEL
         collection = await self.repository.create(
             owner_id=user.user_id,
-            name=DEFAULT_COLLECTION_NAME,
+            name=name or DEFAULT_COLLECTION_NAME,
+            description=description or "",
             embedding_model=embedding_model,
         )
         await self.db.commit()
