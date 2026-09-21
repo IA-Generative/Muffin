@@ -124,6 +124,16 @@ async def test_create_and_list_collections(client):
     assert body["items"][0]["id"] == created["id"]
 
 
+async def test_create_collection_accepts_a_prefilled_name_and_description(client):
+    response = await client.post(
+        "/api/collections", json={"name": "Rapports financiers", "description": "Rapports trimestriels."}
+    )
+    assert response.status_code == 201
+    body = response.json()
+    assert body["name"] == "Rapports financiers"
+    assert body["description"] == "Rapports trimestriels."
+
+
 async def test_list_collections_excludes_temporary_collections(client):
     with patch("app.services.run_service.enqueue_run_agent", return_value="celery-run-1"):
         run = (await client.post("/api/runs", json={"query": "hi"})).json()

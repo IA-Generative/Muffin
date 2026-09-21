@@ -86,6 +86,10 @@ class BackendClient:
         )
         response.raise_for_status()
 
+    def suggest_filing(self, document_id: str) -> None:
+        response = self._client.post(f"/api/internal/documents/{document_id}/suggest-filing")
+        response.raise_for_status()
+
     def set_document_error(self, document_id: str, error: str) -> None:
         response = self._client.patch(f"/api/internal/documents/{document_id}/error", json={"error": error})
         response.raise_for_status()

@@ -28,6 +28,7 @@ const activeView = computed(() => {
   if (route.path.startsWith('/tasks')) return 'tasks'
   if (route.path.startsWith('/quality')) return 'quality'
   if (route.path.startsWith('/admin')) return 'admin'
+  if (route.path.startsWith('/filing')) return 'filing'
   return 'chat'
 })
 </script>
@@ -50,6 +51,7 @@ const activeView = computed(() => {
       @open-tasks="router.push('/tasks')"
       @open-quality="router.push('/quality')"
       @open-admin="router.push('/admin')"
+      @open-filing="router.push('/filing')"
       @open-settings="showSettings = true"
       @login="login()"
       @logout="logout"

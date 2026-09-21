@@ -138,6 +138,19 @@ async def update_document_error(
     return {"status": "ok"}
 
 
+@router.post(
+    "/documents/{document_id}/suggest-filing",
+    summary="Compute (best-effort) a filing suggestion for a conversation file, once its "
+    "summary is ready - a no-op for a document outside a temporary collection (§122)",
+)
+async def suggest_filing(document_id: uuid.UUID, service: ServiceDep) -> dict[str, str]:
+    try:
+        await service.suggest_filing(document_id)
+    except DocumentNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found") from error
+    return {"status": "ok"}
+
+
 @router.put("/documents/{document_id}/tags", summary="Replace a document's generated tags")
 async def replace_document_tags(
     document_id: uuid.UUID, update: DocumentTagsUpdate, service: ServiceDep

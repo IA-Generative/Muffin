@@ -2,13 +2,15 @@
 import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useCollections } from '../composables/useCollections'
 import { useChat } from '../composables/useChat'
+import { useFiling } from '../composables/useFiling'
 import { useVoiceInput } from '../composables/useVoiceInput'
 import { useVoiceOutput } from '../composables/useVoiceOutput'
-import type { ChatMessage, FeedbackDetails } from '../types/chat'
+import type { ChatMessage, ConversationFile, FeedbackDetails } from '../types/chat'
 import { toPlainText } from '../utils/plainText'
 import ChatMessageItem from './ChatMessage.vue'
 import CollectionPicker from './CollectionPicker.vue'
 import DiscussionFeedbackPrompt from './DiscussionFeedbackPrompt.vue'
+import FileFilingModal from './FileFilingModal.vue'
 import ModelSelector from './ModelSelector.vue'
 
 const props = defineProps<{
@@ -24,9 +26,17 @@ const emit = defineEmits<{
   showDiscussionScore: []
 }>()
 
-const { activeId, activeAttachedFiles, attachFile, removeAttachedFile } = useChat()
+const {
+  activeId,
+  activeAttachedFiles,
+  attachFile,
+  removeAttachedFile,
+  markAttachedFileDismissed,
+  dropAttachedFileLocally,
+} = useChat()
 
 const { collections } = useCollections()
+const { decideFiling } = useFiling()
 
 const fileInput = ref<HTMLInputElement>()
 
@@ -46,6 +56,30 @@ const FILE_STATUS_ICON: Record<string, string> = {
   indexing: '⏳',
   indexed: '✅',
   error: '❌',
+}
+
+// A file has something to say once it's indexed and not yet dismissed - either a suggested
+// collection to review, or (no match found) still worth prompting the user to pick one
+// themselves, per #122.
+function hasFilingNotification(file: ConversationFile): boolean {
+  return file.status === 'indexed' && !file.filingDismissed
+}
+
+const filingModalFile = ref<ConversationFile>()
+
+async function decideFilingFor(action: 'accept' | 'choose_other' | 'dismiss', targetCollectionId?: string) {
+  const file = filingModalFile.value
+  if (!file) return
+  try {
+    await decideFiling(file.id, action, targetCollectionId)
+    if (action === 'dismiss') markAttachedFileDismissed(activeId.value, file.id)
+    else dropAttachedFileLocally(activeId.value, file.id)
+    filingModalFile.value = undefined
+  } catch {
+    // The modal itself shows nothing on failure today (best-effort chip list, same tradeoff as
+    // the rest of the composer) - closing it still leaves the notification for a retry.
+    filingModalFile.value = undefined
+  }
 }
 
 const draft = ref('')
@@ -186,6 +220,16 @@ watch(
           >
             <span aria-hidden="true">{{ FILE_STATUS_ICON[file.status] }}</span>
             <span>{{ file.name }}</span>
+            <button
+              v-if="hasFilingNotification(file)"
+              type="button"
+              class="chat-window__chip-notification"
+              :aria-label="`Proposition de rangement pour ${file.name}`"
+              title="Proposition de rangement"
+              @click="filingModalFile = file"
+            >
+              <span aria-hidden="true">📁</span>
+            </button>
             <button type="button" aria-label="Retirer ce fichier" @click="removeAttachedFile(activeId, file.id)">
               <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true">
                 <path
@@ -282,6 +326,13 @@ watch(
         </p>
       </div>
     </form>
+
+    <FileFilingModal
+      v-if="filingModalFile"
+      :file="filingModalFile"
+      @close="filingModalFile = undefined"
+      @decide="decideFilingFor"
+    />
   </section>
 </template>
 
@@ -366,6 +417,21 @@ watch(
   color: inherit;
   cursor: pointer;
   padding: 0;
+}
+
+.chat-window__chip-notification {
+  font-size: 0.75rem;
+  animation: chat-window-notification-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes chat-window-notification-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
 }
 
 .chat-window__composer {

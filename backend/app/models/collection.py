@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -71,7 +71,7 @@ class Collection(UUIDMixin, TimestampMixin, Base):
         back_populates="collection", cascade="all, delete-orphan", uselist=False
     )
     documents: Mapped[list["Document"]] = relationship(  # noqa: F821
-        back_populates="collection", cascade="all, delete-orphan"
+        back_populates="collection", cascade="all, delete-orphan", foreign_keys="Document.collection_id"
     )
     qa_pairs: Mapped[list["QaPair"]] = relationship(  # noqa: F821
         back_populates="collection", cascade="all, delete-orphan"
@@ -87,6 +87,20 @@ class Collection(UUIDMixin, TimestampMixin, Base):
     )
     conversation: Mapped["Conversation | None"] = relationship(  # noqa: F821
         back_populates="temporary_collection", foreign_keys=[conversation_id]
+    )
+
+    __table_args__ = (
+        # One "holding" temporary collection per user (§122's standalone Filing-page upload,
+        # get_or_create_personal_holding) - a temporary collection with no conversation at all,
+        # unlike the per-conversation ones (§88). The plain `unique=True` on conversation_id
+        # above doesn't help here: standard SQL UNIQUE treats every NULL as distinct, so it
+        # would happily let a second holding collection slip in for the same owner.
+        Index(
+            "uq_collections_owner_holding",
+            "owner_id",
+            unique=True,
+            postgresql_where=(is_temporary.is_(True)) & (conversation_id.is_(None)),
+        ),
     )
 
 

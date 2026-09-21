@@ -2,11 +2,12 @@ import uuid
 from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.chunk import Chunk
+from app.models.collection import Collection
 from app.models.document import (
     Document,
     DocumentPage,
@@ -36,6 +37,33 @@ class DocumentRepository:
             select(Document).where(Document.id == document_id).options(selectinload(Document.collection))
         )
         return result.scalar_one_or_none()
+
+    async def get_with_suggestion(self, document_id: uuid.UUID) -> Document | None:
+        result = await self.db.execute(
+            select(Document)
+            .where(Document.id == document_id)
+            .options(selectinload(Document.collection), selectinload(Document.suggested_collection))
+        )
+        return result.scalar_one_or_none()
+
+    async def list_to_file(self, user_id: str) -> Sequence[Document]:
+        """Files this user uploaded (§122) that still need filing into a permanent collection:
+        still sitting in a temporary (conversation-scoped) collection, or - an edge case worth
+        surfacing rather than hiding - ended up in a collection this user no longer owns (e.g.
+        ownership changed since). Always includes a dismissed file too (§ Document.
+        filing_dismissed only suppresses the chat notification, not this review page - the file
+        is still genuinely unfiled either way)."""
+        result = await self.db.execute(
+            select(Document)
+            .join(Document.collection)
+            .where(
+                Document.added_by_user_id == user_id,
+                or_(Collection.is_temporary.is_(True), Collection.owner_id != user_id),
+            )
+            .options(selectinload(Document.collection), selectinload(Document.suggested_collection))
+            .order_by(Document.created_at.desc())
+        )
+        return result.scalars().all()
 
     async def get_in_collection(self, collection_id: uuid.UUID, document_id: uuid.UUID) -> Document | None:
         result = await self.db.execute(
@@ -90,7 +118,10 @@ class DocumentRepository:
 
     async def list_by_collection(self, collection_id: uuid.UUID) -> Sequence[Document]:
         result = await self.db.execute(
-            select(Document).where(Document.collection_id == collection_id).order_by(Document.created_at)
+            select(Document)
+            .where(Document.collection_id == collection_id)
+            .options(selectinload(Document.suggested_collection))
+            .order_by(Document.created_at)
         )
         return result.scalars().all()
 
@@ -102,12 +133,21 @@ class DocumentRepository:
         )
         return result.all()
 
-    async def create_file(self, collection_id: uuid.UUID, name: str, storage_key: str) -> Document:
+    async def create_file(
+        self,
+        collection_id: uuid.UUID,
+        name: str,
+        storage_key: str,
+        added_by_user_id: str | None = None,
+        added_by_display: str | None = None,
+    ) -> Document:
         document = Document(
             collection_id=collection_id,
             name=name,
             type=DocumentType.FILE,
             storage_key=storage_key,
+            added_by_user_id=added_by_user_id,
+            added_by_display=added_by_display,
         )
         self.db.add(document)
         await self.db.flush()
@@ -175,6 +215,27 @@ class DocumentRepository:
 
     async def set_error(self, document: Document, error: str) -> None:
         document.error = error
+
+    async def set_filing_suggestion(self, document: Document, collection_id: uuid.UUID, score: float) -> None:
+        document.suggested_collection_id = collection_id
+        document.suggested_collection_score = score
+
+    async def set_filing_candidates(self, document: Document, candidates: list[dict[str, Any]]) -> None:
+        document.filing_candidates = candidates
+
+    async def set_filing_dismissed(self, document: Document) -> None:
+        document.filing_dismissed = True
+
+    async def move_to_collection(self, document: Document, collection_id: uuid.UUID) -> None:
+        """Re-homes a document into a different collection in place - keeps its id stable (so
+        anything that already cited it, e.g. a run's citations, keeps resolving) rather than
+        deleting and recreating it. Chunks/pages are cleared and its status reset to PENDING;
+        the caller is responsible for actually re-enqueueing processing and cleaning up the old
+        collection's Meilisearch embeddings, same division of labour as reindex_collection."""
+        document.collection_id = collection_id
+        document.status = DocumentStatus.PENDING
+        document.progress = 0
+        document.summary = None
 
     async def upsert_tabular_profile(
         self,

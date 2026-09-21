@@ -77,6 +77,17 @@ class CollectionRepository:
         result = await self.db.execute(self._base_query().where(self._accessible_where(user_id, group_ids)))
         return result.scalars().all()
 
+    async def list_owned_ids(self, owner_id: str) -> Sequence[uuid.UUID]:
+        """Every non-temporary collection this user owns (§122) - the candidate set a filing
+        suggestion is allowed to point at, since only the owner can add a document to a
+        collection today (CollectionService._get_owned). Never public/shared collections, even
+        though those are readable - writing a document into one isn't, so suggesting one would
+        be a suggestion the user could never actually accept."""
+        result = await self.db.scalars(
+            select(Collection.id).where(Collection.owner_id == owner_id, Collection.is_temporary.is_(False))
+        )
+        return result.all()
+
     async def get(self, collection_id: uuid.UUID, owner_id: str) -> Collection | None:
         result = await self.db.execute(
             self._base_query().where(Collection.id == collection_id, Collection.owner_id == owner_id)
@@ -99,6 +110,14 @@ class CollectionRepository:
         user-facing route."""
         result = await self.db.execute(self._base_query().where(Collection.id == collection_id))
         return result.scalar_one_or_none()
+
+    async def get_by_ids(self, collection_ids: Sequence[uuid.UUID]) -> Sequence[Collection]:
+        """No owner check, same reasoning as get_by_id - bulk variant for resolving a list of
+        candidate ids (e.g. a filing suggestion's top-K) into name/description in one query."""
+        if not collection_ids:
+            return []
+        result = await self.db.execute(self._base_query().where(Collection.id.in_(collection_ids)))
+        return result.scalars().all()
 
     async def count_documents(self, collection_ids: list[uuid.UUID]) -> dict[uuid.UUID, int]:
         """How many documents each collection has - for the research agent to answer "how many
@@ -123,8 +142,8 @@ class CollectionRepository:
         )
         return dict(result.all())
 
-    async def create(self, *, owner_id: str, name: str, embedding_model: str) -> Collection:
-        collection = Collection(owner_id=owner_id, name=name, description="")
+    async def create(self, *, owner_id: str, name: str, description: str = "", embedding_model: str) -> Collection:
+        collection = Collection(owner_id=owner_id, name=name, description=description)
         collection.settings = CollectionSettings(embedding_model=embedding_model)
         self.db.add(collection)
         await self.db.flush()
@@ -156,6 +175,38 @@ class CollectionRepository:
             visibility=CollectionVisibility.PRIVATE,
             is_temporary=True,
             conversation_id=conversation_id,
+        )
+        collection.settings = CollectionSettings(embedding_model=embedding_model)
+        self.db.add(collection)
+        await self.db.flush()
+        await self.db.refresh(collection, attribute_names=["tags", "settings"])
+        return collection
+
+    async def get_personal_holding(self, owner_id: str) -> Collection | None:
+        """This user's standalone-upload holding collection (§122's "Fichiers à ranger" page -
+        upload a file there with no conversation at all), or None if they've never used it."""
+        result = await self.db.execute(
+            self._base_query().where(
+                Collection.owner_id == owner_id,
+                Collection.is_temporary.is_(True),
+                Collection.conversation_id.is_(None),
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def get_or_create_personal_holding(self, owner_id: str, *, embedding_model: str) -> Collection:
+        """Lazy, idempotent - same reasoning as get_or_create_temporary_for_conversation, one per
+        user rather than one per conversation (uq_collections_owner_holding is the race guard)."""
+        existing = await self.get_personal_holding(owner_id)
+        if existing is not None:
+            return existing
+
+        collection = Collection(
+            owner_id=owner_id,
+            name="Fichiers à ranger",
+            description="",
+            visibility=CollectionVisibility.PRIVATE,
+            is_temporary=True,
         )
         collection.settings = CollectionSettings(embedding_model=embedding_model)
         self.db.add(collection)
