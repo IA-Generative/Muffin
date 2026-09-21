@@ -85,6 +85,25 @@ class DocumentUploadService:
         )
         return await self.create_file_document(collection.id, user, filename, content, content_type)
 
+    async def list_conversation_documents(self, conversation_id: uuid.UUID, user: RequestContext) -> list[DocumentOut]:
+        """Files attached to a conversation, via its temporary collection. Empty list (never a
+        404) if nothing has been uploaded yet - the temporary collection simply doesn't exist."""
+        collection = await self.collections.get_temporary_for_conversation(conversation_id)
+        if collection is None:
+            return []
+        return await self.list_documents(collection.id, user)
+
+    async def delete_conversation_document(
+        self, conversation_id: uuid.UUID, user: RequestContext, document_id: uuid.UUID
+    ) -> None:
+        """Deletes a file from a conversation's temporary collection - reuses delete_document
+        unchanged (RustFS + DB + Meilisearch cleanup). No temporary collection at all means this
+        document can't possibly be in it, same as DocumentNotFoundError for a real collection."""
+        collection = await self.collections.get_temporary_for_conversation(conversation_id)
+        if collection is None:
+            raise DocumentNotFoundError(str(document_id))
+        await self.delete_document(collection.id, user, document_id)
+
     async def create_url_document(self, collection_id: uuid.UUID, user: RequestContext, url: str) -> DocumentOut:
         await self._get_owned_collection(collection_id, user)
         document = await self.documents.create_url(collection_id, url)

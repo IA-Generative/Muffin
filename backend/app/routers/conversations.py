@@ -1,7 +1,7 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security.factory import RequestContext, get_current_user
@@ -12,11 +12,16 @@ from app.schemas.discussion_feedback import (
     DiscussionFeedbackOut,
 )
 from app.schemas.discussion_score import DiscussionScoreOut
+from app.schemas.document import DocumentOut
 from app.schemas.pagination import Page, PaginationParams
 from app.schemas.run import RunOut
 from app.services.conversation_service import (
     ConversationNotFoundError,
     ConversationService,
+)
+from app.services.document_upload_service import (
+    DocumentNotFoundError,
+    DocumentUploadService,
 )
 from app.services.run_service import (
     ConversationNotFoundError as RunConversationNotFoundError,
@@ -38,8 +43,15 @@ def get_run_service(db: Annotated[AsyncSession, Depends(get_db)]) -> RunService:
     return RunService(db)
 
 
+def get_document_upload_service(
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> DocumentUploadService:
+    return DocumentUploadService(db)
+
+
 ConversationServiceDep = Annotated[ConversationService, Depends(get_conversation_service)]
 RunServiceDep = Annotated[RunService, Depends(get_run_service)]
+DocumentUploadServiceDep = Annotated[DocumentUploadService, Depends(get_document_upload_service)]
 UserDep = Annotated[RequestContext, Depends(get_current_user)]
 
 
@@ -194,3 +206,67 @@ async def delete_conversation(conversation_id: uuid.UUID, user: UserDep, service
         await service.delete_conversation(conversation_id, user)
     except ConversationNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found") from error
+
+
+@router.post(
+    "/conversations/{conversation_id}/documents/file",
+    summary="Upload a file directly into a conversation (§ conv-files) - indexed and searchable "
+    "by the agent in this conversation's subsequent messages, without an explicit collection",
+    response_model=DocumentOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_conversation_file(
+    conversation_id: uuid.UUID,
+    file: UploadFile,
+    user: UserDep,
+    conversations: ConversationServiceDep,
+    documents: DocumentUploadServiceDep,
+) -> DocumentOut:
+    try:
+        await conversations.get_conversation(conversation_id, user)
+    except ConversationNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found") from error
+    content = await file.read()
+    return await documents.create_conversation_file_document(
+        conversation_id, user, file.filename, content, file.content_type or "application/octet-stream"
+    )
+
+
+@router.get(
+    "/conversations/{conversation_id}/documents",
+    summary="List files attached to a conversation - empty if none have been uploaded yet",
+    response_model=list[DocumentOut],
+)
+async def list_conversation_documents(
+    conversation_id: uuid.UUID,
+    user: UserDep,
+    conversations: ConversationServiceDep,
+    documents: DocumentUploadServiceDep,
+) -> list[DocumentOut]:
+    try:
+        await conversations.get_conversation(conversation_id, user)
+    except ConversationNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found") from error
+    return await documents.list_conversation_documents(conversation_id, user)
+
+
+@router.delete(
+    "/conversations/{conversation_id}/documents/{document_id}",
+    summary="Delete a file attached to a conversation and its RustFS objects",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_conversation_document(
+    conversation_id: uuid.UUID,
+    document_id: uuid.UUID,
+    user: UserDep,
+    conversations: ConversationServiceDep,
+    documents: DocumentUploadServiceDep,
+) -> None:
+    try:
+        await conversations.get_conversation(conversation_id, user)
+    except ConversationNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found") from error
+    try:
+        await documents.delete_conversation_document(conversation_id, user, document_id)
+    except DocumentNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found") from error
