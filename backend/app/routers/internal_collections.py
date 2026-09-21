@@ -2,6 +2,7 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security.worker_auth import require_worker_api_key
@@ -12,9 +13,13 @@ from app.schemas.internal_pipeline import (
     CollectionDescriptionEmbeddingUpdate,
     CollectionDescriptionUpdate,
     CollectionMetadataOut,
+    CollectionSearchResultOut,
     CollectionSettingsInternalOut,
     CollectionTagsUpdate,
 )
+from app.schemas.internal_run import SearchRequest
+from app.services import vector_store
+from app.services.search_service import SearchService
 
 router = APIRouter(prefix="/internal", tags=["Internal"], dependencies=[Depends(require_worker_api_key)])
 
@@ -98,6 +103,13 @@ async def update_collection_tags(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found")
     await repository.update_tags(collection, update.tags, PIPELINE_UPDATED_BY)
     await db.commit()
+    # Best-effort, same reasoning as vector_store.delete_collection: a Meilisearch failure here
+    # must not roll back the tags themselves, which are already committed above. A no-op if the
+    # collection has no description embedded yet (see update_collection_tags_in_index).
+    try:
+        vector_store.update_collection_tags_in_index(collection_id, update.tags)
+    except Exception:
+        logger.exception(f"Failed to update tags in the collections search index for {collection_id}")
     return {"status": "ok"}
 
 
@@ -111,8 +123,31 @@ async def update_collection_description_embedding(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict[str, str]:
     repository = CollectionRepository(db)
-    if await repository.get_by_id(collection_id) is None:
+    collection = await repository.get_by_id(collection_id)
+    if collection is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found")
     await repository.upsert_description_embedding(collection_id, update.model, update.embedding)
     await db.commit()
+    # Best-effort, same reasoning as above - the Postgres embedding (the source of truth) is
+    # already committed regardless of whether this indexing step succeeds.
+    try:
+        vector_store.upsert_collection_description(
+            collection_id, collection.description, [tag.tag for tag in collection.tags], update.embedding
+        )
+    except Exception:
+        logger.exception(f"Failed to index the description for collection {collection_id} in Meilisearch")
     return {"status": "ok"}
+
+
+@router.post(
+    "/collections/search",
+    summary="Vector search over collection descriptions, restricted to the given candidate ids - "
+    "narrows a large accessible set down to the most relevant collections by embedding similarity, "
+    "before an LLM call (§ VDB routing) or a file-filing suggestion (§122)",
+    response_model=list[CollectionSearchResultOut],
+)
+async def search_collections(
+    body: SearchRequest, db: Annotated[AsyncSession, Depends(get_db)]
+) -> list[CollectionSearchResultOut]:
+    rows = await SearchService(db).search_collections(body.collection_ids, body.query, body.limit)
+    return [CollectionSearchResultOut(collection_id=collection_id, score=score) for collection_id, score in rows]

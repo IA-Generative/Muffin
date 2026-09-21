@@ -240,3 +240,120 @@ async def test_update_collection_description_embedding_not_found(client):
         json={"model": "text-embedding-3-small", "embedding": [0.1]},
     )
     assert response.status_code == 404
+
+
+async def test_update_collection_description_embedding_indexes_in_meilisearch(client, monkeypatch):
+    from app.services import vector_store
+
+    collection_id, _ = await _create_collection_and_document()
+    await client.patch(
+        f"/api/internal/collections/{collection_id}/description",
+        headers=_headers(),
+        json={"description": "A collection about widgets."},
+    )
+    await client.put(f"/api/internal/collections/{collection_id}/tags", headers=_headers(), json={"tags": ["widgets"]})
+
+    calls = []
+    monkeypatch.setattr(
+        vector_store,
+        "upsert_collection_description",
+        lambda collection_id, description, tags, embedding: calls.append((collection_id, description, tags, embedding)),
+    )
+
+    response = await client.patch(
+        f"/api/internal/collections/{collection_id}/description-embedding",
+        headers=_headers(),
+        json={"model": "text-embedding-3-small", "embedding": [0.1, 0.2]},
+    )
+
+    assert response.status_code == 200
+    assert calls == [(collection_id, "A collection about widgets.", ["widgets"], [0.1, 0.2])]
+
+
+async def test_update_collection_description_embedding_indexing_failure_does_not_fail_the_request(client, monkeypatch):
+    """Best-effort indexing (§124) - the Postgres embedding is already committed by the time
+    Meilisearch is touched, so a Meilisearch failure here must not roll back a successful write
+    or surface as an error to the worker."""
+    from app.services import vector_store
+
+    collection_id, _ = await _create_collection_and_document()
+
+    def _raise(*args, **kwargs):
+        raise RuntimeError("Meilisearch unreachable")
+
+    monkeypatch.setattr(vector_store, "upsert_collection_description", _raise)
+
+    response = await client.patch(
+        f"/api/internal/collections/{collection_id}/description-embedding",
+        headers=_headers(),
+        json={"model": "text-embedding-3-small", "embedding": [0.1]},
+    )
+
+    assert response.status_code == 200
+
+
+async def test_update_collection_tags_indexes_tags_in_meilisearch(client, monkeypatch):
+    from app.services import vector_store
+
+    collection_id, _ = await _create_collection_and_document()
+
+    calls = []
+    monkeypatch.setattr(
+        vector_store, "update_collection_tags_in_index", lambda collection_id, tags: calls.append((collection_id, tags))
+    )
+
+    response = await client.put(
+        f"/api/internal/collections/{collection_id}/tags", headers=_headers(), json={"tags": ["widgets", "reports"]}
+    )
+
+    assert response.status_code == 200
+    assert calls == [(collection_id, ["widgets", "reports"])]
+
+
+async def test_search_collections_finds_matching_collection(client, monkeypatch):
+    from types import SimpleNamespace
+
+    from app.models.app_settings import AppSettings
+    from app.services import search_service, vector_store
+
+    collection_id, _ = await _create_collection_and_document()
+    async with async_session_factory() as session:
+        session.add(AppSettings(id=1, embedding_model="text-embedding-3-small"))
+        await session.commit()
+
+    async def create_embedding(**_kwargs):
+        return SimpleNamespace(data=[SimpleNamespace(embedding=[0.1, 0.2])])
+
+    fake_openai_client = SimpleNamespace(embeddings=SimpleNamespace(create=create_embedding))
+    monkeypatch.setattr(search_service, "_openai_client", fake_openai_client)
+    monkeypatch.setattr(
+        vector_store,
+        "search_collections",
+        lambda query, query_embedding, collection_ids, limit: [(collection_id, 0.87)],
+    )
+
+    response = await client.post(
+        "/api/internal/collections/search",
+        headers=_headers(),
+        json={"collection_ids": [str(collection_id)], "query": "widgets", "limit": 5},
+    )
+
+    assert response.status_code == 200
+    results = response.json()
+    assert results == [{"collection_id": str(collection_id), "score": 0.87}]
+
+
+async def test_search_collections_no_llm_hub_configured_returns_empty(client):
+    """No real LLM hub configured in tests (search_service._openai_client is None, same as
+    every other search endpoint's OPENAI_API_KEY-less-test-env default) - fails open to no
+    suggestions, never a 500."""
+    collection_id, _ = await _create_collection_and_document()
+
+    response = await client.post(
+        "/api/internal/collections/search",
+        headers=_headers(),
+        json={"collection_ids": [str(collection_id)], "query": "widgets", "limit": 5},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == []

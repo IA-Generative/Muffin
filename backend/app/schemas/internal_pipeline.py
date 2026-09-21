@@ -119,6 +119,11 @@ class CollectionDescriptionEmbeddingUpdate(BaseModel):
     embedding: list[float]
 
 
+class CollectionSearchResultOut(BaseModel):
+    collection_id: uuid.UUID
+    score: float
+
+
 class ColumnStatsIn(BaseModel):
     name: str
     type: str
