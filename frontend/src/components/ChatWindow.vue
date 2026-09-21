@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue'
+import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useCollections } from '../composables/useCollections'
 import { useChat } from '../composables/useChat'
+import { useVoiceInput } from '../composables/useVoiceInput'
 import type { ChatMessage, FeedbackDetails } from '../types/chat'
 import ChatMessageItem from './ChatMessage.vue'
 import CollectionPicker from './CollectionPicker.vue'
@@ -26,6 +27,50 @@ const { activeId } = useChat()
 const { collections } = useCollections()
 
 const draft = ref('')
+
+const {
+  isSupported: voiceSupported,
+  isListening: voiceListening,
+  error: voiceError,
+  start: startVoice,
+  stop: stopVoice,
+} = useVoiceInput()
+// Text already in the composer before this dictation segment started, so a live interim
+// result replaces only the in-progress phrase instead of piling up duplicated transcripts.
+let voiceBaseDraft = ''
+
+function joinDraft(base: string, addition: string): string {
+  if (!addition) return base
+  if (!base) return addition
+  return /\s$/.test(base) ? base + addition : `${base} ${addition}`
+}
+
+function toggleVoice() {
+  if (voiceListening.value) {
+    stopVoice()
+    return
+  }
+  voiceBaseDraft = draft.value
+  startVoice((transcript, isFinal) => {
+    draft.value = joinDraft(voiceBaseDraft, transcript)
+    if (isFinal) voiceBaseDraft = draft.value
+    resizeTextarea()
+  })
+}
+
+// Global (not just while the textarea has focus) so a keyboard/screen-reader user can start
+// dictation from anywhere in the page without first having to tab into the composer - the whole
+// point of offering voice input as an accessibility feature in the first place.
+function handleGlobalKeydown(event: KeyboardEvent) {
+  if (event.altKey && event.shiftKey && event.key.toLowerCase() === 'v') {
+    event.preventDefault()
+    toggleVoice()
+  }
+}
+
+onMounted(() => window.addEventListener('keydown', handleGlobalKeydown))
+onUnmounted(() => window.removeEventListener('keydown', handleGlobalKeydown))
+
 const pinnedCollectionIds = ref<string[]>([])
 // Off by default (§ security: never search the web unless explicitly asked - see backend
 // RunCreate.web_search_enabled) - stays on across messages once toggled, same as
@@ -119,6 +164,25 @@ watch(
             @keydown.enter.exact.prevent="submit"
           />
           <button
+            v-if="voiceSupported"
+            type="button"
+            class="chat-window__mic"
+            :class="{ 'chat-window__mic--active': voiceListening }"
+            :aria-pressed="voiceListening"
+            aria-keyshortcuts="Alt+Shift+V"
+            :aria-label="voiceListening ? 'Arrêter la dictée vocale' : 'Dicter le message (raccourci : Alt+Maj+V)'"
+            :title="voiceListening ? 'Arrêter la dictée vocale' : 'Dicter le message (Alt+Maj+V)'"
+            @click="toggleVoice"
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Zm-6-3a6 6 0 0 0 12 0M12 18v3"
+              />
+            </svg>
+          </button>
+          <button
             type="submit"
             class="chat-window__send"
             :disabled="!draft.trim()"
@@ -129,6 +193,13 @@ watch(
             </svg>
           </button>
         </div>
+        <p v-if="voiceError" class="chat-window__voice-hint chat-window__voice-hint--error" role="alert">
+          {{ voiceError }}
+        </p>
+        <p v-else-if="!voiceSupported" class="chat-window__voice-hint">
+          La dictée vocale n'est pas disponible sur ce navigateur - utilisez Google Chrome ou Microsoft Edge (sur
+          ordinateur) pour dicter vos messages.
+        </p>
       </div>
     </form>
   </section>
@@ -256,6 +327,52 @@ watch(
   background: var(--background-disabled-grey);
   color: var(--text-disabled-grey);
   cursor: not-allowed;
+}
+
+.chat-window__mic {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-mention-grey);
+  cursor: pointer;
+}
+
+.chat-window__mic:hover {
+  background: var(--background-alt-grey-hover);
+  color: var(--text-default-grey);
+}
+
+.chat-window__mic--active {
+  background: var(--background-error-default);
+  color: var(--text-inverted-default);
+  animation: chat-window-mic-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes chat-window-mic-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.65;
+  }
+}
+
+.chat-window__voice-hint {
+  margin: 0.5rem 0 0;
+  padding: 0 0.5rem;
+  font-size: 0.75rem;
+  color: var(--text-mention-grey);
+}
+
+.chat-window__voice-hint--error {
+  color: var(--text-default-error);
 }
 
 </style>
