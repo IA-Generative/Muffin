@@ -3,7 +3,9 @@ import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useCollections } from '../composables/useCollections'
 import { useChat } from '../composables/useChat'
 import { useVoiceInput } from '../composables/useVoiceInput'
+import { useVoiceOutput } from '../composables/useVoiceOutput'
 import type { ChatMessage, FeedbackDetails } from '../types/chat'
+import { toPlainText } from '../utils/plainText'
 import ChatMessageItem from './ChatMessage.vue'
 import CollectionPicker from './CollectionPicker.vue'
 import DiscussionFeedbackPrompt from './DiscussionFeedbackPrompt.vue'
@@ -58,13 +60,28 @@ function toggleVoice() {
   })
 }
 
+const voiceOutput = useVoiceOutput()
+
+// Reads the most recent completed assistant answer aloud (or stops it if already reading it) -
+// a pending/error bubble has nothing worth reading yet, so those are skipped.
+function toggleReadLastMessage() {
+  const lastAnswer = [...props.messages].reverse().find((m) => m.role === 'assistant' && !m.pending && !m.error)
+  if (!lastAnswer) return
+  voiceOutput.toggle(lastAnswer.id, toPlainText(lastAnswer.content))
+}
+
 // Global (not just while the textarea has focus) so a keyboard/screen-reader user can start
-// dictation from anywhere in the page without first having to tab into the composer - the whole
-// point of offering voice input as an accessibility feature in the first place.
+// dictation/reading from anywhere in the page without first having to tab into the composer -
+// the whole point of offering voice input/output as an accessibility feature in the first place.
 function handleGlobalKeydown(event: KeyboardEvent) {
-  if (event.altKey && event.shiftKey && event.key.toLowerCase() === 'v') {
+  if (!event.altKey || !event.shiftKey) return
+  const key = event.key.toLowerCase()
+  if (key === 'v') {
     event.preventDefault()
     toggleVoice()
+  } else if (key === 'l') {
+    event.preventDefault()
+    toggleReadLastMessage()
   }
 }
 
