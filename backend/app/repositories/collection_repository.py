@@ -8,7 +8,6 @@ from sqlalchemy.orm import selectinload
 
 from app.models.collection import (
     Collection,
-    CollectionDescriptionEmbedding,
     CollectionSettings,
     CollectionShare,
     CollectionTag,
@@ -177,14 +176,6 @@ class CollectionRepository:
         collection.tags = [CollectionTag(collection_id=collection.id, tag=tag) for tag in dict.fromkeys(tags)]
         collection.tags_updated_by = updated_by
         collection.tags_updated_at = datetime.now(UTC)
-
-    async def upsert_description_embedding(self, collection_id: uuid.UUID, model: str, embedding: list[float]) -> None:
-        existing = await self.db.get(CollectionDescriptionEmbedding, collection_id)
-        if existing is None:
-            self.db.add(CollectionDescriptionEmbedding(collection_id=collection_id, model=model, embedding=embedding))
-        else:
-            existing.model = model
-            existing.embedding = embedding
 
     async def update_settings(
         self,

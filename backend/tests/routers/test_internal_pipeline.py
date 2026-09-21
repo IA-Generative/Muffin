@@ -207,42 +207,20 @@ async def test_update_collection_tags(client):
     assert sorted(metadata["tags"]) == ["reports", "widgets"]
 
 
-async def test_update_collection_description_embedding_creates_then_replaces(client):
-    collection_id, _ = await _create_collection_and_document()
-
-    first = await client.patch(
-        f"/api/internal/collections/{collection_id}/description-embedding",
-        headers=_headers(),
-        json={"model": "text-embedding-3-small", "embedding": [0.1, 0.2, 0.3]},
-    )
-    assert first.status_code == 200
-
-    second = await client.patch(
-        f"/api/internal/collections/{collection_id}/description-embedding",
-        headers=_headers(),
-        json={"model": "text-embedding-3-large", "embedding": [0.4, 0.5, 0.6]},
-    )
-    assert second.status_code == 200
-
-    async with async_session_factory() as session:
-        from app.models.collection import CollectionDescriptionEmbedding
-
-        row = await session.get(CollectionDescriptionEmbedding, collection_id)
-    assert row is not None
-    assert row.model == "text-embedding-3-large"
-    assert row.embedding == [0.4, 0.5, 0.6]
-
-
 async def test_update_collection_description_embedding_not_found(client):
     response = await client.patch(
         f"/api/internal/collections/{uuid.uuid4()}/description-embedding",
         headers=_headers(),
-        json={"model": "text-embedding-3-small", "embedding": [0.1]},
+        json={"embedding": [0.1]},
     )
     assert response.status_code == 404
 
 
 async def test_update_collection_description_embedding_indexes_in_meilisearch(client, monkeypatch):
+    """Not persisted anywhere in Postgres (§124: the embedding lives in Meilisearch only) -
+    this endpoint's whole job is calling vector_store, so that's the only thing worth asserting
+    on. Two calls, to confirm the second one's embedding is what actually reaches Meilisearch
+    (a full replace, not an accumulation)."""
     from app.services import vector_store
 
     collection_id, _ = await _create_collection_and_document()
@@ -260,14 +238,23 @@ async def test_update_collection_description_embedding_indexes_in_meilisearch(cl
         lambda collection_id, description, tags, embedding: calls.append((collection_id, description, tags, embedding)),
     )
 
-    response = await client.patch(
+    first = await client.patch(
         f"/api/internal/collections/{collection_id}/description-embedding",
         headers=_headers(),
-        json={"model": "text-embedding-3-small", "embedding": [0.1, 0.2]},
+        json={"embedding": [0.1, 0.2]},
+    )
+    second = await client.patch(
+        f"/api/internal/collections/{collection_id}/description-embedding",
+        headers=_headers(),
+        json={"embedding": [0.4, 0.5]},
     )
 
-    assert response.status_code == 200
-    assert calls == [(collection_id, "A collection about widgets.", ["widgets"], [0.1, 0.2])]
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert calls == [
+        (collection_id, "A collection about widgets.", ["widgets"], [0.1, 0.2]),
+        (collection_id, "A collection about widgets.", ["widgets"], [0.4, 0.5]),
+    ]
 
 
 async def test_update_collection_description_embedding_indexing_failure_does_not_fail_the_request(client, monkeypatch):
@@ -286,7 +273,7 @@ async def test_update_collection_description_embedding_indexing_failure_does_not
     response = await client.patch(
         f"/api/internal/collections/{collection_id}/description-embedding",
         headers=_headers(),
-        json={"model": "text-embedding-3-small", "embedding": [0.1]},
+        json={"embedding": [0.1]},
     )
 
     assert response.status_code == 200
