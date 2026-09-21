@@ -1438,3 +1438,33 @@ def test_analytical_query_does_not_short_circuit_to_search(make_run):
     # The planner must have been called (not short-circuited to search)
     assert planner_called, "analytical query must go through the LLM planner, not short-circuit to search"
     assert result["completed_task_ids"] == ["t1"]
+
+
+def test_identity_query_short_circuits_to_answer_identity(make_run):
+    """ "Qui es-tu ?" must never reach decompose_query/search (§ issue #97's original complaint:
+    it used to come back empty-handed) - analyze_query classifying it as "identity" routes
+    straight to answer_identity instead."""
+    decompose_called = False
+
+    def router(system_prompt: str) -> str:
+        if "Analyze the user" in system_prompt:
+            return _analysis(intent="identity")
+        if "Break the user's query" in system_prompt:
+            nonlocal decompose_called
+            decompose_called = True
+            return json.dumps([{"id": "t1", "query": "qui es-tu ?", "tool": "search"}])
+        if "You are Muffin" in system_prompt:
+            return "I'm Muffin, I can search your collections and answer with citations."
+        return "unexpected prompt"
+
+    graph, fake = make_run(_hr_eng_vdbs(), router)
+    state = initial_state("Qui es-tu ?")
+    result = graph.invoke(state, config=_config(state))
+
+    assert not decompose_called, "an identity question must never reach the research planner"
+    assert fake.searched_collection_ids == []
+    assert result["research_tasks"] == []
+    assert result["answer"] == "I'm Muffin, I can search your collections and answer with citations."
+    assert result["citations"] == []
+    # No evidence to fact-check, no grounding pass either.
+    assert result["grounding_result"] is None
