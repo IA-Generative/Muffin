@@ -2,10 +2,14 @@
 import { onMounted, ref, watch } from 'vue'
 import { useAdminSettings } from '../composables/useAdminSettings'
 import { useEmbeddingModels } from '../composables/useEmbeddingModels'
+import { usePrompts } from '../composables/usePrompts'
+import PromptEditor from './PromptEditor.vue'
 
 const { embeddingModel, isLoading, error, fetchAdminSettings, updateEmbeddingModel } = useAdminSettings()
 const { models, isLoading: isLoadingModels, error: modelsError } = useEmbeddingModels()
+const { summaries: prompts, isLoading: isLoadingPrompts, error: promptsError, fetchPrompts } = usePrompts()
 onMounted(fetchAdminSettings)
+onMounted(fetchPrompts)
 
 const draft = ref('')
 watch(
@@ -61,6 +65,24 @@ async function save() {
         <button type="submit" class="fr-btn" :disabled="!draft">Enregistrer</button>
       </div>
     </form>
+
+    <section class="admin-view__section">
+      <h2 class="admin-view__section-title">Prompts de l'agent</h2>
+      <p class="admin-view__intro admin-view__intro--section">
+        Publier une nouvelle version prend effet pour les prochains runs sans redéploiement (les workers rafraîchissent
+        leur cache dans la minute). L'historique permet de revenir à une version précédente à tout moment.
+      </p>
+      <p v-if="promptsError" class="admin-view__error" role="alert">{{ promptsError }}</p>
+      <p v-else-if="isLoadingPrompts" class="admin-view__empty">Chargement…</p>
+      <template v-else>
+        <PromptEditor
+          v-for="prompt in prompts"
+          :key="prompt.name"
+          :name="prompt.name"
+          :active-version="prompt.active_version"
+        />
+      </template>
+    </section>
   </section>
 </template>
 
@@ -149,5 +171,19 @@ async function save() {
 .admin-card__saved {
   font-size: 0.875rem;
   color: var(--text-default-success);
+}
+
+.admin-view__section {
+  max-width: 48rem;
+  margin: 2rem auto 0;
+}
+
+.admin-view__section-title {
+  font-size: 1.0625rem;
+  margin: 0 0 0.5rem;
+}
+
+.admin-view__intro--section {
+  margin: 0 0 1rem;
 }
 </style>

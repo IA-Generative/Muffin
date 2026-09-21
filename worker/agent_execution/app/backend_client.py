@@ -195,5 +195,23 @@ class BackendClient:
         )
         response.raise_for_status()
 
+    def get_active_prompt(self, name: str) -> dict[str, Any] | None:
+        """None on a 404 (no active version yet for this name) as well as any other failure -
+        callers fall back to their own hardcoded default rather than crash the run over the
+        prompt-versioning service being unavailable."""
+        try:
+            response = self._client.get(f"/api/internal/prompts/{name}/active")
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPError:
+            return None
+
+    def add_prompt_usages(self, run_id: str, prompt_version_ids: list[str]) -> None:
+        response = self._client.post(
+            f"/api/internal/prompts/runs/{run_id}/usages",
+            json={"prompt_version_ids": prompt_version_ids},
+        )
+        response.raise_for_status()
+
 
 backend_client = BackendClient()

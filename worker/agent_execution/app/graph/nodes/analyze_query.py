@@ -2,6 +2,7 @@ from typing import Any
 
 from app.graph.services.events import emit, is_cancelled, set_activity
 from app.graph.services.llm import json_chat
+from app.graph.services.prompts import get_prompt
 from app.graph.state import AgentState
 
 _SYSTEM_PROMPT = (
@@ -61,13 +62,21 @@ def analyze_query(state: AgentState) -> dict[str, Any]:
     )
 
     model = state["chat_model"]
+    prompt_usages: list[str] = []
     if model is None:
         analysis = _FALLBACK
     else:
-        analysis = json_chat(model, _SYSTEM_PROMPT, user_content, fallback=_FALLBACK)
+        system_prompt, prompt_version_id = get_prompt("analyze_query", fallback=_SYSTEM_PROMPT)
+        if prompt_version_id:
+            prompt_usages.append(prompt_version_id)
+        analysis = json_chat(model, system_prompt, user_content, fallback=_FALLBACK)
         if not isinstance(analysis, dict) or "intent" not in analysis:
             analysis = _FALLBACK
 
     contextualized_query = analysis.get("standalone_query") or state["original_query"]
     emit(run_id, "query_analysis_completed", {"analysis": analysis})
-    return {"query_analysis": analysis, "contextualized_query": contextualized_query}
+    return {
+        "query_analysis": analysis,
+        "contextualized_query": contextualized_query,
+        "prompt_usages": prompt_usages,
+    }

@@ -3,6 +3,7 @@ from typing import Any
 
 from app.backend_client import backend_client
 from app.graph.services.events import emit, is_cancelled, set_activity
+from app.graph.services.prompts import get_prompt
 from app.graph.state import AgentState
 
 _SYSTEM_PROMPT = (
@@ -50,6 +51,7 @@ def generate_answer(state: AgentState) -> dict[str, Any]:
             "citations": [],
         }
 
+    system_prompt, prompt_version_id = get_prompt("generate_answer", fallback=_SYSTEM_PROMPT)
     evidence_block = "\n\n".join(f"[{e['id']}] (source: {e['source']})\n{e['content']}" for e in context["excerpts"])
     missing_note = (
         f"\n\nNote: the following could not be established from accessible sources: {context['missing_information']}"
@@ -61,7 +63,7 @@ def generate_answer(state: AgentState) -> dict[str, Any]:
     result = backend_client.llm_chat_with_usage(
         model,
         [
-            {"role": "system", "content": _SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content},
         ],
     )
@@ -92,4 +94,5 @@ def generate_answer(state: AgentState) -> dict[str, Any]:
         "answer_latency_ms": latency_ms,
         "answer_prompt_tokens": prompt_tokens,
         "answer_completion_tokens": completion_tokens,
+        "prompt_usages": [prompt_version_id] if prompt_version_id else [],
     }

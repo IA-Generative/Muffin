@@ -36,6 +36,7 @@ from app.models.feedback import (
     FeedbackValue,
 )
 from app.models.message import Message, MessageRole
+from app.models.prompt import PromptVersion, RunPromptUsage
 from app.models.qa import QaOrigin, QaPair
 from app.models.run import Run, RunEvent, RunStatus
 from app.models.source import MessageSource, Source
@@ -74,11 +75,13 @@ __all__ = [
     "Message",
     "MessageRole",
     "MessageSource",
+    "PromptVersion",
     "QaOrigin",
     "QaPair",
     "Relation",
     "Run",
     "RunEvent",
+    "RunPromptUsage",
     "RunStatus",
     "ShareSubjectType",
     "Source",

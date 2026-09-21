@@ -3,6 +3,7 @@ from typing import Any
 
 from app.graph.services.events import emit, is_cancelled, set_activity
 from app.graph.services.llm import json_chat
+from app.graph.services.prompts import get_prompt
 from app.graph.state import AgentState, ResearchTask, TaskTool
 
 _BASE_TOOLS: tuple[str, ...] = (
@@ -145,22 +146,30 @@ def _valid_tools(web_search_enabled: bool) -> frozenset[str]:
     return frozenset(tools)
 
 
-def _system_prompt(web_search_enabled: bool) -> str:
+# Versioned fallback (see get_prompt below) for the instructional part of the prompt - the tool
+# guide and the tool_names list stay code-owned (§ security: web_search must never be offered
+# unless opted in), substituted into the {tool_names}/{guide} placeholders after fetch, never
+# themselves editable from the admin prompt UI.
+_BASE_SYSTEM_PROMPT = (
+    "Break the user's query into research tasks. Respond only with a JSON array of objects with keys: "
+    '"id" (short slug, unique), "query" (the question this task answers), "intent" (short string or null), '
+    '"tool" (one of {tool_names}), '
+    '"dependencies" (array of task ids this task needs completed first, e.g. a comparison task depends on '
+    "the tasks covering each side of the comparison).\n\n"
+    "{guide}\n"
+    "A simple query stays a single task. Independent tasks must have an empty dependencies array so they can "
+    "run in parallel."
+)
+
+
+def _system_prompt(web_search_enabled: bool) -> tuple[str, str | None]:
     # Iterates _BASE_TOOLS directly (not _valid_tools' frozenset) so the listed order is
     # deterministic between calls - purely cosmetic (prompt readability), never load-bearing.
     tools = (*_BASE_TOOLS, "web_search") if web_search_enabled else _BASE_TOOLS
     tool_names = ", ".join(f'"{tool}"' for tool in tools)
     guide = _BASE_TOOL_GUIDE + (_WEB_SEARCH_TOOL_GUIDE if web_search_enabled else "")
-    return (
-        "Break the user's query into research tasks. Respond only with a JSON array of objects with keys: "
-        '"id" (short slug, unique), "query" (the question this task answers), "intent" (short string or null), '
-        f'"tool" (one of {tool_names}), '
-        '"dependencies" (array of task ids this task needs completed first, e.g. a comparison task depends on '
-        "the tasks covering each side of the comparison).\n\n"
-        f"{guide}\n"
-        "A simple query stays a single task. Independent tasks must have an empty dependencies array so they can "
-        "run in parallel."
-    )
+    template, prompt_version_id = get_prompt("decompose_query", fallback=_BASE_SYSTEM_PROMPT)
+    return template.format(tool_names=tool_names, guide=guide), prompt_version_id
 
 
 def _fallback_task(query: str, tool: TaskTool = "search") -> list[dict[str, Any]]:
@@ -256,6 +265,7 @@ def decompose_query(state: AgentState) -> dict[str, Any]:
     # Likewise, never short-circuit when the query looks analytical (averages, counts, sums, etc.):
     # the simple-search fallback forces "search", but an analytical question may need "tabular_query"
     # to run SQL over CSV/XLSX data. Only the LLM planner can make that call.
+    prompt_usages: list[str] = []
     if is_simple_search and not web_search_enabled and not _looks_analytical(query):
         tasks = _sanitize(_fallback_task(query), query, web_search_enabled)
     else:
@@ -263,9 +273,12 @@ def decompose_query(state: AgentState) -> dict[str, Any]:
         if model is None:
             tasks = _sanitize(_fallback_task(query), query, web_search_enabled)
         else:
+            system_prompt, prompt_version_id = _system_prompt(web_search_enabled)
+            if prompt_version_id:
+                prompt_usages.append(prompt_version_id)
             raw = json_chat(
                 model,
-                _system_prompt(web_search_enabled),
+                system_prompt,
                 f"Query: {query}\n\nAnalysis: {analysis}",
                 fallback=_fallback_task(query),
             )
@@ -276,4 +289,4 @@ def decompose_query(state: AgentState) -> dict[str, Any]:
         "query_decomposition_completed",
         {"task_count": len(tasks), "task_ids": [t["id"] for t in tasks]},
     )
-    return {"research_tasks": tasks}
+    return {"research_tasks": tasks, "prompt_usages": prompt_usages}
