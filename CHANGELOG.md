@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.7.5](https://github.com/IA-Generative/Muffin/compare/v0.7.4...v0.7.5) (2026-09-21)
+
+
+### Bug Fixes
+
+* **frontend:** use DSFR favicon and set tab title to Muffin ([02feb3f](https://github.com/IA-Generative/Muffin/commit/02feb3fd062c6a79c2e97be7aa137bdae7e8dd9b))
+* pre-install DuckDB extensions in Docker to fix readOnlyRootFilesystem crash ([b528bcb](https://github.com/IA-Generative/Muffin/commit/b528bcb6b30ccff3a5374af43188d88a0168bdde))
+* **vector-store:** tolerate Meilisearch dropping the vectorStore experimental flag ([a8ddebb](https://github.com/IA-Generative/Muffin/commit/a8ddebb5cb79bb895057216401a6c7b9af3f7760))
+
 ## [0.7.4](https://github.com/IA-Generative/Muffin/compare/v0.7.3...v0.7.4) (2026-09-21)
 
 
