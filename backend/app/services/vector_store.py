@@ -42,7 +42,17 @@ def _ensure_vector_store_feature() -> None:
     # As of Meilisearch 1.12, embedders/hybrid search are gated behind this experimental flag,
     # settable only through this API (no CLI flag/env var equivalent) - persisted server-side,
     # so this is a one-time no-op after the first successful call, but harmless to repeat.
-    _client.update_experimental_features({"vectorStore": True})
+    #
+    # Meilisearch ≥1.13: vectorStore became stable and was removed from experimental-features.
+    # The API returns 400 "Unknown field `vectorStore`" — this means the feature is already
+    # enabled by default, so we can safely ignore the error and proceed.
+    try:
+        _client.update_experimental_features({"vectorStore": True})
+    except MeilisearchApiError as e:
+        if "vectorStore" in str(e):
+            logger.info("vectorStore already stable on this Meilisearch version, skipping")
+        else:
+            raise
     _vector_store_feature_enabled = True
 
 
