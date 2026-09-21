@@ -5,6 +5,7 @@ from typing import Any
 
 from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDMixin
@@ -52,6 +53,18 @@ class Collection(UUIDMixin, TimestampMixin, Base):
     tags_updated_by: Mapped[str | None] = mapped_column(String, nullable=True)
     tags_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # Temporary collections (§ conv-files) are auto-created lazily on the first file uploaded
+    # directly into a conversation (never by the user explicitly) - excluded from the normal
+    # collections list and auto-pinned to that conversation's runs instead. is_temporary is
+    # redundant with conversation_id being non-NULL, but kept as its own column: filtering
+    # `WHERE is_temporary` reads clearer than `WHERE conversation_id IS NOT NULL` at call sites,
+    # and it's the one invariant this model can enforce in Python if the two ever needed to
+    # diverge (they don't today).
+    is_temporary: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    conversation_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=True, unique=True
+    )
+
     tags: Mapped[list["CollectionTag"]] = relationship(back_populates="collection", cascade="all, delete-orphan")
     shares: Mapped[list["CollectionShare"]] = relationship(back_populates="collection", cascade="all, delete-orphan")
     settings: Mapped["CollectionSettings"] = relationship(
@@ -74,6 +87,9 @@ class Collection(UUIDMixin, TimestampMixin, Base):
     )
     evaluation_runs: Mapped[list["EvaluationRun"]] = relationship(  # noqa: F821
         back_populates="collection", cascade="all, delete-orphan"
+    )
+    conversation: Mapped["Conversation | None"] = relationship(  # noqa: F821
+        back_populates="temporary_collection", foreign_keys=[conversation_id]
     )
 
 

@@ -27,3 +27,15 @@ class Conversation(UUIDMixin, TimestampMixin, Base):
     discussion_feedbacks: Mapped[list["DiscussionFeedback"]] = relationship(  # noqa: F821
         back_populates="conversation", cascade="all, delete-orphan"
     )
+    # The lazily-created Collection backing files uploaded directly into this conversation (§
+    # conv-files, see Collection.is_temporary/conversation_id) - None until the first upload.
+    # cascade="all, delete-orphan" here even though the FK itself already has
+    # ondelete="CASCADE": without it, SQLAlchemy's unit-of-work nulls out conversation_id on
+    # session.delete(conversation) instead of trusting the DB-level cascade (same reasoning as
+    # `messages` above) - confirmed by a real cascade-delete test, not just following convention.
+    temporary_collection: Mapped["Collection | None"] = relationship(  # noqa: F821
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+        uselist=False,
+        foreign_keys="Collection.conversation_id",
+    )
