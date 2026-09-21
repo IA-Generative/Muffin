@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.4](https://github.com/IA-Generative/Muffin/compare/v0.7.3...v0.7.4) (2026-09-21)
+
+
+### Bug Fixes
+
+* **auth:** make frontend/backend public URLs overridable for prod deployments ([9244448](https://github.com/IA-Generative/Muffin/commit/92444485cddd22df09f901e3dcccc44a92437df2))
+
 ## [0.7.3](https://github.com/IA-Generative/Muffin/compare/v0.7.2...v0.7.3) (2026-09-20)
 
 
