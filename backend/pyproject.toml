@@ -1,6 +1,6 @@
 [project]
 name = "muffin-backend"
-version = "0.7.5"
+version = "0.7.6-rc"
 description = "Muffin BFF (Backend For Frontend)"
 requires-python = ">=3.12"
 dependencies = [
