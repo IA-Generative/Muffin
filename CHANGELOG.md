@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.8.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.7.6-rc...v0.8.0-rc) (2026-09-21)
+
+
+### Features
+
+* **prompts:** version the agent's system prompts, admin-editable ([4414796](https://github.com/IA-Generative/Muffin/commit/441479682c734d1713e12857a19934e3fd49174c))
+
+
+### Code Refactoring
+
+* **admin:** carousel + version dropdown for prompt editing ([1889c8f](https://github.com/IA-Generative/Muffin/commit/1889c8fbd38156781798aa8d09511790484adcd5))
+
 ## [0.7.6-rc](https://github.com/IA-Generative/Muffin/compare/v0.7.5...v0.7.6-rc) (2026-09-21)
 
 
