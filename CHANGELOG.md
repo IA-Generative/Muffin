@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.6-rc](https://github.com/IA-Generative/Muffin/compare/v0.7.5...v0.7.6-rc) (2026-09-21)
+
+
+### Bug Fixes
+
+* **worker/document_process:** update DuckDB extension tests for lazy LOAD ([2846cd2](https://github.com/IA-Generative/Muffin/commit/2846cd25e3ac746b173bedf73e17c2704d4008e8))
+
 ## [0.7.5](https://github.com/IA-Generative/Muffin/compare/v0.7.4...v0.7.5) (2026-09-21)
 
 
