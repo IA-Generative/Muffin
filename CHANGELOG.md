@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.10.0](https://github.com/IA-Generative/Muffin/compare/v0.9.0...v0.10.0) (2026-09-22)
+
+
+### Features
+
+* **cgu:** mandatory, versioned CGU acceptance gate ([d74bc89](https://github.com/IA-Generative/Muffin/commit/d74bc89ce0d30050329b9ae71cf8e389e5f7bdd9))
+* **collections:** header de fiche collection plus aéré ([a2c132f](https://github.com/IA-Generative/Muffin/commit/a2c132f977f49b3f9c9240cb7b39c84cfe406f27))
+* **collections:** hiérarchiser les onglets de la fiche collection ([a23e775](https://github.com/IA-Generative/Muffin/commit/a23e7752d5608afa8e99bd048b1b02b63d74e6e1))
+* **collections:** moderniser la fiche collection ([e8261df](https://github.com/IA-Generative/Muffin/commit/e8261dfa4854d4e635f579a2815a9b03c58fb4d2))
+* **onboarding:** guided tutorial for new users ([e8d5d52](https://github.com/IA-Generative/Muffin/commit/e8d5d521889e7023dcf513e0769f35d9fcd50844))
+
 ## [0.10.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.9.0...v0.10.0-rc) (2026-09-22)
 
 
