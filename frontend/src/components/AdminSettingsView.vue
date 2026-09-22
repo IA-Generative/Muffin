@@ -5,6 +5,7 @@ import { useEmbeddingModels } from '../composables/useEmbeddingModels'
 import { usePrompts } from '../composables/usePrompts'
 import CguEditor from './CguEditor.vue'
 import PromptEditor from './PromptEditor.vue'
+import ReportsAdminSection from './ReportsAdminSection.vue'
 
 const { embeddingModel, isLoading, error, fetchAdminSettings, updateEmbeddingModel } = useAdminSettings()
 const { models, isLoading: isLoadingModels, error: modelsError } = useEmbeddingModels()
@@ -137,6 +138,14 @@ async function save() {
         accepter celle-ci avant de pouvoir continuer à utiliser l'app - voir #127.
       </p>
       <CguEditor class="admin-card-frame" />
+    </section>
+
+    <section class="admin-view__section">
+      <h2 class="admin-view__section-title">Signalements</h2>
+      <p class="admin-view__intro admin-view__intro--section">
+        Bugs, idées et questions envoyés par les utilisateurs depuis le menu utilisateur - voir #148.
+      </p>
+      <ReportsAdminSection class="admin-card-frame" />
     </section>
   </section>
 </template>

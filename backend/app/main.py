@@ -5,6 +5,7 @@ from app import __version__
 from app.config import KeycloakSettings
 from app.routers.admin_cgu import router as admin_cgu_router
 from app.routers.admin_prompts import router as admin_prompts_router
+from app.routers.admin_reports import router as admin_reports_router
 from app.routers.admin_settings import router as admin_settings_router
 from app.routers.auth import router as auth_router
 from app.routers.cgu import router as cgu_router
@@ -24,6 +25,7 @@ from app.routers.internal_runs import router as internal_runs_router
 from app.routers.internal_tasks import router as internal_tasks_router
 from app.routers.models import router as models_router
 from app.routers.quality import router as quality_router
+from app.routers.reports import router as reports_router
 from app.routers.runs import router as runs_router
 from app.routers.tasks import router as tasks_router
 
@@ -99,6 +101,8 @@ app.include_router(admin_settings_router, prefix="/api")
 app.include_router(admin_prompts_router, prefix="/api")
 app.include_router(admin_cgu_router, prefix="/api")
 app.include_router(cgu_router, prefix="/api")
+app.include_router(admin_reports_router, prefix="/api")
+app.include_router(reports_router, prefix="/api")
 app.include_router(quality_router, prefix="/api")
 app.include_router(internal_documents_router, prefix="/api")
 app.include_router(internal_evaluation_router, prefix="/api")
