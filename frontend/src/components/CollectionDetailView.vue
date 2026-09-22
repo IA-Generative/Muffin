@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useCollections } from '../composables/useCollections'
 import type { Collection } from '../types/collection'
@@ -29,19 +29,40 @@ const isReady = computed(() => isCollectionReady(props.collection))
 const showDetails = ref(true)
 
 type TabKey = 'documents' | 'qa' | 'evaluation' | 'relations' | 'chunks' | 'settings'
-const TABS: { key: TabKey; label: string }[] = [
+// §141: seuls Paramètres/Documents/Questions-Réponses restent au premier niveau - le reste
+// (Chunks, Entités & Relations, Évaluation) est regroupé sous le menu "Avancé" pour ne pas
+// mettre au même niveau visuel l'essentiel et les vues d'analyse/debug. Les URLs par onglet
+// (/collections/:id/chunks etc.) restent inchangées pour ne pas casser de lien existant.
+const PRIMARY_TABS: { key: TabKey; label: string }[] = [
   { key: 'settings', label: 'Paramètres' },
   { key: 'documents', label: 'Documents' },
   { key: 'qa', label: 'Questions / Réponses' },
+]
+const ADVANCED_TABS: { key: TabKey; label: string }[] = [
   { key: 'evaluation', label: 'Évaluation' },
   { key: 'relations', label: 'Entités & Relations' },
   { key: 'chunks', label: 'Chunks' },
 ]
+const TABS = [...PRIMARY_TABS, ...ADVANCED_TABS]
 const VALID_TABS = new Set(TABS.map((tab) => tab.key))
+const ADVANCED_KEYS = new Set(ADVANCED_TABS.map((tab) => tab.key))
 // Paramètres (chunking, embedding, visibilité, partages) est owner-only côté backend - un
 // visiteur d'une collection publique/partagée ne le voit pas du tout, il n'y a rien qu'il
 // puisse y faire.
-const visibleTabs = computed(() => TABS.filter((tab) => tab.key !== 'settings' || props.collection.isOwner))
+const visiblePrimaryTabs = computed(() => PRIMARY_TABS.filter((tab) => tab.key !== 'settings' || props.collection.isOwner))
+
+const showAdvancedMenu = ref(false)
+const advancedWrapper = ref<HTMLElement | null>(null)
+const isAdvancedTabActive = computed(() => ADVANCED_KEYS.has(activeTab.value))
+const activeAdvancedLabel = computed(() => ADVANCED_TABS.find((tab) => tab.key === activeTab.value)?.label)
+
+function handleOutsideClick(event: MouseEvent) {
+  if (showAdvancedMenu.value && !advancedWrapper.value?.contains(event.target as Node)) {
+    showAdvancedMenu.value = false
+  }
+}
+onMounted(() => document.addEventListener('click', handleOutsideClick))
+onBeforeUnmount(() => document.removeEventListener('click', handleOutsideClick))
 
 // Resolve the initial tab from the URL (:tab param), falling back to the owner/default logic.
 function resolveInitialTab(): TabKey {
@@ -106,6 +127,7 @@ watch(
 function selectTab(key: TabKey) {
   if (key !== 'settings' && !isReady.value) return
   activeTab.value = key
+  showAdvancedMenu.value = false
 }
 
 const dateFormatter = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })
@@ -258,7 +280,7 @@ function confirmDelete() {
 
       <nav class="collection-detail__tabs" aria-label="Sections de la collection">
         <button
-          v-for="tab in visibleTabs"
+          v-for="tab in visiblePrimaryTabs"
           :key="tab.key"
           type="button"
           class="collection-detail__tab"
@@ -269,6 +291,38 @@ function confirmDelete() {
         >
           {{ tab.label }}
         </button>
+
+        <div ref="advancedWrapper" class="collection-detail__advanced">
+          <button
+            type="button"
+            class="collection-detail__tab"
+            :class="{ 'collection-detail__tab--active': isAdvancedTabActive }"
+            :disabled="!isReady"
+            :title="!isReady ? 'Nommez la collection et enregistrez ses paramètres d\'abord' : undefined"
+            :aria-expanded="showAdvancedMenu"
+            aria-haspopup="true"
+            @click="showAdvancedMenu = !showAdvancedMenu"
+          >
+            {{ isAdvancedTabActive ? activeAdvancedLabel : 'Avancé' }}
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6" />
+            </svg>
+          </button>
+
+          <div v-if="showAdvancedMenu" class="collection-detail__advanced-menu" role="menu">
+            <button
+              v-for="tab in ADVANCED_TABS"
+              :key="tab.key"
+              type="button"
+              role="menuitem"
+              class="collection-detail__advanced-item"
+              :class="{ 'collection-detail__advanced-item--active': activeTab === tab.key }"
+              @click="selectTab(tab.key)"
+            >
+              {{ tab.label }}
+            </button>
+          </div>
+        </div>
       </nav>
 
       <p v-if="!isReady" class="collection-detail__gate-hint">
@@ -581,6 +635,52 @@ function confirmDelete() {
 .collection-detail__tab:disabled {
   color: var(--text-disabled-grey);
   cursor: not-allowed;
+}
+
+.collection-detail__advanced {
+  position: relative;
+}
+
+.collection-detail__advanced > .collection-detail__tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-right: 0;
+}
+
+.collection-detail__advanced-menu {
+  position: absolute;
+  top: calc(100% + 0.25rem);
+  left: 0;
+  z-index: 10;
+  min-width: 11rem;
+  display: flex;
+  flex-direction: column;
+  padding: 0.375rem;
+  border: 1px solid var(--border-default-grey);
+  border-radius: 0.5rem;
+  background: var(--background-default-grey);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+}
+
+.collection-detail__advanced-item {
+  padding: 0.5rem 0.625rem;
+  border: none;
+  border-radius: 0.375rem;
+  background: transparent;
+  color: var(--text-default-grey);
+  cursor: pointer;
+  text-align: left;
+  font-size: 0.875rem;
+}
+
+.collection-detail__advanced-item:hover {
+  background: var(--background-alt-grey);
+}
+
+.collection-detail__advanced-item--active {
+  color: var(--text-action-high-blue-france);
+  font-weight: 700;
 }
 
 .collection-detail__gate-hint {
