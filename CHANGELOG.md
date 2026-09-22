@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.9.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.8.0...v0.9.0-rc) (2026-09-22)
+
+
+### Features
+
+* **agent:** index collection descriptions in Meilisearch, use it to pre-filter VDB routing ([49e0a90](https://github.com/IA-Generative/Muffin/commit/49e0a9023947a506b5b0047c1396d644255557bb))
+* **conv-files:** auto-pin the conversation's temporary collection into new runs ([87d727f](https://github.com/IA-Generative/Muffin/commit/87d727fad57790716f2ae7dda6fc3f6a5ab8ebd0))
+* **conv-files:** repository + service for the temporary collection ([#89](https://github.com/IA-Generative/Muffin/issues/89)) ([b45a2ca](https://github.com/IA-Generative/Muffin/commit/b45a2ca4f354bd27b28b6e7bce27a598777183f8))
+* **conv-files:** rest endpoints for conversation documents ([#90](https://github.com/IA-Generative/Muffin/issues/90)) ([7e401f5](https://github.com/IA-Generative/Muffin/commit/7e401f565f8c12a67a75961cdd74da386efaae34))
+* **conv-files:** suggest filing conversation uploads into a permanent collection ([577440b](https://github.com/IA-Generative/Muffin/commit/577440bcacced8035eb760eb67d58bfe801650ea))
+* **conv-files:** temporary collection model + migration ([#88](https://github.com/IA-Generative/Muffin/issues/88)) ([366a975](https://github.com/IA-Generative/Muffin/commit/366a97502ac7a53dfd7a84c8188bbc30e32cb1dc))
+* **conv-files:** upload files directly from the chat composer ([6e76a98](https://github.com/IA-Generative/Muffin/commit/6e76a9852aa052f7282a07a496b3d23b319db999))
+* **ui:** show the app version in the user menu, linking to the changelog ([dd62c0f](https://github.com/IA-Generative/Muffin/commit/dd62c0f5ed1bbee68ed4f47410393edda60fefe7))
+* **ui:** show the current release's own notes in a modal, not the full changelog ([b0aae93](https://github.com/IA-Generative/Muffin/commit/b0aae93a7580000cc6747590a1859caafa743dd7))
+
+
+### Code Refactoring
+
+* **agent:** drop the Postgres collection description embedding ([035bc41](https://github.com/IA-Generative/Muffin/commit/035bc411aba3e629f3f3ad9f8e799d7144cb2abc))
+
 ## [0.8.0](https://github.com/IA-Generative/Muffin/compare/v0.7.5...v0.8.0) (2026-09-21)
 
 
