@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useAppVersion } from '../composables/useAppVersion'
 import type { Conversation } from '../types/chat'
 import type { User } from '../types/user'
 import ConversationMenu from './ConversationMenu.vue'
+
+const { version } = useAppVersion()
 
 defineProps<{
   conversations: Conversation[]
@@ -296,6 +299,15 @@ function initials(name: string) {
           </svg>
           Se déconnecter
         </button>
+        <a
+          v-if="version"
+          class="user-menu__version"
+          href="https://github.com/IA-Generative/Muffin/blob/main/CHANGELOG.md"
+          target="_blank"
+          rel="noopener"
+        >
+          Version {{ version }} - notes de version
+        </a>
       </div>
 
       <button
@@ -548,6 +560,21 @@ function initials(name: string) {
 }
 
 .user-menu__item:hover {
+  background: var(--background-alt-grey-hover);
+}
+
+.user-menu__version {
+  display: block;
+  margin: 0.375rem 0 0;
+  padding: 0.375rem 0.625rem;
+  border-top: 1px solid var(--border-default-grey);
+  color: var(--text-mention-grey);
+  font-size: 0.6875rem;
+  text-decoration: none;
+}
+
+.user-menu__version:hover {
+  text-decoration: underline;
   background: var(--background-alt-grey-hover);
 }
 
