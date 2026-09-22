@@ -3,6 +3,7 @@ import { onMounted, ref, watch } from 'vue'
 import { useAdminSettings } from '../composables/useAdminSettings'
 import { useEmbeddingModels } from '../composables/useEmbeddingModels'
 import { usePrompts } from '../composables/usePrompts'
+import CguEditor from './CguEditor.vue'
 import PromptEditor from './PromptEditor.vue'
 
 const { embeddingModel, isLoading, error, fetchAdminSettings, updateEmbeddingModel } = useAdminSettings()
@@ -127,6 +128,15 @@ async function save() {
           :active-version="prompts[promptIndex].active_version"
         />
       </div>
+    </section>
+
+    <section class="admin-view__section">
+      <h2 class="admin-view__section-title">Conditions générales d'utilisation</h2>
+      <p class="admin-view__intro admin-view__intro--section">
+        Publier une nouvelle version force chaque utilisateur ayant déjà accepté une version précédente à
+        accepter celle-ci avant de pouvoir continuer à utiliser l'app - voir #127.
+      </p>
+      <CguEditor class="admin-card-frame" />
     </section>
   </section>
 </template>
@@ -272,7 +282,8 @@ async function save() {
   color: var(--text-mention-grey);
 }
 
-.prompt-carousel__card {
+.prompt-carousel__card,
+.admin-card-frame {
   border: 1px solid var(--border-default-grey);
   border-radius: 0.75rem;
   background: var(--background-default-grey);

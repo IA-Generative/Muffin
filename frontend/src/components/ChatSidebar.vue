@@ -4,10 +4,12 @@ import { useAppVersion } from '../composables/useAppVersion'
 import type { Conversation } from '../types/chat'
 import type { User } from '../types/user'
 import ConversationMenu from './ConversationMenu.vue'
+import CguViewerModal from './CguViewerModal.vue'
 import ReleaseNotesModal from './ReleaseNotesModal.vue'
 
 const { version } = useAppVersion()
 const showReleaseNotes = ref(false)
+const showCgu = ref(false)
 
 defineProps<{
   conversations: Conversation[]
@@ -130,6 +132,11 @@ function openAdmin() {
 function openReleaseNotes() {
   showUserMenu.value = false
   showReleaseNotes.value = true
+}
+
+function openCgu() {
+  showUserMenu.value = false
+  showCgu.value = true
 }
 
 function logout() {
@@ -296,6 +303,16 @@ function initials(name: string) {
           </svg>
           Administration
         </button>
+        <button type="button" class="user-menu__item" role="menuitem" @click="openCgu">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M9 12h6m-6 4h6m-9 4h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2H8L4 8v10a2 2 0 0 0 2 2Z"
+            />
+          </svg>
+          Conditions d'utilisation
+        </button>
         <button type="button" class="user-menu__item" role="menuitem" @click="logout">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
             <path
@@ -344,6 +361,7 @@ function initials(name: string) {
   </aside>
 
   <ReleaseNotesModal v-if="showReleaseNotes" @close="showReleaseNotes = false" />
+  <CguViewerModal v-if="showCgu" @close="showCgu = false" />
 </template>
 
 <style scoped>

@@ -1,5 +1,6 @@
 from app.models.app_settings import AppSettings
 from app.models.base import Base
+from app.models.cgu import CguAcceptance, CguVersion
 from app.models.chunk import Chunk
 from app.models.collection import (
     ChunkingStrategy,
@@ -44,6 +45,8 @@ from app.models.task import Task
 __all__ = [
     "AppSettings",
     "Base",
+    "CguAcceptance",
+    "CguVersion",
     "Chunk",
     "ChunkingStrategy",
     "Collection",
