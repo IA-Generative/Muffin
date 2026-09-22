@@ -47,3 +47,28 @@ existants continuent de fonctionner :
 
 Tant que les paramètres de la collection n'ont pas été enregistrés, seul l'onglet Paramètres est
 accessible (les autres onglets et le menu Avancé restent désactivés).
+
+## Mode lecture/édition, header collant, transitions (§142)
+
+Le nom, la description et les tags ne sont plus éditables en permanence : un bouton "Modifier"
+(icône crayon, à côté du chevron de repli) bascule vers un mode édition explicite, qui redevient
+un simple bouton "Terminé" (icône coche) tant qu'il est actif. Tant que la collection n'est pas
+prête (nom par défaut, paramètres jamais enregistrés), le mode édition reste forcé ouvert - l'owner
+peut nommer sa collection sans clic préalable :
+
+![Mode édition forcé sur une collection fraîchement créée](screenshots/collections-modernize-01-forced-edit.png)
+
+Une fois la collection prête, le mode lecture est celui par défaut au chargement suivant - nom,
+description et tags s'affichent en texte statique, sans bouton de suppression de tag ni champ
+d'ajout :
+
+![Mode lecture par défaut une fois la collection prête](screenshots/collections-modernize-02b-read-mode.png)
+
+Cliquer sur "Modifier" ré-active les champs éditables :
+
+![Mode édition ré-activé via le bouton Modifier](screenshots/collections-modernize-03-edit-mode.png)
+
+Le nom et la barre d'onglets restent visibles au défilement (`position: sticky`) - le bloc
+description/tags, lui, défile normalement et disparaît sous le header une fois qu'on descend dans
+le contenu d'un onglet. Le changement d'onglet anime un léger fondu plutôt qu'un remplacement brut
+du panneau.
