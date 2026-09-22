@@ -70,7 +70,8 @@ fonctionnalité :
 | Tutoriel de découverte affiché aux nouveaux utilisateurs | [docs/ui/onboarding/README.md](docs/ui/onboarding/README.md) |
 | CGU : acceptation obligatoire et versionnée | [docs/ui/cgu/README.md](docs/ui/cgu/README.md) |
 | Menu utilisateur : version de l'app, notes de version | [docs/ui/user-menu/README.md](docs/ui/user-menu/README.md) |
-| Administration : paramètres globaux, prompts de l'agent, CGU, modèles | [docs/ui/admin/README.md](docs/ui/admin/README.md) |
+| Signalement de bug/idée/question, avec statut et réponse | [docs/ui/reports/README.md](docs/ui/reports/README.md) |
+| Administration : paramètres globaux, prompts de l'agent, CGU, modèles, signalements | [docs/ui/admin/README.md](docs/ui/admin/README.md) |
 
 ## Documentation
 
