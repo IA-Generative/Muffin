@@ -1,22 +1,39 @@
-# Page Administration (`/admin`)
+# Administration (`/admin`)
 
-Documente la page `/admin` du frontend telle qu'elle existe aujourd'hui, pour servir de
+Documente la zone `/admin` du frontend telle qu'elle existe aujourd'hui, pour servir de
 référence à un agent capable d'interagir avec l'UI (navigation, remplissage de formulaires,
 lecture d'état). Ce dossier `docs/ui/` suit la logique des pages de l'application : un
 sous-dossier par page/écran, chacun avec son propre `README.md` + captures d'écran.
 
-Composant Vue : [`frontend/src/components/AdminSettingsView.vue`](../../../frontend/src/components/AdminSettingsView.vue).
-Route : `/admin` (voir [`frontend/src/router/index.ts`](../../../frontend/src/router/index.ts)).
+**Une page d'index, puis une page par outil admin** (§149) : `/admin` liste les outils
+disponibles sous forme de cartes, chacune redirigeant vers sa propre route/page plutôt que tout
+empiler dans une seule longue page. Chaque sous-page a un lien "← Administration" en haut pour
+revenir à l'index.
+
+| Route | Composant | Contenu |
+|---|---|---|
+| `/admin` | [`AdminIndexView.vue`](../../../frontend/src/components/AdminIndexView.vue) | Liste des outils admin (cartes) |
+| `/admin/settings` | [`AdminSettingsView.vue`](../../../frontend/src/components/AdminSettingsView.vue) | Modèle d'embedding global |
+| `/admin/prompts` | [`AdminPromptsView.vue`](../../../frontend/src/components/AdminPromptsView.vue) | Prompts système de l'agent (carrousel) |
+| `/admin/cgu` | [`AdminCguView.vue`](../../../frontend/src/components/AdminCguView.vue) | Versions des CGU - voir [`docs/ui/cgu/`](../cgu/README.md) |
+| `/admin/reports` | [`AdminReportsView.vue`](../../../frontend/src/components/AdminReportsView.vue) | Signalements utilisateurs - voir [`docs/ui/reports/`](../reports/README.md) |
+
+Route déclarée dans [`frontend/src/router/index.ts`](../../../frontend/src/router/index.ts) ;
+`App.vue`'s `activeView` reconnaît toute route commençant par `/admin` (préfixe), donc les
+sous-pages restent identifiées comme la vue "admin" dans la nav principale sans changement
+supplémentaire.
+
+![Page d'index /admin](screenshots/admin-index.png)
 
 ## Accès
 
 - **Admin uniquement.** Le lien "Administration" n'apparaît dans le menu utilisateur (sidebar,
   clic sur le bloc nom/email en bas à gauche) que si `user.isAdmin` est vrai
   (voir [`frontend/src/components/ChatSidebar.vue`](../../../frontend/src/components/ChatSidebar.vue),
-  bouton `role="menuitem"` avec le texte "Administration").
-- Naviguer directement vers `/admin` sans être connecté affiche quand même le squelette de la
-  page, mais chaque section échoue avec un message d'erreur rouge ("Impossible de récupérer...")
-  car les appels API renvoient 401/403.
+  bouton `role="menuitem"` avec le texte "Administration") - il pointe vers `/admin`, l'index.
+- Naviguer directement vers une sous-page (`/admin/settings` etc.) sans être connecté affiche
+  quand même le squelette de la page, mais chaque section échoue avec un message d'erreur rouge
+  ("Impossible de récupérer...") car les appels API renvoient 401/403.
 - En dev, l'utilisateur seedé admin dans Keycloak (`docker/keycloak/realm-muffin.json`) est
   `michou` / `muffin-dev`.
 - **Piège pour un agent qui pilote l'UI** : `useChat.ts::initializeConversations()` redirige
@@ -29,14 +46,7 @@ Route : `/admin` (voir [`frontend/src/router/index.ts`](../../../frontend/src/ro
   menu, ou `router.push`) plutôt que par un rechargement complet de page. C'est un bug
   préexistant, non corrigé, indépendant du contenu de cette page.
 
-## Structure de la page
-
-Une seule colonne centrée (`max-width: 48rem`), scroll interne (`.admin-view`, pas le body).
-Deux sections empilées : **Modèle d'embedding** puis **Prompts de l'agent**. Voir
-[`screenshots/prompt-carousel-overview.png`](screenshots/prompt-carousel-overview.png) pour
-l'ensemble de la page.
-
-### 1. Modèle d'embedding
+## `/admin/settings` : Modèle d'embedding
 
 Carte unique (`.admin-card`), formulaire.
 
@@ -59,9 +69,9 @@ des modèles.
 API : `GET /api/admin/settings`, `PATCH /api/admin/settings/embedding-model` — backend
 [`admin_settings.py`](../../../backend/app/routers/admin_settings.py).
 
-### 2. Prompts de l'agent
+## `/admin/prompts` : Prompts de l'agent
 
-Section ajoutée pour le versioning des prompts système de l'agent de recherche (issue #96,
+Page ajoutée pour le versioning des prompts système de l'agent de recherche (issue #96,
 voir [`docs/research-agent-plan.md`](../../research-agent-plan.md)). Texte d'intro : publier une
 version prend effet sans redéploiement du worker (cache rafraîchi côté worker dans la minute),
 et l'historique permet un rollback à tout moment.
@@ -82,18 +92,18 @@ Ce sont les prompts système des nodes du graphe LangGraph de l'agent
 (police monospace) est directement le nom technique utilisé comme clé API — pas de libellé
 humain séparé.
 
-#### Le carrousel
+### Le carrousel
 
 Au-dessus de la carte : flèche précédente (`aria-label="Prompt précédent"`), une rangée de
 points cliquables (un par prompt, `aria-current` sur celui affiché), flèche suivante
 (`aria-label="Prompt suivant"`), puis un compteur texte `N / 6`. Naviguer change la carte
-affichée (`AdminSettingsView.vue::promptIndex`) - la carte est démontée/remontée à chaque
+affichée (`AdminPromptsView.vue::promptIndex`) - la carte est démontée/remontée à chaque
 changement (`:key="prompts[promptIndex].name"`), donc **son état interne (brouillon en cours,
 version sélectionnée) ne survit pas au changement de carte**, elle repart toujours sur la
 version active. Voir [`screenshots/prompt-carousel-second-card.png`](screenshots/prompt-carousel-second-card.png)
 (carte 2/6, `decompose_query`, fraîche).
 
-#### Anatomie d'une carte prompt
+### Anatomie d'une carte prompt
 
 Voir [`screenshots/prompt-carousel-overview.png`](screenshots/prompt-carousel-overview.png)
 (carte en mode édition, version active) et
@@ -156,11 +166,10 @@ voir les commentaires dans `worker/agent_execution/app/graph/nodes/decompose_que
 
 ## États d'erreur
 
-Chaque section a son propre `error`/`isLoading` indépendant (pas de état d'erreur global pour
-toute la page) :
+Chaque page a son propre `error`/`isLoading` indépendant :
 
-- Section embedding : `error` → texte rouge à la place du formulaire.
-- Section prompts : `promptsError` → texte rouge, la liste des cartes ne s'affiche pas du tout.
+- `/admin/settings` : `error` → texte rouge à la place du formulaire.
+- `/admin/prompts` : `promptsError` → texte rouge, la liste des cartes ne s'affiche pas du tout.
 - Un échec de `createVersion`/`activateVersion` individuel affiche `error` (composable
   `usePrompts`) mais n'est **actuellement affiché nulle part dans `PromptEditor.vue`** — le
   bouton retourne juste à son état normal sans message visible en cas d'échec réseau. À garder
