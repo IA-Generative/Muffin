@@ -57,6 +57,21 @@ make back      # backend en hot-reload, http://localhost:8000/api/docs
 
 `make help` liste toutes les commandes disponibles (install, lint, tests, migrations Alembic, ...).
 
+## Fonctionnalités
+
+Documentation illustrée (captures d'écran) des principales capacités de l'interface, par
+fonctionnalité :
+
+| Fonctionnalité | Doc |
+|---|---|
+| Collections : création, documents, chunks, Q/R, entités & relations, évaluation du retrieval | [docs/ui/collections/README.md](docs/ui/collections/README.md) |
+| Chat : dictée vocale et lecture à voix haute des réponses | [docs/ui/chat/README.md](docs/ui/chat/README.md) |
+| Suggestion de rangement automatique des fichiers uploadés dans le chat | [docs/ui/filing/README.md](docs/ui/filing/README.md) |
+| Tutoriel de découverte affiché aux nouveaux utilisateurs | [docs/ui/onboarding/README.md](docs/ui/onboarding/README.md) |
+| CGU : acceptation obligatoire et versionnée | [docs/ui/cgu/README.md](docs/ui/cgu/README.md) |
+| Menu utilisateur : version de l'app, notes de version | [docs/ui/user-menu/README.md](docs/ui/user-menu/README.md) |
+| Administration : paramètres globaux, prompts de l'agent, CGU, modèles | [docs/ui/admin/README.md](docs/ui/admin/README.md) |
+
 ## Documentation
 
 - [docs/environment-variables.md](docs/environment-variables.md) — toutes les variables

@@ -24,6 +24,10 @@ const { closeCollection, updateName, updateDescription, updateTags, deleteCollec
 const tagDraft = ref('')
 const isReady = computed(() => isCollectionReady(props.collection))
 
+// §140: description + tags read as a single secondary block, collapsible so the header stays
+// short once a collection is set up - expanded by default so nothing is hidden on first load.
+const showDetails = ref(true)
+
 type TabKey = 'documents' | 'qa' | 'evaluation' | 'relations' | 'chunks' | 'settings'
 const TABS: { key: TabKey; label: string }[] = [
   { key: 'settings', label: 'Paramètres' },
@@ -155,6 +159,28 @@ function confirmDelete() {
           {{ collection.isOwner ? (collection.visibility === 'public' ? 'Publique' : 'Privée') : collection.visibility === 'public' ? 'Publique' : 'Partagée avec vous' }}
         </span>
         <button
+          type="button"
+          class="collection-detail__details-toggle"
+          :aria-expanded="showDetails"
+          aria-controls="collection-detail-meta-card"
+          :title="showDetails ? 'Masquer la description et les tags' : 'Afficher la description et les tags'"
+          @click="showDetails = !showDetails"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            width="16"
+            height="16"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+            aria-hidden="true"
+            :class="{ 'collection-detail__details-toggle-icon--open': showDetails }"
+          >
+            <path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6" />
+          </svg>
+          <span class="fr-sr-only">{{ showDetails ? 'Masquer les détails' : 'Afficher les détails' }}</span>
+        </button>
+        <button
           v-if="collection.isOwner"
           type="button"
           class="collection-detail__delete"
@@ -164,41 +190,71 @@ function confirmDelete() {
         </button>
       </div>
 
-      <textarea
-        v-if="collection.isOwner"
-        class="collection-detail__description"
-        :value="collection.description"
-        placeholder="Décrivez cette collection…"
-        rows="2"
-        aria-label="Description de la collection"
-        @change="updateDescription(collection.id, ($event.target as HTMLTextAreaElement).value)"
-      />
-      <p v-else-if="collection.description" class="collection-detail__description collection-detail__description--readonly">
-        {{ collection.description }}
-      </p>
-      <p v-if="collection.descriptionMeta" class="collection-detail__meta">
-        {{ formatStamp(collection.descriptionMeta) }}
-      </p>
+      <div v-if="showDetails" id="collection-detail-meta-card" class="collection-detail__meta-card">
+        <div class="collection-detail__meta-card-section">
+          <span class="collection-detail__meta-card-label">
+            Description
+            <button
+              v-if="collection.descriptionMeta"
+              type="button"
+              class="collection-detail__info"
+              :title="formatStamp(collection.descriptionMeta)"
+              :aria-label="formatStamp(collection.descriptionMeta)"
+            >
+              ⓘ
+            </button>
+          </span>
+          <textarea
+            v-if="collection.isOwner"
+            class="collection-detail__description"
+            :value="collection.description"
+            placeholder="Décrivez cette collection…"
+            rows="2"
+            aria-label="Description de la collection"
+            @change="updateDescription(collection.id, ($event.target as HTMLTextAreaElement).value)"
+          />
+          <p v-else-if="collection.description" class="collection-detail__description collection-detail__description--readonly">
+            {{ collection.description }}
+          </p>
+          <p v-else class="collection-detail__description collection-detail__description--empty">Aucune description.</p>
+        </div>
 
-      <div class="collection-detail__tags">
-        <span v-for="tag in collection.tags" :key="tag" class="collection-detail__tag">
-          {{ tag }}
-          <button v-if="collection.isOwner" type="button" :aria-label="`Retirer le tag ${tag}`" @click="removeTag(tag)">
-            ✕
-          </button>
-        </span>
-        <input
-          v-if="collection.isOwner"
-          v-model="tagDraft"
-          type="text"
-          class="collection-detail__tag-input"
-          placeholder="+ tag"
-          aria-label="Ajouter un tag"
-          @keydown.enter.prevent="addTag"
-          @blur="addTag"
-        />
+        <div class="collection-detail__meta-card-section">
+          <span class="collection-detail__meta-card-label">
+            Tags
+            <button
+              v-if="collection.tags.length && collection.tagsMeta"
+              type="button"
+              class="collection-detail__info"
+              :title="formatStamp(collection.tagsMeta)"
+              :aria-label="formatStamp(collection.tagsMeta)"
+            >
+              ⓘ
+            </button>
+          </span>
+          <div class="collection-detail__tags">
+            <span v-for="tag in collection.tags" :key="tag" class="collection-detail__tag">
+              {{ tag }}
+              <button v-if="collection.isOwner" type="button" :aria-label="`Retirer le tag ${tag}`" @click="removeTag(tag)">
+                ✕
+              </button>
+            </span>
+            <input
+              v-if="collection.isOwner"
+              v-model="tagDraft"
+              type="text"
+              class="collection-detail__tag-input"
+              placeholder="+ tag"
+              aria-label="Ajouter un tag"
+              @keydown.enter.prevent="addTag"
+              @blur="addTag"
+            />
+            <span v-if="!collection.tags.length && !collection.isOwner" class="collection-detail__description--empty">
+              Aucun tag.
+            </span>
+          </div>
+        </div>
       </div>
-      <p v-if="collection.tags.length" class="collection-detail__meta">{{ formatStamp(collection.tagsMeta) }}</p>
 
       <nav class="collection-detail__tabs" aria-label="Sections de la collection">
         <button
@@ -321,8 +377,42 @@ function confirmDelete() {
 
 .collection-detail__description--readonly {
   width: 100%;
-  margin: 0.75rem 0 0;
+  margin: 0;
   color: var(--text-mention-grey);
+}
+
+.collection-detail__description--empty {
+  margin: 0;
+  color: var(--text-disabled-grey);
+  font-style: italic;
+  font-size: 0.875rem;
+}
+
+.collection-detail__details-toggle {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 1px solid var(--border-default-grey);
+  border-radius: 50%;
+  background: var(--background-default-grey);
+  color: var(--text-mention-grey);
+  cursor: pointer;
+}
+
+.collection-detail__details-toggle:hover {
+  color: var(--text-default-grey);
+  border-color: var(--border-action-high-blue-france);
+}
+
+.collection-detail__details-toggle svg {
+  transition: transform 0.15s ease;
+}
+
+.collection-detail__details-toggle svg.collection-detail__details-toggle-icon--open {
+  transform: rotate(180deg);
 }
 
 .collection-detail__visibility-badge {
@@ -351,7 +441,7 @@ function confirmDelete() {
 
 .collection-detail__description {
   width: 100%;
-  margin-top: 0.75rem;
+  margin: 0;
   border: none;
   background: transparent;
   color: var(--text-mention-grey);
@@ -370,12 +460,62 @@ function confirmDelete() {
   color: var(--text-mention-grey);
 }
 
+.collection-detail__meta-card {
+  margin-top: 1rem;
+  padding: 1rem 1.25rem;
+  border-radius: 0.75rem;
+  background: var(--background-alt-grey);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.collection-detail__meta-card-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.collection-detail__meta-card-label {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-mention-grey);
+}
+
+.collection-detail__info {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+  border: none;
+  border-radius: 50%;
+  padding: 0;
+  background: transparent;
+  color: var(--text-disabled-grey);
+  font-size: 0.75rem;
+  line-height: 1;
+  cursor: help;
+  text-transform: none;
+  font-weight: 400;
+  letter-spacing: normal;
+}
+
+.collection-detail__info:hover,
+.collection-detail__info:focus-visible {
+  color: var(--text-action-high-blue-france);
+}
+
 .collection-detail__tags {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
-  margin-top: 0.75rem;
 }
 
 .collection-detail__tag {
