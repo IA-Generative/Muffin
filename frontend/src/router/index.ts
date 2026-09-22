@@ -19,6 +19,10 @@ export const router = createRouter({
     { path: '/tasks', name: 'tasks', component: () => import('../components/TasksView.vue') },
     { path: '/filing', name: 'filing', component: () => import('../components/FilingReviewView.vue') },
     { path: '/quality', name: 'quality', component: () => import('../components/QualityDashboardView.vue') },
-    { path: '/admin', name: 'admin', component: () => import('../components/AdminSettingsView.vue') },
+    { path: '/admin', name: 'admin', component: () => import('../components/AdminIndexView.vue') },
+    { path: '/admin/settings', name: 'admin-settings', component: () => import('../components/AdminSettingsView.vue') },
+    { path: '/admin/prompts', name: 'admin-prompts', component: () => import('../components/AdminPromptsView.vue') },
+    { path: '/admin/cgu', name: 'admin-cgu', component: () => import('../components/AdminCguView.vue') },
+    { path: '/admin/reports', name: 'admin-reports', component: () => import('../components/AdminReportsView.vue') },
   ],
 })
