@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useAppVersion } from '../composables/useAppVersion'
+import { useOnboarding } from '../composables/useOnboarding'
 import type { Conversation } from '../types/chat'
 import type { User } from '../types/user'
 import ConversationMenu from './ConversationMenu.vue'
@@ -8,6 +9,7 @@ import CguViewerModal from './CguViewerModal.vue'
 import ReleaseNotesModal from './ReleaseNotesModal.vue'
 
 const { version } = useAppVersion()
+const { openTutorial } = useOnboarding()
 const showReleaseNotes = ref(false)
 const showCgu = ref(false)
 
@@ -137,6 +139,13 @@ function openReleaseNotes() {
 function openCgu() {
   showUserMenu.value = false
   showCgu.value = true
+}
+
+// Manual replay is an explicit user action - unlike the auto-open in App.vue, it must never be
+// gated by dismissedForever (§135).
+function openTutorialFromMenu() {
+  showUserMenu.value = false
+  openTutorial()
 }
 
 function logout() {
@@ -312,6 +321,16 @@ function initials(name: string) {
             />
           </svg>
           Conditions d'utilisation
+        </button>
+        <button type="button" class="user-menu__item" role="menuitem" @click="openTutorialFromMenu">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0-4v-.5m0-3c0-1.5 1.5-1.5 1.5-3A1.5 1.5 0 0 0 12 9a1.5 1.5 0 0 0-1.5 1.5"
+            />
+          </svg>
+          Revoir le tutoriel
         </button>
         <button type="button" class="user-menu__item" role="menuitem" @click="logout">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
