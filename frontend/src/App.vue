@@ -3,10 +3,12 @@ import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import CguGateModal from './components/CguGateModal.vue'
 import ChatSidebar from './components/ChatSidebar.vue'
+import OnboardingModal from './components/OnboardingModal.vue'
 import SettingsModal from './components/SettingsModal.vue'
 import { useCgu } from './composables/useCgu'
 import { useChat } from './composables/useChat'
 import { useCurrentUser } from './composables/useCurrentUser'
+import { useOnboarding } from './composables/useOnboarding'
 
 const route = useRoute()
 const router = useRouter()
@@ -18,6 +20,21 @@ const { status: cguStatus, fetchCguStatus } = useCgu()
 // gates the whole app, not just a specific page, so this can't wait for a component that needs
 // it to mount first).
 watch(isAuthenticated, (authenticated) => authenticated && fetchCguStatus(), { immediate: true })
+
+const { showTutorial, dismissedForever, openTutorial } = useOnboarding()
+// Auto-opens once per page load, and only once the CGU gate (if any) is already cleared - never
+// stack two blocking modals, and never re-open on every unrelated reactivity tick once the user
+// has closed it for this session (§135).
+let onboardingAutoOpened = false
+watch(
+  () => [isAuthenticated.value, cguStatus.value, dismissedForever.value] as const,
+  ([authenticated, status, dismissed]) => {
+    if (onboardingAutoOpened || dismissed || !authenticated || !status?.accepted) return
+    onboardingAutoOpened = true
+    openTutorial()
+  },
+  { immediate: true },
+)
 const {
   conversations,
   conversationsHasMore,
@@ -67,6 +84,7 @@ const activeView = computed(() => {
 
     <SettingsModal v-if="showSettings" @close="showSettings = false" />
     <CguGateModal v-if="isAuthenticated && cguStatus && !cguStatus.accepted" />
+    <OnboardingModal v-if="showTutorial" />
   </div>
 </template>
 
