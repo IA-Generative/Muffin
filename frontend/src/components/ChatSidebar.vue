@@ -4,8 +4,10 @@ import { useAppVersion } from '../composables/useAppVersion'
 import type { Conversation } from '../types/chat'
 import type { User } from '../types/user'
 import ConversationMenu from './ConversationMenu.vue'
+import ReleaseNotesModal from './ReleaseNotesModal.vue'
 
 const { version } = useAppVersion()
+const showReleaseNotes = ref(false)
 
 defineProps<{
   conversations: Conversation[]
@@ -123,6 +125,11 @@ function openQuality() {
 function openAdmin() {
   showUserMenu.value = false
   emit('openAdmin')
+}
+
+function openReleaseNotes() {
+  showUserMenu.value = false
+  showReleaseNotes.value = true
 }
 
 function logout() {
@@ -299,15 +306,9 @@ function initials(name: string) {
           </svg>
           Se déconnecter
         </button>
-        <a
-          v-if="version"
-          class="user-menu__version"
-          href="https://github.com/IA-Generative/Muffin/blob/main/CHANGELOG.md"
-          target="_blank"
-          rel="noopener"
-        >
+        <button v-if="version" type="button" class="user-menu__version" @click="openReleaseNotes">
           Version {{ version }} - notes de version
-        </a>
+        </button>
       </div>
 
       <button
@@ -341,6 +342,8 @@ function initials(name: string) {
       <span v-if="!collapsed">Se connecter</span>
     </button>
   </aside>
+
+  <ReleaseNotesModal v-if="showReleaseNotes" @close="showReleaseNotes = false" />
 </template>
 
 <style scoped>
@@ -565,12 +568,17 @@ function initials(name: string) {
 
 .user-menu__version {
   display: block;
+  width: 100%;
+  text-align: left;
   margin: 0.375rem 0 0;
   padding: 0.375rem 0.625rem;
+  border: none;
   border-top: 1px solid var(--border-default-grey);
+  background: transparent;
   color: var(--text-mention-grey);
   font-size: 0.6875rem;
-  text-decoration: none;
+  font-family: inherit;
+  cursor: pointer;
 }
 
 .user-menu__version:hover {
