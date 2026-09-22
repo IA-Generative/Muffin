@@ -28,6 +28,18 @@ const isReady = computed(() => isCollectionReady(props.collection))
 // short once a collection is set up - expanded by default so nothing is hidden on first load.
 const showDetails = ref(true)
 
+// §142: explicit read/edit mode instead of permanently-editable-looking fields. Forced open while
+// the collection isn't ready yet (same gating as the Paramètres tab lock below) since naming a
+// freshly created collection is the first thing an owner needs to do - never add friction there.
+const isEditingMeta = ref(!isReady.value)
+watch(isReady, (ready) => {
+  if (!ready) isEditingMeta.value = true
+})
+function toggleEditMeta() {
+  isEditingMeta.value = !isEditingMeta.value
+  if (isEditingMeta.value) showDetails.value = true
+}
+
 type TabKey = 'documents' | 'qa' | 'evaluation' | 'relations' | 'chunks' | 'settings'
 // §141: seuls Paramètres/Documents/Questions-Réponses restent au premier niveau - le reste
 // (Chunks, Entités & Relations, Évaluation) est regroupé sous le menu "Avancé" pour ne pas
@@ -167,7 +179,7 @@ function confirmDelete() {
 
       <div class="collection-detail__header">
         <input
-          v-if="collection.isOwner"
+          v-if="collection.isOwner && isEditingMeta"
           class="collection-detail__name"
           :value="collection.name"
           aria-label="Nom de la collection"
@@ -180,6 +192,26 @@ function confirmDelete() {
         >
           {{ collection.isOwner ? (collection.visibility === 'public' ? 'Publique' : 'Privée') : collection.visibility === 'public' ? 'Publique' : 'Partagée avec vous' }}
         </span>
+        <button
+          v-if="collection.isOwner && isReady"
+          type="button"
+          class="collection-detail__details-toggle"
+          :class="{ 'collection-detail__details-toggle--active': isEditingMeta }"
+          :title="isEditingMeta ? 'Terminer la modification' : 'Modifier le nom, la description et les tags'"
+          @click="toggleEditMeta"
+        >
+          <svg v-if="!isEditingMeta" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M16.86 4.49a2.06 2.06 0 1 1 2.92 2.91L7.5 19.68l-4 1 1-4L16.86 4.49Z"
+            />
+          </svg>
+          <svg v-else viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+          </svg>
+          <span class="fr-sr-only">{{ isEditingMeta ? 'Terminer la modification' : 'Modifier' }}</span>
+        </button>
         <button
           type="button"
           class="collection-detail__details-toggle"
@@ -227,7 +259,7 @@ function confirmDelete() {
             </button>
           </span>
           <textarea
-            v-if="collection.isOwner"
+            v-if="collection.isOwner && isEditingMeta"
             class="collection-detail__description"
             :value="collection.description"
             placeholder="Décrivez cette collection…"
@@ -257,12 +289,17 @@ function confirmDelete() {
           <div class="collection-detail__tags">
             <span v-for="tag in collection.tags" :key="tag" class="collection-detail__tag">
               {{ tag }}
-              <button v-if="collection.isOwner" type="button" :aria-label="`Retirer le tag ${tag}`" @click="removeTag(tag)">
+              <button
+                v-if="collection.isOwner && isEditingMeta"
+                type="button"
+                :aria-label="`Retirer le tag ${tag}`"
+                @click="removeTag(tag)"
+              >
                 ✕
               </button>
             </span>
             <input
-              v-if="collection.isOwner"
+              v-if="collection.isOwner && isEditingMeta"
               v-model="tagDraft"
               type="text"
               class="collection-detail__tag-input"
@@ -271,7 +308,7 @@ function confirmDelete() {
               @keydown.enter.prevent="addTag"
               @blur="addTag"
             />
-            <span v-if="!collection.tags.length && !collection.isOwner" class="collection-detail__description--empty">
+            <span v-if="!collection.tags.length && !(collection.isOwner && isEditingMeta)" class="collection-detail__description--empty">
               Aucun tag.
             </span>
           </div>
@@ -331,16 +368,19 @@ function confirmDelete() {
       </p>
 
       <div class="collection-detail__panel">
-        <CollectionDocumentsTab
-          v-if="activeTab === 'documents'"
-          :collection="collection"
-          :active-document-id="activeDocumentId"
-        />
-        <CollectionQaTab v-else-if="activeTab === 'qa'" :collection="collection" />
-        <CollectionEvaluationTab v-else-if="activeTab === 'evaluation'" :collection="collection" />
-        <CollectionRelationsTab v-else-if="activeTab === 'relations'" :collection="collection" />
-        <CollectionChunksTab v-else-if="activeTab === 'chunks'" :collection="collection" />
-        <CollectionSettingsTab v-else :collection="collection" />
+        <Transition name="collection-tab" mode="out-in">
+          <CollectionDocumentsTab
+            v-if="activeTab === 'documents'"
+            key="documents"
+            :collection="collection"
+            :active-document-id="activeDocumentId"
+          />
+          <CollectionQaTab v-else-if="activeTab === 'qa'" key="qa" :collection="collection" />
+          <CollectionEvaluationTab v-else-if="activeTab === 'evaluation'" key="evaluation" :collection="collection" />
+          <CollectionRelationsTab v-else-if="activeTab === 'relations'" key="relations" :collection="collection" />
+          <CollectionChunksTab v-else-if="activeTab === 'chunks'" key="chunks" :collection="collection" />
+          <CollectionSettingsTab v-else key="settings" :collection="collection" />
+        </Transition>
       </div>
     </div>
 
@@ -391,6 +431,11 @@ function confirmDelete() {
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  background: var(--background-default-grey);
+  padding: 0.75rem 0;
 }
 
 .collection-detail__name {
@@ -467,6 +512,12 @@ function confirmDelete() {
 
 .collection-detail__details-toggle svg.collection-detail__details-toggle-icon--open {
   transform: rotate(180deg);
+}
+
+.collection-detail__details-toggle--active {
+  border-color: var(--border-action-high-blue-france);
+  background: var(--background-alt-blue-france);
+  color: var(--text-action-high-blue-france);
 }
 
 .collection-detail__visibility-badge {
@@ -609,6 +660,10 @@ function confirmDelete() {
   gap: 0.25rem;
   margin-top: 1.75rem;
   border-bottom: 1px solid var(--border-default-grey);
+  position: sticky;
+  top: 3.25rem;
+  z-index: 5;
+  background: var(--background-default-grey);
 }
 
 .collection-detail__tab {
@@ -693,5 +748,16 @@ function confirmDelete() {
 
 .collection-detail__panel {
   padding-top: 1.5rem;
+}
+
+.collection-tab-enter-active,
+.collection-tab-leave-active {
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.collection-tab-enter-from,
+.collection-tab-leave-to {
+  opacity: 0;
+  transform: translateY(4px);
 }
 </style>
