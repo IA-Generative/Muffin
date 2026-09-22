@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.11.0](https://github.com/IA-Generative/Muffin/compare/v0.10.0...v0.11.0) (2026-09-22)
+
+
+### Features
+
+* **reports:** signaler un bug ou une idée depuis le menu utilisateur ([7bb4c16](https://github.com/IA-Generative/Muffin/commit/7bb4c16a2e63731e1aaa54c6802bfd82f899b531))
+
+
+### Code Refactoring
+
+* **admin:** séparer les outils admin en pages distinctes ([090467b](https://github.com/IA-Generative/Muffin/commit/090467b4b47a51b5f23b5b396c6141969ac1bd2c))
+
 ## [0.11.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.10.0...v0.11.0-rc) (2026-09-22)
 
 
