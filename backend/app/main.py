@@ -3,9 +3,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
 from app.config import KeycloakSettings
+from app.routers.admin_cgu import router as admin_cgu_router
 from app.routers.admin_prompts import router as admin_prompts_router
 from app.routers.admin_settings import router as admin_settings_router
 from app.routers.auth import router as auth_router
+from app.routers.cgu import router as cgu_router
 from app.routers.collections import router as collections_router
 from app.routers.conversations import router as conversations_router
 from app.routers.documents import router as documents_router
@@ -95,6 +97,8 @@ app.include_router(tasks_router, prefix="/api")
 app.include_router(runs_router, prefix="/api")
 app.include_router(admin_settings_router, prefix="/api")
 app.include_router(admin_prompts_router, prefix="/api")
+app.include_router(admin_cgu_router, prefix="/api")
+app.include_router(cgu_router, prefix="/api")
 app.include_router(quality_router, prefix="/api")
 app.include_router(internal_documents_router, prefix="/api")
 app.include_router(internal_evaluation_router, prefix="/api")
