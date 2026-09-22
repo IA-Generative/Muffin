@@ -7,11 +7,13 @@ import type { User } from '../types/user'
 import ConversationMenu from './ConversationMenu.vue'
 import CguViewerModal from './CguViewerModal.vue'
 import ReleaseNotesModal from './ReleaseNotesModal.vue'
+import ReportModal from './ReportModal.vue'
 
 const { version } = useAppVersion()
 const { openTutorial } = useOnboarding()
 const showReleaseNotes = ref(false)
 const showCgu = ref(false)
+const showReport = ref(false)
 
 defineProps<{
   conversations: Conversation[]
@@ -139,6 +141,11 @@ function openReleaseNotes() {
 function openCgu() {
   showUserMenu.value = false
   showCgu.value = true
+}
+
+function openReport() {
+  showUserMenu.value = false
+  showReport.value = true
 }
 
 // Manual replay is an explicit user action - unlike the auto-open in App.vue, it must never be
@@ -332,6 +339,16 @@ function initials(name: string) {
           </svg>
           Revoir le tutoriel
         </button>
+        <button type="button" class="user-menu__item" role="menuitem" @click="openReport">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M12 9v4m0 4h.01M10.29 3.86 1.82 18a1.5 1.5 0 0 0 1.3 2.25h17.76a1.5 1.5 0 0 0 1.3-2.25L13.71 3.86a1.5 1.5 0 0 0-2.42 0Z"
+            />
+          </svg>
+          Signaler un bug ou une idée
+        </button>
         <button type="button" class="user-menu__item" role="menuitem" @click="logout">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
             <path
@@ -381,6 +398,7 @@ function initials(name: string) {
 
   <ReleaseNotesModal v-if="showReleaseNotes" @close="showReleaseNotes = false" />
   <CguViewerModal v-if="showCgu" @close="showCgu = false" />
+  <ReportModal v-if="showReport" @close="showReport = false" />
 </template>
 
 <style scoped>
