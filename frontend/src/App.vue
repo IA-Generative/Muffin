@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import CguGateModal from './components/CguGateModal.vue'
 import ChatSidebar from './components/ChatSidebar.vue'
+import HomeView from './components/HomeView.vue'
 import OnboardingModal from './components/OnboardingModal.vue'
 import SettingsModal from './components/SettingsModal.vue'
 import { useCgu } from './composables/useCgu'
@@ -14,7 +15,7 @@ const route = useRoute()
 const router = useRouter()
 const showSettings = ref(false)
 
-const { user, isAuthenticated, login, logout } = useCurrentUser()
+const { user, isAuthenticated, isLoading, login, logout } = useCurrentUser()
 const { status: cguStatus, fetchCguStatus } = useCgu()
 // /cgu/status requires a session - only fetched once one exists, but as soon as it does (§127:
 // gates the whole app, not just a specific page, so this can't wait for a component that needs
@@ -58,7 +59,9 @@ const activeView = computed(() => {
 </script>
 
 <template>
-  <div class="chat-layout">
+  <HomeView v-if="!isLoading && !isAuthenticated" @login="login()" />
+
+  <div v-else-if="!isLoading" class="chat-layout">
     <ChatSidebar
       :conversations="conversations"
       :conversations-has-more="conversationsHasMore"
