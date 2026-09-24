@@ -1,0 +1,733 @@
+fullnameOverride: muffin
+
+global:
+  ingress:
+    enabled: true
+    className: "mirai-nginx"
+    annotations:
+      monitor: enabled
+      nginx.ingress.kubernetes.io/whitelist-source-range: '{{ .Values.whitelist | join "," | default "0.0.0.0/0" }}'
+      k8s.apisix.apache.org/allowlist-source-range: '{{ .Values.whitelist | join "," | default "0.0.0.0/0" }}'
+  imagePullSecrets:
+  - name: "registry-pull-secret"
+
+backend:
+  image:
+    registry: "harbor.sdid.cpin.numerique-interieur.com"
+    repository: "exploration/muffin-backend"
+    pullPolicy: "Always"
+  replicaCount: 2
+  # FastAPI/uvicorn listens on 8000, not the chart default 8080. Without this override the
+  # probes hit 8080 (connection refused) and the Service targetPort is wrong too.
+  containerPort: 8000
+  # The chart defines probes with `port: *backendContainerPort` (a YAML anchor resolved to 8080
+  # at parse time). Overriding containerPort above does NOT change the anchor, so the probes
+  # still hit 8080. We must re-declare the probes with the correct port. Paths and timings are
+  # copied verbatim from the chart defaults (values.yaml).
+  probes:
+    # startupProbe uses /api/live (cheap, always 200 while the FastAPI process is up) - it only
+    # proves the container started, NOT that dependencies are ready. Using /api/health here would
+    # check redis/meilisearch/db and fail 503 if any dependency isn't up yet, causing kubelet to
+    # kill the pod before it ever stabilises (startup race condition).
+    startupProbe:
+      httpGet:
+        path: "/api/live"
+        port: 8000
+      initialDelaySeconds: 0
+      successThreshold: 1
+      failureThreshold: 10
+      periodSeconds: 10
+      timeoutSeconds: 5
+    # readinessProbe/livenessProbe use /api/health (checks redis, meilisearch, db) - traffic is
+    # only routed to the backend once all dependencies are healthy, and the pod is restarted if
+    # it becomes unhealthy after starting.
+    readinessProbe:
+      httpGet:
+        path: "/api/health"
+        port: 8000
+      initialDelaySeconds: 10
+      successThreshold: 2
+      failureThreshold: 2
+      periodSeconds: 10
+      timeoutSeconds: 5
+    livenessProbe:
+      httpGet:
+        path: "/api/health"
+        port: 8000
+      initialDelaySeconds: 30
+      successThreshold: 1
+      failureThreshold: 3
+      periodSeconds: 30
+      timeoutSeconds: 5
+  service:
+    port: 8000
+  serviceAccount:
+    enabled: true
+    create: true
+  envFrom:
+  - secretRef:
+      name: "muffin-s3"
+  - secretRef:
+      name: "muffin-keycloak"
+  - secretRef:
+      name: "muffin-openai"
+  - secretRef:
+      name: "muffin-worker"
+  - secretRef:
+      name: "muffin-redis"
+  - secretRef:
+      name: "muffin-meilisearch"
+  # Listed last: envFrom's later-source-wins rule guarantees this computed DATABASE_URL is what
+  # actually lands in the container even if another secret above ever grows a stray field of the
+  # same name.
+  - secretRef:
+      name: "muffin-db-infos"
+  # Plain (non-secret) app config - see backend/app/config/*.py for the full settings contract.
+  env:
+    KEYCLOAK_REALM: "mirai"
+    KEYCLOAK_CLIENT_ID: "muffin"
+    SESSION_COOKIE_SECURE: "true"
+    # Internal ClusterIP service (sub-chart `meilisearch`), not secret.
+    MEILI_URL: "http://muffin-meilisearch:7700"
+    # Same S3 endpoint already used for cnpg backups below - no need to self-host rustfs when a
+    # known S3 exists. Only the access/secret key are Vault-backed (`muffin-s3`); bucket differs
+    # per env (see values-<env>.yaml).
+    AWS_ENDPOINT_URL: "https://s3.fr-par.scw.cloud"
+    # Same OpenAI-compatible LLM hub used by ocr's worker.
+    # OPENAI_API_BASE_URL: ""
+    LOG_LEVEL: "INFO"
+
+# Celery worker - document ingestion/OCR pipeline (worker/document_process).
+document_process:
+  image:
+    registry: "harbor.sdid.cpin.numerique-interieur.com"
+    repository: "exploration/muffin-worker-document-process"
+    pullPolicy: "Always"
+  serviceAccount:
+    enabled: true
+    create: true
+  # KEDA ScaledObject on the Celery Redis queue replaces the chart-native HPA - the muffin
+  # chart has no KEDA support, so ScaledObjects + TriggerAuthentications are declared in
+  # `extraObjects` below. Scales on actual queue length instead of CPU.
+  #
+  # Probes disabled: the chart default uses `celery inspect ping` exec probes, but these
+  # can cause false-positive restarts under load (the inspect call itself can timeout when
+  # the worker is busy processing a long task). KEDA on queue length is the real liveness
+  # signal here - if the queue drains, the worker is healthy by definition.
+  probes:
+    startupProbe: null
+    readinessProbe: null
+    livenessProbe: null
+  envFrom:
+  - secretRef:
+      name: "muffin-s3"
+  - secretRef:
+      name: "muffin-worker"
+  - secretRef:
+      name: "muffin-redis"
+  env:
+    CELERY_QUEUE_NAME: "document_processing"
+    BACKEND_API_URL: "http://muffin-backend:8000"
+    AWS_ENDPOINT_URL: "https://s3.fr-par.scw.cloud"
+    OCR_LANGUAGE: "fra"
+
+# Celery worker - agentic research/chat execution (worker/agent_execution).
+# NOTE: this worker's LangGraph checkpointer needs RediSearch (redis-stack), which is why
+# `redis.image` below is overridden away from the chart's plain redis default - see comment there.
+agent_execution:
+  image:
+    registry: "harbor.sdid.cpin.numerique-interieur.com"
+    repository: "exploration/muffin-worker-agent-execution"
+    pullPolicy: "Always"
+  serviceAccount:
+    enabled: true
+    create: true
+  # KEDA ScaledObject on the Celery Redis queue - see document_process above.
+  # Probes disabled - see document_process above for rationale.
+  probes:
+    startupProbe: null
+    readinessProbe: null
+    livenessProbe: null
+  envFrom:
+  - secretRef:
+      name: "muffin-s3"
+  - secretRef:
+      name: "muffin-worker"
+  - secretRef:
+      name: "muffin-redis"
+  env:
+    CELERY_QUEUE_NAME: "agent_execution"
+    BACKEND_API_URL: "http://muffin-backend:8000"
+    AWS_ENDPOINT_URL: "https://s3.fr-par.scw.cloud"
+    # Internal ClusterIP service (sub-chart `searxng`). Web search is opt-in per run (off by
+    # default - see worker/agent_execution/app/config.py SEARXNG_URL).
+    # Named `muffin-searxng` (not `searxng`) to avoid ArgoCD conflict: open-webui also deploys
+    # a `searxng` Deployment, and ArgoCD tracks resources by name across apps.
+    SEARXNG_URL: "http://muffin-searxng:8080"
+
+# Celery worker - evaluation pipeline (worker/evaluation).
+worker_evaluation:
+  image:
+    registry: "harbor.sdid.cpin.numerique-interieur.com"
+    repository: "exploration/muffin-worker-evaluation"
+    pullPolicy: "Always"
+  serviceAccount:
+    enabled: true
+    create: true
+  # KEDA ScaledObject on the Celery Redis queue - see document_process above.
+  # Probes disabled - see document_process above for rationale.
+  probes:
+    startupProbe: null
+    readinessProbe: null
+    livenessProbe: null
+  envFrom:
+  - secretRef:
+      name: "muffin-worker"
+  - secretRef:
+      name: "muffin-redis"
+  env:
+    CELERY_QUEUE_NAME: "evaluation"
+    BACKEND_API_URL: "http://muffin-backend:8000"
+
+jobs:
+  migration:
+    image:
+      registry: "harbor.sdid.cpin.numerique-interieur.com"
+      repository: "exploration/muffin-backend"
+      pullPolicy: "Always"
+    command: ["alembic"]
+    args: ["upgrade", "head"]
+    envFrom:
+    - secretRef:
+        name: "muffin-db-infos"
+    serviceAccount:
+      enabled: true
+      create: true
+    initContainers:
+    - name: wait-for-postgres
+      image: busybox:1.35
+      command: ["sh", "-c", "until nc -z muffin-pg-cluster-rw 5432; do echo \"Waiting for PostgreSQL...\"; sleep 5; done;"]
+      securityContext:
+        runAsUser: 10001
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: ["ALL"]
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+        seccompProfile:
+          type: "RuntimeDefault"
+      resources:
+        limits:
+          cpu: "100m"
+          memory: "128Mi"
+        requests:
+          cpu: "100m"
+          memory: "128Mi"
+    resources:
+      limits:
+        cpu: "500m"
+        memory: "256Mi"
+      requests:
+        cpu: "250m"
+        memory: "128Mi"
+
+frontend:
+  image:
+    registry: "harbor.sdid.cpin.numerique-interieur.com"
+    repository: "exploration/muffin-frontend"
+    pullPolicy: "Always"
+  replicaCount: 2
+  service:
+    port: 8080
+  serviceAccount:
+    enabled: true
+    create: true
+  # No VITE_* runtime override here: unlike ocr's frontend, muffin's frontend has no config.js
+  # runtime-injection entrypoint - VITE_API_BASE_URL is baked in at `pnpm build` time (see
+  # frontend/src/composables/*.ts). See muffin/VARIABLES.md for the follow-up needed before prod.
+
+redis:
+  # RediSearch is required by the agent_execution worker's Redis-backed LangGraph checkpointer
+  # (see worker/agent_execution - a HITL pause must survive being resumed by a different Celery
+  # prefork child). Swap the plain redis image for redis-stack-server, which is a superset.
+  fullnameOverride: muffin-redis
+  image:
+    registry: "docker.io"
+    repository: "redis/redis-stack-server"
+    tag: "7.4.0-v6"
+  architecture: standalone
+  auth:
+    existingSecret: "muffin-redis"
+    existingSecretPasswordKey: "REDIS_PASSWORD"
+  # The chart's generated redis.conf has no `dir` directive, so redis defaults to CWD (/).
+  # With readOnlyRootFilesystem: true (chart default), RDB snapshots fail with
+  # "MISCONF Redis is configured to save RDB snapshots, but it's currently unable to persist
+  # to disk." Point `dir` at the persistent volume mount (/data) so dump.rdb lands on the PVC.
+  config:
+    content: |
+      # Redis configuration
+      bind * -::*
+      dir /data
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+    limits:
+      cpu: "1"
+      memory: "1Gi"
+
+# Meilisearch - full-text + vector search backend (backend/app/services/vector_store.py).
+# MEILI_MASTER_KEY is Vault-backed (`muffin-meilisearch`); the same value is exposed as
+# MEILI_API_KEY to the backend via envFrom + VSO transformation.
+meilisearch:
+  enabled: true
+  # The release name is NOT `muffin` (it's `mirai-<env>-muffin-<id>` on the DSO cluster), so
+  # without this override the Service would be named `<release>-meilisearch` and the backend's
+  # MEILI_URL (`http://muffin-meilisearch:7700`) wouldn't resolve. Same pattern as redis and
+  # searxng below.
+  fullnameOverride: muffin-meilisearch
+  environment:
+    MEILI_ENV: "production"
+    MEILI_NO_ANALYTICS: true
+  auth:
+    existingMasterKeySecret: "muffin-meilisearch"
+  persistence:
+    enabled: true
+    size: "10Gi"
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+    limits:
+      cpu: "1"
+      memory: "2Gi"
+
+# SearxNG - meta-search engine used opt-in by agent_execution's web-search tool
+# (worker/agent_execution/app/searxng_client.py). Off by default per run.
+# Uses the unknowniq/searxng chart (same as open-webui) which supports fullnameOverride.
+# The embedded valkey subchart is disabled - SearXNG points to the existing muffin-redis
+# (broker Celery + RediSearch) for its cache/bot-protection rate limiter instead.
+# Named `muffin-searxng` (not `searxng`) to avoid ArgoCD conflict with open-webui's own
+# searxng Deployment - ArgoCD tracks resources by name and would see both apps managing
+# the same `searxng` Deployment.
+searxng:
+  enabled: true
+  fullnameOverride: muffin-searxng
+  # Disable the embedded valkey subchart - reuse the existing muffin-redis instead.
+  valkey:
+    enabled: false
+  serviceAccount:
+    create: false
+    automount: false
+  image:
+    repository: harbor.sdid.cpin.numerique-interieur.com/dockerhub/searxng/searxng
+  imagePullSecrets:
+    - name: registry-pull-secret
+  # uid 977 = searxng user in the image. fsGroupChangePolicy: Always fixes the root:root
+  # permissions warning on /etc/searxng (init container copies settings.yml from a root:root
+  # ConfigMap into an emptyDir - without Always, the files stay root:root and SearXNG can't
+  # write to them).
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 977
+    runAsGroup: 977
+    fsGroup: 977
+    fsGroupChangePolicy: Always
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  initContainerResources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 64Mi
+  secret:
+    create: false
+    existingSecret: searxng-secret
+    secretKey: SEARXNG_SECRET
+  env:
+    - name: SEARXNG_SECRET
+      valueFrom:
+        secretKeyRef:
+          name: searxng-secret
+          key: SEARXNG_SECRET
+    - name: SEARXNG_VALKEY_URL
+      valueFrom:
+        secretKeyRef:
+          name: searxng-secret
+          key: SEARXNG_VALKEY_URL
+  # No persistent volume for config - settings.yml is rendered from the chart's ConfigMap
+  # into an emptyDir at init time.
+  persistence:
+    config:
+      enabled: false
+  extraConfig:
+    general:
+      open_metrics: enabled
+    valkey:
+      # Static fallback in settings.yml. The SEARXNG_VALKEY_URL env var (from the VSO, with
+      # the password embedded) takes precedence at runtime.
+      url: "valkey://muffin-redis:6379/0"
+    server:
+      limiter: true
+    ui:
+      default_locale: fr
+    outgoing:
+      enable_http2: true
+      pool_connections: 100
+      pool_maxsize: 20
+      request_timeout: 15
+      useragent_suffix: ""
+    search:
+      safe_search: 1
+      formats:
+        - html
+        - json
+      max_ban_time_on_fail: 600
+      suspended_times:
+        SearxEngineAccessDenied: 3600
+        SearxEngineTooManyRequests: 3600
+        SearxEngineCaptcha: 86400
+        SearxEngineResponseError: 300
+
+extraObjects:
+  muffin-s3:
+    apiVersion: secrets.hashicorp.com/v1beta1
+    kind: VaultStaticSecret
+    metadata:
+      name: muffin-s3
+    spec:
+      vaultAuthRef: vault-auth
+      mount: mirai
+      type: kv-v2
+      destination:
+        name: muffin-s3
+        create: true
+  muffin-openai:
+    apiVersion: secrets.hashicorp.com/v1beta1
+    kind: VaultStaticSecret
+    metadata:
+      name: muffin-openai
+    spec:
+      vaultAuthRef: vault-auth
+      mount: mirai
+      type: kv-v2
+      destination:
+        name: muffin-openai
+        create: true
+  muffin-keycloak:
+    apiVersion: secrets.hashicorp.com/v1beta1
+    kind: VaultStaticSecret
+    metadata:
+      name: muffin-keycloak
+    spec:
+      vaultAuthRef: vault-auth
+      mount: mirai
+      type: kv-v2
+      destination:
+        name: muffin-keycloak
+        create: true
+  muffin-worker:
+    apiVersion: secrets.hashicorp.com/v1beta1
+    kind: VaultStaticSecret
+    metadata:
+      name: muffin-worker
+    spec:
+      vaultAuthRef: vault-auth
+      mount: mirai
+      type: kv-v2
+      destination:
+        name: muffin-worker
+        create: true
+  muffin-redis:
+    apiVersion: secrets.hashicorp.com/v1beta1
+    kind: VaultStaticSecret
+    metadata:
+      name: muffin-redis
+    spec:
+      vaultAuthRef: vault-auth
+      mount: mirai
+      type: kv-v2
+      destination:
+        name: muffin-redis
+        create: true
+        # Keeps the raw REDIS_PASSWORD (used by the redis chart's own `auth.existingSecret`
+        # above) and adds a computed REDIS_URL for the app's envFrom - single Vault path serves
+        # both. Assumes the Vault-stored password has no URL-reserved characters.
+        transformation:
+          templates:
+            REDIS_URL:
+              text: 'redis://:{{ "{{" }} get .Secrets "REDIS_PASSWORD" {{ "}}" }}@muffin-redis:6379/0'
+  muffin-db-superuser:
+    apiVersion: secrets.hashicorp.com/v1beta1
+    kind: VaultStaticSecret
+    metadata:
+      name: muffin-db-superuser
+    spec:
+      vaultAuthRef: vault-auth
+      mount: mirai
+      type: kv-v2
+      destination:
+        name: muffin-db-superuser
+        create: true
+        # CNPG requires a kubernetes.io/basic-auth secret (username + password keys)
+        # for superuserSecret - an Opaque secret (VSO default) makes the Cluster
+        # loop forever waiting for a usable secret.
+        type: kubernetes.io/basic-auth
+  muffin-db-appuser:
+    apiVersion: secrets.hashicorp.com/v1beta1
+    kind: VaultStaticSecret
+    metadata:
+      name: muffin-db-appuser
+    spec:
+      vaultAuthRef: vault-auth
+      mount: mirai
+      type: kv-v2
+      destination:
+        name: muffin-db-appuser
+        create: true
+        # CNPG requires a kubernetes.io/basic-auth secret (username + password keys)
+        # for initdb.secret - an Opaque secret (VSO default) makes the Cluster
+        # loop forever waiting for a usable secret.
+        type: kubernetes.io/basic-auth
+  muffin-db-infos:
+    apiVersion: secrets.hashicorp.com/v1beta1
+    kind: VaultStaticSecret
+    metadata:
+      name: muffin-db-infos
+    spec:
+      vaultAuthRef: vault-auth
+      mount: mirai
+      type: kv-v2
+      destination:
+        name: muffin-db-infos
+        create: true
+        transformation:
+          excludes:
+          - ".*"
+          templates:
+            # Host must match `cnpg.fullnameOverride`-rw; port/dbname match `cnpg.cluster.initdb`
+            # below. Driver is `postgresql+asyncpg` (backend/app/config/database.py), not plain
+            # `postgresql` like ocr. Assumes the Vault-stored password has no URL-reserved
+            # characters - if it does, this needs URL-encoding, which VSO templates don't provide.
+            DATABASE_URL:
+              text: 'postgresql+asyncpg://{{ "{{" }} get .Secrets "username" {{ "}}" }}:{{ "{{" }} get .Secrets "password" {{ "}}" }}@muffin-pg-cluster-rw:5432/muffin'
+  muffin-db-backups:
+    apiVersion: secrets.hashicorp.com/v1beta1
+    kind: VaultStaticSecret
+    metadata:
+      name: muffin-db-backups
+    spec:
+      vaultAuthRef: vault-auth
+      mount: mirai
+      type: kv-v2
+      destination:
+        name: muffin-db-backups
+        create: true
+  muffin-meilisearch:
+    apiVersion: secrets.hashicorp.com/v1beta1
+    kind: VaultStaticSecret
+    metadata:
+      name: muffin-meilisearch
+    spec:
+      vaultAuthRef: vault-auth
+      mount: mirai
+      type: kv-v2
+      destination:
+        name: muffin-meilisearch
+        create: true
+        # Keeps MEILI_MASTER_KEY (consumed by the sub-chart via `auth.existingMasterKeySecret`)
+        # and adds MEILI_API_KEY for the backend's envFrom (MeilisearchSettings expects that name).
+        transformation:
+          templates:
+            MEILI_API_KEY:
+              text: '{{ "{{" }} get .Secrets "MEILI_MASTER_KEY" {{ "}}" }}'
+  searxng-secret:
+    apiVersion: secrets.hashicorp.com/v1beta1
+    kind: VaultStaticSecret
+    metadata:
+      name: searxng-secret
+    spec:
+      vaultAuthRef: vault-auth
+      mount: mirai
+      type: kv-v2
+      destination:
+        name: searxng-secret
+        create: true
+        # SEARXNG_SECRET: raw, consumed by the searxng chart via `secret.existingSecret`.
+        # SEARXNG_VALKEY_PASSWORD: raw, must match the REDIS_PASSWORD of muffin-redis (SearXNG
+        #   reuses the existing muffin-redis for its cache/bot-protection, no dedicated valkey).
+        # SEARXNG_VALKEY_URL: computed from the password for the searxng container env.
+        transformation:
+          templates:
+            SEARXNG_VALKEY_URL:
+              text: 'valkey://:{{ "{{" }} get .Secrets "SEARXNG_VALKEY_PASSWORD" {{ "}}" }}@muffin-redis:6379/0'
+
+  # --- KEDA ScaledObjects (Redis queue length autoscaling for Celery workers) ---
+  # The muffin chart has no native KEDA support, so ScaledObjects + TriggerAuthentications are
+  # declared here as extraObjects. Each worker has its own Celery queue (listName) and scales
+  # independently based on the number of pending messages in its Redis list.
+  # KEDA polls the Redis Service directly (not Sentinel-aware, same pattern as ocr). The
+  # address MUST be a FQDN (`muffin-redis.<namespace>.svc.cluster.local`), not the short
+  # name `muffin-redis`: KEDA runs in its own namespace (`keda-system`) and can't resolve
+  # short names from muffin's namespace. Same pattern as ocr's chart, which builds the
+  # address as `<fullname>-master.<Release.Namespace>:6379`.
+  # The TriggerAuthentication references `muffin-redis` (same Vault-managed secret as the
+  # app's envFrom) for the REDIS_PASSWORD - KEDA resolves the Secret by name across
+  # namespaces only if the Secret is in the same namespace as the ScaledObject, which is
+  # why the ScaledObjects are deployed in muffin's namespace (not keda-system).
+  #
+  # Per-env overrides (minReplicaCount, maxReplicaCount, pollingInterval, listLength) live
+  # in `values-<env>.yaml` under `extraObjects.<name>.spec`.
+
+  # TriggerAuthentication: shared by all 3 worker ScaledObjects.
+  muffin-keda-triggerauth:
+    apiVersion: keda.sh/v1alpha1
+    kind: TriggerAuthentication
+    metadata:
+      name: muffin-keda-triggerauth
+    spec:
+      secretTargetRef:
+      - parameter: "password"
+        name: "muffin-redis"
+        key: "REDIS_PASSWORD"
+
+  # ScaledObject for document_process (queue: document_processing)
+  muffin-keda-document-process:
+    apiVersion: keda.sh/v1alpha1
+    kind: ScaledObject
+    metadata:
+      name: muffin-document-process
+    spec:
+      scaleTargetRef:
+        name: muffin-document-process
+        kind: Deployment
+        apiVersion: apps/v1
+      minReplicaCount: 2
+      maxReplicaCount: 4
+      pollingInterval: 30
+      triggers:
+      - type: redis
+        metricType: AverageValue
+        metadata:
+          address: "muffin-redis.{{ .Release.Namespace }}.svc.cluster.local:6379"
+          listName: "document_processing"
+          listLength: "5"
+        authenticationRef:
+          name: muffin-keda-triggerauth
+
+  # ScaledObject for agent_execution (queue: agent_execution)
+  muffin-keda-agent-execution:
+    apiVersion: keda.sh/v1alpha1
+    kind: ScaledObject
+    metadata:
+      name: muffin-agent-execution
+    spec:
+      scaleTargetRef:
+        name: muffin-agent-execution
+        kind: Deployment
+        apiVersion: apps/v1
+      minReplicaCount: 2
+      maxReplicaCount: 4
+      pollingInterval: 30
+      triggers:
+      - type: redis
+        metricType: AverageValue
+        metadata:
+          address: "muffin-redis.{{ .Release.Namespace }}.svc.cluster.local:6379"
+          listName: "agent_execution"
+          listLength: "5"
+        authenticationRef:
+          name: muffin-keda-triggerauth
+
+  # ScaledObject for worker_evaluation (queue: evaluation)
+  muffin-keda-worker-evaluation:
+    apiVersion: keda.sh/v1alpha1
+    kind: ScaledObject
+    metadata:
+      name: muffin-worker-evaluation
+    spec:
+      scaleTargetRef:
+        name: muffin-worker-evaluation
+        kind: Deployment
+        apiVersion: apps/v1
+      minReplicaCount: 2
+      maxReplicaCount: 4
+      pollingInterval: 30
+      triggers:
+      - type: redis
+        metricType: AverageValue
+        metadata:
+          address: "muffin-redis.{{ .Release.Namespace }}.svc.cluster.local:6379"
+          listName: "evaluation"
+          listLength: "5"
+        authenticationRef:
+          name: muffin-keda-triggerauth
+
+postgres:
+  enabled: false
+
+# A known external S3 (s3.fr-par.scw.cloud, same one used for cnpg backups) is used instead -
+# no need to self-host object storage.
+rustfs:
+  enabled: false
+
+cnpg:
+  enabled: true
+  fullnameOverride: "muffin-pg-cluster"
+  mode: "standalone"
+  cluster:
+    imageName: "ghcr.io/cloudnative-pg/postgresql:17.7"
+    enableSuperuserAccess: true
+    superuserSecret: "muffin-db-superuser"
+    initdb:
+      database: "muffin"
+      owner: "muffin"
+      secret:
+        name: "muffin-db-appuser"
+    monitoring:
+      enabled: true
+  backups:
+    method: "barmanObjectStore"
+    endpointURL: "https://s3.fr-par.scw.cloud"
+    provider: "s3"
+    data:
+      compression: "gzip"
+      encryption: ""
+      jobs: 2
+    wal:
+      compression: "gzip"
+      encryption: ""
+      maxParallel: 2
+    secret:
+      create: false
+      name: "muffin-db-backups"
+  recovery:
+    method: "object_store"
+    clusterName: "muffin-pg-cluster"
+    database: "muffin"
+    owner: "muffin"
+    endpointURL: "https://s3.fr-par.scw.cloud"
+    provider: "s3"
+    secret:
+      create: false
+      name: "muffin-db-backups"
+  replica:
+    bootstrap:
+      source: "object_store"
+      database: "muffin"
+      owner: "muffin"
+    origin:
+      objectStore:
+        clusterName: "muffin-pg-cluster"
+        endpointURL: "https://s3.fr-par.scw.cloud"
+        provider: "s3"
+        secret:
+          create: false
+          name: "muffin-db-backups"
