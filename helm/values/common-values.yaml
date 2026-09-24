@@ -25,22 +25,18 @@ backend:
   # still hit 8080. We must re-declare the probes with the correct port. Paths and timings are
   # copied verbatim from the chart defaults (values.yaml).
   probes:
-    # startupProbe uses /api/live (cheap, always 200 while the FastAPI process is up) - it only
-    # proves the container started, NOT that dependencies are ready. Using /api/health here would
-    # check redis/meilisearch/db and fail 503 if any dependency isn't up yet, causing kubelet to
-    # kill the pod before it ever stabilises (startup race condition).
+    # All probes use /api/health (checks redis, meilisearch, db).
     startupProbe:
       httpGet:
-        path: "/api/live"
+        path: "/api/health"
         port: 8000
       initialDelaySeconds: 0
       successThreshold: 1
       failureThreshold: 10
       periodSeconds: 10
       timeoutSeconds: 5
-    # readinessProbe/livenessProbe use /api/health (checks redis, meilisearch, db) - traffic is
-    # only routed to the backend once all dependencies are healthy, and the pod is restarted if
-    # it becomes unhealthy after starting.
+    # readinessProbe/livenessProbe use /api/health - traffic is only routed to the backend
+    # once all dependencies are healthy, and the pod is restarted if it becomes unhealthy.
     readinessProbe:
       httpGet:
         path: "/api/health"
