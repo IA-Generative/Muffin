@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.0](https://github.com/IA-Generative/Muffin/compare/v0.11.0...v0.12.0) (2026-09-24)
+
+
+### Features
+
+* landing page ([6bfcd9d](https://github.com/IA-Generative/Muffin/commit/6bfcd9df8b04980f008b044d8ffb3d774f7f3780))
+
 ## [0.11.0](https://github.com/IA-Generative/Muffin/compare/v0.10.0...v0.11.0) (2026-09-22)
 
 
