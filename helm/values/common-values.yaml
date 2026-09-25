@@ -3,7 +3,6 @@ fullnameOverride: muffin
 global:
   ingress:
     enabled: true
-    className: "mirai-nginx"
     annotations:
       monitor: enabled
       nginx.ingress.kubernetes.io/whitelist-source-range: '{{ .Values.whitelist | join "," | default "0.0.0.0/0" }}'
