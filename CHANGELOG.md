@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.1](https://github.com/IA-Generative/Muffin/compare/v0.12.0...v0.12.1) (2026-09-25)
+
+
+### Bug Fixes
+
+* **chart:** empty className for ingress ([cbd477b](https://github.com/IA-Generative/Muffin/commit/cbd477b0fa2f0e4a005e59bfa7bff1d4561a1019))
+
 ## [0.12.0](https://github.com/IA-Generative/Muffin/compare/v0.11.0...v0.12.0) (2026-09-24)
 
 
