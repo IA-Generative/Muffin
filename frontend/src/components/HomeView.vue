@@ -42,16 +42,24 @@ const features = [
 
 const steps = [
   {
+    icon: 'fr-icon-upload-2-line',
     title: 'Importez vos documents',
-    description: "Créez une collection et ajoutez vos fichiers par upload ou par URL.",
+    description: 'Créez une collection et ajoutez vos fichiers par upload ou par URL.',
   },
   {
-    title: "Laissez Muffin les indexer",
+    icon: 'fr-icon-cpu-line',
+    title: 'Muffin les indexe',
     description: 'Découpage, résumé et embeddings sont générés automatiquement pour préparer la recherche.',
   },
   {
-    title: 'Posez vos questions',
-    description: "L'agent conversationnel répond en citant précisément ses sources.",
+    icon: 'fr-icon-search-line',
+    title: 'Vous posez une question',
+    description: "L'agent cherche dans vos collections et construit une réponse en langage naturel.",
+  },
+  {
+    icon: 'fr-icon-quote-line',
+    title: 'Réponse sourcée',
+    description: 'Chaque affirmation renvoie vers le document, la page et l\'extrait exacts.',
   },
 ]
 </script>
@@ -81,9 +89,14 @@ const steps = [
 
     <section class="home__steps" aria-label="Comment ça marche">
       <h2 class="home__section-title">Comment ça marche</h2>
-      <ol class="home__steps-list">
-        <li v-for="(step, index) in steps" :key="step.title" class="home__step">
-          <span class="home__step-number">{{ index + 1 }}</span>
+      <ol class="home__process">
+        <li v-for="(step, index) in steps" :key="step.title" class="home__process-node" :style="{ '--i': index }">
+          <span class="home__process-icon-wrap">
+            <span class="home__process-icon fr-icon fr-icon--lg" :class="step.icon" aria-hidden="true"></span>
+          </span>
+          <span v-if="index < steps.length - 1" class="home__process-connector" aria-hidden="true">
+            <span class="home__process-connector-flow"></span>
+          </span>
           <h3 class="home__step-title">{{ step.title }}</h3>
           <p class="home__step-description">{{ step.description }}</p>
         </li>
@@ -191,33 +204,103 @@ const steps = [
   background: var(--background-alt-grey);
 }
 
-.home__steps-list {
+.home__process {
   list-style: none;
   margin: 0 auto;
   padding: 0;
-  max-width: 64rem;
+  max-width: 72rem;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
-  gap: 2rem;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.5rem 1.5rem;
 }
 
-.home__step {
+.home__process-node {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 0.5rem;
+  opacity: 0;
+  animation: home-node-in 0.5s ease-out forwards;
+  animation-delay: calc(var(--i) * 0.15s);
 }
 
-.home__step-number {
+.home__process-icon-wrap {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 2.25rem;
-  height: 2.25rem;
+  width: 3rem;
+  height: 3rem;
   border-radius: 50%;
   background: var(--background-action-high-blue-france);
   color: var(--text-inverted-blue-france);
-  font-weight: bold;
+  box-shadow: 0 0 0 0 rgba(0, 0, 145, 0.35);
+  animation: home-node-pulse 2.4s ease-out infinite;
+  animation-delay: calc(var(--i) * 0.6s);
+}
+
+.home__process-icon {
+  color: currentColor;
+}
+
+.home__process-connector {
+  position: absolute;
+  top: 1.5rem;
+  left: 100%;
+  width: 1.5rem;
+  height: 2px;
+  overflow: hidden;
+  background: var(--border-default-grey);
+}
+
+.home__process-connector-flow {
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  background: var(--background-action-high-blue-france);
+  animation: home-flow 1.8s linear infinite;
+  animation-delay: calc(var(--i) * 0.6s);
+}
+
+@keyframes home-node-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.75rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes home-node-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(0, 0, 145, 0.35);
+  }
+  70% {
+    box-shadow: 0 0 0 0.6rem rgba(0, 0, 145, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(0, 0, 145, 0);
+  }
+}
+
+@keyframes home-flow {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home__process-node,
+  .home__process-icon-wrap,
+  .home__process-connector-flow {
+    animation: none;
+    opacity: 1;
+  }
 }
 
 .home__step-title {
@@ -319,6 +402,33 @@ const steps = [
   .home__features,
   .home__footer {
     padding: 2.5rem 1rem;
+  }
+
+  .home__process {
+    grid-template-columns: 1fr;
+    gap: 1.75rem;
+  }
+
+  .home__process-connector {
+    top: 3rem;
+    left: 1.5rem;
+    width: 2px;
+    height: 1.75rem;
+  }
+
+  .home__process-connector-flow {
+    width: 100%;
+    height: 40%;
+    animation-name: home-flow-vertical;
+  }
+}
+
+@keyframes home-flow-vertical {
+  from {
+    transform: translateY(-100%);
+  }
+  to {
+    transform: translateY(250%);
   }
 }
 </style>
