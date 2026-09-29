@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.13.0](https://github.com/IA-Generative/Muffin/compare/v0.12.1...v0.13.0) (2026-09-29)
+
+
+### Features
+
+* **frontend:** animate the "how it works" process diagram ([8886045](https://github.com/IA-Generative/Muffin/commit/8886045d23e0530bf229354257b5e097d4f5dfbe))
+* **frontend:** modernize landing page with more content ([b5fd778](https://github.com/IA-Generative/Muffin/commit/b5fd778a285d96f3e4085ac9f48f0b126749eb02))
+
 ## [0.13.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.12.1...v0.13.0-rc) (2026-09-29)
 
 
