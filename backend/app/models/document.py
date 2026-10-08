@@ -1,8 +1,9 @@
 import enum
 import uuid
+from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, Enum, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -58,6 +59,15 @@ class Document(UUIDMixin, TimestampMixin, Base):
     # Separate from summary: a summarize_document failure shouldn't be able to
     # clobber a real summary a previous run already produced, and vice versa.
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Soft edit lock of a living document (#170) - all None when unlocked. An expired lock
+    # (lock_expires_at in the past) counts as no lock at all, it is never swept: every check
+    # compares against the current time. lock_token is returned only to the holder, who must
+    # present it to write; the other lock_* columns are what everyone else sees.
+    lock_token: Mapped[str | None] = mapped_column(String, nullable=True)
+    locked_by_user_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    locked_by_display: Mapped[str | None] = mapped_column(String, nullable=True)
+    lock_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Who uploaded this document (§122) - the Keycloak sub, for an eventual "my files" filter,
     # and a label already resolved at upload time (e.g. "Jean D.") rather than the raw sub, which

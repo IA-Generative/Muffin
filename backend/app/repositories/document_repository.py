@@ -1,8 +1,9 @@
 import uuid
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Any
 
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -236,6 +237,39 @@ class DocumentRepository:
 
     async def set_filing_dismissed(self, document: Document) -> None:
         document.filing_dismissed = True
+
+    async def try_acquire_lock(
+        self, document_id: uuid.UUID, *, user_id: str, display: str, token: str, now: datetime, expires_at: datetime
+    ) -> bool:
+        """Atomic compare-and-set: the UPDATE only matches an unlocked (or expired) document, so
+        two concurrent acquisitions can't both win. Returns whether this caller got the lock."""
+        result = await self.db.execute(
+            update(Document)
+            .where(
+                Document.id == document_id,
+                or_(Document.lock_expires_at.is_(None), Document.lock_expires_at <= now),
+            )
+            .values(lock_token=token, locked_by_user_id=user_id, locked_by_display=display, lock_expires_at=expires_at)
+            .execution_options(synchronize_session=False)
+        )
+        return result.rowcount == 1
+
+    async def renew_lock(self, document_id: uuid.UUID, *, token: str, now: datetime, expires_at: datetime) -> bool:
+        """Extends the lock only if the caller still holds a live one - a lock that already
+        expired (and may have been taken by someone else since) can't be resurrected."""
+        result = await self.db.execute(
+            update(Document)
+            .where(Document.id == document_id, Document.lock_token == token, Document.lock_expires_at > now)
+            .values(lock_expires_at=expires_at)
+            .execution_options(synchronize_session=False)
+        )
+        return result.rowcount == 1
+
+    async def clear_lock(self, document: Document) -> None:
+        document.lock_token = None
+        document.locked_by_user_id = None
+        document.locked_by_display = None
+        document.lock_expires_at = None
 
     async def set_current_file(self, document: Document, storage_key: str) -> None:
         """Points a living document at a new revision's file and resets it for reprocessing -

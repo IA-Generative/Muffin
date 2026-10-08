@@ -1,5 +1,6 @@
 import os
 import uuid
+from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,6 +16,7 @@ from app.repositories.task_repository import TaskRepository
 from app.schemas.collection import EntityOut, RelationOut
 from app.schemas.document import (
     DocumentDetailOut,
+    DocumentLockOut,
     DocumentOut,
     DocumentPageOut,
     FilingCandidateOut,
@@ -208,6 +210,7 @@ class DocumentUploadService:
             type=document.type,
             kind=document.kind,
             current_revision=await self.revisions.current_number(document_id),
+            lock=DocumentLockOut.from_document(document, user.user_id, datetime.now(UTC)),
             status=document.status,
             progress=document.progress,
             summary=document.summary,

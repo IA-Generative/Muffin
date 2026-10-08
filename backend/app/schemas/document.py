@@ -28,6 +28,30 @@ class DocumentOut(BaseModel):
     filing_dismissed: bool = False
 
 
+class DocumentLockOut(BaseModel):
+    """Who is editing a living document and until when (#170) - never carries the token, which
+    only the holder gets (see DocumentLockGrantOut)."""
+
+    locked_by_display: str | None
+    expires_at: datetime
+    # True when the lock belongs to the calling user - e.g. their own session in another tab.
+    held_by_me: bool
+
+    @classmethod
+    def from_document(cls, document: Any, user_id: str, now: datetime) -> "DocumentLockOut | None":
+        if document.lock_expires_at is None or document.lock_expires_at <= now:
+            return None
+        return cls(
+            locked_by_display=document.locked_by_display,
+            expires_at=document.lock_expires_at,
+            held_by_me=document.locked_by_user_id == user_id,
+        )
+
+
+class DocumentLockGrantOut(DocumentLockOut):
+    token: str
+
+
 class DocumentDetailOut(BaseModel):
     id: uuid.UUID
     name: str
@@ -35,6 +59,7 @@ class DocumentDetailOut(BaseModel):
     kind: str = "standard"
     # Number of the current revision - None for a standard document.
     current_revision: int | None = None
+    lock: DocumentLockOut | None = None
     status: str
     progress: int
     summary: str | None
