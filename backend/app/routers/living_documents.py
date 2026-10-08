@@ -41,7 +41,7 @@ UserDep = Annotated[RequestContext, Depends(get_current_user)]
 LockTokenHeader = Annotated[str | None, Header(alias="X-Document-Lock-Token")]
 
 
-def _http_error(error: Exception) -> HTTPException:
+def http_error(error: Exception) -> HTTPException:
     if isinstance(error, CollectionNotFoundError):
         return HTTPException(status.HTTP_404_NOT_FOUND, "Collection not found")
     if isinstance(error, DocumentNotFoundError):
@@ -104,7 +104,7 @@ async def create_living_document(
             file.content_type or "application/octet-stream",
         )
     except _HANDLED as error:
-        raise _http_error(error) from error
+        raise http_error(error) from error
 
 
 @router.post(
@@ -119,7 +119,7 @@ async def create_markdown_document(
     try:
         return await service.create_markdown(collection_id, user, body.name, body.content)
     except _HANDLED as error:
-        raise _http_error(error) from error
+        raise http_error(error) from error
 
 
 @router.get(
@@ -132,7 +132,7 @@ async def download_living_document(
     try:
         content, filename, media_type = await service.download(collection_id, user, document_id, revision)
     except _HANDLED as error:
-        raise _http_error(error) from error
+        raise http_error(error) from error
     # filename* (RFC 5987) carries accents/spaces safely; the ASCII filename is the fallback.
     ascii_name = filename.encode("ascii", "replace").decode().replace("?", "_").replace('"', "")
     disposition = f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(filename)}"
@@ -165,7 +165,7 @@ async def replace_living_document(
             lock_token=lock_token,
         )
     except _HANDLED as error:
-        raise _http_error(error) from error
+        raise http_error(error) from error
 
 
 @router.get(
@@ -179,7 +179,7 @@ async def list_revisions(
     try:
         return await service.list_revisions(collection_id, user, document_id)
     except _HANDLED as error:
-        raise _http_error(error) from error
+        raise http_error(error) from error
 
 
 @router.post(
@@ -201,7 +201,7 @@ async def restore_revision(
             collection_id, user, document_id, number, base_revision=base_revision, lock_token=lock_token
         )
     except _HANDLED as error:
-        raise _http_error(error) from error
+        raise http_error(error) from error
 
 
 @router.get(
@@ -215,7 +215,7 @@ async def get_lock(
     try:
         return await service.get_lock(collection_id, user, document_id)
     except _HANDLED as error:
-        raise _http_error(error) from error
+        raise http_error(error) from error
 
 
 @router.post(
@@ -229,7 +229,7 @@ async def acquire_lock(
     try:
         return await service.acquire_lock(collection_id, user, document_id)
     except _HANDLED as error:
-        raise _http_error(error) from error
+        raise http_error(error) from error
 
 
 @router.put(
@@ -247,7 +247,7 @@ async def renew_lock(
     try:
         return await service.renew_lock(collection_id, user, document_id, lock_token)
     except _HANDLED as error:
-        raise _http_error(error) from error
+        raise http_error(error) from error
 
 
 @router.delete(
@@ -266,5 +266,5 @@ async def release_lock(
     try:
         await service.release_lock(collection_id, user, document_id, lock_token, force=force)
     except _HANDLED as error:
-        raise _http_error(error) from error
+        raise http_error(error) from error
     return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -16,6 +16,16 @@ class BackendClient:
             timeout=60.0,
         )
 
+    def report_draft_result(self, celery_task_id: str, result: dict) -> None:
+        """Tells the backend a job finished: it records the draft's files and summary and marks
+        the draft ready for the user to look at (the worker keeps no state of its own)."""
+        response = self._client.patch(f"/api/internal/document-drafts/{celery_task_id}/result", json=result)
+        response.raise_for_status()
+
+    def report_draft_failure(self, celery_task_id: str, error: str) -> None:
+        response = self._client.patch(f"/api/internal/document-drafts/{celery_task_id}/failure", json={"error": error})
+        response.raise_for_status()
+
     def llm_chat(self, model: str, messages: list[dict[str, str]], max_tokens: int | None = None) -> str:
         response = self._client.post(
             "/api/internal/llm/chat",

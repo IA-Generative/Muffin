@@ -36,10 +36,27 @@ n'est pas modifiable (listes, code, citations, paragraphes portant une image ou 
 Le modèle est celui de `EDIT_LLM_MODEL`, sinon le modèle de chat par défaut du hub, appelé via
 `/internal/llm/chat`.
 
-Pas encore fait : la conversion du brouillon en PDF d'aperçu (`soffice --headless --convert-to pdf`,
-déjà installé dans l'image) et la boucle de validation côté backend (#169), et le déclenchement d'un
-job depuis l'agent de recherche (#171). Les images ne sont jamais insérées par l'agent : il les décrit
-dans `pending_images` (avec leur emplacement souhaité) et l'utilisateur les dépose pendant la validation.
+### Aperçu PDF, rapport au backend, images (#169)
+
+- **Aperçu** : pour un ODT réellement modifié, le brouillon est converti en PDF avec LibreOffice
+  (`app/preview.py`), stocké à côté (`drafts/{document}/{job}.pdf`) et sa clé renvoyée dans
+  `preview_pdf_key`. Chaque conversion a **son propre profil** LibreOffice (`-env:UserInstallation` dans un
+  répertoire temporaire) : deux `soffice` qui partageraient un profil se bloquent (le second passe son
+  travail au premier et s'arrête). Une conversion qui échoue ou dépasse `PREVIEW_TIMEOUT_SECONDS` fait
+  échouer le job : on ne propose pas de valider à l'aveugle. Pas d'aperçu quand rien n'a changé ni pour un
+  Markdown (le backend en sert le texte).
+- **Rapport** : le worker ne garde aucun état. À la fin d'un job, il appelle le backend
+  (`PATCH /api/internal/document-drafts/{task_id}/result` ou `/failure`) ; c'est ce qui rend le brouillon
+  « prêt » côté backend. L'identifiant du job est choisi (et enregistré) par le backend avant l'envoi, pour
+  éviter que le worker termine avant que l'identifiant existe.
+- **Images** (ODT seulement) : une seconde tâche, `insert_images`, sans modèle ni agent. Elle prend un
+  brouillon et les fichiers que l'utilisateur a déposés pour les emplacements signalés dans
+  `pending_images`, insère chaque image dans un paragraphe à elle (à l'emplacement demandé, ou en fin de
+  document), la dimensionne d'après ses pixels (96 dpi, jamais plus large que 16 cm) et rend un nouvel
+  aperçu. PNG, JPEG et GIF uniquement (`app/image_size.py` lit leurs en-têtes, sans bibliothèque d'image).
+
+Pas encore fait : le déclenchement d'un job depuis l'agent de recherche (#171). Les images ne sont jamais
+insérées par l'agent : il les décrit dans `pending_images` avec leur emplacement souhaité.
 
 ## Opérations d'édition (`app/operations.py`, `app/odt_editor.py`, `app/markdown_editor.py`)
 

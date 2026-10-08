@@ -9,10 +9,12 @@ All-or-nothing: operations run on an in-memory copy and the result is only seria
 one of them has been applied. A failing operation raises OperationError naming which one."""
 
 import io
+import tempfile
 from collections import Counter
 from dataclasses import dataclass
+from pathlib import Path
 
-from odfdo import Cell, Document, Header, Paragraph, Row, Table
+from odfdo import Cell, Document, Frame, Header, Paragraph, Row, Table
 
 from app.edit_types import (
     EditResult,
@@ -23,6 +25,7 @@ from app.edit_types import (
     render_outline,
     table_item,
 )
+from app.image_size import image_size
 from app.operations import (
     DeleteColumn,
     DeleteParagraph,
@@ -41,7 +44,21 @@ from app.operations import (
 
 _PARAGRAPH = "text:p"
 _TABLE = "table:table"
+# Inserted images: a 96 dpi screen pixel in centimetres, and the widest an image may be (a page body).
+_PIXELS_PER_CM = 96 / 2.54
+_MAX_IMAGE_WIDTH_CM = 16.0
 _NUMERIC_CELL_TYPES = {"float", "percentage", "currency"}
+
+
+@dataclass
+class ImageData:
+    """An uploaded image and where it should go, as insert_images takes it."""
+
+    id: str
+    description: str
+    content: bytes
+    section: SectionRef | None = None
+    after_paragraph: int | None = None
 
 
 @dataclass
@@ -378,6 +395,32 @@ class _Editor:
         self.body.insert(table, position=position)
         return f"Tableau de {len(op.rows)} ligne(s) et {width} colonne(s) ajouté dans {span.label}."
 
+    def insert_image(self, image: "ImageData") -> str:
+        """Puts an image in a paragraph of its own, at the spot the model asked for (the end of the
+        document when it named none). The frame is sized from the picture's pixels - 96 dpi, never
+        wider than the page body - and the paragraph borrows its neighbours' style."""
+        width, height, extension = image_size(image.content)
+        children = self._children()
+        if image.section is None:
+            position, where = len(children), "à la fin du document"
+        else:
+            span = self._section(image.section)
+            position = self._insert_position(span, image.after_paragraph)
+            where = "à la fin" if image.after_paragraph is None else f"après le paragraphe {image.after_paragraph}"
+            where += f" de {span.label}"
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / f"image.{extension}"
+            path.write_bytes(image.content)
+            uri = self.document.add_file(path)  # from a path, so the part keeps its extension
+        scale = min(1.0, _MAX_IMAGE_WIDTH_CM / (width / _PIXELS_PER_CM))
+        size = (f"{width / _PIXELS_PER_CM * scale:.2f}cm", f"{height / _PIXELS_PER_CM * scale:.2f}cm")
+        frame = Frame.image_frame(uri, size=size, anchor_type="as-char", name=f"Image_{image.id}")
+        frame.set_attribute("draw:name", f"Image_{image.id}")
+        paragraph = Paragraph("", style=self._body_paragraph_style(children, before=position))
+        paragraph.append(frame)
+        self.body.insert(paragraph, position=position)
+        return f"Image « {image.description} » insérée {where}."
+
     @staticmethod
     def _free_table_name(children: list) -> str:
         used = {c.name for c in children if c.tag == _TABLE}
@@ -435,3 +478,21 @@ def outline(source: bytes) -> str:
         else:
             sections[-1].items.append("  [bloc non modifiable : aucune opération ne peut le viser]")
     return render_outline(sections)
+
+
+def insert_images(source: bytes, images: list[ImageData]) -> EditResult:
+    """Adds uploaded images to an ODT, each in a paragraph of its own. All-or-nothing, like
+    apply_operations: an image that can't be placed (unknown section, unsupported format) fails the
+    whole call, naming it."""
+    editor = _Editor(Document(io.BytesIO(source)))
+    summary: list[str] = []
+    for index, image in enumerate(images, start=1):
+        try:
+            summary.append(editor.insert_image(image))
+        except Refused as refusal:
+            raise OperationError(index, str(refusal)) from refusal
+        except ValueError as problem:  # UnsupportedImageError
+            raise OperationError(index, f"image « {image.description} » : {problem}.") from problem
+    buffer = io.BytesIO()
+    editor.document.save(buffer)
+    return EditResult(data=buffer.getvalue(), summary=summary)
