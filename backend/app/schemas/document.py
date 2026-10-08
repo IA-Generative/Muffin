@@ -11,6 +11,8 @@ class DocumentOut(BaseModel):
     id: uuid.UUID
     name: str
     type: str
+    # "standard" or "living" (#166) - a living document has a revision history.
+    kind: str = "standard"
     status: str
     progress: int
     # Filing suggestion (§122) - all None for a document created before this existed, or one
@@ -30,6 +32,9 @@ class DocumentDetailOut(BaseModel):
     id: uuid.UUID
     name: str
     type: str
+    kind: str = "standard"
+    # Number of the current revision - None for a standard document.
+    current_revision: int | None = None
     status: str
     progress: int
     summary: str | None
@@ -90,3 +95,16 @@ class TabularProfileOut(BaseModel):
     measures: list[str]
     dimensions: list[str]
     text_columns: list[str]
+
+
+class DocumentRevisionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    number: int
+    filename: str
+    format: str
+    origin: str
+    created_by_display: str | None
+    restored_from_number: int | None
+    created_at: datetime
+    is_current: bool = False
