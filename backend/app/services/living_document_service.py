@@ -163,6 +163,7 @@ class LivingDocumentService:
         *,
         base_revision: int,
         lock_token: str | None = None,
+        origin: RevisionOrigin = RevisionOrigin.UPLOAD,
     ) -> DocumentOut:
         await self._get_owned_collection(collection_id, user)
         document = await self._get_living_document(collection_id, document_id)
@@ -181,7 +182,7 @@ class LivingDocumentService:
             storage_key=storage_key,
             filename=safe_name,
             format_=format_,
-            origin=RevisionOrigin.UPLOAD,
+            origin=origin,
             user=user,
             orphan_key=storage_key,
         )

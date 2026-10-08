@@ -41,6 +41,8 @@ SCORE_DISCUSSION_TASK = "app.tasks.score_discussion"
 # conversion, so it gets its own queue rather than competing with the others.
 DOCUMENT_EDIT_QUEUE = "document_edit"
 EDIT_DOCUMENT_TASK = "app.tasks.edit_document"
+# Same worker and queue: putting a user's uploaded images into an ODT draft (#169).
+INSERT_IMAGES_TASK = "app.tasks.insert_images"
 
 
 def enqueue_process_document(document_id: str) -> str:
@@ -94,13 +96,21 @@ def enqueue_score_discussion(conversation_id: str, model: str | None = None) -> 
     return result.id
 
 
-def enqueue_edit_document(payload: dict) -> str:
+def enqueue_edit_document(payload: dict, task_id: str | None = None) -> str:
     """Returns the Celery task id, recorded as a document-scoped Task row (see
     app/routers/internal_tasks.py). `payload` is worker/document_edit's EditJobInput
     (app/contract.py there) - a plain dict, not a shared class, since the backend never imports a
     worker's code. The worker is stateless: it writes a draft to RustFS and returns its result,
     the validate/adjust/refuse loop lives in the backend."""
-    result = _celery_app.send_task(EDIT_DOCUMENT_TASK, args=[payload], queue=DOCUMENT_EDIT_QUEUE)
+    result = _celery_app.send_task(EDIT_DOCUMENT_TASK, args=[payload], queue=DOCUMENT_EDIT_QUEUE, task_id=task_id)
+    return result.id
+
+
+def enqueue_insert_images(payload: dict, task_id: str | None = None) -> str:
+    """`payload` is worker/document_edit's InsertImagesInput. Pass a `task_id` chosen (and stored)
+    beforehand when the worker reports back by it: it avoids the race where the worker finishes
+    before the caller has recorded the id Celery would have generated."""
+    result = _celery_app.send_task(INSERT_IMAGES_TASK, args=[payload], queue=DOCUMENT_EDIT_QUEUE, task_id=task_id)
     return result.id
 
 
