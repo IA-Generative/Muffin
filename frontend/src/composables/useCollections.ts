@@ -137,12 +137,14 @@ interface DocumentOut {
   id: string
   name: string
   type: CollectionDocument['type']
+  // Absent from a backend older than #174 - treated as a standard document.
+  kind?: CollectionDocument['kind']
   status: CollectionDocument['status']
   progress: number
 }
 
 function toDocument(raw: DocumentOut): CollectionDocument {
-  return { id: raw.id, name: raw.name, type: raw.type, status: raw.status, progress: raw.progress }
+  return { id: raw.id, name: raw.name, type: raw.type, kind: raw.kind ?? 'standard', status: raw.status, progress: raw.progress }
 }
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
@@ -597,6 +599,39 @@ async function addDocuments(collectionId: string, files: File[]) {
   pollDocumentsWhileProcessing(collectionId)
 }
 
+// Same flow as addDocuments, against the living-document endpoint (ODT/Markdown only, the
+// backend answers 415 for anything else) - one request per file, errors surfaced via documentError.
+async function addLivingDocuments(collectionId: string, files: File[]) {
+  documentError.value = null
+  for (const file of files) {
+    const formData = new FormData()
+    formData.append('file', file)
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/collections/${collectionId}/documents/living`, {
+        method: 'POST',
+        credentials: 'include',
+        body: formData,
+      })
+      if (response.status === 415) {
+        documentError.value = `« ${file.name} » n'est pas un document vivant : seuls les fichiers .odt et .md sont acceptés.`
+      } else if (!response.ok) {
+        documentError.value = `Échec de l'envoi de « ${file.name} » (${response.status}).`
+      }
+    } catch {
+      documentError.value = `Échec de l'envoi de « ${file.name} » : le serveur est inaccessible.`
+    }
+  }
+  await refreshDocuments(collectionId)
+  pollDocumentsWhileProcessing(collectionId)
+}
+
+// Re-reads the list and restarts the processing poll - for callers that changed a document
+// outside this composable (e.g. a living document replaced from its revisions panel).
+async function reloadDocuments(collectionId: string) {
+  await refreshDocuments(collectionId)
+  pollDocumentsWhileProcessing(collectionId)
+}
+
 async function addUrl(collectionId: string, url: string) {
   if (!url.trim()) return
   documentError.value = null
@@ -828,6 +863,8 @@ export function useCollections() {
     createShare,
     deleteShare,
     addDocuments,
+    addLivingDocuments,
+    reloadDocuments,
     addUrl,
     removeDocument,
     addQaPair,

@@ -13,7 +13,7 @@ const props = defineProps<{
 }>()
 
 const router = useRouter()
-const { addDocuments, addUrl, removeDocument, documentError } = useCollections()
+const { addDocuments, addLivingDocuments, reloadDocuments, addUrl, removeDocument, documentError } = useCollections()
 
 const documents = computed(() => props.collection.documents)
 const { page, pageCount, paged: pagedDocuments } = usePagination(documents)
@@ -43,6 +43,12 @@ function submitUrl() {
 function handleFiles(files: FileList | null) {
   if (!files?.length) return
   addDocuments(props.collection.id, Array.from(files))
+}
+
+function handleLivingFiles(event: Event) {
+  const input = event.target as HTMLInputElement
+  if (input.files?.length) addLivingDocuments(props.collection.id, Array.from(input.files))
+  input.value = '' // lets the same file be picked again after a refusal
 }
 
 function onDrop(event: DragEvent) {
@@ -87,6 +93,23 @@ const STATUS_LABEL = {
       <button type="submit" class="fr-btn fr-btn--secondary" :disabled="!urlDraft.trim()">Ajouter</button>
     </form>
 
+    <div v-if="collection.isOwner" class="documents-tab__living">
+      <label class="fr-btn fr-btn--secondary fr-btn--sm documents-tab__living-button">
+        Ajouter un document vivant
+        <input
+          type="file"
+          multiple
+          accept=".odt,.md"
+          class="documents-tab__file-input"
+          aria-label="Choisir des documents vivants à ajouter (.odt ou .md)"
+          @change="handleLivingFiles"
+        />
+      </label>
+      <p class="documents-tab__living-hint">
+        ODT ou Markdown. Un document vivant se remplace par une nouvelle version, avec historique, sans le supprimer.
+      </p>
+    </div>
+
     <p v-if="documentError" class="documents-tab__error" role="alert">{{ documentError }}</p>
 
     <ul v-if="collection.documents.length" class="documents-tab__list">
@@ -107,7 +130,10 @@ const STATUS_LABEL = {
           </span>
 
           <span class="documents-tab__item-body">
-            <span class="documents-tab__item-name">{{ document.name }}</span>
+            <span class="documents-tab__item-name">
+              {{ document.name }}
+              <span v-if="document.kind === 'living'" class="documents-tab__living-badge">Document vivant</span>
+            </span>
             <span class="documents-tab__progress-track">
               <span
                 class="documents-tab__progress-bar"
@@ -140,7 +166,9 @@ const STATUS_LABEL = {
       v-if="openDocument"
       :collection-id="collection.id"
       :document="openDocument"
+      :editable="collection.isOwner"
       @close="closeDocumentModal"
+      @changed="reloadDocuments(collection.id)"
     />
   </div>
 </template>
@@ -171,6 +199,34 @@ const STATUS_LABEL = {
   inset: 0;
   opacity: 0;
   cursor: pointer;
+}
+
+.documents-tab__living {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.documents-tab__living-button {
+  position: relative;
+  cursor: pointer;
+}
+
+.documents-tab__living-hint {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--text-mention-grey);
+}
+
+.documents-tab__living-badge {
+  margin-left: 0.5rem;
+  padding: 0 0.5rem;
+  border-radius: 0.75rem;
+  background: var(--background-contrast-info);
+  color: var(--text-default-info);
+  font-size: 0.75rem;
 }
 
 .documents-tab__url-form {

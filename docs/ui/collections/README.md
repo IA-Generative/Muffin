@@ -72,3 +72,35 @@ Le nom et la barre d'onglets restent visibles au défilement (`position: sticky`
 description/tags, lui, défile normalement et disparaît sous le header une fois qu'on descend dans
 le contenu d'un onglet. Le changement d'onglet anime un léger fondu plutôt qu'un remplacement brut
 du panneau.
+
+## Documents vivants (§172)
+
+Un **document vivant** est un fichier ODT ou Markdown qui évolue dans le temps : au lieu de le
+supprimer puis de le ré-uploader (et de perdre résumé, tags et identité), on le **remplace** par une
+nouvelle version, avec un historique de révisions. Réservé au propriétaire de la collection, comme
+toute action d'écriture. Composants :
+[`CollectionDocumentsTab.vue`](../../../frontend/src/components/CollectionDocumentsTab.vue),
+[`LivingDocumentRevisions.vue`](../../../frontend/src/components/LivingDocumentRevisions.vue),
+composable [`useLivingDocuments.ts`](../../../frontend/src/composables/useLivingDocuments.ts).
+
+Dans l'onglet Documents, le bouton "Ajouter un document vivant" n'accepte que des fichiers `.odt` ou
+`.md` ; un document vivant porte le badge "Document vivant" dans la liste :
+
+![Onglet Documents avec un document vivant](screenshots/living-01-documents-tab.png)
+
+Sa fiche détail a un onglet **Révisions** supplémentaire : historique (origine, auteur, date), badge
+"Courante", bouton "Remplacer par une nouvelle version" (le fichier doit être de même format) et
+"Restaurer" sur une ancienne révision - restaurer ajoute une nouvelle révision, l'historique n'est
+jamais réécrit. Chaque écriture ré-indexe ce seul document :
+
+![Historique des révisions](screenshots/living-02-revisions.png)
+
+Pendant qu'une autre personne (ou une autre session du même compte) modifie le document, un
+bandeau l'indique avec l'heure d'expiration du verrou, et les actions d'écriture sont désactivées.
+Le panneau se rafraîchit toutes les 10 secondes :
+
+![Document verrouillé par quelqu'un d'autre](screenshots/living-03-revisions-locked.png)
+
+Une écriture prend le verrou, envoie la révision affichée (`base_revision`) et son jeton, puis le
+relâche ; si le document a été modifié entre-temps ou si le verrou a expiré, l'écriture est refusée
+avec un message explicite et l'historique est rechargé.
