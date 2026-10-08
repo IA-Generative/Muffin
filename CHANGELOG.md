@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.14.0-rc.1](https://github.com/IA-Generative/Muffin/compare/v0.14.0-rc...v0.14.0-rc.1) (2026-10-08)
+
+
+### Features
+
+* **agent:** delegate the edit of a living document from the chat ([8988cce](https://github.com/IA-Generative/Muffin/commit/8988cce75f6db19c4547a26fb11cba21c028a21c)), closes [#171](https://github.com/IA-Generative/Muffin/issues/171)
+* **document_edit:** add the Markdown applier and the editing agent ([60d5fc6](https://github.com/IA-Generative/Muffin/commit/60d5fc6f0e7eb5e6cea697632f69e9d396e50ab5)), closes [#168](https://github.com/IA-Generative/Muffin/issues/168)
+* **document_edit:** typed edit operations and an in-place ODT applier ([320aeb2](https://github.com/IA-Generative/Muffin/commit/320aeb23ffc13b80ccdbd3e94c16692c1cb2e215)), closes [#168](https://github.com/IA-Generative/Muffin/issues/168)
+* **documents:** add the edit draft lifecycle with a PDF preview and image insertion ([9d330f6](https://github.com/IA-Generative/Muffin/commit/9d330f67a2769ca1565c23375a8713b864c42c60)), closes [#169](https://github.com/IA-Generative/Muffin/issues/169)
+* **frontend:** add the edit proposal UI for living documents ([deba37a](https://github.com/IA-Generative/Muffin/commit/deba37ad9a98f8c73d52bafac6443bfe51a8e094)), closes [#169](https://github.com/IA-Generative/Muffin/issues/169)
+
+
+### Bug Fixes
+
+* **document_edit:** keep the agent from dropping footnotes and faking list edits ([2ed64c1](https://github.com/IA-Generative/Muffin/commit/2ed64c12ba0a9ab1caf10621ca6fd2093b75becc)), closes [#168](https://github.com/IA-Generative/Muffin/issues/168)
+
 ## [0.14.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.13.0...v0.14.0-rc) (2026-10-08)
 
 
