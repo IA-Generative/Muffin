@@ -258,9 +258,12 @@ def run_edit_agent(
     final: _State = _build_graph(llm, max_attempts).invoke(initial)
 
     if final.get("feedback"):
+        # The reason is written for the model ("ta réponse n'est pas un JSON valide"): it goes to the
+        # logs, not to the user, who gets a message they can act on.
+        logger.error(f"Giving up after {final['attempt']} attempt(s): {final['feedback']}")
         raise EditFailedError(
-            f"Je n'ai pas réussi à produire une modification applicable après {final['attempt']} tentative(s) : "
-            f"{final['feedback']}"
+            f"Je n'ai pas réussi à produire une modification applicable après {final['attempt']} tentative(s). "
+            "Reformulez votre demande, de façon plus précise ou en la découpant."
         )
     operations = final.get("operations") or []
     return AgentOutcome(

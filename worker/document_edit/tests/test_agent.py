@@ -142,7 +142,9 @@ def test_the_agent_gives_up_after_the_allowed_attempts_and_says_why():
 
     assert len(llm.calls) == 3
     assert "3 tentative(s)" in error.value.message
-    assert "JSON" in error.value.message
+    assert "Reformulez" in error.value.message
+    # The reason addressed to the model is not what the user is shown.
+    assert "ta réponse" not in error.value.message
 
 
 def test_a_request_the_model_declines_changes_nothing_and_carries_its_explanation():
