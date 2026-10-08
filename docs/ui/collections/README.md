@@ -111,3 +111,55 @@ Le panneau se rafraîchit toutes les 10 secondes :
 Une écriture prend le verrou, envoie la révision affichée (`base_revision`) et son jeton, puis le
 relâche ; si le document a été modifié entre-temps ou si le verrou a expiré, l'écriture est refusée
 avec un message explicite et l'historique est rechargé.
+
+## Modifier un document vivant avec l'agent (§169)
+
+Dans l'onglet Révisions d'un document vivant, le propriétaire de la collection décrit la modification
+voulue ; l'agent prépare une **proposition** qu'on relit avant qu'elle soit enregistrée. Rien n'est écrit
+dans la collection avant la validation. Composants :
+[`LivingDocumentEdit.vue`](../../../frontend/src/components/LivingDocumentEdit.vue) (la demande et l'état de
+la proposition),
+[`DraftReviewModal.vue`](../../../frontend/src/components/DraftReviewModal.vue) (la fenêtre d'examen),
+composable [`useDocumentDraft.ts`](../../../frontend/src/composables/useDocumentDraft.ts).
+
+![Demande de modification](screenshots/living-edit-01-request.png)
+
+Pendant que l'agent travaille, la fenêtre d'examen s'ouvre avec un indicateur d'attente ; elle se met à jour
+toute seule (le panneau interroge le backend toutes les 2 secondes, ce qui garde aussi la proposition en
+vie) :
+
+![Modification en préparation](screenshots/living-edit-02-pending.png)
+
+Une fois prête, la fenêtre montre l'**aperçu** du document modifié - un PDF pour un ODT, le texte rendu pour
+un Markdown -, la liste de ce qui a changé et les actions : **Valider la modification**, **Refuser**, ou
+**Ajuster** (une consigne de plus, appliquée à la proposition). Fermer la fenêtre ne perd rien : la
+proposition reste affichée sous forme de carte, avec « Examiner la modification » et « Abandonner » :
+
+![Examen de la modification](screenshots/living-edit-03-review.png)
+
+L'agent ne crée jamais d'image : quand il en juge une utile, il signale l'emplacement dans la rubrique
+**Images**. On y dépose un fichier (PNG, JPEG ou GIF, 10 Mo au plus) pour chaque emplacement voulu, puis
+« Insérer l'image déposée » : un nouvel aperçu est produit avec l'image dedans. Les images ne sont gérées
+que pour les documents ODT :
+
+![Images insérées dans la proposition](screenshots/living-edit-04-images.png)
+
+**Valider** fait de la proposition la révision suivante du document (origine « Modification via le chat »)
+et le ré-indexe :
+
+![Révision créée par la validation](screenshots/living-edit-05-validated.png)
+
+Quand la demande n'est pas réalisable (par exemple modifier une liste, ou un paragraphe qui porte une image
+ou une note de bas de page), l'agent le dit au lieu de modifier autre chose : il n'y a alors rien à valider,
+seulement sa réponse, et on peut ajuster la demande ou refuser. Si l'agent n'arrive pas à produire une
+modification applicable, la fenêtre l'indique et propose de reformuler :
+
+![Demande non réalisable](screenshots/living-edit-06-declined.png)
+
+![Échec de la préparation](screenshots/living-edit-07-failed.png)
+
+![Aperçu d'un Markdown](screenshots/living-edit-08-markdown.png)
+
+Tant qu'une proposition existe, elle tient le **verrou** du document : le remplacement par fichier et la
+restauration sont désactivés, et le bandeau de verrou le rappelle. Une proposition abandonnée (fiche fermée,
+plus aucune consultation) est supprimée avec ses fichiers quand son verrou expire.
