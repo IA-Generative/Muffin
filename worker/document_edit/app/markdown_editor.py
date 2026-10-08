@@ -40,7 +40,7 @@ from app.operations import (
 )
 
 _PARSER = MarkdownIt("commonmark").enable("table")
-_OTHER = "  [bloc non modifiable : liste, code, citation ou HTML]"
+_OTHER = "  [bloc non modifiable (liste, code, citation ou HTML) : aucune opération ne peut le viser]"
 _ALIGNMENT = re.compile(r"^\s*:?-+:?\s*$")
 
 

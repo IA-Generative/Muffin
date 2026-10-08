@@ -75,9 +75,11 @@ def test_replacing_a_paragraph_that_carries_a_footnote_or_an_image_is_refused(pa
         _apply({"op": "replace_paragraph", "section": INTRO, "paragraph": paragraph, "text": "Réécrit"})
 
 
-def test_a_paragraph_that_carries_a_footnote_or_an_image_can_still_be_deleted_on_purpose():
-    result = _apply({"op": "delete_paragraph", "section": INTRO, "paragraph": 2})
-    assert len(_doc(result.data).body.get_frames()) == 0
+@pytest.mark.parametrize(("paragraph", "carries"), [(1, "une note de bas de page"), (2, "une image")])
+def test_deleting_a_paragraph_that_carries_a_footnote_or_an_image_is_refused_too(paragraph, carries):
+    # Otherwise "insert a new paragraph, delete the old one" would drop them just the same.
+    with pytest.raises(OperationError, match=f"contient {carries}.*supprimer"):
+        _apply({"op": "delete_paragraph", "section": INTRO, "paragraph": paragraph})
 
 
 def test_insert_paragraph_at_the_end_after_n_and_right_under_the_heading_uses_the_neighbour_style():
