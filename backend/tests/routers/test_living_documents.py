@@ -107,6 +107,7 @@ async def test_replace_appends_a_revision_and_reindexes_that_document_only(clien
     with _mocked_io() as io:
         response = await client.put(
             f"/api/collections/{collection_id}/documents/{created['id']}/content",
+            params={"base_revision": 1},
             files={"file": ("procedure-v2.odt", b"v2", ODT)},
         )
 
@@ -134,6 +135,7 @@ async def test_replace_rejects_a_different_format(client):
     with _mocked_io() as io:
         response = await client.put(
             f"/api/collections/{collection_id}/documents/{created['id']}/content",
+            params={"base_revision": 1},
             files={"file": ("procedure.md", b"# v2", "text/markdown")},
         )
     assert response.status_code == 422
@@ -158,6 +160,7 @@ async def test_replace_on_a_standard_document_returns_409(client):
     with _mocked_io():
         response = await client.put(
             f"/api/collections/{collection_id}/documents/{standard['id']}/content",
+            params={"base_revision": 1},
             files={"file": ("plain.odt", b"data2", ODT)},
         )
         revisions = await client.get(f"/api/collections/{collection_id}/documents/{standard['id']}/revisions")
@@ -171,11 +174,15 @@ async def test_restore_appends_a_revision_pointing_at_the_old_file(client):
     with _mocked_io():
         await client.put(
             f"/api/collections/{collection_id}/documents/{created['id']}/content",
+            params={"base_revision": 1},
             files={"file": ("procedure-v2.odt", b"v2", ODT)},
         )
 
     with _mocked_io() as io:
-        response = await client.post(f"/api/collections/{collection_id}/documents/{created['id']}/revisions/1/restore")
+        response = await client.post(
+            f"/api/collections/{collection_id}/documents/{created['id']}/revisions/1/restore",
+            params={"base_revision": 2},
+        )
 
     assert response.status_code == 200
     # Restoring re-uses revision 1's file: nothing new is uploaded, but the document is reprocessed.
@@ -193,7 +200,10 @@ async def test_restore_unknown_revision_returns_404(client):
     collection_id = await _create_collection(client)
     created = await _create_living(client, collection_id)
     with _mocked_io():
-        response = await client.post(f"/api/collections/{collection_id}/documents/{created['id']}/revisions/9/restore")
+        response = await client.post(
+            f"/api/collections/{collection_id}/documents/{created['id']}/revisions/9/restore",
+            params={"base_revision": 1},
+        )
     assert response.status_code == 404
 
 
@@ -202,6 +212,7 @@ async def test_unknown_document_returns_404(client):
     with _mocked_io():
         response = await client.put(
             f"/api/collections/{collection_id}/documents/{uuid.uuid4()}/content",
+            params={"base_revision": 1},
             files={"file": ("a.odt", b"x", ODT)},
         )
     assert response.status_code == 404
@@ -213,6 +224,7 @@ async def test_deleting_a_living_document_removes_every_revision_file(client):
     with _mocked_io():
         await client.put(
             f"/api/collections/{collection_id}/documents/{created['id']}/content",
+            params={"base_revision": 1},
             files={"file": ("procedure-v2.odt", b"v2", ODT)},
         )
 
@@ -245,10 +257,199 @@ async def test_only_the_collection_owner_can_use_living_documents(client):
         with _mocked_io():
             replace = await client.put(
                 f"/api/collections/{collection_id}/documents/{created['id']}/content",
+                params={"base_revision": 1},
                 files={"file": ("procedure.odt", b"x", ODT)},
             )
             listing = await client.get(f"/api/collections/{collection_id}/documents/{created['id']}/revisions")
         assert replace.status_code == 404
         assert listing.status_code == 404
+    finally:
+        del app.dependency_overrides[get_current_user]
+
+
+# --- Soft edit lock and revision check (#170) ---
+
+
+def _as_user(user_id: str):
+    def override() -> RequestContext:
+        return RequestContext(user_id=user_id, email=f"{user_id}@example.com", roles=["user"], is_admin=False)
+
+    return override
+
+
+def _doc_url(collection_id: str, document_id: str, suffix: str = "") -> str:
+    return f"/api/collections/{collection_id}/documents/{document_id}{suffix}"
+
+
+LOCK_HEADER = "X-Document-Lock-Token"
+
+
+async def _replace(client, collection_id, document_id, *, base_revision, token=None, name="v.odt"):
+    return await client.put(
+        _doc_url(collection_id, document_id, "/content"),
+        params={"base_revision": base_revision},
+        headers={LOCK_HEADER: token} if token else {},
+        files={"file": (name, b"new", ODT)},
+    )
+
+
+async def test_acquire_lock_shows_the_holder_and_blocks_a_second_acquisition(client):
+    collection_id = await _create_collection(client)
+    created = await _create_living(client, collection_id)
+
+    grant = await client.post(_doc_url(collection_id, created["id"], "/lock"))
+    assert grant.status_code == 200
+    assert grant.json()["token"]
+    assert grant.json()["held_by_me"] is True
+
+    status_ = (await client.get(_doc_url(collection_id, created["id"], "/lock"))).json()
+    assert status_["held_by_me"] is True
+    assert "token" not in status_
+    detail = (await client.get(_doc_url(collection_id, created["id"]))).json()
+    assert detail["lock"]["expires_at"] == status_["expires_at"]
+
+    # Same user, no token (another tab): still refused, and told it's their own session.
+    second = await client.post(_doc_url(collection_id, created["id"], "/lock"))
+    assert second.status_code == 409
+    assert second.json()["detail"]["code"] == "document_locked"
+    assert second.json()["detail"]["held_by_me"] is True
+
+
+async def test_a_write_without_the_token_is_refused_while_locked(client):
+    collection_id = await _create_collection(client)
+    created = await _create_living(client, collection_id)
+    await client.post(_doc_url(collection_id, created["id"], "/lock"))
+
+    with _mocked_io() as io:
+        response = await _replace(client, collection_id, created["id"], base_revision=1)
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "document_locked"
+    io["put"].assert_not_called()  # refused before anything was uploaded
+    io["enqueue"].assert_not_called()
+
+
+async def test_a_write_with_the_token_succeeds_and_releases_the_lock(client):
+    collection_id = await _create_collection(client)
+    created = await _create_living(client, collection_id)
+    token = (await client.post(_doc_url(collection_id, created["id"], "/lock"))).json()["token"]
+
+    with _mocked_io():
+        response = await _replace(client, collection_id, created["id"], base_revision=1, token=token)
+
+    assert response.status_code == 200
+    assert (await client.get(_doc_url(collection_id, created["id"], "/lock"))).json() is None
+    assert (await client.get(_doc_url(collection_id, created["id"]))).json()["lock"] is None
+
+
+async def test_a_stale_base_revision_is_a_conflict(client):
+    collection_id = await _create_collection(client)
+    created = await _create_living(client, collection_id)
+    with _mocked_io():
+        await _replace(client, collection_id, created["id"], base_revision=1, name="v2.odt")
+
+    with _mocked_io() as io:
+        response = await _replace(client, collection_id, created["id"], base_revision=1, name="v3.odt")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == {"code": "revision_conflict", "current_revision": 2}
+    io["put"].assert_not_called()
+    revisions = (await client.get(_doc_url(collection_id, created["id"], "/revisions"))).json()
+    assert [r["number"] for r in revisions] == [2, 1]
+
+
+async def test_restore_is_subject_to_the_lock_and_the_revision_check(client):
+    collection_id = await _create_collection(client)
+    created = await _create_living(client, collection_id)
+    with _mocked_io():
+        await _replace(client, collection_id, created["id"], base_revision=1, name="v2.odt")
+    restore = _doc_url(collection_id, created["id"], "/revisions/1/restore")
+
+    with _mocked_io():
+        stale = await client.post(restore, params={"base_revision": 1})
+        token = (await client.post(_doc_url(collection_id, created["id"], "/lock"))).json()["token"]
+        locked = await client.post(restore, params={"base_revision": 2})
+        ok = await client.post(restore, params={"base_revision": 2}, headers={LOCK_HEADER: token})
+
+    assert stale.status_code == 409
+    assert stale.json()["detail"]["code"] == "revision_conflict"
+    assert locked.status_code == 409
+    assert locked.json()["detail"]["code"] == "document_locked"
+    assert ok.status_code == 200
+
+
+async def test_an_expired_lock_is_treated_as_no_lock(client):
+    collection_id = await _create_collection(client)
+    created = await _create_living(client, collection_id)
+
+    with patch(f"{SERVICE}._document_settings.DOCUMENT_LOCK_TTL_SECONDS", -1):
+        await client.post(_doc_url(collection_id, created["id"], "/lock"))
+
+    assert (await client.get(_doc_url(collection_id, created["id"], "/lock"))).json() is None
+    # Anyone can take it again, and write without a token, once it has expired.
+    with _mocked_io():
+        assert (await _replace(client, collection_id, created["id"], base_revision=1)).status_code == 200
+    assert (await client.post(_doc_url(collection_id, created["id"], "/lock"))).status_code == 200
+
+
+async def test_renew_extends_a_live_lock_and_refuses_an_expired_one(client):
+    collection_id = await _create_collection(client)
+    created = await _create_living(client, collection_id)
+    grant = (await client.post(_doc_url(collection_id, created["id"], "/lock"))).json()
+
+    renewed = await client.put(_doc_url(collection_id, created["id"], "/lock"), headers={LOCK_HEADER: grant["token"]})
+    assert renewed.status_code == 200
+    assert renewed.json()["expires_at"] >= grant["expires_at"]
+
+    wrong = await client.put(_doc_url(collection_id, created["id"], "/lock"), headers={LOCK_HEADER: "nope"})
+    assert wrong.status_code == 409
+    assert wrong.json()["detail"] == {"code": "lock_lost"}
+
+    # A lock that already expired can't be resurrected by renewing it.
+    await client.delete(_doc_url(collection_id, created["id"], "/lock"), headers={LOCK_HEADER: grant["token"]})
+    with patch(f"{SERVICE}._document_settings.DOCUMENT_LOCK_TTL_SECONDS", -1):
+        expired = (await client.post(_doc_url(collection_id, created["id"], "/lock"))).json()
+    late = await client.put(_doc_url(collection_id, created["id"], "/lock"), headers={LOCK_HEADER: expired["token"]})
+    assert late.status_code == 409
+    assert late.json()["detail"] == {"code": "lock_lost"}
+
+
+async def test_release_needs_the_token_or_force_and_is_idempotent(client):
+    collection_id = await _create_collection(client)
+    created = await _create_living(client, collection_id)
+    url = _doc_url(collection_id, created["id"], "/lock")
+
+    assert (await client.delete(url)).status_code == 204  # nothing held: no-op
+    grant = (await client.post(url)).json()
+
+    assert (await client.delete(url)).status_code == 409  # no token, no force
+    assert (await client.delete(url, headers={LOCK_HEADER: "nope"})).status_code == 409
+    assert (await client.get(url)).json() is not None
+
+    assert (await client.delete(url, headers={LOCK_HEADER: grant["token"]})).status_code == 204
+    assert (await client.get(url)).json() is None
+
+    await client.post(url)
+    assert (await client.delete(url, params={"force": "true"})).status_code == 204
+    assert (await client.get(url)).json() is None
+
+
+async def test_lock_routes_reject_a_standard_document_and_a_foreign_collection(client):
+    collection_id = await _create_collection(client)
+    with (
+        patch("app.services.document_upload_service.storage.put_object"),
+        patch("app.services.document_upload_service.enqueue_process_document", return_value="task-id-lock"),
+    ):
+        standard = (
+            await client.post(
+                f"/api/collections/{collection_id}/documents/file",
+                files={"file": ("plain.odt", b"data", ODT)},
+            )
+        ).json()
+    assert (await client.post(_doc_url(collection_id, standard["id"], "/lock"))).status_code == 409
+
+    app.dependency_overrides[get_current_user] = _as_user("someone-else")
+    try:
+        assert (await client.post(_doc_url(collection_id, standard["id"], "/lock"))).status_code == 404
     finally:
         del app.dependency_overrides[get_current_user]
