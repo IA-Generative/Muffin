@@ -193,6 +193,43 @@ async function restoreRevision(
   )
 }
 
+// Fetched (not a plain link) so the session cookie always goes along and a failure can be
+// reported, then handed to the browser as a file save - the backend streams it, there is no
+// direct storage URL. `revisionNumber` omitted downloads the current revision.
+async function downloadDocument(
+  collectionId: string,
+  documentId: string,
+  fallbackName: string,
+  revisionNumber?: number,
+): Promise<void> {
+  const query = revisionNumber === undefined ? '' : `?revision=${revisionNumber}`
+  const response = await fetch(documentUrl(collectionId, documentId, `/content${query}`), { credentials: 'include' })
+  if (!response.ok) throw new LivingDocumentError(`Le téléchargement a échoué (${response.status}).`)
+  const blob = await response.blob()
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filenameFromDisposition(response.headers.get('Content-Disposition')) ?? fallbackName
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
+}
+
+// Prefers the RFC 5987 filename* (accents, spaces) over the ASCII fallback.
+function filenameFromDisposition(header: string | null): string | null {
+  if (!header) return null
+  const encoded = /filename\*=UTF-8''([^;]+)/i.exec(header)
+  if (encoded) {
+    try {
+      return decodeURIComponent(encoded[1])
+    } catch {
+      // Malformed escape - fall through to the plain filename.
+    }
+  }
+  return /filename="([^"]+)"/i.exec(header)?.[1] ?? null
+}
+
 export function useLivingDocuments() {
-  return { fetchRevisions, fetchLock, replaceDocument, restoreRevision }
+  return { fetchRevisions, fetchLock, replaceDocument, restoreRevision, downloadDocument }
 }

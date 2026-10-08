@@ -19,7 +19,7 @@ const emit = defineEmits<{
   changed: []
 }>()
 
-const { fetchRevisions, fetchLock, replaceDocument, restoreRevision } = useLivingDocuments()
+const { fetchRevisions, fetchLock, replaceDocument, restoreRevision, downloadDocument } = useLivingDocuments()
 
 const revisions = ref<DocumentRevision[]>()
 const lock = ref<DocumentLock | null>(null)
@@ -76,6 +76,18 @@ async function run(action: () => Promise<void>) {
   }
 }
 
+// Read-only, so it stays available to everyone who can open the panel, even while the document
+// is locked or being reindexed.
+async function download(revision?: DocumentRevision) {
+  actionError.value = null
+  const target = revision ?? current.value
+  try {
+    await downloadDocument(props.collectionId, props.documentId, target?.filename ?? 'document', revision?.number)
+  } catch (error) {
+    actionError.value = error instanceof LivingDocumentError ? error.message : 'Le téléchargement a échoué.'
+  }
+}
+
 function onFileSelected(event: Event) {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
@@ -114,6 +126,12 @@ onUnmounted(() => clearInterval(timer))
         jusqu'à {{ formatTime(lock.expiresAt) }}.
       </p>
 
+      <div class="revisions__actions">
+        <button type="button" class="fr-btn fr-btn--tertiary fr-btn--sm" @click="download()">
+          Télécharger la version courante
+        </button>
+      </div>
+
       <div v-if="editable" class="revisions__replace">
         <label class="fr-btn fr-btn--secondary revisions__replace-button" :class="{ 'revisions__replace-button--disabled': isBusy || isLocked }">
           Remplacer par une nouvelle version
@@ -147,15 +165,25 @@ onUnmounted(() => clearInterval(timer))
               {{ revision.filename }} · {{ revision.createdByDisplay ?? 'inconnu' }} · {{ formatDate(revision.createdAt) }}
             </span>
           </div>
-          <button
-            v-if="editable && !revision.isCurrent"
-            type="button"
-            class="fr-btn fr-btn--tertiary fr-btn--sm"
-            :disabled="isBusy || isLocked"
-            @click="restore(revision)"
-          >
-            Restaurer
-          </button>
+          <div class="revisions__item-actions">
+            <button
+              type="button"
+              class="fr-btn fr-btn--tertiary fr-btn--sm"
+              :aria-label="`Télécharger la révision ${revision.number}`"
+              @click="download(revision)"
+            >
+              Télécharger
+            </button>
+            <button
+              v-if="editable && !revision.isCurrent"
+              type="button"
+              class="fr-btn fr-btn--tertiary fr-btn--sm"
+              :disabled="isBusy || isLocked"
+              @click="restore(revision)"
+            >
+              Restaurer
+            </button>
+          </div>
         </li>
       </ol>
     </template>
@@ -181,6 +209,16 @@ onUnmounted(() => clearInterval(timer))
   border-left: 3px solid var(--border-plain-warning);
   background: var(--background-contrast-warning);
   font-size: 0.875rem;
+}
+
+.revisions__actions {
+  margin-bottom: 0.75rem;
+}
+
+.revisions__item-actions {
+  flex-shrink: 0;
+  display: flex;
+  gap: 0.5rem;
 }
 
 .revisions__replace {
@@ -254,8 +292,6 @@ onUnmounted(() => clearInterval(timer))
 
 .revisions__meta {
   flex-basis: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 </style>

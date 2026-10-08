@@ -625,6 +625,30 @@ async function addLivingDocuments(collectionId: string, files: File[]) {
   pollDocumentsWhileProcessing(collectionId)
 }
 
+// A Markdown living document written from scratch in the UI (no file to upload). Resolves to
+// whether it was created - the caller keeps its form open on a failure, with documentError set.
+async function createMarkdownDocument(collectionId: string, name: string, content: string): Promise<boolean> {
+  documentError.value = null
+  let created = false
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/collections/${collectionId}/documents/living/markdown`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, content }),
+    })
+    created = response.ok
+    if (!response.ok) documentError.value = `Échec de la création du document (${response.status}).`
+  } catch {
+    documentError.value = 'Échec de la création du document : le serveur est inaccessible.'
+  }
+  if (created) {
+    await refreshDocuments(collectionId)
+    pollDocumentsWhileProcessing(collectionId)
+  }
+  return created
+}
+
 // Re-reads the list and restarts the processing poll - for callers that changed a document
 // outside this composable (e.g. a living document replaced from its revisions panel).
 async function reloadDocuments(collectionId: string) {
@@ -864,6 +888,7 @@ export function useCollections() {
     deleteShare,
     addDocuments,
     addLivingDocuments,
+    createMarkdownDocument,
     reloadDocuments,
     addUrl,
     removeDocument,

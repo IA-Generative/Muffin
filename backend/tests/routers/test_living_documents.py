@@ -453,3 +453,111 @@ async def test_lock_routes_reject_a_standard_document_and_a_foreign_collection(c
         assert (await client.post(_doc_url(collection_id, standard["id"], "/lock"))).status_code == 404
     finally:
         del app.dependency_overrides[get_current_user]
+
+
+# --- Download and Markdown creation from scratch (#172) ---
+
+
+async def test_create_markdown_document_from_scratch(client):
+    collection_id = await _create_collection(client)
+
+    with _mocked_io() as io:
+        response = await client.post(
+            f"/api/collections/{collection_id}/documents/living/markdown",
+            json={"name": "Notes de réunion", "content": "# Réunion\n\nDécision : go."},
+        )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["name"] == "Notes de réunion.md"
+    assert body["kind"] == "living"
+    key, data = io["put"].call_args.args[:2]
+    assert key.endswith("-Notes de réunion.md")
+    assert data == "# Réunion\n\nDécision : go.".encode()
+    io["enqueue"].assert_called_once_with(body["id"])
+
+    revisions = (await client.get(_doc_url(collection_id, body["id"], "/revisions"))).json()
+    assert [(r["number"], r["format"], r["origin"]) for r in revisions] == [(1, "md", "ui")]
+
+
+async def test_create_markdown_document_keeps_an_existing_extension_and_drops_any_path(client):
+    collection_id = await _create_collection(client)
+    with _mocked_io():
+        response = await client.post(
+            f"/api/collections/{collection_id}/documents/living/markdown",
+            json={"name": "../../etc/Procédure.MD", "content": "x"},
+        )
+    assert response.status_code == 201
+    assert response.json()["name"] == "Procédure.MD"
+
+
+@pytest.mark.parametrize(
+    "payload", [{"name": "a", "content": ""}, {"name": "  ", "content": "x"}, {"name": "a", "content": "  \n"}]
+)
+async def test_create_markdown_document_rejects_blank_name_or_content(client, payload):
+    collection_id = await _create_collection(client)
+    with _mocked_io() as io:
+        response = await client.post(f"/api/collections/{collection_id}/documents/living/markdown", json=payload)
+    assert response.status_code == 422
+    io["put"].assert_not_called()
+
+
+async def test_download_returns_the_current_revision_by_default_and_any_revision_on_request(client):
+    collection_id = await _create_collection(client)
+    created = await _create_living(client, collection_id)  # revision 1: procedure.odt
+    with _mocked_io():
+        await _replace(client, collection_id, created["id"], base_revision=1, name="Procédure v2.odt")
+
+    stored = {}
+
+    def fake_get_object(key):
+        stored.setdefault("keys", []).append(key)
+        return (b"file-bytes", "application/octet-stream")
+
+    with patch(f"{SERVICE}.storage.get_object", side_effect=fake_get_object):
+        current = await client.get(_doc_url(collection_id, created["id"], "/content"))
+        first = await client.get(_doc_url(collection_id, created["id"], "/content"), params={"revision": 1})
+
+    assert current.status_code == 200
+    assert current.content == b"file-bytes"
+    assert current.headers["content-type"] == ODT
+    assert "attachment" in current.headers["content-disposition"]
+    assert "filename*=UTF-8''Proc%C3%A9dure%20v2.odt" in current.headers["content-disposition"]
+    assert first.status_code == 200
+    assert 'filename="procedure.odt"' in first.headers["content-disposition"]
+    assert stored["keys"][0].endswith("-Procédure v2.odt")
+    assert stored["keys"][1].endswith("-procedure.odt")
+
+
+async def test_download_serves_markdown_with_its_media_type(client):
+    collection_id = await _create_collection(client)
+    created = await _create_living(client, collection_id, "notes.md")
+    with patch(f"{SERVICE}.storage.get_object", return_value=(b"# Hi", "x")):
+        response = await client.get(_doc_url(collection_id, created["id"], "/content"))
+    assert response.headers["content-type"].startswith("text/markdown")
+
+
+async def test_download_unknown_revision_standard_document_and_foreign_owner(client):
+    collection_id = await _create_collection(client)
+    created = await _create_living(client, collection_id)
+    with patch(f"{SERVICE}.storage.get_object", return_value=(b"x", "x")):
+        assert (
+            await client.get(_doc_url(collection_id, created["id"], "/content"), params={"revision": 9})
+        ).status_code == 404
+        app.dependency_overrides[get_current_user] = _as_user("someone-else")
+        try:
+            assert (await client.get(_doc_url(collection_id, created["id"], "/content"))).status_code == 404
+        finally:
+            del app.dependency_overrides[get_current_user]
+
+    with (
+        patch("app.services.document_upload_service.storage.put_object"),
+        patch("app.services.document_upload_service.enqueue_process_document", return_value="task-id-dl"),
+    ):
+        standard = (
+            await client.post(
+                f"/api/collections/{collection_id}/documents/file",
+                files={"file": ("plain.odt", b"data", ODT)},
+            )
+        ).json()
+    assert (await client.get(_doc_url(collection_id, standard["id"], "/content"))).status_code == 409
