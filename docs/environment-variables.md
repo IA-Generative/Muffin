@@ -178,6 +178,13 @@ boucle de vérification (« grounding »).
 | `MAX_GROUNDING_RESEARCHES` | Nombre max de relances de recherche déclenchées par un échec de vérification (grounding) | `1` | idem |
 | `SEARCH_RESULTS_PER_QUERY` | Nombre de résultats retournés par recherche vectorielle | `5` | idem |
 
+Délégation d'une modification de document vivant à l'agent d'édition (#171) :
+
+| Variable | Définition | Défaut | Utilisée par |
+|---|---|---|---|
+| `EDIT_WAIT_SECONDS` | Durée maximale pendant laquelle un run attend que l'agent d'édition ait fini une modification déléguée. Passé ce délai, la réponse dit que la proposition apparaîtra dans la carte du chat | `300` | idem (`graph/nodes/delegate_edit.py`) |
+| `EDIT_POLL_SECONDS` | Intervalle entre deux interrogations du backend sur l'état du brouillon pendant cette attente | `2.0` | idem |
+
 ## worker/evaluation — évaluation du retrieval (issue #11)
 
 | Variable | Définition | Défaut | Utilisée par |

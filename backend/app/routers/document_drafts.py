@@ -9,7 +9,7 @@ from app.db import get_db
 from app.routers.living_documents import http_error as living_http_error
 from app.schemas.document import DocumentOut
 from app.schemas.document_draft import DraftCreate, DraftOut
-from app.services.collection_service import CollectionNotFoundError
+from app.services.collection_service import CollectionNotEditableError, CollectionNotFoundError
 from app.services.document_draft_service import (
     DocumentDraftService,
     DraftBusyError,
@@ -42,6 +42,7 @@ UserDep = Annotated[RequestContext, Depends(get_current_user)]
 
 _HANDLED = (
     CollectionNotFoundError,
+    CollectionNotEditableError,
     DocumentNotFoundError,
     NotLivingDocumentError,
     DocumentLockedError,
@@ -67,7 +68,7 @@ _CONFLICTS = {
 }
 
 
-def _http_error(error: Exception) -> HTTPException:
+def http_error(error: Exception) -> HTTPException:
     if isinstance(error, DraftNotFoundError):
         return HTTPException(status.HTTP_404_NOT_FOUND, "No draft for this document")
     if isinstance(error, UnknownImageError):
@@ -96,7 +97,7 @@ async def create_draft(
     try:
         return await service.create(collection_id, user, document_id, body.prompt)
     except _HANDLED as error:
-        raise _http_error(error) from error
+        raise http_error(error) from error
 
 
 @router.get(
@@ -108,7 +109,7 @@ async def get_draft(collection_id: uuid.UUID, document_id: uuid.UUID, user: User
     try:
         return await service.get_current(collection_id, user, document_id)
     except _HANDLED as error:
-        raise _http_error(error) from error
+        raise http_error(error) from error
 
 
 @router.get(
@@ -121,7 +122,7 @@ async def get_draft_preview(
     try:
         content, media_type = await service.preview(collection_id, user, document_id)
     except _HANDLED as error:
-        raise _http_error(error) from error
+        raise http_error(error) from error
     return Response(content=content, media_type=media_type, headers={"Cache-Control": "no-store"})
 
 
@@ -137,7 +138,7 @@ async def adjust_draft(
     try:
         return await service.adjust(collection_id, user, document_id, body.prompt)
     except _HANDLED as error:
-        raise _http_error(error) from error
+        raise http_error(error) from error
 
 
 @router.put(
@@ -158,7 +159,7 @@ async def upload_draft_image(
             collection_id, user, document_id, image_id, await file.read(), file.content_type or ""
         )
     except _HANDLED as error:
-        raise _http_error(error) from error
+        raise http_error(error) from error
 
 
 @router.post(
@@ -173,7 +174,7 @@ async def insert_draft_images(
     try:
         return await service.insert_images(collection_id, user, document_id)
     except _HANDLED as error:
-        raise _http_error(error) from error
+        raise http_error(error) from error
 
 
 @router.post(
@@ -187,7 +188,7 @@ async def validate_draft(
     try:
         return await service.validate(collection_id, user, document_id)
     except _HANDLED as error:
-        raise _http_error(error) from error
+        raise http_error(error) from error
 
 
 @router.delete(
@@ -201,5 +202,5 @@ async def refuse_draft(
     try:
         await service.refuse(collection_id, user, document_id)
     except _HANDLED as error:
-        raise _http_error(error) from error
+        raise http_error(error) from error
     return Response(status_code=status.HTTP_204_NO_CONTENT)

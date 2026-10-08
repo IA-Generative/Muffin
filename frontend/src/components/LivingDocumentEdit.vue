@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { DraftError, useDocumentDraft, type DocumentDraft } from '../composables/useDocumentDraft'
+import { computed, ref, toRef, watch } from 'vue'
+import { useDraftSession } from '../composables/useDraftSession'
+import type { DocumentDraft } from '../composables/useDocumentDraft'
 import DraftReviewModal from './DraftReviewModal.vue'
 
 const props = defineProps<{
@@ -18,102 +19,19 @@ const emit = defineEmits<{
   hasDraft: [value: boolean]
 }>()
 
-const api = useDocumentDraft()
+const { draft, loaded, busy, error, reviewing, request, adjust, upload, insertImages, refuse, validate } =
+  useDraftSession(toRef(props, 'collectionId'), toRef(props, 'documentId'), { onValidated: () => emit('changed') })
 
-const draft = ref<DocumentDraft | null>(null)
-const loaded = ref(false)
 const prompt = ref('')
-const busy = ref(false)
-const error = ref<string | null>(null)
-const reviewing = ref(false)
-
 const isPending = computed(() => draft.value?.status === 'pending')
 
-function message(failure: unknown): string {
-  return failure instanceof DraftError ? failure.message : 'L’opération a échoué.'
-}
+watch(draft, (now) => emit('hasDraft', now !== null))
 
-async function load() {
-  try {
-    draft.value = await api.fetchDraft(props.collectionId, props.documentId)
-  } catch {
-    // A failed poll is retried on the next tick - the draft itself is unaffected.
-  }
-  loaded.value = true
-}
-
-// Poll fast while a job runs, slowly otherwise: reading the draft is also what keeps it (and the
-// document lock it holds) from lapsing while this panel is open.
-let timer: ReturnType<typeof setTimeout> | undefined
-function schedule() {
-  timer = setTimeout(async () => {
-    await load()
-    schedule()
-  }, isPending.value ? 2000 : 10_000)
-}
-
-onMounted(async () => {
-  await load()
-  schedule()
-})
-onUnmounted(() => clearTimeout(timer))
-
-watch(
-  draft,
-  (now, before) => {
-    emit('hasDraft', now !== null)
-    // The job the user started just finished: bring the result up without making them look for it.
-    if (before?.status === 'pending' && now && now.status !== 'pending') reviewing.value = true
-    if (!now) reviewing.value = false
-  },
-)
-
-// Runs an action on the draft; the result (a new draft state) replaces the current one.
-async function run(action: () => Promise<DocumentDraft | void>) {
-  busy.value = true
-  error.value = null
-  try {
-    const result = await action()
-    if (result) draft.value = result
-  } catch (failure) {
-    error.value = message(failure)
-    await load() // the draft may have lapsed or moved on: show what is true now
-  } finally {
-    busy.value = false
-  }
-}
-
-async function request() {
+async function submit() {
   const text = prompt.value.trim()
   if (!text || busy.value) return
-  await run(async () => {
-    const created = await api.createDraft(props.collectionId, props.documentId, text)
-    prompt.value = ''
-    reviewing.value = true
-    return created
-  })
-}
-
-const adjust = (text: string) => run(() => api.adjustDraft(props.collectionId, props.documentId, text))
-const upload = (imageId: string, file: File) =>
-  run(() => api.uploadImage(props.collectionId, props.documentId, imageId, file))
-const insertImages = () => run(() => api.insertImages(props.collectionId, props.documentId))
-
-async function refuse() {
-  await run(async () => {
-    await api.refuseDraft(props.collectionId, props.documentId)
-    draft.value = null
-    reviewing.value = false
-  })
-}
-
-async function validate() {
-  await run(async () => {
-    await api.validateDraft(props.collectionId, props.documentId)
-    draft.value = null
-    reviewing.value = false
-    emit('changed')
-  })
+  await request(text)
+  if (!error.value) prompt.value = ''
 }
 
 const STATUS_LABEL: Record<DocumentDraft['status'], string> = {
@@ -127,7 +45,7 @@ const STATUS_LABEL: Record<DocumentDraft['status'], string> = {
   <section v-if="editable && loaded" class="edit">
     <h3 class="edit__title">Modifier avec l’agent</h3>
 
-    <form v-if="!draft" class="edit__form" @submit.prevent="request">
+    <form v-if="!draft" class="edit__form" @submit.prevent="submit">
       <label for="edit-prompt" class="edit__hint">
         Décrivez la modification à faire. L’agent prépare une proposition : vous la relisez avant qu’elle soit
         enregistrée.

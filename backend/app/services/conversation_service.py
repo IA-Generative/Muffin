@@ -46,7 +46,7 @@ class ConversationService:
     async def list_messages(self, conversation_id: uuid.UUID, user: RequestContext) -> list[MessageOut]:
         conversation = await self._get_owned(conversation_id, user)
         rows = await self.conversations.list_messages(conversation.id)
-        message_ids = [message.id for message, _ in rows]
+        message_ids = [message.id for message, _citations, _proposal in rows]
         feedback_map = await self.feedbacks.get_user_feedback_for_messages(message_ids, user.user_id)
         return [
             MessageOut(
@@ -56,9 +56,10 @@ class ConversationService:
                 created_at=message.created_at,
                 run_id=message.run_id,
                 citations=citations,
+                edit_proposal=edit_proposal,
                 feedback=feedback_map.get(message.id),
             )
-            for message, citations in rows
+            for message, citations, edit_proposal in rows
         ]
 
     async def rename_conversation(

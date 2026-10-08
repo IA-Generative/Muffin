@@ -95,6 +95,7 @@ def test_finalize_reports_the_grounding_verdict_alongside_the_result(monkeypatch
         latency_ms=None,
         prompt_tokens=None,
         completion_tokens=None,
+        edit_proposal=None,
     )
 
 
@@ -118,6 +119,7 @@ def test_finalize_reports_no_grounding_verdict_when_validate_grounding_was_skipp
         latency_ms=None,
         prompt_tokens=None,
         completion_tokens=None,
+        edit_proposal=None,
     )
 
 
@@ -135,3 +137,14 @@ def test_finalize_persists_pending_human_action_on_interrupt(monkeypatch):
         "run-1", pending_human_action={"question": "Which department do you mean?"}
     )
     fake.get_default_chat_model.assert_not_called()
+
+
+def test_finalize_hands_the_edit_proposal_to_the_backend_with_the_answer(monkeypatch):
+    fake = MagicMock()
+    fake.get_default_chat_model.return_value = None
+    monkeypatch.setattr("app.agent_service.backend_client", fake)
+    proposal = {"collection_id": "col-1", "document_id": "doc-1", "document_name": "procedure.odt"}
+
+    AgentService()._finalize("run-1", _completed_state(edit_proposal=proposal))
+
+    assert fake.set_run_result.call_args.kwargs["edit_proposal"] == proposal

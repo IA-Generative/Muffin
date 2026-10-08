@@ -41,12 +41,15 @@ class ConversationRepository:
         )
         return result.scalars().all(), total or 0
 
-    async def list_messages(self, conversation_id: uuid.UUID) -> Sequence[tuple[Message, list[dict] | None]]:
+    async def list_messages(
+        self, conversation_id: uuid.UUID
+    ) -> Sequence[tuple[Message, list[dict] | None, dict | None]]:
         """Joined to Run rather than storing citations on Message too - Run is already the
         source of truth for them (§ conversation persistence), and a message never outlives the
-        run that produced it in any way that would make them diverge."""
+        run that produced it in any way that would make them diverge. Same for the edit proposal
+        a run may have delegated (#171)."""
         result = await self.db.execute(
-            select(Message, Run.citations)
+            select(Message, Run.citations, Run.edit_proposal)
             .outerjoin(Run, Message.run_id == Run.id)
             .where(Message.conversation_id == conversation_id)
             .order_by(Message.created_at)

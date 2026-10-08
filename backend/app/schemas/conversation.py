@@ -26,6 +26,9 @@ class MessageOut(BaseModel):
     # still in memory) render citation footnotes and fetch its execution detail.
     run_id: uuid.UUID | None = None
     citations: list[dict[str, Any]] | None = None
+    # The edit of a living document the run behind this message delegated to the editing agent
+    # (#171) - restored with the message so the proposal card survives a page reload.
+    edit_proposal: dict[str, Any] | None = None
     # The feedback value (up/down) the current user left on this message, if any - restored
     # after a page reload so the thumbs-up/down button stays highlighted.
     feedback: FeedbackValue | None = None
