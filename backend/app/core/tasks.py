@@ -37,6 +37,11 @@ RUN_EVALUATION_TASK = "app.tasks.run_evaluation"
 # run_evaluation, so it doesn't warrant its own dedicated service/Dockerfile/queue.
 SCORE_DISCUSSION_TASK = "app.tasks.score_discussion"
 
+# And again for worker/document_edit (#167) - an edit job runs an LLM and a LibreOffice
+# conversion, so it gets its own queue rather than competing with the others.
+DOCUMENT_EDIT_QUEUE = "document_edit"
+EDIT_DOCUMENT_TASK = "app.tasks.edit_document"
+
 
 def enqueue_process_document(document_id: str) -> str:
     """Returns the Celery task id, so the caller can record it (see
@@ -86,6 +91,16 @@ def enqueue_score_discussion(conversation_id: str, model: str | None = None) -> 
     being a no-op."""
     args: list = [conversation_id] if model is None else [conversation_id, model]
     result = _celery_app.send_task(SCORE_DISCUSSION_TASK, args=args, queue=EVALUATION_QUEUE)
+    return result.id
+
+
+def enqueue_edit_document(payload: dict) -> str:
+    """Returns the Celery task id, recorded as a document-scoped Task row (see
+    app/routers/internal_tasks.py). `payload` is worker/document_edit's EditJobInput
+    (app/contract.py there) - a plain dict, not a shared class, since the backend never imports a
+    worker's code. The worker is stateless: it writes a draft to RustFS and returns its result,
+    the validate/adjust/refuse loop lives in the backend."""
+    result = _celery_app.send_task(EDIT_DOCUMENT_TASK, args=[payload], queue=DOCUMENT_EDIT_QUEUE)
     return result.id
 
 

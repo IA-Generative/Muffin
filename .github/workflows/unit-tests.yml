@@ -4,7 +4,7 @@ name: Unit Tests
 # frontend/scripts/screenshot.mjs - visual checks only), just typecheck+build
 # covered by lint.yml. Add a frontend job here once one exists.
 #
-# All three Python workers (document_process, agent_execution, evaluation) run
+# All four Python workers (document_process, agent_execution, evaluation, document_edit) run
 # the same uv sync --group dev + pytest pattern.
 
 on:
@@ -148,4 +148,28 @@ jobs:
 
       - name: Run tests
         working-directory: worker/evaluation
+        run: uv run pytest
+
+  unit-tests-worker-document-edit:
+    name: worker/document_edit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+        with:
+          python-version: ${{ inputs.PYTHON_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: worker/document_edit/uv.lock
+
+      - name: Install worker dependencies
+        working-directory: worker/document_edit
+        run: uv sync --group dev
+
+      - name: Run tests
+        working-directory: worker/document_edit
         run: uv run pytest

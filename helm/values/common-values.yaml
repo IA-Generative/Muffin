@@ -184,6 +184,34 @@ worker_evaluation:
     CELERY_QUEUE_NAME: "evaluation"
     BACKEND_API_URL: "http://muffin-backend:8000"
 
+# Celery worker - living document editing (worker/document_edit). Reads the source file and writes
+# the draft in the same S3 as the documents, hence `muffin-s3`.
+worker_document_edit:
+  image:
+    registry: "harbor.sdid.cpin.numerique-interieur.com"
+    repository: "exploration/muffin-worker-document-edit"
+    pullPolicy: "Always"
+  serviceAccount:
+    enabled: true
+    create: true
+  # KEDA ScaledObject on the Celery Redis queue - see document_process above.
+  # Probes disabled - see document_process above for rationale.
+  probes:
+    startupProbe: null
+    readinessProbe: null
+    livenessProbe: null
+  envFrom:
+  - secretRef:
+      name: "muffin-s3"
+  - secretRef:
+      name: "muffin-worker"
+  - secretRef:
+      name: "muffin-redis"
+  env:
+    CELERY_QUEUE_NAME: "document_edit"
+    BACKEND_API_URL: "http://muffin-backend:8000"
+    AWS_ENDPOINT_URL: "https://s3.fr-par.scw.cloud"
+
 jobs:
   migration:
     image:
@@ -662,6 +690,30 @@ extraObjects:
           address: "muffin-redis.{{ .Release.Namespace }}.svc.cluster.local:6379"
           listName: "evaluation"
           listLength: "5"
+        authenticationRef:
+          name: muffin-keda-triggerauth
+
+  # ScaledObject for worker_document_edit (queue: document_edit)
+  muffin-keda-worker-document-edit:
+    apiVersion: keda.sh/v1alpha1
+    kind: ScaledObject
+    metadata:
+      name: muffin-worker-document-edit
+    spec:
+      scaleTargetRef:
+        name: muffin-worker-document-edit
+        kind: Deployment
+        apiVersion: apps/v1
+      minReplicaCount: 1
+      maxReplicaCount: 3
+      pollingInterval: 30
+      triggers:
+      - type: redis
+        metricType: AverageValue
+        metadata:
+          address: "muffin-redis.{{ .Release.Namespace }}.svc.cluster.local:6379"
+          listName: "document_edit"
+          listLength: "3"
         authenticationRef:
           name: muffin-keda-triggerauth
 
