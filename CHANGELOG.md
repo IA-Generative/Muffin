@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.14.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.13.0...v0.14.0-rc) (2026-10-08)
+
+
+### Features
+
+* **documents:** download living document revisions and create Markdown from scratch ([584b276](https://github.com/IA-Generative/Muffin/commit/584b276d0badf5e38558e7ba43eb3fe67d39b516)), closes [#172](https://github.com/IA-Generative/Muffin/issues/172)
+* **documents:** living documents with revisions and single-document reindex ([08658c5](https://github.com/IA-Generative/Muffin/commit/08658c5221bd339f61b769a7cae5afa0dd1abaf6)), closes [#166](https://github.com/IA-Generative/Muffin/issues/166)
+* **documents:** soft edit lock and revision check for living documents ([ecc55d7](https://github.com/IA-Generative/Muffin/commit/ecc55d75603e0bd446c11d822391ed5bffa1bfee)), closes [#170](https://github.com/IA-Generative/Muffin/issues/170)
+* **frontend:** living documents UI with revision history and edit lock ([bb9c317](https://github.com/IA-Generative/Muffin/commit/bb9c3172dca63fd0292eaeb033270c0db53c1465)), closes [#172](https://github.com/IA-Generative/Muffin/issues/172)
+* **worker:** add the document_edit worker skeleton ([dcc2751](https://github.com/IA-Generative/Muffin/commit/dcc2751f96818b9dbe56a7f0fd313d5617054f62)), closes [#167](https://github.com/IA-Generative/Muffin/issues/167)
+* **worker:** index Markdown files as a single page without liteparse ([184ebc6](https://github.com/IA-Generative/Muffin/commit/184ebc608aff5e4cd358a28c93c338d67ff037b4))
+
 ## [0.13.0](https://github.com/IA-Generative/Muffin/compare/v0.12.1...v0.13.0) (2026-09-29)
 
 
