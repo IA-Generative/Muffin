@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import LivingDocumentEdit from './LivingDocumentEdit.vue'
 import {
   LivingDocumentError,
   useLivingDocuments,
@@ -26,6 +27,8 @@ const lock = ref<DocumentLock | null>(null)
 const loadError = ref(false)
 const actionError = ref<string | null>(null)
 const isBusy = ref(false)
+// A proposed edit exists: it holds the document's lock, so the lock banner explains that instead.
+const hasDraft = ref(false)
 
 const current = computed(() => revisions.value?.find((revision) => revision.isCurrent))
 // Someone (possibly this very user, elsewhere) is editing: writes would be refused anyway.
@@ -76,6 +79,12 @@ async function run(action: () => Promise<void>) {
   }
 }
 
+// The proposed edit was validated: the document has a new revision and is being reindexed.
+async function onDraftValidated() {
+  emit('changed')
+  await load()
+}
+
 // Read-only, so it stays available to everyone who can open the panel, even while the document
 // is locked or being reindexed.
 async function download(revision?: DocumentRevision) {
@@ -119,7 +128,19 @@ onUnmounted(() => clearInterval(timer))
     <p v-else-if="!revisions" class="revisions__loading">Chargement…</p>
 
     <template v-else>
-      <p v-if="lock" class="revisions__lock" role="status">
+      <LivingDocumentEdit
+        :collection-id="collectionId"
+        :document-id="documentId"
+        :editable="editable"
+        @has-draft="hasDraft = $event"
+        @changed="onDraftValidated"
+      />
+
+      <p v-if="lock && hasDraft && lock.heldByMe" class="revisions__lock" role="status">
+        <span aria-hidden="true">🔒</span>
+        Une modification proposée attend votre validation : le document est verrouillé en attendant.
+      </p>
+      <p v-else-if="lock" class="revisions__lock" role="status">
         <span aria-hidden="true">🔒</span>
         En cours de modification
         {{ lock.heldByMe ? 'dans une autre session de votre compte' : `par ${lock.lockedByDisplay ?? 'quelqu’un'}` }}
