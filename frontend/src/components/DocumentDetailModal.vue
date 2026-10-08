@@ -1,16 +1,21 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue'
 import type { CollectionDocument, Entity, EntityType, QaPair, Relation } from '../types/collection'
+import LivingDocumentRevisions from './LivingDocumentRevisions.vue'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
 
 const props = defineProps<{
   collectionId: string
   document: CollectionDocument
+  // Whether the viewer may replace/restore a living document's file (collection owner only).
+  editable?: boolean
 }>()
 
 const emit = defineEmits<{
   close: []
+  // A living document was replaced or restored - the parent refreshes its list.
+  changed: []
 }>()
 
 interface DocumentDetail {
@@ -31,7 +36,7 @@ interface DocumentPage {
   screenshot_url: string | null
 }
 
-type Tab = 'summary' | 'entities' | 'qa'
+type Tab = 'summary' | 'entities' | 'qa' | 'revisions'
 
 const activeTab = ref<Tab>('summary')
 
@@ -203,6 +208,15 @@ onMounted(() => {
             >
               Questions/réponses
             </button>
+            <button
+              v-if="document.kind === 'living'"
+              type="button"
+              class="document-modal__tab"
+              :class="{ 'document-modal__tab--active': activeTab === 'revisions' }"
+              @click="activeTab = 'revisions'"
+            >
+              Révisions
+            </button>
           </nav>
 
           <div class="document-modal__body">
@@ -263,6 +277,14 @@ onMounted(() => {
               </template>
               <p v-else class="document-modal__loading">Chargement…</p>
             </section>
+
+            <LivingDocumentRevisions
+              v-else-if="activeTab === 'revisions'"
+              :collection-id="collectionId"
+              :document-id="document.id"
+              :editable="editable ?? false"
+              @changed="emit('changed')"
+            />
           </div>
         </div>
       </div>

@@ -2,6 +2,9 @@ export interface CollectionDocument {
   id: string
   name: string
   type: 'file' | 'url'
+  // 'living' = an ODT/Markdown document with a revision history (#174), replaced rather than
+  // deleted and re-uploaded.
+  kind: 'standard' | 'living'
   status: 'pending' | 'indexing' | 'indexed' | 'error'
   progress: number
 }
