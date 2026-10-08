@@ -1,0 +1,10 @@
+{{- if .Values.enabled }}
+{{- if and .Values.worker_document_edit.serviceAccount.enabled .Values.worker_document_edit.serviceAccount.clusterRole.create .Values.worker_document_edit.serviceAccount.clusterRole.rules }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "helper.componentFullname" (dict "root" . "componentName" "worker_document_edit") }}
+  labels: {{- (include "helper.labels" (dict "root" . "componentName" "worker_document_edit")) | nindent 4 }}
+rules: {{- toYaml .Values.worker_document_edit.serviceAccount.clusterRole.rules | nindent 0 }}
+{{- end }}
+{{- end }}

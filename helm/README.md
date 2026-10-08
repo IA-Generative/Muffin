@@ -962,6 +962,227 @@ Kubernetes: `>=1.25.0-0`
 | searxng.podSecurityContext | object | `{"fsGroup":977,"fsGroupChangePolicy":"Always","runAsGroup":977,"runAsNonRoot":true,"runAsUser":977}` | Pod-level security context. The chart defaults to runAsUser: 977 (the `searxng` user inside the image) with fsGroup: 977. We add `fsGroupChangePolicy: Always` so Kubernetes recursively chowns the emptyDir contents on every pod start, ensuring /etc/searxng files are owned by searxng:searxng (the init container copies from a root-owned ConfigMap and cannot chown itself since it runs non-root). |
 | searxng.valkey | object | `{"enabled":false}` | Disable the embedded Valkey subchart; we use the top-level `redis` subchart (service: muffin-redis:6379) instead. |
 
+### WorkerDocumentEdit
+
+#### General
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| worker_document_edit.affinity | object | `{}` | Affinity used for app pod. |
+| worker_document_edit.args | list | `[]` | Worker_document_edit container command args. |
+| worker_document_edit.automountServiceAccountToken | bool | `false` | Mount the ServiceAccount token into the app pods. Defaults to false so a compromised container holds no API credentials; the API server does not need the token unless the app actually talks to the Kubernetes API. Applied at pod level so it holds even when `serviceAccount.name` points at an SA that automounts. |
+| worker_document_edit.command | list | `[]` | Worker_document_edit container command. |
+| worker_document_edit.containerPort | string | `nil` | Worker_document_edit container port number. Set to `null`/`0` (and disable `service`/probes) for components that don't listen on any port (e.g. a queue consumer). |
+| worker_document_edit.containerPortName | string | `"http"` | Worker_document_edit container port name. |
+| worker_document_edit.deploymentType | string | `"Deployment"` | Workload kind to deploy the app as. One of "Deployment", "StatefulSet" or "DaemonSet" (validated at render time - an unknown value fails instead of producing a release with no workload). Use the top-level `jobs` / `cronjobs` maps for one-off or scheduled workloads. Some values only apply to certain kinds: `replicaCount`/`autoscaling` and `strategy` are Deployment-only (`autoscaling` also works on a StatefulSet), `volumeClaims`/`extraVolumeClaims` are StatefulSet-only, and `updateStrategy` covers StatefulSet and DaemonSet. |
+| worker_document_edit.dnsConfig | object | `{}` | Pod DNS configuration, merged with `dnsPolicy` by the kubelet. |
+| worker_document_edit.dnsPolicy | string | `""` (`ClusterFirstWithHostNet` when `hostNetwork` is true) | Pod DNS policy. Left empty, it defaults to `ClusterFirstWithHostNet` when `hostNetwork` is true (otherwise a hostNetwork pod silently stops resolving cluster DNS) and to the Kubernetes default `ClusterFirst` when it isn't. |
+| worker_document_edit.enableServiceLinks | bool | `false` | Inject the legacy `{SVC}_SERVICE_HOST`/`_PORT` environment variables for every Service in the namespace. Defaults to false: the variables are rarely used, leak the namespace's topology into every container, and can collide with the app's own configuration. Set to true only for an app that genuinely reads them. |
+| worker_document_edit.env | object | `{}` | Map or array of environment variables to inject into the app container (`valueFrom` supported). |
+| worker_document_edit.envCm | object | `{}` | Map of environment variables to inject into a configmap loaded by the app container (`valueFrom` not supported). |
+| worker_document_edit.envFrom | list | `[]` | Worker_document_edit container env variables loaded from configmap or secret reference. List or map (merged with `global.envFrom` above, global entries first); see `global.envFrom` for both forms. |
+| worker_document_edit.envSecret | object | `{}` | Map of environment variables to inject into a secret loaded by the app container (`valueFrom` not supported). Values placed here are stored in plain text in the values file AND in the Helm release secret, so use it for non-sensitive-but-secret-shaped config only. For real credentials prefer referencing a Secret you manage elsewhere via `envFrom`, or have an operator materialise it (see the `VaultStaticSecret` example under `extraObjects`). |
+| worker_document_edit.extraContainers | list | `[]` | Extra containers to add to the app pod as sidecars. |
+| worker_document_edit.extraPorts | list | `[]` | Worker_document_edit extra container ports. |
+| worker_document_edit.extraVolumeClaims | list | `[]` | Additional volumeClaims to add, concatenated with `volumeClaims` above at render time. |
+| worker_document_edit.extraVolumeMounts | list | `[]` | Additional volumeMounts to add, concatenated with `volumeMounts` above at render time. |
+| worker_document_edit.extraVolumes | list | `[]` | Additional volumes to add, concatenated with `volumes` above at render time (e.g. to mount a cert or config from a values override without repeating the chart's own volumes). |
+| worker_document_edit.hostAliases | list | `[]` | Host aliases that will be injected at pod-level into /etc/hosts. |
+| worker_document_edit.hostNetwork | bool | `false` | Share the host network namespace. Container ports then bind directly on the node, so they must not collide with anything else running there. |
+| worker_document_edit.hostPID | bool | `false` | Share the host PID namespace (lets the container see and signal host processes). |
+| worker_document_edit.imagePullSecrets | list | `[]` | Image credentials configuration. |
+| worker_document_edit.initContainers | list | `[]` | Init containers to add to the app pod. |
+| worker_document_edit.nodeSelector | object | `{}` | Default node selector for app. |
+| worker_document_edit.podAnnotations | object | `{}` | Annotations for the app deployed pods. |
+| worker_document_edit.podLabels | object | `{}` | Labels for the app deployed pods. |
+| worker_document_edit.podSecurityContext | object | `{"fsGroup":1000,"fsGroupChangePolicy":"OnRootMismatch","runAsGroup":1000,"runAsNonRoot":true,"runAsUser":1000,"seccompProfile":{"type":"RuntimeDefault"}}` | Pod-level security context. Defaults to a hardened baseline that satisfies the `restricted` Pod Security Standard. Rendered via `toYaml`, so any `PodSecurityContext` field is accepted. Adjust the UID/GID to whatever your image actually ships with - `runAsNonRoot` makes the kubelet refuse to start a container that would run as root, which is the intended failure mode rather than something to switch off. Set to `null` to omit the block entirely. |
+| worker_document_edit.priorityClassName | string | `""` | PriorityClass to schedule the pods with (e.g. `system-node-critical` for a node agent that must not be evicted under pressure). |
+| worker_document_edit.replicaCount | int | `1` | The number of application controller pods to run. Ignored when `deploymentType` is "DaemonSet" (one pod per node) or when `autoscaling.enabled` is true. |
+| worker_document_edit.revisionHistoryLimit | int | `10` | Revision history limit for the app. |
+| worker_document_edit.securityContext | object | `{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"privileged":false,"readOnlyRootFilesystem":true,"runAsGroup":1000,"runAsNonRoot":true,"runAsUser":1000}` | Container-level security context. Defaults to a hardened baseline that satisfies the `restricted` Pod Security Standard: no privilege escalation, no capabilities, immutable root filesystem. Rendered via `toYaml`, so any `SecurityContext` field is accepted. Note `readOnlyRootFilesystem` requires the app to write only to mounted volumes - the default `volumes`/`volumeMounts` below provide an `emptyDir` on /tmp for that reason. Set to `null` to omit the block entirely. |
+| worker_document_edit.terminationGracePeriodSeconds | int | `null` (Kubernetes default of 30) | Grace period, in seconds, given to the pod to shut down cleanly before it is killed. |
+| worker_document_edit.tolerations | list | `[]` | Default tolerations for app. |
+| worker_document_edit.topologySpreadConstraints | list | `[]` | Topology spread constraints used to spread the pods across failure domains. |
+| worker_document_edit.updateStrategy | object | `{}` | Update strategy applied when `deploymentType` is "StatefulSet" or "DaemonSet" (ignored for a Deployment, which uses `strategy` above). Rendered verbatim via `toYaml`, so it takes the native `StatefulSetUpdateStrategy`/`DaemonSetUpdateStrategy` shape of the selected kind; left empty, Kubernetes applies its own default (`RollingUpdate` for both). |
+| worker_document_edit.volumeClaims | list | `[]` | List of volumeClaims to add, rendered as the StatefulSet's `volumeClaimTemplates`. Requires `deploymentType: "StatefulSet"` - setting it on a Deployment or DaemonSet fails at render time rather than being silently dropped (use `volumes`/`extraVolumes` there instead). |
+| worker_document_edit.volumeMounts | list | `[{"mountPath":"/tmp","name":"tmp"}]` | List of mounts to add (normally used with `volumes` or `volumeClaims`). Prefer this for mounts the chart itself always needs; use `extraVolumeMounts` below for anything you add on top, so overriding one doesn't require repeating the other. Defaults to the `/tmp` mount backing the hardened `readOnlyRootFilesystem` default (see `volumes` above). |
+| worker_document_edit.volumes | list | `[{"emptyDir":{},"name":"tmp"}]` | List of volumes to add. Prefer this for volumes the chart itself always needs (e.g. security-hardening `emptyDir`s); use `extraVolumes` below for anything you add on top, so overriding one doesn't require repeating the other. Defaults to a `/tmp` `emptyDir`, which is what makes the default `securityContext.readOnlyRootFilesystem: true` usable - drop it only if you also relax that. Helm replaces lists wholesale rather than merging them, so overriding this key means restating the entries you want to keep. |
+
+#### Autoscaling
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| worker_document_edit.autoscaling.enabled | bool | `false` | Enable Horizontal Pod Autoscaler for the app. |
+| worker_document_edit.autoscaling.maxReplicas | int | `3` | Maximum number of replicas for the app. |
+| worker_document_edit.autoscaling.minReplicas | int | `1` | Minimum number of replicas for the app. |
+| worker_document_edit.autoscaling.targetCPUUtilizationPercentage | int | `80` | Average CPU utilization percentage for the app. |
+| worker_document_edit.autoscaling.targetMemoryUtilizationPercentage | int | `80` | Average memory utilization percentage for the app. |
+
+#### GrpcRoute
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| worker_document_edit.grpcRoute.annotations | object | `{}` | Additional GRPCRoute annotations. |
+| worker_document_edit.grpcRoute.enabled | bool | `false` | Enable a GRPCRoute resource for this service. |
+| worker_document_edit.grpcRoute.hostnames | list | `[]` | Hostnames for the GRPCRoute to match. |
+| worker_document_edit.grpcRoute.labels | object | `{}` | Additional GRPCRoute labels. |
+| worker_document_edit.grpcRoute.parentRefs | list | `[]` | Parent references (Gateways) to attach the GRPCRoute to. |
+| worker_document_edit.grpcRoute.rules | list | `[]` | Routing rules for the GRPCRoute. |
+
+#### HttpRoute
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| worker_document_edit.httpRoute.annotations | object | `{}` | Additional HTTPRoute annotations. |
+| worker_document_edit.httpRoute.enabled | bool | `false` | Enable an HTTPRoute resource for this service. |
+| worker_document_edit.httpRoute.hostnames | list | `[]` | Hostnames for the HTTPRoute to match. |
+| worker_document_edit.httpRoute.labels | object | `{}` | Additional HTTPRoute labels. |
+| worker_document_edit.httpRoute.parentRefs | list | `[]` | Parent references (Gateways) to attach the HTTPRoute to. |
+| worker_document_edit.httpRoute.rules | list | `[]` | Routing rules for the HTTPRoute. |
+
+#### Image
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| worker_document_edit.image.digest | string | `""` | Image digest (`sha256:...`). When set it takes precedence over `tag`, pinning the exact image content so the same release can never resolve to a different build - preferred over a mutable tag for anything you deploy to production. |
+| worker_document_edit.image.pullPolicy | string | `"IfNotPresent"` | Image pull policy for the app. |
+| worker_document_edit.image.registry | string | `"ghcr.io"` | Registry to use for the app. |
+| worker_document_edit.image.repository | string | `"ia-generative/muffin-worker-document-edit"` | Repository to use for the app. |
+| worker_document_edit.image.tag | string | `""` | Tag to use for the app. Overrides the image tag whose default is the chart appVersion. |
+
+#### Ingress
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| worker_document_edit.ingress.annotations | object | `{}` | Additional ingress annotations. |
+| worker_document_edit.ingress.className | string | `""` | Defines which ingress controller will implement the resource. |
+| worker_document_edit.ingress.enabled | bool | `false` | Whether or not ingress should be enabled. |
+| worker_document_edit.ingress.hosts[0].name | string | `"domain.local"` | Name of the host record. |
+| worker_document_edit.ingress.hosts[0].paths | list | `[{"backend":{"portNumber":null,"serviceName":""},"path":"/","pathType":"Prefix"}]` | Paths of the host record to manage routing (avoids repeating the same host for multiple paths/backends). |
+| worker_document_edit.ingress.hosts[0].paths[0].backend.portNumber | string | `nil` | Port used by the backend service linked to the path (leave null to use the app service port). |
+| worker_document_edit.ingress.hosts[0].paths[0].backend.serviceName | string | `""` | Name of the backend service linked to the path (leave empty to use the app service). |
+| worker_document_edit.ingress.hosts[0].paths[0].path | string | `"/"` | Path of the host record to manage routing. |
+| worker_document_edit.ingress.hosts[0].paths[0].pathType | string | `"Prefix"` | Path type of the host record. |
+| worker_document_edit.ingress.labels | object | `{}` | Additional ingress labels. |
+| worker_document_edit.ingress.tls | list | `[]` | Enable TLS configuration. |
+
+#### Metrics
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| worker_document_edit.metrics.enabled | bool | `false` | Deploy metrics service. |
+| worker_document_edit.metrics.service.annotations | object | `{}` | Metrics service annotations. |
+| worker_document_edit.metrics.service.labels | object | `{}` | Metrics service labels. |
+| worker_document_edit.metrics.service.port | int | `9000` | Metrics service port. |
+| worker_document_edit.metrics.service.portName | string | `"metrics"` | Metrics service port name. |
+| worker_document_edit.metrics.service.targetPort | int | `9000` | Metrics service target port. |
+| worker_document_edit.metrics.service.type | string | `"ClusterIP"` | Type of metrics service to create. |
+| worker_document_edit.metrics.serviceMonitor.annotations | object | `{}` | Prometheus ServiceMonitor annotations. |
+| worker_document_edit.metrics.serviceMonitor.enabled | bool | `false` | Enable a prometheus ServiceMonitor. |
+| worker_document_edit.metrics.serviceMonitor.endpoints[0].basicAuth.password | string | `""` | The secret in the service monitor namespace that contains the password for authentication. |
+| worker_document_edit.metrics.serviceMonitor.endpoints[0].basicAuth.username | string | `""` | The secret in the service monitor namespace that contains the username for authentication. |
+| worker_document_edit.metrics.serviceMonitor.endpoints[0].bearerTokenSecret.key | string | `""` | Secret key to mount to read bearer token for scraping targets. The secret needs to be in the same namespace as the service monitor and accessible by the Prometheus Operator. |
+| worker_document_edit.metrics.serviceMonitor.endpoints[0].bearerTokenSecret.name | string | `""` | Secret name to mount to read bearer token for scraping targets. The secret needs to be in the same namespace as the service monitor and accessible by the Prometheus Operator. |
+| worker_document_edit.metrics.serviceMonitor.endpoints[0].honorLabels | bool | `false` | When true, honorLabels preserves the metric’s labels when they collide with the target’s labels. |
+| worker_document_edit.metrics.serviceMonitor.endpoints[0].interval | string | `"30s"` | Prometheus ServiceMonitor interval. |
+| worker_document_edit.metrics.serviceMonitor.endpoints[0].metricRelabelings | list | `[]` | Prometheus MetricRelabelConfigs to apply to samples before ingestion. |
+| worker_document_edit.metrics.serviceMonitor.endpoints[0].path | string | `"/metrics"` | Path used by the Prometheus ServiceMonitor to scrape metrics. |
+| worker_document_edit.metrics.serviceMonitor.endpoints[0].relabelings | list | `[]` | Prometheus RelabelConfigs to apply to samples before scraping. |
+| worker_document_edit.metrics.serviceMonitor.endpoints[0].scheme | string | `""` | Prometheus ServiceMonitor scheme. |
+| worker_document_edit.metrics.serviceMonitor.endpoints[0].scrapeTimeout | string | `"10s"` | Prometheus ServiceMonitor scrapeTimeout. If empty, Prometheus uses the global scrape timeout unless it is less than the target's scrape interval value in which the latter is used. |
+| worker_document_edit.metrics.serviceMonitor.endpoints[0].selector | object | `{}` | Prometheus ServiceMonitor selector. |
+| worker_document_edit.metrics.serviceMonitor.endpoints[0].tlsConfig | object | `{}` | Prometheus ServiceMonitor tlsConfig. |
+| worker_document_edit.metrics.serviceMonitor.labels | object | `{}` | Prometheus ServiceMonitor labels. |
+
+#### NetworkPolicy
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| worker_document_edit.networkPolicy.annotations | object | `{}` | Annotations to be added to the app NetworkPolicy. |
+| worker_document_edit.networkPolicy.create | bool | `false` | Create NetworkPolicy object for the app. The policy always selects this component's pods only (via its selector labels), never the whole namespace. |
+| worker_document_edit.networkPolicy.egress | list | `[]` | Egress rules for the NetworkPolicy object. |
+| worker_document_edit.networkPolicy.ingress | list | `[]` | Ingress rules for the NetworkPolicy object. |
+| worker_document_edit.networkPolicy.labels | object | `{}` | Labels to be added to the app NetworkPolicy. |
+| worker_document_edit.networkPolicy.policyTypes | list | `["Ingress"]` | Policy types used in the NetworkPolicy object. |
+
+#### Pdb
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| worker_document_edit.pdb.annotations | object | `{}` | Annotations to be added to app pdb. |
+| worker_document_edit.pdb.enabled | bool | `false` | Deploy a PodDisruptionBudget for the app |
+| worker_document_edit.pdb.labels | object | `{}` | Labels to be added to app pdb. |
+| worker_document_edit.pdb.maxUnavailable | string | `""` | Number of pods that are unavailable after eviction as number or percentage (eg.: 50%). Has higher precedence over `agent_execution.pdb.minAvailable`. |
+| worker_document_edit.pdb.minAvailable | string | `""` | Number of pods that are available after eviction as number or percentage (eg.: 50%). One of `minAvailable` / `maxUnavailable` must be set when `pdb.enabled` is true - a budget of 0 is the same as having no budget at all, so leaving both empty fails at render time. |
+
+#### Probes
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| worker_document_edit.probes.livenessProbe.exec | object | `{"command":["celery","-A","app.celery_app","inspect","ping","-d","celery@$(HOSTNAME)"]}` | Worker_document_edit container healthcheck (livenessProbe is defined using `toYaml` so it is possible to override it completely). Uses `celery inspect ping` since Celery workers don't expose an HTTP endpoint. |
+| worker_document_edit.probes.livenessProbe.failureThreshold | int | `3` | Minimum consecutive failures for the probe to be considered failed after having succeeded. |
+| worker_document_edit.probes.livenessProbe.initialDelaySeconds | int | `30` | Number of seconds after the container has started before probe is initiated. |
+| worker_document_edit.probes.livenessProbe.periodSeconds | int | `30` | How often (in seconds) to perform the probe. |
+| worker_document_edit.probes.livenessProbe.successThreshold | int | `1` | Minimum consecutive successes for the probe to be considered successful after having failed. |
+| worker_document_edit.probes.livenessProbe.timeoutSeconds | int | `5` | Number of seconds after which the probe times out. |
+| worker_document_edit.probes.readinessProbe.exec | object | `{"command":["celery","-A","app.celery_app","inspect","ping","-d","celery@$(HOSTNAME)"]}` | Worker_document_edit container healthcheck (readinessProbe is defined using `toYaml` so it is possible to override it completely). Uses `celery inspect ping` since Celery workers don't expose an HTTP endpoint. |
+| worker_document_edit.probes.readinessProbe.failureThreshold | int | `2` | Minimum consecutive failures for the probe to be considered failed after having succeeded. |
+| worker_document_edit.probes.readinessProbe.initialDelaySeconds | int | `10` | Number of seconds after the container has started before probe is initiated. |
+| worker_document_edit.probes.readinessProbe.periodSeconds | int | `10` | How often (in seconds) to perform the probe. |
+| worker_document_edit.probes.readinessProbe.successThreshold | int | `2` | Minimum consecutive successes for the probe to be considered successful after having failed. |
+| worker_document_edit.probes.readinessProbe.timeoutSeconds | int | `5` | Number of seconds after which the probe times out. |
+| worker_document_edit.probes.startupProbe.exec | object | `{"command":["celery","-A","app.celery_app","inspect","ping","-d","celery@$(HOSTNAME)"]}` | Worker_document_edit container healthcheck (startupProbe is defined using `toYaml` so it is possible to override it completely). Uses `celery inspect ping` since Celery workers don't expose an HTTP endpoint. |
+| worker_document_edit.probes.startupProbe.failureThreshold | int | `10` | Minimum consecutive failures for the probe to be considered failed after having succeeded. |
+| worker_document_edit.probes.startupProbe.initialDelaySeconds | int | `0` | Number of seconds after the container has started before probe is initiated. |
+| worker_document_edit.probes.startupProbe.periodSeconds | int | `10` | How often (in seconds) to perform the probe. |
+| worker_document_edit.probes.startupProbe.successThreshold | int | `1` | Minimum consecutive successes for the probe to be considered successful after having failed. |
+| worker_document_edit.probes.startupProbe.timeoutSeconds | int | `5` | Number of seconds after which the probe times out. |
+
+#### Resources
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| worker_document_edit.resources.limits.cpu | string | `"500m"` | CPU limit for the app. |
+| worker_document_edit.resources.limits.memory | string | `"2Gi"` | Memory limit for the app. |
+| worker_document_edit.resources.requests.cpu | string | `"100m"` | CPU request for the app. |
+| worker_document_edit.resources.requests.memory | string | `"256Mi"` | Memory request for the app. |
+
+#### Service
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| worker_document_edit.service.enabled | bool | `true` | Whether or not to create a Service for the app. Set to `false` for components that don't accept traffic (e.g. a queue consumer with no `containerPort`). |
+| worker_document_edit.service.extraPorts | list | `[]` | Extra service ports. |
+| worker_document_edit.service.nodePort | int | `null` (allocated by Kubernetes) | Port used when type is `NodePort` to expose the service on the given node port. Left empty, Kubernetes allocates one from the configured node-port range, which avoids two releases of this chart colliding on the same hardcoded port. |
+| worker_document_edit.service.port | int | `80` | Port used by the service. |
+| worker_document_edit.service.portName | string | `"http"` | Port name used by the service. |
+| worker_document_edit.service.protocol | string | `"TCP"` | Protocol used by the service. |
+| worker_document_edit.service.type | string | `"ClusterIP"` | Type of service to create for the app. |
+
+#### ServiceAccount
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| worker_document_edit.serviceAccount.annotations | object | `{}` | Annotations applied to created service account. |
+| worker_document_edit.serviceAccount.automountServiceAccountToken | bool | `false` | Should the service account access token be automount in the pod. |
+| worker_document_edit.serviceAccount.clusterRole.create | bool | `false` | Should the clusterRole be created. |
+| worker_document_edit.serviceAccount.clusterRole.rules | list | `[]` | ClusterRole rules associated with the service account. |
+| worker_document_edit.serviceAccount.create | bool | `false` | Create a service account. |
+| worker_document_edit.serviceAccount.enabled | bool | `false` | Enable the service account. |
+| worker_document_edit.serviceAccount.name | string | `""` | Service account name. |
+| worker_document_edit.serviceAccount.role.create | bool | `false` | Should the role be created. |
+| worker_document_edit.serviceAccount.role.rules | list | `[]` | Role rules associated with the service account. |
+
+#### Strategy
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| worker_document_edit.strategy.rollingUpdate.maxSurge | int | `1` | The maximum number of pods that can be scheduled above the desired number of pods. |
+| worker_document_edit.strategy.rollingUpdate.maxUnavailable | int | `1` | The maximum number of pods that can be unavailable during the update process. |
+| worker_document_edit.strategy.type | string | `"RollingUpdate"` | Strategy type used to replace old Pods by new ones, can be `Recreate` or `RollingUpdate`. Only applied when `deploymentType` is "Deployment". |
+
+## Sources
+
 ### WorkerEvaluation
 
 #### General

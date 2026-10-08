@@ -19,8 +19,9 @@ SearXNG) :
 | [`worker/document_process/`](worker/document_process/README.md) | Worker Celery : ingère un document (parsing, OCR, chunking, résumé, QA, embeddings) | [worker/document_process/README.md](worker/document_process/README.md) |
 | [`worker/agent_execution/`](worker/agent_execution/README.md) | Worker Celery : exécute le graphe LangGraph de l'agent de recherche pour un run donné | [worker/agent_execution/README.md](worker/agent_execution/README.md) |
 | [`worker/evaluation/`](worker/evaluation/README.md) | Worker Celery : évalue le retrieval d'une collection contre ses paires QA validées (issue #11) | [worker/evaluation/README.md](worker/evaluation/README.md) |
+| [`worker/document_edit/`](worker/document_edit/README.md) | Worker Celery : produit un brouillon d'un document vivant (ODT/Markdown) à partir d'un prompt, soumis à validation (issue #167) | [worker/document_edit/README.md](worker/document_edit/README.md) |
 
-Les trois workers ne parlent jamais directement à Postgres/Meilisearch/RustFS : ils passent
+Les quatre workers ne parlent jamais directement à Postgres/Meilisearch/RustFS : ils passent
 uniquement par les endpoints internes du backend (`/internal/*`, authentifiés par un secret
 partagé `WORKER_API_KEY`). Le backend reste le seul point d'accès aux données.
 
@@ -34,8 +35,9 @@ frontend ──HTTP──▶ backend ──┬──▶ Postgres
 backend ──Celery/Redis──▶ worker/document_process  (ingestion)
 backend ──Celery/Redis──▶ worker/agent_execution    (recherche)
 backend ──Celery/Redis──▶ worker/evaluation         (évaluation retrieval, queue dédiée)
+backend ──Celery/Redis──▶ worker/document_edit      (édition d'un document vivant, queue dédiée)
 
-les trois workers ──HTTP──▶ backend (/internal/*)
+les quatre workers ──HTTP──▶ backend (/internal/*)
 worker/agent_execution ──HTTP──▶ SearXNG (outil web_search, seule exception au point ci-dessus -
                                   jamais via le backend, aucune donnée utilisateur stockée là)
 ```

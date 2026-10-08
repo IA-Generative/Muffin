@@ -33,7 +33,7 @@ d'environnement (exportée par Docker Compose ou la CI) l'emporte toujours sur u
 
 | Variable | Définition | Défaut | Utilisée par |
 |---|---|---|---|
-| `REDIS_URL` | URL Redis (broker ET result backend Celery, aussi utilisé comme checkpointer LangGraph côté agent_execution) | `redis://localhost:6379/0` | **backend** (`app/config/redis.py` → `app/core/tasks.py`, producteur Celery), **worker/document_process**, **worker/agent_execution** (`app/config.py`, chacun avec sa propre queue) |
+| `REDIS_URL` | URL Redis (broker ET result backend Celery, aussi utilisé comme checkpointer LangGraph côté agent_execution) | `redis://localhost:6379/0` | **backend** (`app/config/redis.py` → `app/core/tasks.py`, producteur Celery), **worker/document_process**, **worker/agent_execution**, **worker/evaluation**, **worker/document_edit** (`app/config.py`, chacun avec sa propre queue) |
 
 Le broker est un unique `redis-stack-server` partagé ; les deux workers consomment des queues
 Celery distinctes (`document_processing`, `agent_execution`) sur ce même Redis, avec une queue
@@ -126,7 +126,7 @@ désactivée par défaut en amont et doit être explicitement activée côté se
 
 | Variable | Définition | Défaut | Utilisée par |
 |---|---|---|---|
-| `WORKER_API_KEY` | Secret partagé, vérifié sur chaque appel `/internal/*` par `app/core/security/worker_auth.py` (dépendance `require_worker_api_key`) | `""` côté backend / `""` côté workers | **backend** (`app/config/worker.py`), **worker/document_process**, **worker/agent_execution**, **worker/evaluation** — doit être identique des deux côtés, sinon tout appel interne échoue en 401 |
+| `WORKER_API_KEY` | Secret partagé, vérifié sur chaque appel `/internal/*` par `app/core/security/worker_auth.py` (dépendance `require_worker_api_key`) | `""` côté backend / `""` côté workers | **backend** (`app/config/worker.py`), **worker/document_process**, **worker/agent_execution**, **worker/evaluation**, **worker/document_edit** — doit être identique des deux côtés, sinon tout appel interne échoue en 401 |
 
 ## Partage de collections (invitations hashées)
 
@@ -144,7 +144,7 @@ désactivée par défaut en amont et doit être explicitement activée côté se
 
 | Variable | Définition | Défaut | Utilisée par |
 |---|---|---|---|
-| `BACKEND_API_URL` | URL du backend vue par les workers, base de tous leurs appels `/internal/*` | `http://localhost:8000` | **worker/document_process**, **worker/agent_execution**, **worker/evaluation** (`app/config.py` → clients HTTP `backend_client.py`) |
+| `BACKEND_API_URL` | URL du backend vue par les workers, base de tous leurs appels `/internal/*` | `http://localhost:8000` | **worker/document_process**, **worker/agent_execution**, **worker/evaluation**, **worker/document_edit** (`app/config.py` → clients HTTP `backend_client.py`) |
 
 ## Logs
 
@@ -184,6 +184,13 @@ boucle de vérification (« grounding »).
 |---|---|---|---|
 | `CELERY_QUEUE_NAME` | Nom de la queue Celery consommée par ce worker | `evaluation` | **worker/evaluation** (`app/config.py`) |
 | `DEFAULT_TOP_K` | Nombre de chunks retrouvés par question quand `k` n'est pas explicitement passé à la tâche | `5` | idem (`app/tasks.py`) |
+
+## worker/document_edit — édition de documents vivants (issue #167)
+
+| Variable | Définition | Défaut | Utilisée par |
+|---|---|---|---|
+| `CELERY_QUEUE_NAME` | Nom de la queue Celery consommée par ce worker - doit correspondre à `DOCUMENT_EDIT_QUEUE` de `backend/app/core/tasks.py` | `document_edit` | **worker/document_edit** (`app/config.py`) |
+| `AWS_ENDPOINT_URL`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_BUCKET` | Accès RustFS pour lire le fichier source et écrire le brouillon (mêmes variables et mêmes défauts que `worker/document_process`) | voir plus haut | idem (`app/storage.py`) |
 
 ## Frontend (Vite)
 

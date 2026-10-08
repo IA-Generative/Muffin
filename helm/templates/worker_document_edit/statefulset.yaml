@@ -1,0 +1,25 @@
+{{- if .Values.enabled }}
+{{- if eq .Values.worker_document_edit.deploymentType "StatefulSet" }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "helper.componentFullname" (dict "root" . "componentName" "worker_document_edit") }}
+  labels: {{- include "helper.labels" (dict "root" . "componentName" "worker_document_edit") | nindent 4 }}
+spec:
+  {{- if not .Values.worker_document_edit.autoscaling.enabled }}
+  replicas: {{ .Values.worker_document_edit.replicaCount }}
+  {{- end }}
+  revisionHistoryLimit: {{ .Values.worker_document_edit.revisionHistoryLimit | default 10 }}
+  selector:
+    matchLabels: {{- include "helper.selectorLabels" (dict "root" . "componentName" "worker_document_edit") | nindent 6 }}
+  serviceName: {{ include "helper.componentFullname" (dict "root" . "componentName" "worker_document_edit") }}
+  {{- with .Values.worker_document_edit.updateStrategy }}
+  updateStrategy: {{- toYaml . | nindent 4 }}
+  {{- end }}
+  template:
+    {{- include "helper.component.podTemplate" (dict "root" . "name" "worker_document_edit" "component" .Values.worker_document_edit) | nindent 4 }}
+  {{- if or .Values.worker_document_edit.volumeClaims .Values.worker_document_edit.extraVolumeClaims }}
+  volumeClaimTemplates: {{- toYaml (concat (default (list) .Values.worker_document_edit.volumeClaims) (default (list) .Values.worker_document_edit.extraVolumeClaims)) | nindent 2 }}
+  {{- end }}
+{{- end }}
+{{- end }}
