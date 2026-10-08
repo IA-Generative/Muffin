@@ -231,7 +231,7 @@ class _Editor:
         if embedded:
             raise Refused(
                 f"le paragraphe {op.paragraph} de {span.label} contient {' et '.join(embedded)} : "
-                "le remplacer le ferait disparaître. Modifiez un autre paragraphe, ou insérez-en un nouveau."
+                "le remplacer le ferait disparaître. Ce paragraphe ne peut pas être modifié."
             )
         # clear() drops the element's attributes too - put them back so the paragraph keeps its
         # style (and anything else the document attached to it). Inline formatting of the old
@@ -253,6 +253,14 @@ class _Editor:
 
     def _delete_paragraph(self, op: DeleteParagraph) -> str:
         span, paragraph = self._paragraph(op.section, op.paragraph)
+        embedded = _embedded(paragraph)
+        if embedded:
+            # Same protection as replace_paragraph: otherwise "insert a new one, delete the old
+            # one" gets around it and drops the image or the note all the same.
+            raise Refused(
+                f"le paragraphe {op.paragraph} de {span.label} contient {' et '.join(embedded)} : "
+                "le supprimer le ferait disparaître."
+            )
         self.body.delete(paragraph)
         return f"Paragraphe {op.paragraph} de {span.label} supprimé."
 
@@ -413,16 +421,17 @@ def outline(source: bytes) -> str:
             paragraphs += 1
             item = paragraph_item(paragraphs, _visible_text(child))
             if embedded := _embedded(child):
-                item += f"  [contient {' et '.join(embedded)} : non remplaçable]"
+                item += f"  [contient {' et '.join(embedded)} : ne peut être ni remplacé ni supprimé]"
             sections[-1].items.append(item)
         elif child.tag == _TABLE:
             tables += 1
             rows = [child.get_row_values(i) for i in range(len(child.get_rows()))]
             sections[-1].items.append(table_item(tables, [[str(v) for v in row] for row in rows]))
         elif child.tag == "text:list":
+            count = len(child.get_elements("text:list-item"))
             sections[-1].items.append(
-                f"  [liste de {len(child.get_elements('text:list-item'))} élément(s), non modifiable]"
+                f"  [liste de {count} élément(s), non modifiable : aucune opération ne peut la viser]"
             )
         else:
-            sections[-1].items.append("  [bloc non modifiable]")
+            sections[-1].items.append("  [bloc non modifiable : aucune opération ne peut le viser]")
     return render_outline(sections)

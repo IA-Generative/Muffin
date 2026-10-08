@@ -12,12 +12,13 @@ def test_the_odt_outline_numbers_paragraphs_and_tables_per_section_and_flags_wha
 
     assert text.startswith("## « Procédure d'onboarding » (niveau 1, occurrence 1)\n")
     assert "  ¶1 Ce document décrit l'arrivée d'un nouvel agent.  [contient une note de bas de page" in text
-    assert "[contient une image : non remplaçable]" in text
+    assert "[contient une image : ne peut être ni remplacé ni supprimé]" in text
     assert "  ¶3 Second paragraphe d'introduction." in text
     # The footnote's own text and the image path are not shown as if they were the paragraph's words.
     assert "Version interne" not in text
     assert "Pictures/" not in text
-    assert "## « Étapes » (niveau 2, occurrence 1)\n  [liste de 2 élément(s), non modifiable]\n  ¶1 Les étapes" in text
+    note = "[liste de 2 élément(s), non modifiable : aucune opération ne peut la viser]"
+    assert f"## « Étapes » (niveau 2, occurrence 1)\n  {note}\n  ¶1 Les étapes" in text
     assert (
         "  Tableau 1 (3 ligne(s) × 3 colonne(s)) :\n"
         "    L1: Profil | Matériel | Délai\n"
@@ -31,7 +32,7 @@ def test_the_markdown_outline_groups_blocks_it_cannot_edit():
     text = outline(MARKDOWN.encode(), "md")
 
     assert "  ¶1 Ce document décrit l'arrivée d'un nouvel agent. Il tient sur deux lignes." in text
-    note = "[bloc non modifiable : liste, code, citation ou HTML]"
+    note = "[bloc non modifiable (liste, code, citation ou HTML) : aucune opération ne peut le viser]"
     assert f"## « Étapes » (niveau 2, occurrence 1)\n  {note}\n  ¶1 Les étapes" in text
     # The list, the fence, the quote and the HTML comment are noted, not quoted - one note per run
     # of such blocks: the list; the fence; the quote followed by the comment.

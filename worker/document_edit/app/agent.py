@@ -68,13 +68,18 @@ montre le document de départ.
 n'existe pas.
 - Ne modifie que ce que la demande vise, dans la langue et le ton du document. Pas de mise en forme \
 Markdown dans un document ODT.
-- Les listes, le code, les citations et les paragraphes marqués « non remplaçable » ne sont pas \
-modifiables : ne les cible pas. Tu peux ajouter un paragraphe à côté.
+- Reprends tels quels les termes de la demande (noms de profils, intitulés, chiffres, adresses) : ne \
+les traduis pas, ne les reformule pas.
+- Les listes, le code, les citations et les paragraphes marqués « ne peut être ni remplacé ni \
+supprimé » ne sont pas modifiables : ne les cible pas, et n'y substitue pas un paragraphe ajouté à \
+côté qui prétendrait faire la même chose. Si la demande vise l'un d'eux, laisse "operations" vide et \
+dis-le dans "message".
 - Tu ne peux ni générer ni insérer d'image. Si une image serait utile, décris-la dans \
 "pending_images" : [{"description": "...", "section": {"heading": "..."}, "after_paragraph": 1}] \
 (section et after_paragraph facultatifs) ; l'utilisateur la déposera lui-même.
-- "message" : une phrase pour l'utilisateur. Si la demande est impossible avec ces opérations, \
-laisse "operations" vide et explique pourquoi dans "message".
+- "message" : une phrase pour l'utilisateur qui décrit fidèlement ce que font tes opérations, sans \
+prétendre davantage. Si la demande est impossible avec ces opérations, laisse "operations" vide et \
+explique pourquoi dans "message".
 """
 
 
@@ -180,7 +185,9 @@ def _build_graph(llm: Llm, max_attempts: int):
                 {
                     "role": "user",
                     "content": f"Ta réponse n'a pas pu être appliquée : {state['feedback']}\n"
-                    "Corrige-la et renvoie la liste complète des opérations, en JSON uniquement.",
+                    "Corrige-la et renvoie la liste complète des opérations, en JSON uniquement. Si la demande ne "
+                    'peut pas être satisfaite avec ces opérations, renvoie "operations" vide et explique-le dans '
+                    '"message" plutôt que d\'effectuer une modification qui ne répond pas à la demande.',
                 },
             ]
         reply = llm(messages)
