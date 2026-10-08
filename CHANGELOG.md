@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.14.0](https://github.com/IA-Generative/Muffin/compare/v0.13.0...v0.14.0) (2026-10-08)
+
+
+### Features
+
+* **agent:** delegate the edit of a living document from the chat ([416f2d2](https://github.com/IA-Generative/Muffin/commit/416f2d227128a36933249c389af02748c18cc82a)), closes [#171](https://github.com/IA-Generative/Muffin/issues/171)
+* **document_edit:** add the Markdown applier and the editing agent ([42e2d33](https://github.com/IA-Generative/Muffin/commit/42e2d33566331129742b03afda7a6c10f9709588)), closes [#168](https://github.com/IA-Generative/Muffin/issues/168)
+* **document_edit:** typed edit operations and an in-place ODT applier ([ee2d430](https://github.com/IA-Generative/Muffin/commit/ee2d4305d1991e1d7ee9243183bbaab351f2793b)), closes [#168](https://github.com/IA-Generative/Muffin/issues/168)
+* **documents:** add the edit draft lifecycle with a PDF preview and image insertion ([57fe674](https://github.com/IA-Generative/Muffin/commit/57fe6741198d0c794a80fde303506c08a389d18d)), closes [#169](https://github.com/IA-Generative/Muffin/issues/169)
+* **documents:** download living document revisions and create Markdown from scratch ([7226b68](https://github.com/IA-Generative/Muffin/commit/7226b6887ef70e366c32f45b8691c6cae35f7de2)), closes [#172](https://github.com/IA-Generative/Muffin/issues/172)
+* **documents:** living documents with revisions and single-document reindex ([42aa742](https://github.com/IA-Generative/Muffin/commit/42aa742af01dd7212ce8ce26a3bc676488679381)), closes [#166](https://github.com/IA-Generative/Muffin/issues/166)
+* **documents:** soft edit lock and revision check for living documents ([afe40fd](https://github.com/IA-Generative/Muffin/commit/afe40fdfdb797d7283efd3c0c52edf895206bf40)), closes [#170](https://github.com/IA-Generative/Muffin/issues/170)
+* **frontend:** add the edit proposal UI for living documents ([6b811c6](https://github.com/IA-Generative/Muffin/commit/6b811c6a92067c3fa5c0c98f6d9241ff6994f3fa)), closes [#169](https://github.com/IA-Generative/Muffin/issues/169)
+* **frontend:** living documents UI with revision history and edit lock ([2693967](https://github.com/IA-Generative/Muffin/commit/2693967950ea7ed692f33a6065fca4819423dccd)), closes [#172](https://github.com/IA-Generative/Muffin/issues/172)
+* **worker:** add the document_edit worker skeleton ([6862cc5](https://github.com/IA-Generative/Muffin/commit/6862cc558f10cc38f234ad2828acbe6ec0df8738)), closes [#167](https://github.com/IA-Generative/Muffin/issues/167)
+* **worker:** index Markdown files as a single page without liteparse ([259c637](https://github.com/IA-Generative/Muffin/commit/259c637083714caca3f3cfba6da7600df904cba5))
+
+
+### Bug Fixes
+
+* **document_edit:** keep the agent from dropping footnotes and faking list edits ([b98b3ee](https://github.com/IA-Generative/Muffin/commit/b98b3ee958e04b57fe0a52d852ccec8c3ef0fc49)), closes [#168](https://github.com/IA-Generative/Muffin/issues/168)
+
 ## [0.14.0-rc.1](https://github.com/IA-Generative/Muffin/compare/v0.14.0-rc...v0.14.0-rc.1) (2026-10-08)
 
 
