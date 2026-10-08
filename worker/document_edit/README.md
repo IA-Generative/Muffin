@@ -13,16 +13,52 @@ Dans sa propre queue Celery (`document_edit`), séparée de `document_processing
 `evaluation` : un job d'édition appelle un LLM puis une conversion LibreOffice, ni l'un ni l'autre ne
 doit retarder une ingestion ou une réponse de chat.
 
-## État : squelette (#167)
+## État
 
-La tâche `edit_document` traverse déjà tout le chemin (queue, contrat, lecture/écriture RustFS, logs
-de tâche) mais **n'applique aucune modification** : le brouillon est une copie du point de départ
-(`edited: false` dans le résultat). Le reste arrive dans les issues suivantes :
+La tâche `edit_document` traverse tout le chemin (queue, contrat, lecture/écriture RustFS, logs de
+tâche) mais **n'applique encore aucune modification** : le brouillon est une copie du point de départ
+(`edited: false` dans le résultat). Ce qui existe déjà pour #168, sans être branché à la tâche :
 
-- #168 : l'agent LangGraph qui produit des opérations d'édition typées et les applique à l'ODT en
-  place (texte et tableaux, styles du document conservés) ;
-- #169 : la conversion du brouillon en PDF d'aperçu (`soffice --headless --convert-to pdf`,
-  déjà installé dans l'image) et la boucle de validation côté backend.
+- `app/operations.py` : le vocabulaire fermé des opérations d'édition (voir plus bas) ;
+- `app/odt_editor.py` : l'applicateur, qui exécute ces opérations sur un ODT **en place**.
+
+Reste à faire : brancher l'agent LangGraph qui produit ces opérations à partir du prompt et appelle
+l'applicateur (#168, dernière étape), l'applicateur Markdown (#168), puis la conversion du brouillon
+en PDF d'aperçu (`soffice --headless --convert-to pdf`, déjà installé dans l'image) et la boucle de
+validation côté backend (#169).
+
+## Opérations d'édition ODT (`app/operations.py`, `app/odt_editor.py`)
+
+Une opération désigne sa cible par le **texte du titre de sa section** plus un index à partir de 1
+(« le 2e paragraphe sous *Contacts* », « le tableau 1 de *Matériel par profil* »), pas par un
+identifiant interne : ça reste valable si le document a été retouché à la main depuis sa lecture, et
+c'est ce qu'un modèle sait produire à partir du plan du document. Le titre se compare sans tenir
+compte de la casse ni des espaces ; `occurrence` départage deux titres identiques ; un titre `null`
+désigne le début du document. Une section va d'un titre au titre suivant, quel que soit son niveau.
+
+| Opération | Effet |
+|---|---|
+| `replace_paragraph` | remplace le texte du n-ième paragraphe (son style est conservé, la mise en forme interne de l'ancien texte non) |
+| `insert_paragraph` | ajoute un paragraphe après le n-ième (0 : sous le titre, absent : en fin de section) |
+| `delete_paragraph` | supprime le n-ième paragraphe |
+| `insert_section` | ajoute un titre (niveau 1 à 6) et ses paragraphes après une section, sous-sections comprises, ou en fin de document |
+| `set_cell` | modifie une cellule (ligne, colonne) ; une cellule numérique à qui l'on donne un nombre reste numérique |
+| `insert_row` / `delete_row` | ajoute une ligne (après la n-ième, 0 : tout en haut, absent : en bas) ou en supprime une |
+| `insert_column` / `delete_column` | idem pour une colonne |
+| `insert_table` | crée un tableau (première ligne = en-tête) |
+
+Le fichier n'est **jamais régénéré** : `content.xml` est modifié via `odfdo` et réécrit, donc tout ce
+qu'aucune opération ne nomme (styles, images, notes de bas de page, listes, sommaires) est reporté tel
+quel. Le nouveau contenu emprunte les styles de ses voisins : un paragraphe ajouté reprend celui du
+paragraphe voisin (sinon le style le plus courant du document), un titre celui d'un titre du même
+niveau (sinon le style nommé `Heading N` du document), une ligne ou une colonne ajoutée celui d'une
+ligne de données ou de la colonne voisine (pas de l'en-tête), un tableau neuf ceux du premier tableau
+existant. Le résultat est donc tout-ou-rien : les opérations s'exécutent sur une copie en mémoire et
+rien n'est produit si l'une échoue (`OperationError`, avec son numéro et un message lisible, qui
+liste les titres disponibles quand un titre est introuvable).
+
+Pas encore pris en charge : les éléments de liste (ni lecture ni écriture), le contenu imbriqué dans
+une `text:section`, les cellules fusionnées, les images (elles passent par la validation, #169).
 
 ## Contrat (`app/contract.py`)
 
