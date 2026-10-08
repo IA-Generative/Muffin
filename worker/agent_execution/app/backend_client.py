@@ -5,6 +5,39 @@ import httpx
 from app.config import settings
 
 
+class EditRequestRefused(Exception):
+    """The backend declined to start (or follow) an edit of a living document - `message` is in
+    French and fit to tell the user, `code` is the machine-readable reason when there is one
+    (draft_exists, document_locked...)."""
+
+    def __init__(self, status_code: int, code: str | None, message: str) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.code = code
+        self.message = message
+
+
+def _refusal(error: httpx.HTTPStatusError) -> EditRequestRefused:
+    """What the backend's error body says, as an EditRequestRefused. Its 409s carry
+    {"code", "message"} (or, for a locked document, who holds the lock); the rest is a plain string."""
+    status = error.response.status_code
+    try:
+        detail = error.response.json().get("detail")
+    except ValueError:
+        detail = None
+    if isinstance(detail, dict):
+        code = detail.get("code")
+        if code == "document_locked":
+            who = detail.get("locked_by_display") or "quelqu'un d'autre"
+            return EditRequestRefused(status, code, f"Ce document est en cours de modification par {who}.")
+        return EditRequestRefused(status, code, str(detail.get("message") or "La modification a été refusée."))
+    if status == 403:
+        return EditRequestRefused(status, None, "Vous n'avez pas le droit de modifier ce document.")
+    if status == 404:
+        return EditRequestRefused(status, None, "Ce document est introuvable.")
+    return EditRequestRefused(status, None, f"La demande de modification a échoué ({status}).")
+
+
 class BackendClient:
     """Talks to the backend's /api/internal/* routes, authenticated with the
     shared WORKER_API_KEY instead of a Keycloak session - same pattern as
@@ -71,6 +104,7 @@ class BackendClient:
         latency_ms: int | None = None,
         prompt_tokens: int | None = None,
         completion_tokens: int | None = None,
+        edit_proposal: dict[str, Any] | None = None,
     ) -> None:
         response = self._client.patch(
             f"/api/internal/runs/{run_id}/result",
@@ -83,9 +117,39 @@ class BackendClient:
                 "latency_ms": latency_ms,
                 "prompt_tokens": prompt_tokens,
                 "completion_tokens": completion_tokens,
+                "edit_proposal": edit_proposal,
             },
         )
         response.raise_for_status()
+
+    def list_editable_documents(self, run_id: str) -> list[dict[str, Any]]:
+        """The living documents the run's user may change - computed backend-side from the run's own
+        snapshot (user, groups, administrator flag), never from anything this worker supplies."""
+        response = self._client.get(f"/api/internal/runs/{run_id}/editable-documents")
+        response.raise_for_status()
+        return response.json()
+
+    def create_edit_request(self, run_id: str, document_id: str, prompt: str) -> dict[str, Any]:
+        """Delegates an edit to the editing agent: the backend creates the draft (and the document
+        lock) and sends the job. Returns the draft's state; raises EditRequestRefused when it
+        declines (not allowed, locked by someone, a proposal already pending...)."""
+        try:
+            response = self._client.post(
+                f"/api/internal/runs/{run_id}/edit-requests", json={"document_id": document_id, "prompt": prompt}
+            )
+            response.raise_for_status()
+        except httpx.HTTPStatusError as error:
+            raise _refusal(error) from error
+        return response.json()
+
+    def get_edit_request(self, run_id: str, document_id: str) -> dict[str, Any]:
+        """Where the delegated edit stands. Reading it also keeps the draft (and its lock) alive."""
+        try:
+            response = self._client.get(f"/api/internal/runs/{run_id}/edit-requests/{document_id}")
+            response.raise_for_status()
+        except httpx.HTTPStatusError as error:
+            raise _refusal(error) from error
+        return response.json()
 
     def set_run_error(self, run_id: str, error: str) -> None:
         response = self._client.patch(f"/api/internal/runs/{run_id}/error", json={"error": error})

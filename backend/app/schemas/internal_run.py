@@ -33,6 +33,9 @@ class InternalRunOut(BaseModel):
     # Opt-in, per message (chat composer toggle, off by default) - see Run.web_search_enabled.
     # Gates whether the planner is even told a "web_search" tool exists.
     web_search_enabled: bool
+    # Whether the requesting user is a platform administrator (Run.user_is_admin) - informational for
+    # the worker; what an edit request is allowed to do is decided backend-side from the run row.
+    user_is_admin: bool
 
 
 class RunStatusUpdate(BaseModel):
@@ -66,6 +69,9 @@ class RunResultUpdate(BaseModel):
     latency_ms: int | None = None
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
+    # Set when this run delegated an edit of a living document to the editing agent (#171) - see
+    # Run.edit_proposal.
+    edit_proposal: dict[str, Any] | None = None
 
 
 class RunErrorUpdate(BaseModel):

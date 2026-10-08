@@ -21,6 +21,8 @@ class RunRepository:
         pinned_collection_ids: list[uuid.UUID] | None = None,
         user_groups: list[str] | None = None,
         web_search_enabled: bool = False,
+        user_is_admin: bool = False,
+        user_display: str | None = None,
     ) -> Run:
         run = Run(
             user_id=user_id,
@@ -31,6 +33,8 @@ class RunRepository:
             pinned_collection_ids=([str(cid) for cid in pinned_collection_ids] if pinned_collection_ids else None),
             user_groups=user_groups or None,
             web_search_enabled=web_search_enabled,
+            user_is_admin=user_is_admin,
+            user_display=user_display,
         )
         self.db.add(run)
         await self.db.flush()
@@ -107,9 +111,11 @@ class RunRepository:
         grounding_valid: bool | None = None,
         grounding_unsupported_claims: list[str] | None = None,
         grounding_research_count: int | None = None,
+        edit_proposal: dict[str, Any] | None = None,
     ) -> None:
         run.answer = answer
         run.citations = citations
+        run.edit_proposal = edit_proposal
         run.grounding_valid = grounding_valid
         run.grounding_unsupported_claims = grounding_unsupported_claims
         run.grounding_research_count = grounding_research_count

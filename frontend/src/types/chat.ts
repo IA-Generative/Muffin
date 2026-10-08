@@ -18,8 +18,19 @@ export interface Source {
   collectionId?: string
   documentId?: string
   pageNumber?: number
+  // Only for a citation of a living document (#171): which revision of it the answer was drawn from.
+  revision?: number
   query?: string
   content?: string
+}
+
+// A change to a living document that the research agent delegated to the editing agent (#171) -
+// what the chat needs to show the proposal next to the answer. The proposal itself (preview,
+// verdict, validate/adjust/refuse) lives on the backend and is read through the document's draft.
+export interface EditProposal {
+  collectionId: string
+  documentId: string
+  documentName: string
 }
 
 export interface ChatMessage {
@@ -42,6 +53,9 @@ export interface ChatMessage {
   // The feedback value (up/down) the current user left on this message, if any - restored
   // from the backend after a page reload so the thumbs-up/down button stays highlighted.
   feedback?: 'up' | 'down' | null
+  // Set when this answer comes with a proposed edit of a living document - shown as its own card
+  // below the answer, clearly apart from it.
+  editProposal?: EditProposal
 }
 
 export interface ExecutionEvent {

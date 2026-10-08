@@ -25,8 +25,8 @@ from app.services.living_document_service import (
     _document_settings,
 )
 
-from .collection_service import CollectionNotFoundError
 from .document_upload_service import DocumentNotFoundError, _uploader_display
+from .editing_rights import require_editable_collection
 
 # Largest image accepted for a pending spot. Generous for a screenshot or a photo, small enough that
 # nobody parks a video in the object store through this door.
@@ -345,8 +345,7 @@ class DocumentDraftService:
     async def _get_living_document(
         self, collection_id: uuid.UUID, user: RequestContext, document_id: uuid.UUID
     ) -> Document:
-        if await self.collections.get(collection_id, user.user_id) is None:
-            raise CollectionNotFoundError(str(collection_id))
+        await require_editable_collection(self.collections, user, collection_id)
         document = await self.documents.get_in_collection(collection_id, document_id)
         if document is None:
             raise DocumentNotFoundError(str(document_id))

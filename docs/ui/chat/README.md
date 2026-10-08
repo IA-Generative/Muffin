@@ -83,6 +83,56 @@ dans la barre d'actions d'une réponse, entre "Copier" et 👍.
   en cours de lecture l'arrête proprement (`onBeforeUnmount`) - jamais une voix qui continue à
   lire un message qui n'est plus affiché.
 
+## Modifier un document vivant depuis le chat (issue #171)
+
+On peut demander une modification de la même façon qu'on pose une question : « ajoute le numéro d'urgence
+dans la procédure d'onboarding ». L'agent de recherche reconnaît qu'il s'agit d'une modification et non
+d'une recherche, **la confie à l'agent d'édition et attend son résultat**, puis répond avec ce que celui-ci
+a conclu. Il ne modifie jamais rien lui-même. Composants :
+[`ChatEditProposal.vue`](../../../frontend/src/components/ChatEditProposal.vue) (la carte),
+[`DraftReviewModal.vue`](../../../frontend/src/components/DraftReviewModal.vue) (la fenêtre d'examen, la
+même que dans l'onglet Révisions d'un document, voir [`../collections/README.md`](../collections/README.md)),
+composable [`useDraftSession.ts`](../../../frontend/src/composables/useDraftSession.ts).
+
+La proposition est **séparée de la réponse** : la réponse dit ce qui a changé, et dessous une carte à part
+(filet bleu, intitulé « Modification d'un document », nom du document) est l'endroit où l'on relit la
+proposition :
+
+![Réponse et carte de la proposition](screenshots/edit-01-proposal-card.png)
+
+« Examiner la modification » ouvre la fenêtre d'examen - aperçu du document modifié, ce qui a changé,
+images à déposer, champ « Ajuster », Valider / Refuser. Rien n'est écrit dans la collection avant la
+validation :
+
+![Examen de la proposition depuis le chat](screenshots/edit-02-review.png)
+
+**Valider** depuis la carte crée la révision suivante du document, qui est ré-indexé :
+
+![Proposition validée](screenshots/edit-03-validated.png)
+
+La carte reflète l'état **réel** de la proposition, lu auprès du backend, pas un instantané de la réponse :
+elle se recharge avec la conversation, et si la proposition a été validée, refusée ou a expiré entre-temps
+elle le dit au lieu de proposer une action qui n'existe plus :
+
+![Proposition qui n'est plus en attente](screenshots/edit-04-no-longer-pending.png)
+
+Autres états de la carte : en préparation (si l'attente de l'agent a été dépassée, la fenêtre ne s'ouvre pas
+d'elle-même au milieu de la conversation - la carte change simplement d'état), « n'a rien modifié » quand
+l'agent d'édition ne pouvait pas faire la demande, et l'échec avec son motif.
+
+Quand le message ne désigne pas assez clairement un seul document, l'agent demande lequel au lieu de
+deviner ; s'il n'y a rien que l'utilisateur puisse modifier, ou si le message n'a rien d'une modification,
+le run continue comme une question normale.
+
+**Qui peut modifier** : le propriétaire de la collection, ou un administrateur de la plateforme - mais un
+administrateur seulement sur une collection qu'il peut déjà voir (la sienne, publique, ou partagée avec
+lui), jamais sur la collection privée de quelqu'un d'autre. Un document visible mais non modifiable est
+refusé avec un message explicite. La règle est décidée côté backend à partir de l'identité du run et
+s'applique partout : fiche du document, chat, remplacement, restauration, propositions.
+
+Les réponses de recherche qui citent un document vivant indiquent **la révision** dont elles sont tirées
+(« Révision 3 » sur la source). Une proposition non validée n'est jamais indexée, donc jamais citée.
+
 ## Comportement notable pour un agent qui pilote l'UI
 
 - Le clic ou le raccourci de dictée ne fait *que* démarrer/arrêter la capture micro - il n'envoie

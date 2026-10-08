@@ -6,6 +6,7 @@ import type { ChatMessage, FeedbackDetails } from '../types/chat'
 import { useChat } from '../composables/useChat'
 import { useVoiceOutput } from '../composables/useVoiceOutput'
 import { toPlainText } from '../utils/plainText'
+import ChatEditProposal from './ChatEditProposal.vue'
 import FeedbackModal from './FeedbackModal.vue'
 
 const props = defineProps<{
@@ -356,6 +357,14 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
+    <!-- A proposed edit of a living document, delegated to the editing agent (#171): its own card,
+         below the answer and clearly apart from it - the answer says what was concluded, the card is
+         where the proposal is reviewed. -->
+    <ChatEditProposal
+      v-if="message.role === 'assistant' && message.editProposal && !message.pending"
+      :proposal="message.editProposal"
+    />
+
     <FeedbackModal
       v-if="showFeedbackModal"
       :sources="message.sources"
@@ -378,6 +387,9 @@ onBeforeUnmount(() => {
 
 .chat-message--assistant {
   justify-content: flex-start;
+  /* The bubble, then - when the answer comes with a proposed edit - its card underneath. */
+  flex-direction: column;
+  align-items: flex-start;
 }
 
 .chat-message__text {

@@ -34,6 +34,7 @@ const openSource = ref<Source>()
         >
           <span class="sources-panel__card-kind">Document</span>
           <span class="sources-panel__title">{{ source.title }}</span>
+          <span v-if="source.revision" class="sources-panel__meta">Révision {{ source.revision }}</span>
           <span v-if="source.pageNumber" class="sources-panel__meta">Page {{ source.pageNumber }}</span>
         </button>
 

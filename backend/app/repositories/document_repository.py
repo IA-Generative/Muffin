@@ -128,6 +128,17 @@ class DocumentRepository:
         )
         return result.scalars().all()
 
+    async def list_living_by_collections(self, collection_ids: Sequence[uuid.UUID]) -> Sequence[Document]:
+        """Every living document (#166) of these collections - what an edit request can target."""
+        if not collection_ids:
+            return []
+        result = await self.db.execute(
+            select(Document)
+            .where(Document.collection_id.in_(collection_ids), Document.kind == DocumentKind.LIVING)
+            .order_by(Document.name)
+        )
+        return result.scalars().all()
+
     async def list_summaries_by_collection(self, collection_id: uuid.UUID) -> Sequence[str]:
         result = await self.db.scalars(
             select(Document.summary)

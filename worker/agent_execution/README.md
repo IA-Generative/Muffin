@@ -16,6 +16,10 @@ backend - aucune donnée utilisateur n'y est stockée, ce n'est qu'un aller-reto
    collections auxquelles l'utilisateur a accès (**la** barrière de permission - voir
    `docs/research-agent-plan.md` à la racine du repo : le routing par LLM ne fait que restreindre
    à l'intérieur de cette liste, jamais l'élargir).
+1bis. `detect_edit` / `delegate_edit` - **délégation d'une modification** (#171) : si le message demande de
+   modifier un document vivant, l'agent ne fait aucune recherche. Il confie la modification à l'agent
+   d'édition (`worker/document_edit`) et **attend son résultat**, puis répond avec ce que celui-ci a
+   conclu. Voir la section dédiée plus bas.
 2. `analyze_query` - décide si la question nécessite une clarification (`request_clarification`,
    pause human-in-the-loop) ou peut être traitée directement.
 3. `decompose_query` / `build_research_plan` - découpe la question en sous-tâches de recherche.
@@ -38,6 +42,38 @@ backend - aucune donnée utilisateur n'y est stockée, ce n'est qu'un aller-reto
 Le graphe peut être annulé (`cancel_requested` sur le run) et repris après une clarification
 utilisateur (checkpointer LangGraph sur Redis - une pause doit pouvoir être reprise par un worker
 Celery différent de celui qui l'a posée).
+
+## Déléguer une modification à l'agent d'édition (`detect_edit`, `delegate_edit`)
+
+L'agent de recherche ne modifie jamais rien lui-même, ni ne parle directement à l'agent d'édition :
+c'est le backend qui porte l'état d'une proposition (brouillon, verrou du document, tâche), et c'est
+cet état que l'interface d'examen affiche déjà. Le circuit est donc le suivant :
+
+1. **`detect_edit`** (juste après `load_accessible_vdbs`). Un filtre peu coûteux d'abord : le message
+   doit contenir un verbe de modification (ajoute, supprime, remplace, corrige… et leurs équivalents
+   anglais), sinon ni le backend ni le modèle ne sont sollicités. Ensuite l'agent demande au backend la
+   liste des documents vivants **que l'utilisateur peut modifier** (`GET /internal/runs/{id}/editable-
+   documents`) ; s'il n'y en a aucun, le run continue comme une question. Un appel au modèle décide s'il
+   s'agit bien d'une modification et de quel document. Le modèle ne choisit qu'**parmi les documents
+   proposés** : un identifiant qu'on ne lui a pas offert n'est jamais suivi (le run reprend alors comme une
+   question), et en cas de doute `edit` est faux - répondre à une question est sans danger, modifier un
+   document non. Si plusieurs documents peuvent convenir sans que rien n'indique lequel, l'agent le
+   demande à l'utilisateur au lieu de deviner.
+2. **`delegate_edit`**. Il demande au backend de créer la demande (`POST /internal/runs/{id}/edit-
+   requests`), qui crée le brouillon, prend le verrou du document et envoie le job à l'agent d'édition,
+   puis **suit le brouillon** (`GET …/edit-requests/{document}`, toutes les `EDIT_POLL_SECONDS`, pendant
+   au plus `EDIT_WAIT_SECONDS`) en vérifiant l'annulation à chaque tour. Lire le brouillon renouvelle son
+   verrou, donc la proposition ne s'éteint pas pendant l'attente. La réponse reprend la conclusion : ce
+   qui a changé, ou l'explication de l'agent d'édition quand il ne pouvait pas modifier, ou l'échec, ou
+   « travaille encore » si le délai est dépassé.
+3. **Les droits sont ceux de l'utilisateur du run, décidés côté backend** à partir du instantané du run
+   (utilisateur, groupes, drapeau administrateur) : le propriétaire de la collection, ou un administrateur
+   de la plateforme sur une collection qu'il peut déjà voir. Ni la liste proposée au modèle ni la création
+   ne reposent sur quoi que ce soit que ce worker fournit. Un refus (document verrouillé par quelqu'un,
+   proposition déjà en attente, droit insuffisant) est dit à l'utilisateur tel quel.
+4. Le run termine avec `edit_proposal` (`{collection_id, document_id, document_name}`), enregistré avec la
+   réponse : le chat en fait une **carte distincte** de la réponse, qui ouvre la fenêtre d'examen
+   (valider, ajuster, refuser). Rien n'est écrit dans la collection avant cette validation.
 
 ## Pièges connus
 

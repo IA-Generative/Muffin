@@ -120,6 +120,15 @@ class AgentState(TypedDict):
     # --- permission barrier (§4) ---
     accessible_vdbs: list[dict[str, Any]]
 
+    # --- delegated edit of a living document (#171) ---
+    # Set by detect_edit when the message asks to change one of the user's living documents:
+    # {"document_id", "document_name", "collection_id", "instruction"} - or, when the request
+    # can't be acted on as is, {"clarification": "..."} with what to tell the user instead.
+    edit_target: dict[str, Any] | None
+    # What delegate_edit hands back with the answer so the chat can show the proposal next to it:
+    # {"collection_id", "document_id", "document_name"}.
+    edit_proposal: dict[str, Any] | None
+
     # --- understanding (§5/§6) ---
     query_analysis: dict[str, Any]
 

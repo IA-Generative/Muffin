@@ -1,10 +1,11 @@
 import uuid
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.document import Document
+from app.models.document import Document, DocumentKind
+from app.models.document_revision import DocumentRevision
 from app.models.source import MessageSource, Source
 
 # Only these tools produce a citation with a real, stable identity worth persisting as a
@@ -104,11 +105,19 @@ class SourceRepository:
             # document_id/chunk_id if the document is gone, rather than crashing the whole run
             # finalization. The Source still gets created (just without a document link), so the
             # citation remains visible to the user and feedback still works.
+            revision: int | None = None
             if document_id is not None:
-                exists = await self.db.scalar(select(Document.id).where(Document.id == document_id))
-                if exists is None:
+                kind = await self.db.scalar(select(Document.kind).where(Document.id == document_id))
+                if kind is None:
                     document_id = None
                     chunk_id = None
+                elif kind == DocumentKind.LIVING:
+                    # A living document changes over time: the citation says which revision of it
+                    # the answer was drawn from (the current one, as of this answer) - never an
+                    # unqualified "procedure.odt", which could mean any of its versions (#171).
+                    revision = await self.db.scalar(
+                        select(func.max(DocumentRevision.number)).where(DocumentRevision.document_id == document_id)
+                    )
 
             source = await self.get_or_create(
                 title=citation.get("source") or url or "Source",
@@ -120,6 +129,8 @@ class SourceRepository:
             if source.id not in linked_source_ids:
                 linked_source_ids.add(source.id)
                 self.db.add(MessageSource(message_id=message_id, source_id=source.id))
-            enriched.append({**citation, "source_id": str(source.id)})
+            enriched.append(
+                {**citation, "source_id": str(source.id), **({"document_revision": revision} if revision else {})}
+            )
         await self.db.flush()
         return enriched

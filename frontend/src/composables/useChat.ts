@@ -6,6 +6,7 @@ import type {
   ConversationFile,
   DiscussionFeedback,
   DiscussionScore,
+  EditProposal,
   ExecutionEvent,
   FeedbackDetails,
   Source,
@@ -45,6 +46,8 @@ interface Citation {
   // SourceRepository.link_citations) - absent on a "tool" citation or one persisted before this
   // existed. See Source.id in types/chat.ts.
   source_id?: string | null
+  // Set when the cited document is a living one (#171): the revision of it the answer was drawn from.
+  document_revision?: number | null
 }
 
 interface MessageOut {
@@ -54,7 +57,21 @@ interface MessageOut {
   created_at: string
   run_id: string | null
   citations: Citation[] | null
+  edit_proposal: EditProposalOut | null
   feedback: 'up' | 'down' | null
+}
+
+// Backend shape (snake_case) of Run.edit_proposal - see backend/app/models/run.py.
+interface EditProposalOut {
+  collection_id: string
+  document_id: string
+  document_name: string
+}
+
+function toEditProposal(raw: EditProposalOut | null | undefined): EditProposal | undefined {
+  return raw
+    ? { collectionId: raw.collection_id, documentId: raw.document_id, documentName: raw.document_name }
+    : undefined
 }
 
 interface RunEventOut {
@@ -74,6 +91,7 @@ interface RunOut {
   pending_human_action: { question?: string } | null
   answer: string | null
   citations: Citation[] | null
+  edit_proposal: EditProposalOut | null
   error: string | null
 }
 
@@ -287,6 +305,7 @@ async function ensureMessagesLoaded(conversationId: string) {
         sources,
         runId: item.run_id ?? undefined,
         feedback: item.feedback ?? null,
+        editProposal: toEditProposal(item.edit_proposal),
       }
     })
     confirmedConversationIds.add(conversationId)
@@ -788,6 +807,7 @@ function formatAnswerWithCitations(answer: string, citations: Citation[] | null 
         collectionId: citation.vdb_id,
         documentId: isDocument ? (citation.document_id ?? undefined) : undefined,
         pageNumber: isDocument ? (citation.page_number ?? undefined) : undefined,
+        revision: isDocument ? (citation.document_revision ?? undefined) : undefined,
         query: citation.query,
         content: citation.content,
       })
@@ -834,7 +854,7 @@ function assistantMessageFor(id: string, run: RunOut): ChatMessage {
       run.answer || "Je n'ai pas trouvé de réponse dans vos collections.",
       run.citations,
     )
-    return { id, role: 'assistant', content, sources, runId: run.id }
+    return { id, role: 'assistant', content, sources, runId: run.id, editProposal: toEditProposal(run.edit_proposal) }
   }
   return {
     id,

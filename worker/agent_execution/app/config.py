@@ -34,6 +34,12 @@ class WorkerSettings(BaseSettings):
     MAX_GROUNDING_RESEARCHES: int = 1
     SEARCH_RESULTS_PER_QUERY: int = 5
 
+    # Delegating an edit of a living document to the editing agent (#171): how long the run waits
+    # for it, and how often it asks the backend where it stands. The editing agent itself is
+    # bounded (its own task time limit), this just stops a run from waiting on it forever.
+    EDIT_WAIT_SECONDS: int = 300
+    EDIT_POLL_SECONDS: float = 2.0
+
     model_config = SettingsConfigDict(case_sensitive=True, env_file=(".env", ".env.local"), extra="ignore")
 
 

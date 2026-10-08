@@ -14,7 +14,7 @@ from app.schemas.document import (
     DocumentRevisionOut,
     MarkdownDocumentCreate,
 )
-from app.services.collection_service import CollectionNotFoundError
+from app.services.collection_service import CollectionNotEditableError, CollectionNotFoundError
 from app.services.document_upload_service import DocumentNotFoundError
 from app.services.living_document_service import (
     DocumentLockedError,
@@ -44,6 +44,8 @@ LockTokenHeader = Annotated[str | None, Header(alias="X-Document-Lock-Token")]
 def http_error(error: Exception) -> HTTPException:
     if isinstance(error, CollectionNotFoundError):
         return HTTPException(status.HTTP_404_NOT_FOUND, "Collection not found")
+    if isinstance(error, CollectionNotEditableError):
+        return HTTPException(status.HTTP_403_FORBIDDEN, "Only the collection's owner or an administrator can edit it")
     if isinstance(error, DocumentNotFoundError):
         return HTTPException(status.HTTP_404_NOT_FOUND, "Document not found")
     if isinstance(error, RevisionNotFoundError):
@@ -75,6 +77,7 @@ def http_error(error: Exception) -> HTTPException:
 
 _HANDLED = (
     CollectionNotFoundError,
+    CollectionNotEditableError,
     DocumentNotFoundError,
     RevisionNotFoundError,
     NotLivingDocumentError,
