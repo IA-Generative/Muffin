@@ -9,6 +9,7 @@ from app.core.tasks import PROCESS_DOCUMENT_TASK, enqueue_process_document
 from app.models.document import Document, DocumentStatus
 from app.repositories.collection_repository import CollectionRepository
 from app.repositories.document_repository import DocumentRepository
+from app.repositories.document_revision_repository import DocumentRevisionRepository
 from app.repositories.entity_repository import EntityRepository
 from app.repositories.task_repository import TaskRepository
 from app.schemas.collection import EntityOut, RelationOut
@@ -59,6 +60,7 @@ class DocumentUploadService:
         self.db = db
         self.collections = CollectionRepository(db)
         self.documents = DocumentRepository(db)
+        self.revisions = DocumentRevisionRepository(db)
         self.entities = EntityRepository(db)
         self.tasks = TaskRepository(db)
 
@@ -204,6 +206,8 @@ class DocumentUploadService:
             id=document.id,
             name=document.name,
             type=document.type,
+            kind=document.kind,
+            current_revision=await self.revisions.current_number(document_id),
             status=document.status,
             progress=document.progress,
             summary=document.summary,
