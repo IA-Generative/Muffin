@@ -1,0 +1,23 @@
+{{- if .Values.enabled }}
+{{- if .Values.worker_document_edit.metrics.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "helper.componentFullname" (dict "root" . "componentName" "worker_document_edit-metrics") }}
+  labels: {{- (include "helper.labels" (dict "root" . "componentName" "worker_document_edit-metrics")) | nindent 4 }}
+  {{- if .Values.worker_document_edit.metrics.service.labels }}
+    {{- toYaml .Values.worker_document_edit.metrics.service.labels | nindent 4 }}
+  {{- end }}
+  {{- if .Values.worker_document_edit.metrics.service.annotations }}
+  annotations: {{- toYaml .Values.worker_document_edit.metrics.service.annotations | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.worker_document_edit.metrics.service.type | default "ClusterIP" }}
+  ports:
+  - port: {{ .Values.worker_document_edit.metrics.service.port }}
+    targetPort: {{ .Values.worker_document_edit.metrics.service.targetPort }}
+    protocol: TCP
+    name: {{ .Values.worker_document_edit.metrics.service.portName | default "metrics" }}
+  selector: {{- include "helper.selectorLabels" (dict "root" . "componentName" "worker_document_edit") | nindent 4 }}
+{{- end }}
+{{- end }}

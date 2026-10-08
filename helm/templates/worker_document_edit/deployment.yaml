@@ -1,0 +1,25 @@
+{{- if .Values.enabled }}
+{{- if eq .Values.worker_document_edit.deploymentType "Deployment" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "helper.componentFullname" (dict "root" . "componentName" "worker_document_edit") }}
+  labels: {{- (include "helper.labels" (dict "root" . "componentName" "worker_document_edit")) | nindent 4 }}
+spec:
+  {{- if not .Values.worker_document_edit.autoscaling.enabled }}
+  replicas: {{ .Values.worker_document_edit.replicaCount }}
+  {{- end }}
+  revisionHistoryLimit: {{ .Values.worker_document_edit.revisionHistoryLimit | default 10 }}
+  selector:
+    matchLabels: {{- include "helper.selectorLabels" (dict "root" . "componentName" "worker_document_edit") | nindent 6 }}
+  strategy:
+    type: {{ .Values.worker_document_edit.strategy.type }}
+    {{- if eq .Values.worker_document_edit.strategy.type "RollingUpdate" }}
+    rollingUpdate:
+      maxUnavailable: {{ .Values.worker_document_edit.strategy.rollingUpdate.maxUnavailable }}
+      maxSurge: {{ .Values.worker_document_edit.strategy.rollingUpdate.maxSurge }}
+    {{- end }}
+  template:
+    {{- include "helper.component.podTemplate" (dict "root" . "name" "worker_document_edit" "component" .Values.worker_document_edit) | nindent 4 }}
+{{- end }}
+{{- end }}

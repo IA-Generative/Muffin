@@ -127,6 +127,9 @@ jobs:
           - name: worker-evaluation
             context: worker/evaluation
             dockerfile: worker/evaluation/Dockerfile
+          - name: worker-document-edit
+            context: worker/document_edit
+            dockerfile: worker/document_edit/Dockerfile
     with:
       IMAGE_NAME: ${{ needs.expose-vars.outputs.IMAGE_BASE }}-${{ matrix.service.name }}
       IMAGE_TAG: ${{ needs.release.outputs.version }}
