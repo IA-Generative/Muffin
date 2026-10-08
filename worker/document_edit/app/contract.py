@@ -48,3 +48,25 @@ class EditJobResult(BaseModel):
     pending_images: list[PendingImage] = []
     # False while the worker only copies its starting point unchanged (this skeleton, #167).
     edited: bool = False
+
+
+class ImageToInsert(BaseModel):
+    """An image the user uploaded for one of a draft's pending spots (#169)."""
+
+    id: str
+    description: str
+    # RustFS key of the uploaded file.
+    storage_key: str
+    section: SectionRef | None = None
+    after_paragraph: int | None = Field(default=None, ge=0)
+
+
+class InsertImagesInput(BaseModel):
+    """Input of the insert_images task: put uploaded images into an existing ODT draft and render
+    a fresh preview. No model involved - a deterministic step."""
+
+    # The draft to add the images to (its latest file).
+    draft_storage_key: str
+    document_id: str
+    images: list[ImageToInsert] = Field(min_length=1)
+    user_id: str

@@ -21,6 +21,7 @@ from app.models.document import (
     DocumentTag,
     DocumentType,
 )
+from app.models.document_draft import DocumentDraft, DraftStatus
 from app.models.document_revision import DocumentRevision, RevisionOrigin
 from app.models.document_tabular_profile import DocumentTabularProfile
 from app.models.entity import Entity, EntityType, Relation
@@ -60,6 +61,7 @@ __all__ = [
     "DiscussionFeedback",
     "DiscussionScore",
     "Document",
+    "DocumentDraft",
     "DocumentKind",
     "DocumentPage",
     "DocumentRevision",
@@ -67,6 +69,7 @@ __all__ = [
     "DocumentTag",
     "DocumentTabularProfile",
     "DocumentType",
+    "DraftStatus",
     "Entity",
     "EntityType",
     "EvaluationResult",

@@ -27,6 +27,10 @@ class WorkerSettings(BaseSettings):
     # message rather than editing blind.
     EDIT_MAX_OUTLINE_CHARS: int = 60000
 
+    # LibreOffice binary and how long a single ODT -> PDF preview conversion may take.
+    SOFFICE_BIN: str = "soffice"
+    PREVIEW_TIMEOUT_SECONDS: int = 120
+
     model_config = SettingsConfigDict(case_sensitive=True, env_file=(".env", ".env.local"), extra="ignore")
 
 

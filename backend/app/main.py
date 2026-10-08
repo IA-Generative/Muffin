@@ -11,11 +11,13 @@ from app.routers.auth import router as auth_router
 from app.routers.cgu import router as cgu_router
 from app.routers.collections import router as collections_router
 from app.routers.conversations import router as conversations_router
+from app.routers.document_drafts import router as document_drafts_router
 from app.routers.documents import router as documents_router
 from app.routers.filing import router as filing_router
 from app.routers.health import router as health_router
 from app.routers.internal_collections import router as internal_collections_router
 from app.routers.internal_conversations import router as internal_conversations_router
+from app.routers.internal_document_drafts import router as internal_document_drafts_router
 from app.routers.internal_documents import router as internal_documents_router
 from app.routers.internal_evaluation import router as internal_evaluation_router
 from app.routers.internal_llm import router as internal_llm_router
@@ -96,6 +98,7 @@ app.include_router(collections_router, prefix="/api")
 app.include_router(conversations_router, prefix="/api")
 app.include_router(documents_router, prefix="/api")
 app.include_router(living_documents_router, prefix="/api")
+app.include_router(document_drafts_router, prefix="/api")
 app.include_router(filing_router, prefix="/api")
 app.include_router(tasks_router, prefix="/api")
 app.include_router(runs_router, prefix="/api")
@@ -107,6 +110,7 @@ app.include_router(admin_reports_router, prefix="/api")
 app.include_router(reports_router, prefix="/api")
 app.include_router(quality_router, prefix="/api")
 app.include_router(internal_documents_router, prefix="/api")
+app.include_router(internal_document_drafts_router, prefix="/api")
 app.include_router(internal_evaluation_router, prefix="/api")
 app.include_router(internal_conversations_router, prefix="/api")
 app.include_router(internal_collections_router, prefix="/api")

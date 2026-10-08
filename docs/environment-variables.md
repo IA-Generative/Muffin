@@ -194,6 +194,8 @@ boucle de vérification (« grounding »).
 | `EDIT_LLM_MODEL` | Modèle de chat qui planifie l'édition. Vide : le modèle de chat par défaut du hub LLM (`/internal/llm/default-chat-model`) | `""` | idem (`app/tasks.py`) |
 | `EDIT_MAX_TOKENS` | Longueur maximale de la réponse du modèle (la liste d'opérations, pas un document réécrit) | `4096` | idem |
 | `EDIT_MAX_ATTEMPTS` | Nombre de fois où le modèle est rappelé en lui montrant pourquoi sa réponse précédente a été refusée (JSON invalide, opération visant une section inexistante...). Passé ce nombre, la tâche échoue avec le dernier motif | `3` | idem (`app/agent.py`) |
+| `SOFFICE_BIN` | Binaire LibreOffice qui convertit un brouillon ODT en PDF d'aperçu (#169). Chaque conversion tourne avec son propre profil (`-env:UserInstallation`) | `soffice` | idem (`app/preview.py`) |
+| `PREVIEW_TIMEOUT_SECONDS` | Durée maximale d'une conversion ODT → PDF avant qu'elle soit abandonnée (la tâche échoue alors avec un message clair) | `120` | idem |
 | `EDIT_MAX_OUTLINE_CHARS` | Taille maximale (en caractères) du plan du document envoyé au modèle. Au-delà, la tâche échoue avec un message clair plutôt que d'éditer à l'aveugle | `60000` | idem |
 
 ## Frontend (Vite)
