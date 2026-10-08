@@ -24,9 +24,18 @@ def _process_url(document_id: str, url: str) -> None:
     _shared.backend_client.add_page(document_id, page_number=1, content=markdown)
 
 
-def _process_file(document_id: str, storage_key: str, data: bytes | None = None) -> None:
+def _process_markdown(document_id: str, data: bytes) -> None:
+    """A Markdown file is already text (living documents, #166) - one page, no liteparse, no
+    screenshot. liteparse only handles PDF/Office/image formats."""
+    _shared.backend_client.add_page(document_id, page_number=1, content=data.decode("utf-8", errors="replace"))
+
+
+def _process_file(document_id: str, storage_key: str, data: bytes | None = None, name: str = "") -> None:
     if data is None:
         data = _shared.storage.get_object(storage_key)
+    if name.lower().endswith(".md"):
+        _process_markdown(document_id, data)
+        return
     result = _shared.parse_file(data)
     screenshots_by_page = {screenshot.page_num: screenshot for screenshot in result.screenshots}
 
@@ -86,7 +95,7 @@ def process_document(self, document_id: str) -> None:
                     )
                 else:
                     data = _shared.storage.get_object(document["storage_key"])
-                    _process_file(document_id, document["storage_key"], data)
+                    _process_file(document_id, document["storage_key"], data, document["name"])
                     _shared.backend_client.update_status(document_id, status="indexing", progress=50)
                     _shared._spawn(
                         chunk_document,

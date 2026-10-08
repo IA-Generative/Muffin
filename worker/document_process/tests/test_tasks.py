@@ -141,6 +141,31 @@ def test_chunk_document_tolerates_embedding_failures(monkeypatch):
     tasks._shared.backend_client.update_status.assert_any_call("doc-5", status="indexed", progress=100)
 
 
+def test_process_document_for_a_markdown_file_creates_one_page_without_liteparse(monkeypatch):
+    monkeypatch.setattr(tasks._shared, "backend_client", MagicMock())
+    monkeypatch.setattr(task_logging, "backend_client", MagicMock())
+    monkeypatch.setattr(tasks._shared, "_spawn", MagicMock())
+    monkeypatch.setattr(tasks._shared, "storage", MagicMock())
+    parse_file = MagicMock()
+    monkeypatch.setattr(tasks._shared, "parse_file", parse_file)
+    tasks._shared.backend_client.get_document.return_value = {
+        "id": "doc-md",
+        "type": "file",
+        "name": "procedure.md",
+        "storage_key": "docs/procedure.md",
+        "collection_id": "col-md",
+    }
+    tasks._shared.storage.get_object.return_value = "# Procédure\n\nÉtape 1".encode()
+
+    tasks.process_document("doc-md")
+
+    parse_file.assert_not_called()
+    tasks._shared.backend_client.add_page.assert_called_once_with(
+        "doc-md", page_number=1, content="# Procédure\n\nÉtape 1"
+    )
+    tasks._shared._spawn.assert_called_once()
+
+
 def test_process_document_reports_error_status_on_failure(monkeypatch):
     monkeypatch.setattr(tasks._shared, "backend_client", MagicMock())
     monkeypatch.setattr(task_logging, "backend_client", MagicMock())
