@@ -191,6 +191,10 @@ boucle de vérification (« grounding »).
 |---|---|---|---|
 | `CELERY_QUEUE_NAME` | Nom de la queue Celery consommée par ce worker - doit correspondre à `DOCUMENT_EDIT_QUEUE` de `backend/app/core/tasks.py` | `document_edit` | **worker/document_edit** (`app/config.py`) |
 | `AWS_ENDPOINT_URL`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_BUCKET` | Accès RustFS pour lire le fichier source et écrire le brouillon (mêmes variables et mêmes défauts que `worker/document_process`) | voir plus haut | idem (`app/storage.py`) |
+| `EDIT_LLM_MODEL` | Modèle de chat qui planifie l'édition. Vide : le modèle de chat par défaut du hub LLM (`/internal/llm/default-chat-model`) | `""` | idem (`app/tasks.py`) |
+| `EDIT_MAX_TOKENS` | Longueur maximale de la réponse du modèle (la liste d'opérations, pas un document réécrit) | `4096` | idem |
+| `EDIT_MAX_ATTEMPTS` | Nombre de fois où le modèle est rappelé en lui montrant pourquoi sa réponse précédente a été refusée (JSON invalide, opération visant une section inexistante...). Passé ce nombre, la tâche échoue avec le dernier motif | `3` | idem (`app/agent.py`) |
+| `EDIT_MAX_OUTLINE_CHARS` | Taille maximale (en caractères) du plan du document envoyé au modèle. Au-delà, la tâche échoue avec un message clair plutôt que d'éditer à l'aveugle | `60000` | idem |
 
 ## Frontend (Vite)
 

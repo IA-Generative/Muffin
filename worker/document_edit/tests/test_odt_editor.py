@@ -69,6 +69,17 @@ def test_replace_paragraph_in_the_intro_counts_the_image_paragraph():
     assert "Second paragraphe d'introduction." not in _texts(result.data)
 
 
+@pytest.mark.parametrize(("paragraph", "carries"), [(1, "une note de bas de page"), (2, "une image")])
+def test_replacing_a_paragraph_that_carries_a_footnote_or_an_image_is_refused(paragraph, carries):
+    with pytest.raises(OperationError, match=carries):
+        _apply({"op": "replace_paragraph", "section": INTRO, "paragraph": paragraph, "text": "Réécrit"})
+
+
+def test_a_paragraph_that_carries_a_footnote_or_an_image_can_still_be_deleted_on_purpose():
+    result = _apply({"op": "delete_paragraph", "section": INTRO, "paragraph": 2})
+    assert len(_doc(result.data).body.get_frames()) == 0
+
+
 def test_insert_paragraph_at_the_end_after_n_and_right_under_the_heading_uses_the_neighbour_style():
     result = _apply(
         {"op": "insert_paragraph", "section": CONTACTS, "text": "Fin"},

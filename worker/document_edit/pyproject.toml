@@ -11,6 +11,8 @@ dependencies = [
     "loguru>=0.7.3",
     "boto3>=1.43.98",
     "odfdo>=3.0",
+    "markdown-it-py>=4.2.0",
+    "langgraph>=0.2",
 ]
 
 [dependency-groups]
