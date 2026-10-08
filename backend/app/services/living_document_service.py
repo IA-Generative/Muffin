@@ -1,8 +1,11 @@
 import os
 import uuid
+from datetime import UTC, datetime, timedelta
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import DocumentSettings
 from app.core import storage
 from app.core.security.factory import RequestContext
 from app.core.tasks import PROCESS_DOCUMENT_TASK, enqueue_process_document
@@ -12,7 +15,7 @@ from app.repositories.collection_repository import CollectionRepository
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.document_revision_repository import DocumentRevisionRepository
 from app.repositories.task_repository import TaskRepository
-from app.schemas.document import DocumentOut, DocumentRevisionOut
+from app.schemas.document import DocumentLockGrantOut, DocumentLockOut, DocumentOut, DocumentRevisionOut
 from app.services import vector_store
 
 from .collection_service import CollectionNotFoundError
@@ -36,6 +39,31 @@ class NotLivingDocumentError(Exception):
 
 class RevisionNotFoundError(Exception):
     pass
+
+
+class DocumentLockedError(Exception):
+    """Someone else holds a live edit lock (or the caller didn't present the right token)."""
+
+    def __init__(self, lock: DocumentLockOut) -> None:
+        super().__init__("document is locked")
+        self.lock = lock
+
+
+class LockLostError(Exception):
+    """The caller's lock expired or was released since they acquired it."""
+
+
+class RevisionConflictError(Exception):
+    """The document moved on since the revision the caller based their change on."""
+
+    def __init__(self, current_revision: int) -> None:
+        super().__init__(f"current revision is {current_revision}")
+        self.current_revision = current_revision
+
+
+# Exposed as a module attribute so tests can swap it out with monkeypatch.setattr, same as
+# app/core/sharing.py's settings.
+_document_settings = DocumentSettings()
 
 
 def _detect_format(filename: str) -> str:
@@ -95,6 +123,9 @@ class LivingDocumentService:
         filename: str,
         content: bytes,
         content_type: str,
+        *,
+        base_revision: int,
+        lock_token: str | None = None,
     ) -> DocumentOut:
         await self._get_owned_collection(collection_id, user)
         document = await self._get_living_document(collection_id, document_id)
@@ -103,16 +134,19 @@ class LivingDocumentService:
         current = await self._current_revision(document)
         if format_ != current.format:
             raise FormatMismatchError(f"{current.format} -> {format_}")
+        # Both guards run before the file is uploaded, so a refused write leaves no orphan object.
+        self._assert_can_write(document, user, lock_token, base_revision, current.number)
 
         storage_key = self._put_file(collection_id, safe_name, content, content_type)
-        await self.revisions.create(
-            document.id,
+        await self._append_revision(
+            document,
+            current.number,
             storage_key=storage_key,
             filename=safe_name,
             format_=format_,
             origin=RevisionOrigin.UPLOAD,
-            created_by_user_id=user.user_id,
-            created_by_display=_uploader_display(user),
+            user=user,
+            orphan_key=storage_key,
         )
         await self._reprocess(document, collection_id, storage_key, user)
         return DocumentOut.model_validate(document)
@@ -130,7 +164,14 @@ class LivingDocumentService:
         ]
 
     async def restore(
-        self, collection_id: uuid.UUID, user: RequestContext, document_id: uuid.UUID, number: int
+        self,
+        collection_id: uuid.UUID,
+        user: RequestContext,
+        document_id: uuid.UUID,
+        number: int,
+        *,
+        base_revision: int,
+        lock_token: str | None = None,
     ) -> DocumentOut:
         """Makes an older revision current again by appending a new revision that points at the
         same file - history is never rewritten."""
@@ -139,19 +180,147 @@ class LivingDocumentService:
         source = await self.revisions.get_by_number(document.id, number)
         if source is None:
             raise RevisionNotFoundError(str(number))
+        current = await self._current_revision(document)
+        self._assert_can_write(document, user, lock_token, base_revision, current.number)
 
-        await self.revisions.create(
-            document.id,
+        await self._append_revision(
+            document,
+            current.number,
             storage_key=source.storage_key,
             filename=source.filename,
             format_=source.format,
             origin=RevisionOrigin.RESTORE,
-            created_by_user_id=user.user_id,
-            created_by_display=_uploader_display(user),
+            user=user,
             restored_from_number=source.number,
         )
         await self._reprocess(document, collection_id, source.storage_key, user)
         return DocumentOut.model_validate(document)
+
+    async def acquire_lock(
+        self, collection_id: uuid.UUID, user: RequestContext, document_id: uuid.UUID
+    ) -> DocumentLockGrantOut:
+        """Takes the soft edit lock (#170) for a limited time. The returned token is the only
+        way to write while it's held - it's what tells "my own session" from "someone else's",
+        since the same user can be in two tabs (or, later, behind a chat edit job)."""
+        await self._get_owned_collection(collection_id, user)
+        document = await self._get_living_document(collection_id, document_id)
+        now = datetime.now(UTC)
+        token = uuid.uuid4().hex
+        expires_at = now + self._ttl()
+        acquired = await self.documents.try_acquire_lock(
+            document.id,
+            user_id=user.user_id,
+            display=_uploader_display(user),
+            token=token,
+            now=now,
+            expires_at=expires_at,
+        )
+        await self.db.commit()
+        await self.db.refresh(document)
+        if not acquired:
+            raise DocumentLockedError(self._current_lock(document, user, now))
+        return DocumentLockGrantOut(
+            locked_by_display=document.locked_by_display, expires_at=expires_at, held_by_me=True, token=token
+        )
+
+    async def renew_lock(
+        self, collection_id: uuid.UUID, user: RequestContext, document_id: uuid.UUID, token: str
+    ) -> DocumentLockOut:
+        await self._get_owned_collection(collection_id, user)
+        document = await self._get_living_document(collection_id, document_id)
+        now = datetime.now(UTC)
+        renewed = await self.documents.renew_lock(document.id, token=token, now=now, expires_at=now + self._ttl())
+        await self.db.commit()
+        if not renewed:
+            raise LockLostError(str(document_id))
+        await self.db.refresh(document)
+        return self._current_lock(document, user, now)
+
+    async def release_lock(
+        self,
+        collection_id: uuid.UUID,
+        user: RequestContext,
+        document_id: uuid.UUID,
+        token: str | None,
+        *,
+        force: bool = False,
+    ) -> None:
+        """Idempotent: releasing a document nobody holds is a no-op. Without the holder's token
+        only force=true works - the collection owner (the only caller here) breaking a lock
+        left by an abandoned session instead of waiting for its expiry."""
+        await self._get_owned_collection(collection_id, user)
+        document = await self._get_living_document(collection_id, document_id)
+        now = datetime.now(UTC)
+        lock = DocumentLockOut.from_document(document, user.user_id, now)
+        if lock is None:
+            return
+        if not force and token != document.lock_token:
+            raise DocumentLockedError(lock)
+        await self.documents.clear_lock(document)
+        await self.db.commit()
+
+    async def get_lock(
+        self, collection_id: uuid.UUID, user: RequestContext, document_id: uuid.UUID
+    ) -> DocumentLockOut | None:
+        await self._get_owned_collection(collection_id, user)
+        document = await self._get_living_document(collection_id, document_id)
+        return DocumentLockOut.from_document(document, user.user_id, datetime.now(UTC))
+
+    def _ttl(self) -> timedelta:
+        return timedelta(seconds=_document_settings.DOCUMENT_LOCK_TTL_SECONDS)
+
+    @staticmethod
+    def _current_lock(document: Document, user: RequestContext, now: datetime) -> DocumentLockOut:
+        lock = DocumentLockOut.from_document(document, user.user_id, now)
+        if lock is None:  # Expired between the failed acquisition and this read - vanishingly rare.
+            raise LockLostError(str(document.id))
+        return lock
+
+    @staticmethod
+    def _assert_can_write(
+        document: Document, user: RequestContext, lock_token: str | None, base_revision: int, current_revision: int
+    ) -> None:
+        """A write needs (1) not to collide with someone else's live lock - the holder's token
+        is the only pass - and (2) to be based on the current revision, which also covers a lock
+        that expired in the meantime and let another write land first."""
+        lock = DocumentLockOut.from_document(document, user.user_id, datetime.now(UTC))
+        if lock is not None and lock_token != document.lock_token:
+            raise DocumentLockedError(lock)
+        if base_revision != current_revision:
+            raise RevisionConflictError(current_revision)
+
+    async def _append_revision(
+        self,
+        document: Document,
+        current_number: int,
+        *,
+        storage_key: str,
+        filename: str,
+        format_: str,
+        origin: RevisionOrigin,
+        user: RequestContext,
+        restored_from_number: int | None = None,
+        orphan_key: str | None = None,
+    ) -> None:
+        """Adds the revision, turning a lost race on the unique (document_id, number) constraint
+        - two writers that both passed the guards without a lock - into the same conflict the
+        base_revision check reports, instead of an opaque 500."""
+        try:
+            await self.revisions.create(
+                document.id,
+                storage_key=storage_key,
+                filename=filename,
+                format_=format_,
+                origin=origin,
+                created_by_user_id=user.user_id,
+                created_by_display=_uploader_display(user),
+                restored_from_number=restored_from_number,
+            )
+        except IntegrityError as error:
+            await self.db.rollback()
+            if orphan_key is not None:
+                storage.delete_objects([orphan_key])
+            raise RevisionConflictError((await self.revisions.current_number(document.id)) or current_number) from error
 
     async def _reprocess(
         self, document: Document, collection_id: uuid.UUID, storage_key: str, user: RequestContext
@@ -163,6 +332,8 @@ class LivingDocumentService:
         vector_store.delete_document_embeddings(collection_id, document.id, chunk_ids)
         orphaned_screenshot_keys = await self.documents.clear_content(document.id)
         await self.documents.set_current_file(document, storage_key)
+        # The write ends the editing session it was done under.
+        await self.documents.clear_lock(document)
         await self.db.commit()
         storage.delete_objects(orphaned_screenshot_keys)
         await self._enqueue_processing(document, user)

@@ -134,6 +134,12 @@ désactivée par défaut en amont et doit être explicitement activée côté se
 |---|---|---|---|
 | `SHARE_INVITE_PEPPER` | Secret serveur pour le HMAC-SHA256 des identifiants (email/groupe) d'une invitation de partage en attente (`app/core/sharing.py`) - **jamais** un hash nu : un email a trop peu d'entropie pour résister à une attaque par dictionnaire sur une base fuitée sans ce pepper | `""` (partage désactivé tant qu'il n'est pas défini - `POST /api/collections/{id}/shares` répond 503) | **backend** (`app/config/sharing.py`, `app/core/sharing.py`) — un secret fort, généré par environnement, jamais commité ; sa perte ou sa rotation invalide silencieusement toutes les invitations `pending` non encore résolues |
 
+## Documents vivants
+
+| Variable | Définition | Défaut | Utilisée par |
+|---|---|---|---|
+| `DOCUMENT_LOCK_TTL_SECONDS` | Durée de validité, en secondes, du verrou d'édition souple d'un document vivant (`POST /api/collections/{id}/documents/{doc}/lock`) tant qu'il n'est pas renouvelé (`PUT`). Passé ce délai le verrou est ignoré, un onglet abandonné libère donc le document tout seul | `600` | **backend** (`app/config/documents.py`, `app/services/living_document_service.py`) |
+
 ## Backend ↔ workers (URLs)
 
 | Variable | Définition | Défaut | Utilisée par |
