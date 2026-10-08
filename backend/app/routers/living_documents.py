@@ -1,12 +1,19 @@
 import uuid
 from typing import Annotated
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Response, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security.factory import RequestContext, get_current_user
 from app.db import get_db
-from app.schemas.document import DocumentLockGrantOut, DocumentLockOut, DocumentOut, DocumentRevisionOut
+from app.schemas.document import (
+    DocumentLockGrantOut,
+    DocumentLockOut,
+    DocumentOut,
+    DocumentRevisionOut,
+    MarkdownDocumentCreate,
+)
 from app.services.collection_service import CollectionNotFoundError
 from app.services.document_upload_service import DocumentNotFoundError
 from app.services.living_document_service import (
@@ -98,6 +105,38 @@ async def create_living_document(
         )
     except _HANDLED as error:
         raise _http_error(error) from error
+
+
+@router.post(
+    "/collections/{collection_id}/documents/living/markdown",
+    summary="Create a Markdown living document from scratch (name + content, no upload)",
+    status_code=status.HTTP_201_CREATED,
+    response_model=DocumentOut,
+)
+async def create_markdown_document(
+    collection_id: uuid.UUID, body: MarkdownDocumentCreate, user: UserDep, service: ServiceDep
+) -> DocumentOut:
+    try:
+        return await service.create_markdown(collection_id, user, body.name, body.content)
+    except _HANDLED as error:
+        raise _http_error(error) from error
+
+
+@router.get(
+    "/collections/{collection_id}/documents/{document_id}/content",
+    summary="Download a living document's file - the current revision, or ?revision=N",
+)
+async def download_living_document(
+    collection_id: uuid.UUID, document_id: uuid.UUID, user: UserDep, service: ServiceDep, revision: int | None = None
+) -> Response:
+    try:
+        content, filename, media_type = await service.download(collection_id, user, document_id, revision)
+    except _HANDLED as error:
+        raise _http_error(error) from error
+    # filename* (RFC 5987) carries accents/spaces safely; the ASCII filename is the fallback.
+    ascii_name = filename.encode("ascii", "replace").decode().replace("?", "_").replace('"', "")
+    disposition = f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(filename)}"
+    return Response(content=content, media_type=media_type, headers={"Content-Disposition": disposition})
 
 
 @router.put(

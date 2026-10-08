@@ -23,6 +23,8 @@ from .document_upload_service import DocumentNotFoundError, _uploader_display
 
 # Extension -> format. ODT is the reference format; Markdown is the lighter one (#174).
 SUPPORTED_FORMATS = {".odt": "odt", ".md": "md"}
+# Served back on download - the format never changes across a document's revisions.
+FORMAT_MEDIA_TYPES = {"odt": "application/vnd.oasis.opendocument.text", "md": "text/markdown; charset=utf-8"}
 
 
 class UnsupportedFormatError(Exception):
@@ -93,6 +95,8 @@ class LivingDocumentService:
         filename: str,
         content: bytes,
         content_type: str,
+        *,
+        origin: RevisionOrigin = RevisionOrigin.UPLOAD,
     ) -> DocumentOut:
         await self._get_owned_collection(collection_id, user)
         safe_name = os.path.basename(filename) or "document"
@@ -107,13 +111,46 @@ class LivingDocumentService:
             storage_key=storage_key,
             filename=safe_name,
             format_=format_,
-            origin=RevisionOrigin.UPLOAD,
+            origin=origin,
             created_by_user_id=user.user_id,
             created_by_display=_uploader_display(user),
         )
         await self.db.commit()
         await self._enqueue_processing(document, user)
         return DocumentOut.model_validate(document)
+
+    async def create_markdown(
+        self, collection_id: uuid.UUID, user: RequestContext, name: str, content: str
+    ) -> DocumentOut:
+        """A Markdown living document written from scratch in the UI, rather than uploaded: the
+        same Document + revision 1 as an upload, just with origin=ui."""
+        base = os.path.basename(name.strip()) or "document"
+        filename = base if base.lower().endswith(".md") else f"{base}.md"
+        return await self.create(
+            collection_id,
+            user,
+            filename,
+            content.encode("utf-8"),
+            FORMAT_MEDIA_TYPES["md"],
+            origin=RevisionOrigin.UI,
+        )
+
+    async def download(
+        self, collection_id: uuid.UUID, user: RequestContext, document_id: uuid.UUID, number: int | None
+    ) -> tuple[bytes, str, str]:
+        """(content, filename, media type) of a revision - the current one by default. Streamed
+        through the backend like page screenshots, never a direct storage URL."""
+        await self._get_owned_collection(collection_id, user)
+        document = await self._get_living_document(collection_id, document_id)
+        revision = (
+            await self._current_revision(document)
+            if number is None
+            else await self.revisions.get_by_number(document.id, number)
+        )
+        if revision is None:
+            raise RevisionNotFoundError(str(number))
+        content, _ = storage.get_object(revision.storage_key)
+        return content, revision.filename, FORMAT_MEDIA_TYPES[revision.format]
 
     async def replace(
         self,

@@ -5,6 +5,7 @@ import { useCollections } from '../composables/useCollections'
 import { usePagination } from '../composables/usePagination'
 import type { Collection } from '../types/collection'
 import DocumentDetailModal from './DocumentDetailModal.vue'
+import NewMarkdownDocumentModal from './NewMarkdownDocumentModal.vue'
 import PaginationControls from './PaginationControls.vue'
 
 const props = defineProps<{
@@ -13,7 +14,8 @@ const props = defineProps<{
 }>()
 
 const router = useRouter()
-const { addDocuments, addLivingDocuments, reloadDocuments, addUrl, removeDocument, documentError } = useCollections()
+const { addDocuments, addLivingDocuments, createMarkdownDocument, reloadDocuments, addUrl, removeDocument, documentError } =
+  useCollections()
 
 const documents = computed(() => props.collection.documents)
 const { page, pageCount, paged: pagedDocuments } = usePagination(documents)
@@ -43,6 +45,17 @@ function submitUrl() {
 function handleFiles(files: FileList | null) {
   if (!files?.length) return
   addDocuments(props.collection.id, Array.from(files))
+}
+
+const showMarkdownModal = ref(false)
+
+async function createMarkdown(name: string, content: string) {
+  if (await createMarkdownDocument(props.collection.id, name, content)) showMarkdownModal.value = false
+}
+
+function closeMarkdownModal() {
+  showMarkdownModal.value = false
+  documentError.value = null
 }
 
 function handleLivingFiles(event: Event) {
@@ -105,12 +118,15 @@ const STATUS_LABEL = {
           @change="handleLivingFiles"
         />
       </label>
+      <button type="button" class="fr-btn fr-btn--secondary fr-btn--sm" @click="showMarkdownModal = true">
+        Créer un document Markdown
+      </button>
       <p class="documents-tab__living-hint">
         ODT ou Markdown. Un document vivant se remplace par une nouvelle version, avec historique, sans le supprimer.
       </p>
     </div>
 
-    <p v-if="documentError" class="documents-tab__error" role="alert">{{ documentError }}</p>
+    <p v-if="documentError && !showMarkdownModal" class="documents-tab__error" role="alert">{{ documentError }}</p>
 
     <ul v-if="collection.documents.length" class="documents-tab__list">
       <li v-for="document in pagedDocuments" :key="document.id" class="documents-tab__item">
@@ -161,6 +177,13 @@ const STATUS_LABEL = {
     <p v-else class="documents-tab__empty">Aucun document pour le moment.</p>
 
     <PaginationControls v-model:page="page" :page-count="pageCount" />
+
+    <NewMarkdownDocumentModal
+      v-if="showMarkdownModal"
+      :error="documentError"
+      @create="createMarkdown"
+      @cancel="closeMarkdownModal"
+    />
 
     <DocumentDetailModal
       v-if="openDocument"
