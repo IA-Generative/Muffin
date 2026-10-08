@@ -1,6 +1,6 @@
 # muffin
 
-![Version: 0.11.0](https://img.shields.io/badge/Version-0.11.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.13.0](https://img.shields.io/badge/AppVersion-0.13.0-informational?style=flat-square)
+![Version: 0.12.0-rc](https://img.shields.io/badge/Version-0.12.0--rc-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.14.0-rc](https://img.shields.io/badge/AppVersion-0.14.0--rc-informational?style=flat-square)
 
 A Helm chart to deploy Muffin.
 
@@ -1180,8 +1180,6 @@ Kubernetes: `>=1.25.0-0`
 | worker_document_edit.strategy.rollingUpdate.maxSurge | int | `1` | The maximum number of pods that can be scheduled above the desired number of pods. |
 | worker_document_edit.strategy.rollingUpdate.maxUnavailable | int | `1` | The maximum number of pods that can be unavailable during the update process. |
 | worker_document_edit.strategy.type | string | `"RollingUpdate"` | Strategy type used to replace old Pods by new ones, can be `Recreate` or `RollingUpdate`. Only applied when `deploymentType` is "Deployment". |
-
-## Sources
 
 ### WorkerEvaluation
 
