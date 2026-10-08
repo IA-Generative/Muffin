@@ -14,6 +14,14 @@ class DocumentType(enum.StrEnum):
     URL = "url"
 
 
+class DocumentKind(enum.StrEnum):
+    STANDARD = "standard"
+    # A "living" document (#166): an ODT or Markdown file whose content evolves through
+    # revisions (replaced by upload today, edited through the chat later) instead of being
+    # immutable once indexed. Same Document row, indexing and citations as any other file.
+    LIVING = "living"
+
+
 class DocumentStatus(enum.StrEnum):
     PENDING = "pending"
     INDEXING = "indexing"
@@ -31,7 +39,15 @@ class Document(UUIDMixin, TimestampMixin, Base):
     # bytes live in RustFS under storage_key - name is just the display name.
     name: Mapped[str] = mapped_column(String, nullable=False)
     type: Mapped[DocumentType] = mapped_column(Enum(DocumentType, name="document_type"), nullable=False)
+    # For a living document this always points at the current revision's file (see
+    # DocumentRevision) - the worker keeps reading storage_key, it doesn't know about revisions.
     storage_key: Mapped[str | None] = mapped_column(String, nullable=True)
+    kind: Mapped[DocumentKind] = mapped_column(
+        Enum(DocumentKind, name="document_kind"),
+        nullable=False,
+        default=DocumentKind.STANDARD,
+        server_default=DocumentKind.STANDARD.name,
+    )
     status: Mapped[DocumentStatus] = mapped_column(
         Enum(DocumentStatus, name="document_status"),
         nullable=False,
@@ -82,6 +98,9 @@ class Document(UUIDMixin, TimestampMixin, Base):
         back_populates="document", cascade="all, delete-orphan", order_by="Chunk.index"
     )
     tags: Mapped[list["DocumentTag"]] = relationship(back_populates="document", cascade="all, delete-orphan")
+    revisions: Mapped[list["DocumentRevision"]] = relationship(  # noqa: F821
+        back_populates="document", cascade="all, delete-orphan", order_by="DocumentRevision.number"
+    )
     tabular_profile: Mapped["DocumentTabularProfile | None"] = relationship(  # noqa: F821
         back_populates="document", cascade="all, delete-orphan", uselist=False
     )

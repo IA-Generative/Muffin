@@ -15,11 +15,13 @@ from app.models.discussion_feedback import DiscussionFeedback
 from app.models.discussion_score import DiscussionScore
 from app.models.document import (
     Document,
+    DocumentKind,
     DocumentPage,
     DocumentStatus,
     DocumentTag,
     DocumentType,
 )
+from app.models.document_revision import DocumentRevision, RevisionOrigin
 from app.models.document_tabular_profile import DocumentTabularProfile
 from app.models.entity import Entity, EntityType, Relation
 from app.models.evaluation import (
@@ -58,7 +60,9 @@ __all__ = [
     "DiscussionFeedback",
     "DiscussionScore",
     "Document",
+    "DocumentKind",
     "DocumentPage",
+    "DocumentRevision",
     "DocumentStatus",
     "DocumentTag",
     "DocumentTabularProfile",
@@ -87,6 +91,7 @@ __all__ = [
     "Run",
     "RunEvent",
     "RunPromptUsage",
+    "RevisionOrigin",
     "RunStatus",
     "ShareSubjectType",
     "Source",

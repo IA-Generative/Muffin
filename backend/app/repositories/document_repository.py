@@ -10,11 +10,13 @@ from app.models.chunk import Chunk
 from app.models.collection import Collection
 from app.models.document import (
     Document,
+    DocumentKind,
     DocumentPage,
     DocumentStatus,
     DocumentTag,
     DocumentType,
 )
+from app.models.document_revision import DocumentRevision
 from app.models.document_tabular_profile import DocumentTabularProfile
 
 
@@ -140,11 +142,13 @@ class DocumentRepository:
         storage_key: str,
         added_by_user_id: str | None = None,
         added_by_display: str | None = None,
+        kind: DocumentKind = DocumentKind.STANDARD,
     ) -> Document:
         document = Document(
             collection_id=collection_id,
             name=name,
             type=DocumentType.FILE,
+            kind=kind,
             storage_key=storage_key,
             added_by_user_id=added_by_user_id,
             added_by_display=added_by_display,
@@ -162,6 +166,13 @@ class DocumentRepository:
     async def list_rustfs_keys_for_document(self, document_id: uuid.UUID) -> list[str]:
         document = await self.get(document_id)
         keys = [document.storage_key] if document and document.storage_key else []
+        # A living document's past revisions each own a file (a restore re-uses an older one's
+        # key, hence the dedupe) - all of them go away with the document.
+        revision_keys = await self.db.scalars(
+            select(DocumentRevision.storage_key).where(DocumentRevision.document_id == document_id)
+        )
+        keys.extend(revision_keys.all())
+        keys = list(dict.fromkeys(keys))
         screenshots = await self.db.scalars(
             select(DocumentPage.screenshot).where(
                 DocumentPage.document_id == document_id,
@@ -225,6 +236,16 @@ class DocumentRepository:
 
     async def set_filing_dismissed(self, document: Document) -> None:
         document.filing_dismissed = True
+
+    async def set_current_file(self, document: Document, storage_key: str) -> None:
+        """Points a living document at a new revision's file and resets it for reprocessing -
+        the caller clears its pages/chunks/embeddings and re-enqueues processing, same division
+        of labour as move_to_collection."""
+        document.storage_key = storage_key
+        document.status = DocumentStatus.PENDING
+        document.progress = 0
+        document.summary = None
+        document.error = None
 
     async def move_to_collection(self, document: Document, collection_id: uuid.UUID) -> None:
         """Re-homes a document into a different collection in place - keeps its id stable (so
