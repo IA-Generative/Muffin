@@ -16,6 +16,17 @@ class WorkerSettings(BaseSettings):
     AWS_SECRET_ACCESS_KEY: str = "rustfsadmin"
     AWS_BUCKET: str = "muffin-documents"
 
+    # Model used to plan the edit. Empty means the LLM hub's default chat model.
+    EDIT_LLM_MODEL: str = ""
+    # Room for the operations list the model writes back - far less than a whole rewritten document.
+    EDIT_MAX_TOKENS: int = 4096
+    # How many times the model may be asked again with the reason its previous answer was refused
+    # (invalid JSON, an operation aimed at something that doesn't exist...).
+    EDIT_MAX_ATTEMPTS: int = 3
+    # Largest document outline (characters) sent to the model; beyond it the job fails with a clear
+    # message rather than editing blind.
+    EDIT_MAX_OUTLINE_CHARS: int = 60000
+
     model_config = SettingsConfigDict(case_sensitive=True, env_file=(".env", ".env.local"), extra="ignore")
 
 

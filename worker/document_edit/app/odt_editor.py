@@ -14,6 +14,15 @@ from dataclasses import dataclass
 
 from odfdo import Cell, Document, Header, Paragraph, Row, Table
 
+from app.edit_types import (
+    EditResult,
+    OperationError,
+    OutlineSection,
+    Refused,
+    paragraph_item,
+    render_outline,
+    table_item,
+)
 from app.operations import (
     DeleteColumn,
     DeleteParagraph,
@@ -35,27 +44,6 @@ _TABLE = "table:table"
 _NUMERIC_CELL_TYPES = {"float", "percentage", "currency"}
 
 
-class OperationError(Exception):
-    """An operation can't be applied. `index` is its 1-based position in the list, `message` is
-    meant to be read as-is - by the user, or fed back to the model that wrote the operation."""
-
-    def __init__(self, index: int, message: str) -> None:
-        super().__init__(f"Opération {index} : {message}")
-        self.index = index
-        self.message = message
-
-
-class _Refused(Exception):
-    """Raised inside an operation, wrapped into an OperationError with its index by the caller."""
-
-
-@dataclass
-class EditResult:
-    data: bytes
-    # One human-readable line per applied operation, in order.
-    summary: list[str]
-
-
 @dataclass
 class _Span:
     """The body children of a section: [start, end) in body.children."""
@@ -75,6 +63,24 @@ def _text_of(element) -> str:
 
 def _repeated(element) -> int:
     return element.repeated or 1
+
+
+def _embedded(paragraph) -> list[str]:
+    """What a paragraph carries besides its text - things that replacing its text would destroy."""
+    found = []
+    if paragraph.get_notes():
+        found.append("une note de bas de page")
+    if paragraph.get_frames():
+        found.append("une image")
+    return found
+
+
+def _visible_text(paragraph) -> str:
+    """The paragraph's own words, without the body of a footnote or the path of an image."""
+    copy = paragraph.clone
+    for element in [*copy.get_notes(), *copy.get_frames()]:
+        copy.delete(element)
+    return copy.text_recursive.strip()
 
 
 class _Editor:
@@ -100,7 +106,7 @@ class _Editor:
         matches = [i for i in headings if _normalise(_text_of(children[i])) == wanted]
         if len(matches) < ref.occurrence:
             available = ", ".join(f"« {_text_of(children[i])} »" for i in headings) or "aucun titre"
-            raise _Refused(f"titre « {ref.heading} » introuvable (occurrence {ref.occurrence}). Titres : {available}.")
+            raise Refused(f"titre « {ref.heading} » introuvable (occurrence {ref.occurrence}). Titres : {available}.")
         start = matches[ref.occurrence - 1]
         later = [i for i in headings if i > start]
         return _Span(start + 1, later[0] if later else len(children), f"« {ref.heading} »")
@@ -121,7 +127,7 @@ class _Editor:
         span = self._section(ref)
         paragraphs = self._paragraphs(self._children(), span)
         if number > len(paragraphs):
-            raise _Refused(f"{span.label} n'a que {len(paragraphs)} paragraphe(s), pas de paragraphe {number}.")
+            raise Refused(f"{span.label} n'a que {len(paragraphs)} paragraphe(s), pas de paragraphe {number}.")
         return span, paragraphs[number - 1][1]
 
     def _insert_position(self, span: _Span, after_paragraph: int | None) -> int:
@@ -132,7 +138,7 @@ class _Editor:
             return span.start
         paragraphs = self._paragraphs(children, span)
         if after_paragraph > len(paragraphs):
-            raise _Refused(
+            raise Refused(
                 f"{span.label} n'a que {len(paragraphs)} paragraphe(s), "
                 f"impossible d'insérer après le {after_paragraph}."
             )
@@ -143,7 +149,7 @@ class _Editor:
         children = self._children()
         tables = [children[i] for i in range(span.start, span.end) if children[i].tag == _TABLE]
         if ref.index > len(tables):
-            raise _Refused(f"{span.label} contient {len(tables)} tableau(x), pas de tableau {ref.index}.")
+            raise Refused(f"{span.label} contient {len(tables)} tableau(x), pas de tableau {ref.index}.")
         return tables[ref.index - 1]
 
     # -- styles ------------------------------------------------------------------------------
@@ -198,9 +204,9 @@ class _Editor:
     def _check_in_table(table: Table, row: int | None = None, column: int | None = None) -> None:
         rows, columns = len(table.get_rows()), table.width
         if row is not None and row > rows:
-            raise _Refused(f"le tableau n'a que {rows} ligne(s), pas de ligne {row}.")
+            raise Refused(f"le tableau n'a que {rows} ligne(s), pas de ligne {row}.")
         if column is not None and column > columns:
-            raise _Refused(f"le tableau n'a que {columns} colonne(s), pas de colonne {column}.")
+            raise Refused(f"le tableau n'a que {columns} colonne(s), pas de colonne {column}.")
 
     # -- operations --------------------------------------------------------------------------
 
@@ -221,6 +227,12 @@ class _Editor:
 
     def _replace_paragraph(self, op: ReplaceParagraph) -> str:
         span, paragraph = self._paragraph(op.section, op.paragraph)
+        embedded = _embedded(paragraph)
+        if embedded:
+            raise Refused(
+                f"le paragraphe {op.paragraph} de {span.label} contient {' et '.join(embedded)} : "
+                "le remplacer le ferait disparaître. Modifiez un autre paragraphe, ou insérez-en un nouveau."
+            )
         # clear() drops the element's attributes too - put them back so the paragraph keeps its
         # style (and anything else the document attached to it). Inline formatting of the old
         # text (bold, links) is replaced along with the text.
@@ -279,9 +291,9 @@ class _Editor:
         rows, width = len(table.get_rows()), table.width
         after = rows if op.after_row is None else op.after_row
         if after > rows:
-            raise _Refused(f"le tableau n'a que {rows} ligne(s), impossible d'insérer après la ligne {after}.")
+            raise Refused(f"le tableau n'a que {rows} ligne(s), impossible d'insérer après la ligne {after}.")
         if len(op.values) > width:
-            raise _Refused(f"{len(op.values)} valeurs pour un tableau de {width} colonne(s).")
+            raise Refused(f"{len(op.values)} valeurs pour un tableau de {width} colonne(s).")
         # Format like a data row, not the header: the row above the insertion point, unless that
         # is the header (row 1) and there is another row to copy.
         reference = after if after >= 2 or rows < 2 else 2
@@ -300,7 +312,7 @@ class _Editor:
         table = self._table(op.table)
         self._check_in_table(table, row=op.row)
         if len(table.get_rows()) == 1:
-            raise _Refused("impossible de supprimer la dernière ligne du tableau.")
+            raise Refused("impossible de supprimer la dernière ligne du tableau.")
         table.delete_row(op.row - 1)
         return f"Ligne {op.row} du tableau supprimée."
 
@@ -309,9 +321,9 @@ class _Editor:
         rows, width = len(table.get_rows()), table.width
         after = width if op.after_column is None else op.after_column
         if after > width:
-            raise _Refused(f"le tableau n'a que {width} colonne(s), impossible d'insérer après la colonne {after}.")
+            raise Refused(f"le tableau n'a que {width} colonne(s), impossible d'insérer après la colonne {after}.")
         if len(op.values) > rows:
-            raise _Refused(f"{len(op.values)} valeurs pour un tableau de {rows} ligne(s).")
+            raise Refused(f"{len(op.values)} valeurs pour un tableau de {rows} ligne(s).")
         table.insert_column(after)
         # New cells are formatted like the column they were added next to: the one on their left,
         # or - added at the far left - the old first column, which has moved one to the right.
@@ -329,7 +341,7 @@ class _Editor:
         table = self._table(op.table)
         self._check_in_table(table, column=op.column)
         if table.width == 1:
-            raise _Refused("impossible de supprimer la dernière colonne du tableau.")
+            raise Refused("impossible de supprimer la dernière colonne du tableau.")
         table.delete_column(op.column - 1)
         return f"Colonne {op.column} du tableau supprimée."
 
@@ -338,7 +350,7 @@ class _Editor:
         position = self._insert_position(span, op.after_paragraph)
         width = len(op.rows[0])
         if any(len(row) != width for row in op.rows):
-            raise _Refused("toutes les lignes du tableau doivent avoir le même nombre de cellules.")
+            raise Refused("toutes les lignes du tableau doivent avoir le même nombre de cellules.")
 
         children = self._children()
         existing = next((c for c in children if c.tag == _TABLE), None)
@@ -375,8 +387,42 @@ def apply_operations(source: bytes, operations: list[Operation]) -> EditResult:
     for index, operation in enumerate(operations, start=1):
         try:
             summary.append(editor.apply(operation))
-        except _Refused as refusal:
+        except Refused as refusal:
             raise OperationError(index, str(refusal)) from refusal
     buffer = io.BytesIO()
     editor.document.save(buffer)
     return EditResult(data=buffer.getvalue(), summary=summary)
+
+
+def outline(source: bytes) -> str:
+    """The document as the editing agent reads it: each section's numbered paragraphs and tables,
+    with a note for the blocks it can't edit (lists, images, anything else)."""
+    editor = _Editor(Document(io.BytesIO(source)))
+    children = editor._children()
+    sections = [OutlineSection(None, 0, 1, [])]
+    seen: dict[str, int] = {}
+    paragraphs = tables = 0
+    for child in children:
+        if isinstance(child, Header):
+            text = _text_of(child)
+            key = _normalise(text)
+            seen[key] = seen.get(key, 0) + 1
+            sections.append(OutlineSection(text, int(child.level), seen[key], []))
+            paragraphs = tables = 0
+        elif child.tag == _PARAGRAPH:
+            paragraphs += 1
+            item = paragraph_item(paragraphs, _visible_text(child))
+            if embedded := _embedded(child):
+                item += f"  [contient {' et '.join(embedded)} : non remplaçable]"
+            sections[-1].items.append(item)
+        elif child.tag == _TABLE:
+            tables += 1
+            rows = [child.get_row_values(i) for i in range(len(child.get_rows()))]
+            sections[-1].items.append(table_item(tables, [[str(v) for v in row] for row in rows]))
+        elif child.tag == "text:list":
+            sections[-1].items.append(
+                f"  [liste de {len(child.get_elements('text:list-item'))} élément(s), non modifiable]"
+            )
+        else:
+            sections[-1].items.append("  [bloc non modifiable]")
+    return render_outline(sections)

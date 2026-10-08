@@ -13,21 +13,37 @@ Dans sa propre queue Celery (`document_edit`), séparée de `document_processing
 `evaluation` : un job d'édition appelle un LLM puis une conversion LibreOffice, ni l'un ni l'autre ne
 doit retarder une ingestion ou une réponse de chat.
 
-## État
+## Ce que fait la tâche `edit_document` (`app/tasks.py`, `app/agent.py`)
 
-La tâche `edit_document` traverse tout le chemin (queue, contrat, lecture/écriture RustFS, logs de
-tâche) mais **n'applique encore aucune modification** : le brouillon est une copie du point de départ
-(`edited: false` dans le résultat). Ce qui existe déjà pour #168, sans être branché à la tâche :
+1. Lit son point de départ dans RustFS : `previous_draft_key` si on lui demande d'ajuster un brouillon,
+   sinon `source_storage_key`.
+2. Lance l'**agent d'édition**, un petit graphe LangGraph : *plan* (le modèle lit le plan du document
+   et répond par une liste d'opérations en JSON), *apply* (on applique ces opérations), avec une
+   boucle de reprise bornée (`EDIT_MAX_ATTEMPTS`) : quand une réponse est refusée (JSON invalide,
+   opération inconnue, titre inexistant, paragraphe qui porterait une image…), le modèle revoit sa propre
+   réponse et le motif exact du refus, et corrige. Le modèle ne voit jamais le document, seulement son
+   plan, et ne peut rien faire hors du vocabulaire fermé ci-dessous.
+3. Écrit le brouillon dans RustFS (`drafts/{document}/{job}.{format}`) et renvoie le résultat :
+   `edited` (vrai si au moins une opération a été appliquée), `operations_summary` (une ligne par
+   opération appliquée, ou l'explication du modèle quand il n'y avait rien à changer ou que la demande
+   est impossible avec ces opérations), `pending_images`.
+4. Si l'agent n'arrive pas à produire une modification applicable, la tâche **échoue** (`EditFailedError`)
+   avec un message présentable à l'utilisateur, visible dans les logs de la tâche.
 
-- `app/operations.py` : le vocabulaire fermé des opérations d'édition (voir plus bas) ;
-- `app/odt_editor.py` : l'applicateur, qui exécute ces opérations sur un ODT **en place**.
+Le plan envoyé au modèle (`outline`) numérote les paragraphes (`¶1`, `¶2`…) et les tableaux (`L1`,
+`L2`…) section par section - exactement la numérotation que les opérations utilisent - et signale ce qui
+n'est pas modifiable (listes, code, citations, paragraphes portant une image ou une note de bas de page).
+Le modèle est celui de `EDIT_LLM_MODEL`, sinon le modèle de chat par défaut du hub, appelé via
+`/internal/llm/chat`.
 
-Reste à faire : brancher l'agent LangGraph qui produit ces opérations à partir du prompt et appelle
-l'applicateur (#168, dernière étape), l'applicateur Markdown (#168), puis la conversion du brouillon
-en PDF d'aperçu (`soffice --headless --convert-to pdf`, déjà installé dans l'image) et la boucle de
-validation côté backend (#169).
+Pas encore fait : la conversion du brouillon en PDF d'aperçu (`soffice --headless --convert-to pdf`,
+déjà installé dans l'image) et la boucle de validation côté backend (#169), et le déclenchement d'un
+job depuis l'agent de recherche (#171). Les images ne sont jamais insérées par l'agent : il les décrit
+dans `pending_images` (avec leur emplacement souhaité) et l'utilisateur les dépose pendant la validation.
 
-## Opérations d'édition ODT (`app/operations.py`, `app/odt_editor.py`)
+## Opérations d'édition (`app/operations.py`, `app/odt_editor.py`, `app/markdown_editor.py`)
+
+Un seul vocabulaire pour les deux formats : l'agent ne sait pas s'il édite un ODT ou un Markdown.
 
 Une opération désigne sa cible par le **texte du titre de sa section** plus un index à partir de 1
 (« le 2e paragraphe sous *Contacts* », « le tableau 1 de *Matériel par profil* »), pas par un
@@ -57,8 +73,23 @@ existant. Le résultat est donc tout-ou-rien : les opérations s'exécutent sur 
 rien n'est produit si l'une échoue (`OperationError`, avec son numéro et un message lisible, qui
 liste les titres disponibles quand un titre est introuvable).
 
-Pas encore pris en charge : les éléments de liste (ni lecture ni écriture), le contenu imbriqué dans
-une `text:section`, les cellules fusionnées, les images (elles passent par la validation, #169).
+Remplacer un paragraphe qui porte une **image ou une note de bas de page** est refusé (le texte seul
+serait remplacé et l'image ou la note disparaîtrait) ; le supprimer volontairement reste possible.
+
+Pas encore pris en charge côté ODT : les éléments de liste (ni lecture ni écriture), le contenu imbriqué
+dans une `text:section`, les cellules fusionnées, les images (elles passent par la validation, #169).
+
+### Markdown (`app/markdown_editor.py`)
+
+Les modifications se font sur les lignes sources, localisées avec la carte des blocs de `markdown-it` :
+tout ce qu'une opération ne nomme pas reste identique octet pour octet (autres paragraphes, listes,
+blocs de code - un `#` dans un bloc de code n'est pas un titre -, citations, HTML, fins de ligne `\r\n`
+ou absence de saut de ligne final). Un « paragraphe » est un bloc paragraphe de premier niveau ; les
+titres ATX (`#`) et setext (`===`) sont reconnus. Seul un tableau ciblé par une opération est réécrit,
+en tableau GFM aligné (les alignements `:--`, `:-:`, `--:` sont conservés ; `|` et sauts de ligne dans
+une cellule sont échappés en `\|` et `<br>`). En Markdown la première ligne d'un tableau est son
+en-tête : insérer au-dessus ou la supprimer est refusé, car cela ferait silencieusement d'une autre
+ligne l'en-tête.
 
 ## Contrat (`app/contract.py`)
 
@@ -73,8 +104,9 @@ précédent : le job part alors de ce brouillon plutôt que du fichier source).
 
 **Sortie** (`EditJobResult`) : `draft_storage_key` (`drafts/{document_id}/{job_id}.{format}`),
 `preview_pdf_key` (`null` tant que la conversion n'est pas branchée), `operations_summary`,
-`pending_images` (emplacements où une image serait utile - l'agent n'en génère ni n'en récupère
-jamais, l'utilisateur dépose le fichier pendant la validation), `edited`.
+`pending_images` (emplacements où une image serait utile, avec une `description` et la `section` /
+`after_paragraph` souhaités - l'agent n'en génère ni n'en récupère jamais, l'utilisateur dépose le fichier
+pendant la validation), `edited`.
 
 Le worker est **sans état** : il produit un brouillon et s'arrête, sans `interrupt()` ni
 checkpointer. Valider (promouvoir le brouillon en révision), ajuster (nouveau job avec
@@ -85,6 +117,12 @@ checkpointer. Valider (promouvoir le brouillon en révision), ajuster (nouveau j
 ```
 app/
   tasks.py           la tâche Celery edit_document
+  agent.py           l'agent LangGraph : prompt, plan, application, reprise sur refus
+  operations.py      le vocabulaire des opérations d'édition (modèles Pydantic)
+  odt_editor.py      applicateur ODT en place (+ plan du document)
+  markdown_editor.py applicateur Markdown (+ plan du document)
+  editing.py         point d'entrée commun aux deux formats
+  edit_types.py      erreurs, résultat et rendu du plan, partagés par les deux applicateurs
   contract.py        EditJobInput / EditJobResult (modèles Pydantic)
   celery_app.py      app Celery (queue, nom de la tâche - doit matcher backend/app/core/tasks.py)
   storage.py         client S3 (RustFS) : lecture de la source, écriture du brouillon
