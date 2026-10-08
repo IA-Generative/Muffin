@@ -42,6 +42,9 @@ class RunOut(BaseModel):
     pending_human_action: dict[str, Any] | None
     answer: str | None
     citations: list[dict[str, Any]] | None
+    # The edit of a living document this run delegated to the editing agent, if any (#171) - what
+    # the chat needs to show the proposal next to the answer.
+    edit_proposal: dict[str, Any] | None = None
     error: str | None
     created_at: datetime
     updated_at: datetime

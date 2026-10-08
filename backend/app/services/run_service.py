@@ -14,6 +14,7 @@ from app.repositories.run_repository import RunRepository
 from app.repositories.source_repository import SourceRepository
 from app.schemas.feedback import FeedbackCreate, FeedbackOut
 from app.schemas.run import RunCreate, RunEventOut, RunOut
+from app.services.document_upload_service import _uploader_display
 
 
 class RunNotFoundError(Exception):
@@ -73,6 +74,8 @@ class RunService:
             collection_ids,
             user.groups,
             body.web_search_enabled,
+            user_is_admin=user.is_admin,
+            user_display=_uploader_display(user),
         )
         await self.db.commit()
         # Dispatched after the first commit: the worker's very first read of
@@ -224,6 +227,7 @@ class RunService:
             pending_human_action=run.pending_human_action,
             answer=run.answer,
             citations=run.citations,
+            edit_proposal=run.edit_proposal,
             error=run.error,
             created_at=run.created_at,
             updated_at=run.updated_at,

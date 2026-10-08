@@ -46,6 +46,11 @@ class CollectionNotFoundError(Exception):
     pass
 
 
+class CollectionNotEditableError(Exception):
+    """The collection is visible to the caller but they may not edit its living documents - they
+    are neither its owner nor an administrator (see services/editing_rights.py)."""
+
+
 class ShareNotFoundError(Exception):
     pass
 

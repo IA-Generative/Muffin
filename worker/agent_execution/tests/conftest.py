@@ -7,6 +7,8 @@ import pytest
 import app.backend_client as backend_client_module
 import app.graph.nodes.answer_identity as answer_identity_module
 import app.graph.nodes.build_research_plan as build_research_plan_module
+import app.graph.nodes.delegate_edit as delegate_edit_module
+import app.graph.nodes.detect_edit as detect_edit_module
 import app.graph.nodes.generate_answer as generate_answer_module
 import app.graph.nodes.load_accessible_vdbs as load_accessible_vdbs_module
 import app.graph.nodes.research_task as research_task_module
@@ -56,6 +58,32 @@ class FakeBackend:
         # the router callback only ever sees the system prompt, so tests that need to assert on
         # the user content (e.g. a hint injected into it) read it from here instead.
         self.llm_calls: list[list[dict[str, str]]] = []
+        # Delegating an edit of a living document (#171): what the backend says the user may edit,
+        # the states the draft goes through (the first answers create_edit_request, each later one a
+        # poll, the last repeats), and what the agent asked for.
+        self.editable_documents: list[dict[str, Any]] = []
+        self.editable_calls: list[str] = []
+        self.edit_states: list[dict[str, Any]] = []
+        self.edit_creates: list[tuple[str, str, str]] = []
+        self.edit_polls = 0
+        self.edit_refusal: Exception | None = None
+        self.edit_gone: Exception | None = None
+
+    def list_editable_documents(self, run_id: str) -> list[dict[str, Any]]:
+        self.editable_calls.append(run_id)
+        return self.editable_documents
+
+    def create_edit_request(self, run_id: str, document_id: str, prompt: str) -> dict[str, Any]:
+        self.edit_creates.append((run_id, document_id, prompt))
+        if self.edit_refusal is not None:
+            raise self.edit_refusal
+        return self.edit_states[0]
+
+    def get_edit_request(self, run_id: str, document_id: str) -> dict[str, Any]:
+        self.edit_polls += 1
+        if self.edit_gone is not None:
+            raise self.edit_gone
+        return self.edit_states[min(self.edit_polls, len(self.edit_states) - 1)]
 
     def get_run(self, run_id: str) -> dict[str, Any]:
         return {"cancel_requested": self.cancel_requested}
@@ -90,11 +118,13 @@ class FakeBackend:
         grounding_valid: bool | None = None,
         grounding_unsupported_claims: list[str] | None = None,
         grounding_research_count: int | None = None,
+        edit_proposal: dict[str, Any] | None = None,
     ) -> None:
         self.run_results.append(
             {
                 "answer": answer,
                 "citations": citations,
+                "edit_proposal": edit_proposal,
                 "grounding_valid": grounding_valid,
                 "grounding_unsupported_claims": grounding_unsupported_claims,
                 "grounding_research_count": grounding_research_count,
@@ -193,6 +223,8 @@ _PATCHED_MODULES = (
     events_module,
     llm_module,
     load_accessible_vdbs_module,
+    detect_edit_module,
+    delegate_edit_module,
     research_task_module,
     targeted_research_module,
     build_research_plan_module,
@@ -225,6 +257,8 @@ def make_run():
         # search reach for `fake.searxng`.
         fake.searxng = FakeSearxng(web_results)
         research_task_module.searxng_client = fake.searxng
+        # The wait for the editing agent polls the backend on a timer - tests don't really sleep.
+        delegate_edit_module._sleep = lambda _seconds: None
         graph = build_graph()
         return graph, fake
 
@@ -250,6 +284,8 @@ def initial_state(
         "pinned_vdb_ids": pinned_vdb_ids or [],
         "web_search_enabled": web_search_enabled,
         "accessible_vdbs": [],
+        "edit_target": None,
+        "edit_proposal": None,
         "query_analysis": {},
         "research_plan": {},
         "research_tasks": [],

@@ -18,8 +18,8 @@ from app.repositories.task_repository import TaskRepository
 from app.schemas.document import DocumentLockGrantOut, DocumentLockOut, DocumentOut, DocumentRevisionOut
 from app.services import vector_store
 
-from .collection_service import CollectionNotFoundError
 from .document_upload_service import DocumentNotFoundError, _uploader_display
+from .editing_rights import require_editable_collection
 
 # Extension -> format. ODT is the reference format; Markdown is the lighter one (#174).
 SUPPORTED_FORMATS = {".odt": "odt", ".md": "md"}
@@ -98,7 +98,7 @@ class LivingDocumentService:
         *,
         origin: RevisionOrigin = RevisionOrigin.UPLOAD,
     ) -> DocumentOut:
-        await self._get_owned_collection(collection_id, user)
+        await self._get_editable_collection(collection_id, user)
         safe_name = os.path.basename(filename) or "document"
         format_ = _detect_format(safe_name)
         storage_key = self._put_file(collection_id, safe_name, content, content_type)
@@ -140,7 +140,7 @@ class LivingDocumentService:
     ) -> tuple[bytes, str, str]:
         """(content, filename, media type) of a revision - the current one by default. Streamed
         through the backend like page screenshots, never a direct storage URL."""
-        await self._get_owned_collection(collection_id, user)
+        await self._get_editable_collection(collection_id, user)
         document = await self._get_living_document(collection_id, document_id)
         revision = (
             await self._current_revision(document)
@@ -165,7 +165,7 @@ class LivingDocumentService:
         lock_token: str | None = None,
         origin: RevisionOrigin = RevisionOrigin.UPLOAD,
     ) -> DocumentOut:
-        await self._get_owned_collection(collection_id, user)
+        await self._get_editable_collection(collection_id, user)
         document = await self._get_living_document(collection_id, document_id)
         safe_name = os.path.basename(filename) or "document"
         format_ = _detect_format(safe_name)
@@ -192,7 +192,7 @@ class LivingDocumentService:
     async def list_revisions(
         self, collection_id: uuid.UUID, user: RequestContext, document_id: uuid.UUID
     ) -> list[DocumentRevisionOut]:
-        await self._get_owned_collection(collection_id, user)
+        await self._get_editable_collection(collection_id, user)
         document = await self._get_living_document(collection_id, document_id)
         revisions = await self.revisions.list_by_document(document.id)
         # Newest first, so the current revision is the head of the list.
@@ -213,7 +213,7 @@ class LivingDocumentService:
     ) -> DocumentOut:
         """Makes an older revision current again by appending a new revision that points at the
         same file - history is never rewritten."""
-        await self._get_owned_collection(collection_id, user)
+        await self._get_editable_collection(collection_id, user)
         document = await self._get_living_document(collection_id, document_id)
         source = await self.revisions.get_by_number(document.id, number)
         if source is None:
@@ -240,7 +240,7 @@ class LivingDocumentService:
         """Takes the soft edit lock (#170) for a limited time. The returned token is the only
         way to write while it's held - it's what tells "my own session" from "someone else's",
         since the same user can be in two tabs (or, later, behind a chat edit job)."""
-        await self._get_owned_collection(collection_id, user)
+        await self._get_editable_collection(collection_id, user)
         document = await self._get_living_document(collection_id, document_id)
         now = datetime.now(UTC)
         token = uuid.uuid4().hex
@@ -264,7 +264,7 @@ class LivingDocumentService:
     async def renew_lock(
         self, collection_id: uuid.UUID, user: RequestContext, document_id: uuid.UUID, token: str
     ) -> DocumentLockOut:
-        await self._get_owned_collection(collection_id, user)
+        await self._get_editable_collection(collection_id, user)
         document = await self._get_living_document(collection_id, document_id)
         now = datetime.now(UTC)
         renewed = await self.documents.renew_lock(document.id, token=token, now=now, expires_at=now + self._ttl())
@@ -286,7 +286,7 @@ class LivingDocumentService:
         """Idempotent: releasing a document nobody holds is a no-op. Without the holder's token
         only force=true works - the collection owner (the only caller here) breaking a lock
         left by an abandoned session instead of waiting for its expiry."""
-        await self._get_owned_collection(collection_id, user)
+        await self._get_editable_collection(collection_id, user)
         document = await self._get_living_document(collection_id, document_id)
         now = datetime.now(UTC)
         lock = DocumentLockOut.from_document(document, user.user_id, now)
@@ -300,7 +300,7 @@ class LivingDocumentService:
     async def get_lock(
         self, collection_id: uuid.UUID, user: RequestContext, document_id: uuid.UUID
     ) -> DocumentLockOut | None:
-        await self._get_owned_collection(collection_id, user)
+        await self._get_editable_collection(collection_id, user)
         document = await self._get_living_document(collection_id, document_id)
         return DocumentLockOut.from_document(document, user.user_id, datetime.now(UTC))
 
@@ -397,9 +397,8 @@ class LivingDocumentService:
         revisions = await self.revisions.list_by_document(document.id)
         return revisions[0]
 
-    async def _get_owned_collection(self, collection_id: uuid.UUID, user: RequestContext) -> None:
-        if await self.collections.get(collection_id, user.user_id) is None:
-            raise CollectionNotFoundError(str(collection_id))
+    async def _get_editable_collection(self, collection_id: uuid.UUID, user: RequestContext) -> None:
+        await require_editable_collection(self.collections, user, collection_id)
 
     async def _get_living_document(self, collection_id: uuid.UUID, document_id: uuid.UUID) -> Document:
         document = await self.documents.get_in_collection(collection_id, document_id)

@@ -96,6 +96,8 @@ class AgentService:
                 "pinned_vdb_ids": [str(vdb_id) for vdb_id in (run.get("pinned_collection_ids") or [])],
                 "web_search_enabled": bool(run.get("web_search_enabled", False)),
                 "accessible_vdbs": [],
+                "edit_target": None,
+                "edit_proposal": None,
                 "query_analysis": {},
                 "research_plan": {},
                 "research_tasks": [],
@@ -166,6 +168,7 @@ class AgentService:
             latency_ms=final_state.get("answer_latency_ms"),
             prompt_tokens=final_state.get("answer_prompt_tokens"),
             completion_tokens=final_state.get("answer_completion_tokens"),
+            edit_proposal=final_state.get("edit_proposal"),
         )
         backend_client.update_run_status(run_id, "completed")
         backend_client.add_run_event(run_id, "run_completed", {"citation_count": len(final_state["citations"])})

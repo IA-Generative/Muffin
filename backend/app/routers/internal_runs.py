@@ -66,6 +66,7 @@ def _to_out(run, history: list[dict[str, str]]) -> InternalRunOut:  # noqa: ANN0
         pinned_collection_ids=run.pinned_collection_ids,
         user_groups=run.user_groups,
         web_search_enabled=run.web_search_enabled,
+        user_is_admin=run.user_is_admin,
     )
 
 
@@ -83,7 +84,7 @@ async def get_run(run_id: uuid.UUID, db: Annotated[AsyncSession, Depends(get_db)
     messages = await ConversationRepository(db).list_messages(run.conversation_id)
     history = [
         {"role": message.role, "content": message.content}
-        for message, _citations in messages
+        for message, _citations, _proposal in messages
         if message.id != run.message_id
     ][-_HISTORY_LIMIT:]
     return _to_out(run, history)
@@ -163,6 +164,7 @@ async def update_run_result(
         update.grounding_valid,
         update.grounding_unsupported_claims,
         update.grounding_research_count,
+        edit_proposal=update.edit_proposal,
     )
     await db.commit()
     return {"status": "ok"}
