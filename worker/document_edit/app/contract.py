@@ -6,6 +6,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.operations import SectionRef
+
 
 class EditJobInput(BaseModel):
     # The living document's current file, as stored in RustFS (Document.storage_key).
@@ -30,6 +32,10 @@ class PendingImage(BaseModel):
 
     id: str
     description: str
+    # Where it would go - same convention as an operation's target; both None means "at the end of
+    # the document". The user places the actual image while validating the draft.
+    section: SectionRef | None = None
+    after_paragraph: int | None = Field(default=None, ge=0)
 
 
 class EditJobResult(BaseModel):
