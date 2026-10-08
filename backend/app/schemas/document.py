@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class DocumentOut(BaseModel):
@@ -120,6 +120,21 @@ class TabularProfileOut(BaseModel):
     measures: list[str]
     dimensions: list[str]
     text_columns: list[str]
+
+
+class MarkdownDocumentCreate(BaseModel):
+    """A Markdown living document written from scratch (#172) - content can't be empty, there
+    would be nothing to index."""
+
+    name: str = Field(min_length=1, max_length=200)
+    content: str = Field(min_length=1)
+
+    @field_validator("name", "content")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("must not be blank")
+        return value
 
 
 class DocumentRevisionOut(BaseModel):

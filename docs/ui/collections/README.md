@@ -88,9 +88,16 @@ Dans l'onglet Documents, le bouton "Ajouter un document vivant" n'accepte que de
 
 ![Onglet Documents avec un document vivant](screenshots/living-01-documents-tab.png)
 
+"Créer un document Markdown" permet d'écrire un document de zéro (nom + contenu), sans fichier à
+uploader. Le nom reçoit l'extension `.md` si elle manque, nom et contenu ne peuvent pas être vides, et
+la première révision est marquée comme écrite dans l'interface :
+
+![Création d'un document Markdown](screenshots/living-04-new-markdown.png)
+
 Sa fiche détail a un onglet **Révisions** supplémentaire : historique (origine, auteur, date), badge
-"Courante", bouton "Remplacer par une nouvelle version" (le fichier doit être de même format) et
-"Restaurer" sur une ancienne révision - restaurer ajoute une nouvelle révision, l'historique n'est
+"Courante", bouton "Remplacer par une nouvelle version" (le fichier doit être de même format),
+"Télécharger" (la version courante, ou n'importe quelle révision - le fichier est servi par le backend,
+jamais par une URL de stockage directe) et "Restaurer" sur une ancienne révision - restaurer ajoute une nouvelle révision, l'historique n'est
 jamais réécrit. Chaque écriture ré-indexe ce seul document :
 
 ![Historique des révisions](screenshots/living-02-revisions.png)
