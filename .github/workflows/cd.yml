@@ -131,7 +131,7 @@ jobs:
             context: worker/document_edit
             dockerfile: worker/document_edit/Dockerfile
     with:
-      IMAGE_NAME: ${{ needs.expose-vars.outputs.IMAGE_BASE }}-${{ matrix.service.name }}
+      IMAGE_NAME: ${{ needs.expose-vars.outputs.IMAGE_BASE }}/${{ matrix.service.name }}
       IMAGE_TAG: ${{ needs.release.outputs.version }}
       IMAGE_CONTEXT: ${{ matrix.service.context }}
       IMAGE_DOCKERFILE: ${{ matrix.service.dockerfile }}

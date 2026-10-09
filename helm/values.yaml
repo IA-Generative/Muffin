@@ -236,7 +236,7 @@ backend:
     registry: "ghcr.io"
     # -- Repository to use for the app.
     # @section -- Backend
-    repository: "ia-generative/muffin-backend"
+    repository: "ia-generative/muffin/backend"
     # -- Image pull policy for the app.
     # @section -- Backend
     pullPolicy: "IfNotPresent"
@@ -1256,7 +1256,7 @@ frontend:
     registry: "ghcr.io"
     # -- Repository to use for the app.
     # @section -- Frontend
-    repository: "ia-generative/muffin-frontend"
+    repository: "ia-generative/muffin/frontend"
     # -- Image pull policy for the app.
     # @section -- Frontend
     pullPolicy: "IfNotPresent"
@@ -2090,7 +2090,7 @@ document_process:
     registry: "ghcr.io"
     # -- Repository to use for the app.
     # @section -- Document_process
-    repository: "ia-generative/muffin-worker-document-process"
+    repository: "ia-generative/muffin/worker-document-process"
     # -- Image pull policy for the app.
     # @section -- Document_process
     pullPolicy: "IfNotPresent"
@@ -2939,7 +2939,7 @@ agent_execution:
     registry: "ghcr.io"
     # -- Repository to use for the app.
     # @section -- Agent_execution
-    repository: "ia-generative/muffin-worker-agent-execution"
+    repository: "ia-generative/muffin/worker-agent-execution"
     # -- Image pull policy for the app.
     # @section -- Agent_execution
     pullPolicy: "IfNotPresent"
@@ -3789,7 +3789,7 @@ worker_evaluation:
     registry: "ghcr.io"
     # -- Repository to use for the app.
     # @section -- Worker_evaluation
-    repository: "ia-generative/muffin-worker-evaluation"
+    repository: "ia-generative/muffin/worker-evaluation"
     # -- Image pull policy for the app.
     # @section -- Worker_evaluation
     pullPolicy: "IfNotPresent"
@@ -4639,7 +4639,7 @@ worker_document_edit:
     registry: "ghcr.io"
     # -- Repository to use for the app.
     # @section -- Worker_document_edit
-    repository: "ia-generative/muffin-worker-document-edit"
+    repository: "ia-generative/muffin/worker-document-edit"
     # -- Image pull policy for the app.
     # @section -- Worker_document_edit
     pullPolicy: "IfNotPresent"
