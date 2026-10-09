@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.2](https://github.com/IA-Generative/Muffin/compare/v0.14.1...v0.14.2) (2026-10-09)
+
+
+### Bug Fixes
+
+* **chart:** point image repositories to exploration/muffin-&lt;service&gt; ([6aab7e7](https://github.com/IA-Generative/Muffin/commit/6aab7e7bc2d3b581cb571c26cebc8e7580576bc5))
+
 ## [0.14.2-rc](https://github.com/IA-Generative/Muffin/compare/v0.14.1...v0.14.2-rc) (2026-10-09)
 
 
