@@ -255,7 +255,18 @@ jobs:
       command:
       - "python"
       - "-c"
-      - "import os,socket,time\nfrom urllib.parse import urlsplit\nu = urlsplit(os.environ['DATABASE_URL'])\nprint(f'Waiting for PostgreSQL at {u.hostname}:{u.port or 5432}', flush=True)\nwhile True:\n    try:\n        socket.create_connection((u.hostname, u.port or 5432), 2).close()\n        break\n    except OSError:\n        time.sleep(1)\nprint('PostgreSQL reachable', flush=True)"
+      - |-
+        import os,socket,time
+        from urllib.parse import urlsplit
+        u = urlsplit(os.environ['DATABASE_URL'])
+        print(f'Waiting for PostgreSQL at {u.hostname}:{u.port or 5432}', flush=True)
+        while True:
+            try:
+                socket.create_connection((u.hostname, u.port or 5432), 2).close()
+                break
+            except OSError:
+                time.sleep(1)
+        print('PostgreSQL reachable', flush=True)
       # Same secret as the migration: waits on the host alembic will really use (and logs it - no credentials).
       envFrom:
       - secretRef:
