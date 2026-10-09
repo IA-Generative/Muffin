@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.1-rc.1](https://github.com/IA-Generative/Muffin/compare/v0.14.1-rc...v0.14.1-rc.1) (2026-10-09)
+
+
+### Bug Fixes
+
+* **ci:** name every image muffin/&lt;service&gt; ([3f4d9cd](https://github.com/IA-Generative/Muffin/commit/3f4d9cd3d5d42420cda526cf6c913f74c2e987d0))
+
 ## [0.14.1-rc](https://github.com/IA-Generative/Muffin/compare/v0.14.0...v0.14.1-rc) (2026-10-09)
 
 
