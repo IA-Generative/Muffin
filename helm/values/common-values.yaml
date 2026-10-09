@@ -214,10 +214,24 @@ worker_document_edit:
 
 jobs:
   migration:
+    # `pre-install` would run before the CNPG cluster exists, so the wait-for-postgres init
+    # container below could never succeed on a fresh install (deadlock until the Helm timeout).
+    # On install the migration therefore runs after the resources are created (`post-install`);
+    # on upgrade the cluster already exists, so it still runs first (`pre-upgrade`) and the new
+    # code never starts on an old schema.
+    hook:
+      enabled: true
+      types:
+      - "post-install"
+      - "post-upgrade"
+      weight: 0
+      deletePolicy: "before-hook-creation,hook-succeeded"
     image:
       registry: "harbor.sdid.cpin.numerique-interieur.com"
       repository: "exploration/muffin-backend"
-      pullPolicy: "Always"
+      # The tag defaults to the chart's appVersion (a fixed release), so the image does not need
+      # to be pulled again on every run.
+      pullPolicy: "IfNotPresent"
     command: ["alembic"]
     args: ["upgrade", "head"]
     envFrom:
@@ -226,10 +240,26 @@ jobs:
     serviceAccount:
       enabled: true
       create: true
+    # A failed migration is retried at most twice, and a stuck one is stopped after 15 minutes
+    # instead of blocking the release until the Helm timeout.
+    backoffLimit: 2
+    activeDeadlineSeconds: 900
     initContainers:
     - name: wait-for-postgres
-      image: busybox:1.35
-      command: ["sh", "-c", "until nc -z muffin-pg-cluster-rw 5432; do echo \"Waiting for PostgreSQL...\"; sleep 5; done;"]
+      # Same image as the migration itself (Harbor, already pulled): no dependency on docker.io,
+      # which is unreachable from restricted environments and left the pod stuck in
+      # `PodInitializing`. Polls the TCP port every second; alembic then fails fast if
+      # PostgreSQL is not really ready.
+      image: "harbor.sdid.cpin.numerique-interieur.com/exploration/muffin-backend:{{ .Chart.AppVersion }}"
+      imagePullPolicy: "IfNotPresent"
+      command:
+      - "python"
+      - "-c"
+      - "import os,socket,time\nfrom urllib.parse import urlsplit\nu = urlsplit(os.environ['DATABASE_URL'])\nprint(f'Waiting for PostgreSQL at {u.hostname}:{u.port or 5432}', flush=True)\nwhile True:\n    try:\n        socket.create_connection((u.hostname, u.port or 5432), 2).close()\n        break\n    except OSError:\n        time.sleep(1)\nprint('PostgreSQL reachable', flush=True)"
+      # Same secret as the migration: waits on the host alembic will really use (and logs it - no credentials).
+      envFrom:
+      - secretRef:
+          name: "muffin-db-infos"
       securityContext:
         runAsUser: 10001
         allowPrivilegeEscalation: false
