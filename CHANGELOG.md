@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.14.1-rc](https://github.com/IA-Generative/Muffin/compare/v0.14.0...v0.14.1-rc) (2026-10-09)
+
+
+### Bug Fixes
+
+* **ci:** stop chart-testing from requiring a chart version bump in PRs ([3a558f7](https://github.com/IA-Generative/Muffin/commit/3a558f779a6e06607d66ee7aeee2f9fadce418ba))
+* **helm:** run the migration job as a hook without pulling busybox from docker.io ([cac438a](https://github.com/IA-Generative/Muffin/commit/cac438ae8ac99c2885f62944dc1ff630fd6d3233))
+* **helm:** write the wait-for-postgres script as a block scalar ([4da41fc](https://github.com/IA-Generative/Muffin/commit/4da41fc981bef30078e9f5d74207ed9ef9e69abb))
+
 ## [0.14.0](https://github.com/IA-Generative/Muffin/compare/v0.13.0...v0.14.0) (2026-10-08)
 
 
