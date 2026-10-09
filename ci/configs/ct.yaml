@@ -14,6 +14,9 @@ chart-repos:
 helm-extra-args: ''
 validate-chart-schema: true
 validate-chart-values: true
+# The chart version is bumped by the CD (`chore(chart): release helm ...`) once merged, never in
+# the PR itself, so a changed chart file must not require a bump.
+check-version-increment: false
 validate-maintainers: false
 validate-yaml: true
 exclude-deprecated: true
