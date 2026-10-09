@@ -13,7 +13,7 @@ global:
 backend:
   image:
     registry: "harbor.sdid.cpin.numerique-interieur.com"
-    repository: "exploration/muffin/backend"
+    repository: "exploration/muffin-backend"
     pullPolicy: "Always"
   replicaCount: 2
   # FastAPI/uvicorn listens on 8000, not the chart default 8080. Without this override the
@@ -96,7 +96,7 @@ backend:
 document_process:
   image:
     registry: "harbor.sdid.cpin.numerique-interieur.com"
-    repository: "exploration/muffin/worker-document-process"
+    repository: "exploration/muffin-worker-document-process"
     pullPolicy: "Always"
   serviceAccount:
     enabled: true
@@ -132,7 +132,7 @@ document_process:
 agent_execution:
   image:
     registry: "harbor.sdid.cpin.numerique-interieur.com"
-    repository: "exploration/muffin/worker-agent-execution"
+    repository: "exploration/muffin-worker-agent-execution"
     pullPolicy: "Always"
   serviceAccount:
     enabled: true
@@ -164,7 +164,7 @@ agent_execution:
 worker_evaluation:
   image:
     registry: "harbor.sdid.cpin.numerique-interieur.com"
-    repository: "exploration/muffin/worker-evaluation"
+    repository: "exploration/muffin-worker-evaluation"
     pullPolicy: "Always"
   serviceAccount:
     enabled: true
@@ -189,7 +189,7 @@ worker_evaluation:
 worker_document_edit:
   image:
     registry: "harbor.sdid.cpin.numerique-interieur.com"
-    repository: "exploration/muffin/worker-document-edit"
+    repository: "exploration/muffin-worker-document-edit"
     pullPolicy: "Always"
   serviceAccount:
     enabled: true
@@ -228,7 +228,7 @@ jobs:
       deletePolicy: "before-hook-creation,hook-succeeded"
     image:
       registry: "harbor.sdid.cpin.numerique-interieur.com"
-      repository: "exploration/muffin/backend"
+      repository: "exploration/muffin-backend"
       # The tag defaults to the chart's appVersion (a fixed release), so the image does not need
       # to be pulled again on every run.
       pullPolicy: "IfNotPresent"
@@ -250,7 +250,7 @@ jobs:
       # which is unreachable from restricted environments and left the pod stuck in
       # `PodInitializing`. Polls the TCP port every second; alembic then fails fast if
       # PostgreSQL is not really ready.
-      image: "harbor.sdid.cpin.numerique-interieur.com/exploration/muffin/backend:{{ .Chart.AppVersion }}"
+      image: "harbor.sdid.cpin.numerique-interieur.com/exploration/muffin-backend:{{ .Chart.AppVersion }}"
       imagePullPolicy: "IfNotPresent"
       command:
       - "python"
@@ -298,7 +298,7 @@ jobs:
 frontend:
   image:
     registry: "harbor.sdid.cpin.numerique-interieur.com"
-    repository: "exploration/muffin/frontend"
+    repository: "exploration/muffin-frontend"
     pullPolicy: "Always"
   replicaCount: 2
   service:
