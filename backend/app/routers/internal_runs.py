@@ -46,7 +46,7 @@ router = APIRouter(
 _HISTORY_LIMIT = 8
 
 
-def _to_out(run, history: list[dict[str, str]]) -> InternalRunOut:  # noqa: ANN001
+def _to_out(run, history: list[dict[str, str]], resume_from: list[str] | None = None) -> InternalRunOut:  # noqa: ANN001
     return InternalRunOut(
         id=run.id,
         user_id=run.user_id,
@@ -67,6 +67,7 @@ def _to_out(run, history: list[dict[str, str]]) -> InternalRunOut:  # noqa: ANN0
         user_groups=run.user_groups,
         web_search_enabled=run.web_search_enabled,
         user_is_admin=run.user_is_admin,
+        resume_from_collection_ids=resume_from,
     )
 
 
@@ -87,7 +88,11 @@ async def get_run(run_id: uuid.UUID, db: Annotated[AsyncSession, Depends(get_db)
         for message, _citations, _proposal in messages
         if message.id != run.message_id
     ][-_HISTORY_LIMIT:]
-    return _to_out(run, history)
+    resume_from = None
+    if run.continue_exploration:
+        previous = await RunRepository(db).get_previous_in_conversation(run)
+        resume_from = previous.unexplored_collection_ids if previous is not None else None
+    return _to_out(run, history, resume_from)
 
 
 @router.patch("/runs/{run_id}/status", summary="Report a run's status/current node/activity")
@@ -165,6 +170,7 @@ async def update_run_result(
         update.grounding_unsupported_claims,
         update.grounding_research_count,
         edit_proposal=update.edit_proposal,
+        unexplored_collection_ids=update.unexplored_collection_ids,
     )
     await db.commit()
     return {"status": "ok"}

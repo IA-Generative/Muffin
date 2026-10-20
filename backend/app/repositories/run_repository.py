@@ -23,6 +23,7 @@ class RunRepository:
         web_search_enabled: bool = False,
         user_is_admin: bool = False,
         user_display: str | None = None,
+        continue_exploration: bool = False,
     ) -> Run:
         run = Run(
             user_id=user_id,
@@ -35,6 +36,7 @@ class RunRepository:
             web_search_enabled=web_search_enabled,
             user_is_admin=user_is_admin,
             user_display=user_display,
+            continue_exploration=continue_exploration,
         )
         self.db.add(run)
         await self.db.flush()
@@ -112,13 +114,26 @@ class RunRepository:
         grounding_unsupported_claims: list[str] | None = None,
         grounding_research_count: int | None = None,
         edit_proposal: dict[str, Any] | None = None,
+        unexplored_collection_ids: list[str] | None = None,
     ) -> None:
         run.answer = answer
+        run.unexplored_collection_ids = unexplored_collection_ids or None
         run.citations = citations
         run.edit_proposal = edit_proposal
         run.grounding_valid = grounding_valid
         run.grounding_unsupported_claims = grounding_unsupported_claims
         run.grounding_research_count = grounding_research_count
+
+    async def get_previous_in_conversation(self, run: Run) -> Run | None:
+        """The run that answered the message just before this one in the same conversation -
+        what a "go further" follow-up resumes from (#219)."""
+        result = await self.db.execute(
+            select(Run)
+            .where(Run.conversation_id == run.conversation_id, Run.id != run.id, Run.created_at < run.created_at)
+            .order_by(Run.created_at.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
 
     async def set_error(self, run: Run, error: str) -> None:
         run.error = error

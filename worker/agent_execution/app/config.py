@@ -33,6 +33,11 @@ class WorkerSettings(BaseSettings):
     MAX_REPLANS: int = 2
     MAX_GROUNDING_RESEARCHES: int = 1
     SEARCH_RESULTS_PER_QUERY: int = 5
+    # Sub-collection descent of VDB routing (#219), per routing call: how many levels below the
+    # starting collections it may go, and how many collections it may select in total. Whatever
+    # it selected but couldn't descend into is reported back so the user can ask to go further.
+    MAX_COLLECTION_DESCENT_DEPTH: int = 3
+    MAX_ROUTED_COLLECTIONS: int = 15
 
     # Delegating an edit of a living document to the editing agent (#171): how long the run waits
     # for it, and how often it asks the backend where it stands. The editing agent itself is

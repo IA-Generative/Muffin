@@ -96,6 +96,7 @@ def test_finalize_reports_the_grounding_verdict_alongside_the_result(monkeypatch
         prompt_tokens=None,
         completion_tokens=None,
         edit_proposal=None,
+        unexplored_collection_ids=[],
     )
 
 
@@ -120,6 +121,7 @@ def test_finalize_reports_no_grounding_verdict_when_validate_grounding_was_skipp
         prompt_tokens=None,
         completion_tokens=None,
         edit_proposal=None,
+        unexplored_collection_ids=[],
     )
 
 
@@ -148,3 +150,18 @@ def test_finalize_hands_the_edit_proposal_to_the_backend_with_the_answer(monkeyp
     AgentService()._finalize("run-1", _completed_state(edit_proposal=proposal))
 
     assert fake.set_run_result.call_args.kwargs["edit_proposal"] == proposal
+
+
+def test_finalize_reports_unexplored_collections_once_and_only_accessible_ones(monkeypatch):
+    fake = MagicMock()
+    monkeypatch.setattr("app.agent_service.backend_client", fake)
+
+    AgentService()._finalize(
+        "run-1",
+        _completed_state(
+            accessible_vdbs=[{"id": "leave"}, {"id": "hr"}],
+            unexplored_vdb_ids=["leave", "gone", "leave", "hr"],
+        ),
+    )
+
+    assert fake.set_run_result.call_args.kwargs["unexplored_collection_ids"] == ["leave", "hr"]

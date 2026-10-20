@@ -101,6 +101,22 @@ async def test_create_run_persists_web_search_enabled_when_requested(client):
     assert run.web_search_enabled is True
 
 
+async def test_create_run_persists_continue_exploration_and_exposes_the_frontier(client):
+    with patch("app.services.run_service.enqueue_run_agent", return_value="celery-run-1"):
+        response = await client.post("/api/runs", json={"query": "Go further", "continue_exploration": True})
+    assert response.status_code == 202
+    assert response.json()["unexplored_collection_ids"] is None
+
+    async with async_session_factory() as session:
+        run = await session.get(Run, uuid.UUID(response.json()["id"]))
+        assert run.continue_exploration is True
+        run.unexplored_collection_ids = ["leave"]
+        await session.commit()
+
+    detail = await client.get(f"/api/runs/{response.json()['id']}")
+    assert detail.json()["unexplored_collection_ids"] == ["leave"]
+
+
 async def test_create_run_without_pinned_collections_stores_none(client):
     response = await _create_run(client)
 

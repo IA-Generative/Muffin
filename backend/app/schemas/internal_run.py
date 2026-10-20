@@ -38,6 +38,10 @@ class InternalRunOut(BaseModel):
     # Whether the requesting user is a platform administrator (Run.user_is_admin) - informational for
     # the worker; what an edit request is allowed to do is decided backend-side from the run row.
     user_is_admin: bool
+    # Set only for a "go further" follow-up (Run.continue_exploration, #219): the collections the
+    # previous answer of this conversation left unexplored, to resume the descent from. Never
+    # trusted as is - the worker intersects them with the accessible set like anything else.
+    resume_from_collection_ids: list[str] | None = None
 
 
 class RunStatusUpdate(BaseModel):
@@ -74,6 +78,8 @@ class RunResultUpdate(BaseModel):
     # Set when this run delegated an edit of a living document to the editing agent (#171) - see
     # Run.edit_proposal.
     edit_proposal: dict[str, Any] | None = None
+    # See Run.unexplored_collection_ids (#219).
+    unexplored_collection_ids: list[str] | None = None
 
 
 class RunErrorUpdate(BaseModel):
