@@ -89,7 +89,7 @@ def test_no_model_returns_every_accessible_vdb_unfiltered(monkeypatch):
     assert backend.calls == []  # no LLM configured - the vector pre-filter would be pointless too
 
 
-# --- Sub-collection descent (#219) ---
+# --- Flat routing over sub-collections (#233) ---
 
 
 def _tree() -> list[dict]:
@@ -103,10 +103,11 @@ def _tree() -> list[dict]:
     ]
 
 
-def _scripted(monkeypatch, *replies: list[str]) -> list[str]:
-    """json_chat answers each routing call in turn - the top level first, then one call per level
-    of the descent. Returns every user_content it was given."""
-    monkeypatch.setattr(vdb_router_module, "backend_client", _FakeBackendClient())
+def _scripted(monkeypatch, *replies, prefilter_hits: list[str] | None = None) -> list[str]:
+    """json_chat answers each routing call in turn; returns every user_content it was given. The
+    vector pre-filter keeps `prefilter_hits` when the set is large enough to use it."""
+    hits = [{"collection_id": vdb_id, "score": 0.9} for vdb_id in prefilter_hits or []]
+    monkeypatch.setattr(vdb_router_module, "backend_client", _FakeBackendClient(hits=hits))
     remaining = list(replies)
     seen: list[str] = []
 
@@ -122,6 +123,13 @@ def _ids(vdbs: list[dict]) -> list[str]:
     return [v["id"] for v in vdbs]
 
 
+def _wide_tree(width: int) -> list[dict]:
+    """Root R with `width` sub-collections, over the pre-filter threshold."""
+    return [{"id": "R", "parent_id": None, "name": "R", "description": "r"}] + [
+        {"id": f"R{i}", "parent_id": "R", "name": f"R{i}", "description": f"r{i}"} for i in range(width)
+    ]
+
+
 def test_a_flat_set_never_reports_anything_unexplored(monkeypatch):
     _scripted(monkeypatch, ["c0"])
 
@@ -131,64 +139,61 @@ def test_a_flat_set_never_reports_anything_unexplored(monkeypatch):
     assert result.unexplored == []
 
 
-def test_descends_level_by_level_from_the_top_level_only(monkeypatch):
-    seen = _scripted(monkeypatch, ["A"], ["A1"], ["A1a"])
+def test_a_deep_sub_collection_is_found_directly_in_one_call(monkeypatch):
+    seen = _scripted(monkeypatch, ["A1a"])
 
     result = select_relevant_vdbs("query", _tree(), "model")
 
-    assert _ids(result.selected) == ["A", "A1", "A1a"]
-    assert result.unexplored == []
-    assert "'id': 'A1'" not in seen[0]  # the first catalogue only has top-level collections
-    assert "A › A1" in seen[1]  # sub-collections are shown with their path
+    assert _ids(result.selected) == ["A1a"]
+    assert len(seen) == 1  # every level in the same catalogue, a single LLM call
+    assert "'path': 'A › A1 › A1a'" in seen[0]
+    assert "'path'" not in seen[0].split("'id': 'B'")[1].split("}")[0]  # top-level: no path
 
 
-def test_choosing_no_sub_collection_stops_the_descent(monkeypatch):
-    seen = _scripted(monkeypatch, ["A"], [])
+def test_sub_collections_shown_and_rejected_are_not_unexplored(monkeypatch):
+    _scripted(monkeypatch, ["A"])
 
     result = select_relevant_vdbs("query", _tree(), "model")
 
     assert _ids(result.selected) == ["A"]
-    assert result.unexplored == []
-    assert len(seen) == 2
+    assert result.unexplored == []  # the LLM saw A1, A1a and A2 and left them out
 
 
-def test_depth_budget_reports_where_it_stopped(monkeypatch):
-    monkeypatch.setattr(vdb_router_module.settings, "MAX_COLLECTION_DESCENT_DEPTH", 1)
-    _scripted(monkeypatch, ["A"], ["A1"])
+def test_sub_collections_cut_by_the_prefilter_are_unexplored(monkeypatch):
+    _scripted(monkeypatch, ["R", "R0"], prefilter_hits=["R", "R0", "R1"])
 
-    result = select_relevant_vdbs("query", _tree(), "model")
+    result = select_relevant_vdbs("query", _wide_tree(25), "model")
 
-    assert _ids(result.selected) == ["A", "A1"]
-    assert _ids(result.unexplored) == ["A1"]  # A1 still has A1a below it
+    assert _ids(result.selected) == ["R", "R0"]
+    assert _ids(result.unexplored) == ["R"]  # R2..R24 were never shown to the LLM
 
 
-def test_collection_budget_reports_the_parents_of_what_it_dropped(monkeypatch):
+def test_picks_over_the_cap_report_their_nearest_selected_ancestor(monkeypatch):
     monkeypatch.setattr(vdb_router_module.settings, "MAX_ROUTED_COLLECTIONS", 2)
-    _scripted(monkeypatch, ["A"], ["A1", "A2"])
+    _scripted(monkeypatch, ["A", "A2", "A1"])
 
     result = select_relevant_vdbs("query", _tree(), "model")
 
-    assert _ids(result.selected) == ["A", "A1"]
-    # A still has A2 left over, and A1 has A1a below it the budget never reached.
-    assert _ids(result.unexplored) == ["A", "A1"]
+    assert _ids(result.selected) == ["A", "A1"]  # catalogue order
+    assert _ids(result.unexplored) == ["A"]  # A2 was picked but over the cap
 
 
-def test_resumes_below_the_previous_frontier(monkeypatch):
+def test_resumes_over_the_sub_collections_of_the_frontier_only(monkeypatch):
     seen = _scripted(monkeypatch, ["A1a"])
 
-    result = select_relevant_vdbs("query", _tree(), "model", resume_from_ids=["A1"])
+    result = select_relevant_vdbs("query", _tree(), "model", resume_from_ids=["A"])
 
     assert _ids(result.selected) == ["A1a"]
-    assert len(seen) == 1  # straight to A1's sub-collections, no top-level routing
-    assert "'id': 'A1a'" in seen[0]
+    assert all(f"'id': '{vdb_id}'" in seen[0] for vdb_id in ("A1", "A1a", "A2"))
+    assert "'id': 'B'" not in seen[0] and "'id': 'A'," not in seen[0]  # nor the frontier itself
 
 
 def test_resuming_into_irrelevant_sub_collections_searches_the_frontier_again(monkeypatch):
-    _scripted(monkeypatch, [])
+    _scripted(monkeypatch, [], [])
 
-    result = select_relevant_vdbs("query", _tree(), "model", resume_from_ids=["A1"])
+    result = select_relevant_vdbs("query", _tree(), "model", resume_from_ids=["A"])
 
-    assert _ids(result.selected) == ["A1"]
+    assert _ids(result.selected) == ["A"]
 
 
 def test_an_inaccessible_resume_point_is_ignored(monkeypatch):
@@ -199,18 +204,18 @@ def test_an_inaccessible_resume_point_is_ignored(monkeypatch):
     assert _ids(result.selected) == ["B"]
 
 
-def test_a_sub_collection_shared_on_its_own_counts_as_top_level(monkeypatch):
-    seen = _scripted(monkeypatch, ["A1"], ["A1a"])
+def test_a_sub_collection_shared_on_its_own_shows_no_unreadable_ancestor(monkeypatch):
+    seen = _scripted(monkeypatch, ["A1a"])
     without_root = [v for v in _tree() if v["id"] != "A"]
 
     result = select_relevant_vdbs("query", without_root, "model")
 
-    assert "'id': 'A1'" in seen[0]
-    assert _ids(result.selected) == ["A1", "A1a"]
-    assert "A ›" not in seen[1]  # the unreadable parent is never named
+    assert _ids(result.selected) == ["A1a"]
+    assert "'path': 'A1 › A1a'" in seen[0]
+    assert "A ›" not in seen[0]  # the unreadable parent is never named
 
 
-def test_pinned_collections_are_kept_without_being_descended(monkeypatch):
+def test_pinned_collections_are_always_kept(monkeypatch):
     _scripted(monkeypatch, ["B"])
 
     result = select_relevant_vdbs("query", _tree(), "model", pinned_ids=["A2"])
