@@ -68,7 +68,7 @@ Parameters:
 {{- $root := .root -}}
 {{- $image := .image | default dict -}}
 {{- $registry := $root.Values.global.imageRegistry | default $image.registry -}}
-{{- $repository := $image.repository | required (printf "%s is missing image.repository" .context) -}}
+{{- $repository := tpl ($image.repository | required (printf "%s is missing image.repository" .context)) $root -}}
 {{- $ref := ternary (printf "%s/%s" $registry $repository) $repository (not (empty $registry)) -}}
 {{- if $image.digest -}}
 {{- printf "%s@%s" $ref $image.digest -}}
