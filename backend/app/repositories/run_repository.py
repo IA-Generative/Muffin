@@ -24,6 +24,7 @@ class RunRepository:
         user_is_admin: bool = False,
         user_display: str | None = None,
         continue_exploration: bool = False,
+        unexplored_collection_ids: list[str] | None = None,
     ) -> Run:
         run = Run(
             user_id=user_id,
@@ -37,6 +38,7 @@ class RunRepository:
             user_is_admin=user_is_admin,
             user_display=user_display,
             continue_exploration=continue_exploration,
+            unexplored_collection_ids=unexplored_collection_ids or None,
         )
         self.db.add(run)
         await self.db.flush()

@@ -4,7 +4,7 @@ from typing import Any
 from app.backend_client import backend_client
 from app.graph.services.events import emit, is_cancelled, set_activity
 from app.graph.services.prompts import get_prompt
-from app.graph.services.vdb_router import collection_path
+from app.graph.services.vdb_router import collection_path, collection_path_names
 from app.graph.state import AgentState
 
 _SYSTEM_PROMPT = (
@@ -98,11 +98,15 @@ def generate_answer(state: AgentState) -> dict[str, Any]:
     answer = result["content"]
     prompt_tokens = result.get("prompt_tokens")
     completion_tokens = result.get("completion_tokens")
+    by_id = {str(vdb["id"]): vdb for vdb in state["accessible_vdbs"]}
     citations = [
         {
             "evidence_id": e["id"],
             "source": e["source"],
             "vdb_id": e["vdb_id"],
+            # Names from the root down to the collection (#220), only through collections this
+            # user can read - empty for a citation not tied to one (web search, time).
+            "vdb_path": collection_path_names(by_id[e["vdb_id"]], by_id) if e["vdb_id"] in by_id else [],
             "tool": e["tool"],
             "evidence_kind": e["evidence_kind"],
             "document_id": e["document_id"],
