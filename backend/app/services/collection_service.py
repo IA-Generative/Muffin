@@ -14,6 +14,7 @@ from app.core.sharing import (
 )
 from app.models.collection import Collection, CollectionVisibility, ShareSubjectType
 from app.repositories.chunk_repository import ChunkRepository
+from app.repositories.collection_hierarchy_repository import CollectionHierarchyRepository
 from app.repositories.collection_repository import CollectionRepository
 from app.repositories.entity_repository import EntityRepository
 from app.repositories.feedback_repository import FeedbackRepository
@@ -70,6 +71,7 @@ class CollectionService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
         self.repository = CollectionRepository(db)
+        self.hierarchy = CollectionHierarchyRepository(db)
         self.qa_pairs = QaPairRepository(db)
         self.entities = EntityRepository(db)
         self.runs = RunRepository(db)
@@ -242,15 +244,19 @@ class CollectionService:
 
     async def delete_collection(self, collection_id: uuid.UUID, user: RequestContext) -> None:
         collection = await self._get_owned(collection_id, user)
+        # The whole sub-collection subtree goes with it (ON DELETE CASCADE on parent_id, #213) -
+        # a descendant always has the same owner, so the ownership check above covers it too.
+        subtree_ids = [collection_id, *await self.hierarchy.descendant_ids(collection_id)]
         # Collected before the cascade delete removes the rows that reference
         # them - Postgres cleanup and RustFS cleanup can't be one transaction.
-        rustfs_keys = await self.repository.list_rustfs_keys(collection_id)
+        rustfs_keys = await self.repository.list_rustfs_keys(subtree_ids)
         await self.repository.delete(collection)
         await self.db.commit()
         # Best-effort and after the commit: a RustFS/Meilisearch failure here must
         # not roll back a deletion the user already sees as done.
         storage.delete_objects(rustfs_keys)
-        vector_store.delete_collection(collection_id)
+        for deleted_id in subtree_ids:
+            vector_store.delete_collection(deleted_id)
 
     async def update_visibility(
         self,
