@@ -338,13 +338,17 @@ async def update_conversation_title(
     response_model=list[SearchResultOut],
 )
 async def search(body: SearchRequest, db: Annotated[AsyncSession, Depends(get_db)]) -> list[SearchResultOut]:
-    rows = await SearchService(db).search(body.collection_ids, body.query, body.limit)
+    service = SearchService(db)
+    scope = await service.resolve_scope(body.collection_ids, body.include_descendants)
+    rows = await service.search(scope, body.query, body.limit)
+    paths = await service.collection_paths({row[2] for row in rows}, body.collection_ids)
     return [
         SearchResultOut(
             chunk_id=chunk.id,
             document_id=chunk.document_id,
             document_name=document_name,
             collection_id=collection_id,
+            collection_path=paths.get(collection_id, []),
             text=chunk.text,
             rank=rank,
             page_number=(chunk.extras or {}).get("page_start"),
@@ -360,11 +364,15 @@ async def search(body: SearchRequest, db: Annotated[AsyncSession, Depends(get_db
     response_model=list[QaSearchResultOut],
 )
 async def qa_search(body: SearchRequest, db: Annotated[AsyncSession, Depends(get_db)]) -> list[QaSearchResultOut]:
-    rows = await SearchService(db).search_qa(body.collection_ids, body.query, body.limit)
+    service = SearchService(db)
+    scope = await service.resolve_scope(body.collection_ids, body.include_descendants)
+    rows = await service.search_qa(scope, body.query, body.limit)
+    paths = await service.collection_paths({row[1] for row in rows}, body.collection_ids)
     return [
         QaSearchResultOut(
             qa_pair_id=qa_pair.id,
             collection_id=collection_id,
+            collection_path=paths.get(collection_id, []),
             question=qa_pair.question,
             answer=qa_pair.answer,
             score=score,
@@ -382,11 +390,15 @@ async def qa_search(body: SearchRequest, db: Annotated[AsyncSession, Depends(get
 async def summary_search(
     body: SearchRequest, db: Annotated[AsyncSession, Depends(get_db)]
 ) -> list[SummarySearchResultOut]:
-    rows = await SearchService(db).search_summaries(body.collection_ids, body.query, body.limit)
+    service = SearchService(db)
+    scope = await service.resolve_scope(body.collection_ids, body.include_descendants)
+    rows = await service.search_summaries(scope, body.query, body.limit)
+    paths = await service.collection_paths({document.collection_id for document, _ in rows}, body.collection_ids)
     return [
         SummarySearchResultOut(
             document_id=document.id,
             collection_id=document.collection_id,
+            collection_path=paths.get(document.collection_id, []),
             name=document.name,
             summary=document.summary,
             score=score,
