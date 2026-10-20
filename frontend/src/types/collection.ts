@@ -125,6 +125,12 @@ export interface EvaluationRun {
 
 export type CollectionVisibility = 'private' | 'public'
 
+// One step of a collection's place in the sub-collection tree (#215).
+export interface CollectionPathItem {
+  id: string
+  name: string
+}
+
 export type ShareSubjectType = 'user' | 'group'
 export type ShareStatus = 'pending' | 'active'
 
@@ -136,6 +142,9 @@ export interface Share {
   // backend/app/core/sharing.py.
   displayHint: string
   createdAt: string
+  // Set when the share is on an ancestor and only applies here by inheritance (#216) - it can only
+  // be revoked on that ancestor.
+  inheritedFrom: CollectionPathItem | null
 }
 
 export interface Collection {
@@ -150,6 +159,15 @@ export interface Collection {
   // Whether the current user owns this collection - false for a public collection browsed by
   // someone else, or one shared with them. Gates every write action in the UI.
   isOwner: boolean
+  // Sub-collections (#215), all relative to what the current user can read: `parentId` is null
+  // for a top-level collection or one whose parent they can't read, `path` runs from the root down
+  // to the parent, `childrenCount` counts readable direct sub-collections.
+  parentId: string | null
+  path: CollectionPathItem[]
+  childrenCount: number
+  // Read access is inherited down the tree (#216): a private collection under a public one is
+  // readable by everyone all the same - the nearest public ancestor, or null.
+  inheritedPublicFrom: CollectionPathItem | null
   documents: CollectionDocument[]
   qaPairs: QaPair[]
   entities: Entity[]

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useCollections } from '../composables/useCollections'
 import { useChat } from '../composables/useChat'
 import { useFiling } from '../composables/useFiling'
@@ -18,7 +18,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  send: [content: string, collectionIds: string[], webSearchEnabled: boolean]
+  send: [content: string, collectionIds: string[], webSearchEnabled: boolean, includeDescendants: boolean]
   regenerate: [id: string]
   feedback: [id: string, value: 'up' | 'down', details?: FeedbackDetails]
   showSources: [id: string]
@@ -116,6 +116,13 @@ function toggleVoice() {
 
 const voiceOutput = useVoiceOutput()
 
+// Only the answer that closes the thread may offer to "go further" (#219): the backend resumes
+// from the previous answer of the conversation, so an older one would resume from the wrong place.
+const latestAnswerId = computed(() => {
+  const last = props.messages[props.messages.length - 1]
+  return last?.role === 'assistant' && !last.pending ? last.id : undefined
+})
+
 // Reads the most recent completed assistant answer aloud (or stops it if already reading it) -
 // a pending/error bubble has nothing worth reading yet, so those are skipped.
 function toggleReadLastMessage() {
@@ -147,13 +154,15 @@ const pinnedCollectionIds = ref<string[]>([])
 // RunCreate.web_search_enabled) - stays on across messages once toggled, same as
 // pinnedCollectionIds, until the user turns it back off or reloads the page.
 const webSearchEnabled = ref(false)
+// Attaching a collection brings its sub-collections along unless unchecked (#220).
+const includeDescendants = ref(true)
 const textarea = ref<HTMLTextAreaElement>()
 const scrollAnchor = ref<HTMLElement>()
 
 function submit() {
   const content = draft.value.trim()
   if (!content) return
-  emit('send', content, pinnedCollectionIds.value, webSearchEnabled.value)
+  emit('send', content, pinnedCollectionIds.value, webSearchEnabled.value, includeDescendants.value)
   draft.value = ''
   resizeTextarea()
 }
@@ -194,6 +203,7 @@ watch(
           v-for="message in messages"
           :key="message.id"
           :message="message"
+          :is-latest-answer="message.id === latestAnswerId"
           @regenerate="emit('regenerate', $event)"
           @feedback="(id, value, details) => emit('feedback', id, value, details)"
           @show-sources="emit('showSources', $event)"
@@ -254,7 +264,11 @@ watch(
           </li>
         </ul>
         <div class="chat-window__composer">
-          <CollectionPicker v-model="pinnedCollectionIds" v-model:web-search-enabled="webSearchEnabled" />
+          <CollectionPicker
+            v-model="pinnedCollectionIds"
+            v-model:web-search-enabled="webSearchEnabled"
+            v-model:include-descendants="includeDescendants"
+          />
           <input
             ref="fileInput"
             type="file"

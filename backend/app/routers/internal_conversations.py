@@ -32,9 +32,7 @@ async def list_conversation_messages(
     if await ConversationRepository(db).get_by_id(conversation_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
     rows = await ConversationRepository(db).list_messages(conversation_id)
-    return [
-        ConversationMessageOut(role=message.role, content=message.content) for message, _citations, _proposal in rows
-    ]
+    return [ConversationMessageOut(role=message.role, content=message.content) for message, *_run_fields in rows]
 
 
 @router.post(

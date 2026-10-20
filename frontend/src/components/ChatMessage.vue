@@ -4,6 +4,8 @@ import { marked } from 'marked'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { ChatMessage, FeedbackDetails } from '../types/chat'
 import { useChat } from '../composables/useChat'
+import { useCollections } from '../composables/useCollections'
+import { collectionPathLabel } from '../utils/collectionPath'
 import { useVoiceOutput } from '../composables/useVoiceOutput'
 import { toPlainText } from '../utils/plainText'
 import ChatEditProposal from './ChatEditProposal.vue'
@@ -11,9 +13,28 @@ import FeedbackModal from './FeedbackModal.vue'
 
 const props = defineProps<{
   message: ChatMessage
+  // Whether this is the answer closing the thread - the only one offering to go further.
+  isLatestAnswer?: boolean
 }>()
 
-const { fetchFeedback } = useChat()
+const { fetchFeedback, goFurther } = useChat()
+const { collections } = useCollections()
+
+// The collections this answer left sub-collections of unexplored (#219), by path - only those
+// already loaded in the collections list; the notice still shows without names otherwise.
+const unexploredLabels = computed(() =>
+  (props.message.unexploredCollectionIds ?? [])
+    .map((id) => collections.value.find((collection) => collection.id === id))
+    .filter((collection) => collection !== undefined)
+    .map((collection) => collectionPathLabel(collection)),
+)
+const showGoFurther = computed(
+  () =>
+    props.isLatestAnswer &&
+    props.message.role === 'assistant' &&
+    !props.message.pending &&
+    !!props.message.unexploredCollectionIds?.length,
+)
 
 const emit = defineEmits<{
   regenerate: [id: string]
@@ -360,6 +381,15 @@ onBeforeUnmount(() => {
     <!-- A proposed edit of a living document, delegated to the editing agent (#171): its own card,
          below the answer and clearly apart from it - the answer says what was concluded, the card is
          where the proposal is reviewed. -->
+    <div v-if="showGoFurther" class="chat-message__go-further">
+      <p class="chat-message__go-further-text">
+        Certaines sous-collections n'ont pas été explorées<template v-if="unexploredLabels.length">
+          : {{ unexploredLabels.join(', ') }}</template
+        >.
+      </p>
+      <button type="button" class="fr-btn fr-btn--sm fr-btn--secondary" @click="goFurther()">Aller plus loin</button>
+    </div>
+
     <ChatEditProposal
       v-if="message.role === 'assistant' && message.editProposal && !message.pending"
       :proposal="message.editProposal"
@@ -626,5 +656,23 @@ onBeforeUnmount(() => {
 .chat-message__retry:hover {
   background: var(--background-action-high-blue-france);
   color: var(--text-inverted-blue-france);
+}
+
+.chat-message__go-further {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 0.5rem;
+  padding: 0.625rem 0.875rem;
+  border: 1px solid var(--border-default-grey);
+  border-radius: 0.5rem;
+  background: var(--background-alt-grey);
+}
+
+.chat-message__go-further-text {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--text-mention-grey);
 }
 </style>

@@ -86,7 +86,7 @@ async def get_run(run_id: uuid.UUID, db: Annotated[AsyncSession, Depends(get_db)
     messages = await ConversationRepository(db).list_messages(run.conversation_id)
     history = [
         {"role": message.role, "content": message.content}
-        for message, _citations, _proposal in messages
+        for message, *_run_fields in messages
         if message.id != run.message_id
     ][-_HISTORY_LIMIT:]
     resume_from = None
