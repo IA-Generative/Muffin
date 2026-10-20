@@ -1574,3 +1574,24 @@ def test_go_further_resumes_below_the_previous_frontier(make_run):
     assert result["unexplored_vdb_ids"] == []
     answer_call = next(call for call in fake.llm_calls if "Answer the user's query" in call[0]["content"])
     assert "go further" not in answer_call[1]["content"]
+
+
+def test_citations_carry_the_path_of_their_collection(make_run):
+    graph, _ = make_run(_hr_tree(), _descent_router(["leave", "parental"]))
+    state = initial_state("What is the parental leave policy?")
+    result = graph.invoke(state, config=_config(state))
+
+    paths = {citation["vdb_id"]: citation["vdb_path"] for citation in result["citations"]}
+    assert paths["parental"] == ["HR", "Leave", "Parental"]
+    assert paths["hr"] == ["HR"]
+
+
+def test_the_run_starts_from_the_frontier_pinning_already_left_unexplored(make_run):
+    graph, fake = make_run(_hr_tree(), _descent_router([]))
+    state = initial_state("What is the parental leave policy?")
+    state["unexplored_vdb_ids"] = ["leave"]
+    result = graph.invoke(state, config=_config(state))
+
+    assert "leave" in result["unexplored_vdb_ids"]
+    answer_call = next(call for call in fake.llm_calls if "Answer the user's query" in call[0]["content"])
+    assert "HR › Leave" in answer_call[1]["content"]

@@ -5,6 +5,7 @@ from .llm import LlmSettings
 from .logging import LoggingSettings
 from .meilisearch import MeilisearchSettings
 from .redis import RedisSettings
+from .runs import RunSettings
 from .rustfs import RustFsSettings
 from .sharing import SharingSettings
 from .worker import WorkerSettings
@@ -17,6 +18,7 @@ __all__ = [
     "LoggingSettings",
     "MeilisearchSettings",
     "RedisSettings",
+    "RunSettings",
     "RustFsSettings",
     "SharingSettings",
     "WorkerSettings",

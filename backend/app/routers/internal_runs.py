@@ -68,6 +68,7 @@ def _to_out(run, history: list[dict[str, str]], resume_from: list[str] | None = 
         web_search_enabled=run.web_search_enabled,
         user_is_admin=run.user_is_admin,
         resume_from_collection_ids=resume_from,
+        unexplored_collection_ids=run.unexplored_collection_ids,
     )
 
 

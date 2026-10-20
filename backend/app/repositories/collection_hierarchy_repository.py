@@ -38,6 +38,47 @@ class CollectionHierarchyRepository:
         result = await self.db.scalars(select(descendants.c.id).where(descendants.c.id != collection_id))
         return list(result.all())
 
+    async def descendants_by_depth(self, collection_ids: Sequence[uuid.UUID]) -> list[tuple[uuid.UUID, uuid.UUID]]:
+        """(id, parent_id) of every collection below these ones, nearest level first, then by
+        name - not the collections themselves. A collection reachable from several of them comes
+        once, at its shallowest level.
+
+        Each row carries the ids already walked and stops before revisiting one: UNION alone
+        can't guard a walk whose rows differ by depth (same reasoning as ancestor_chains)."""
+        if not collection_ids:
+            return []
+        walk = (
+            select(
+                Collection.id.label("id"),
+                Collection.parent_id.label("parent_id"),
+                literal(1).label("depth"),
+                array([Collection.id]).label("visited"),
+            )
+            .where(Collection.parent_id.in_(collection_ids))
+            .cte("descent", recursive=True)
+        )
+        child = aliased(Collection)
+        walk = walk.union_all(
+            select(
+                child.id,
+                child.parent_id,
+                walk.c.depth + 1,
+                func.array_append(walk.c.visited, child.id),
+            ).where(child.parent_id == walk.c.id, not_(child.id == any_(walk.c.visited)))
+        )
+        shallowest = (
+            select(walk.c.id, walk.c.parent_id, func.min(walk.c.depth).label("depth"))
+            .group_by(walk.c.id, walk.c.parent_id)
+            .subquery()
+        )
+        result = await self.db.execute(
+            select(shallowest.c.id, shallowest.c.parent_id)
+            .join(Collection, Collection.id == shallowest.c.id)
+            .where(Collection.id.not_in(collection_ids))
+            .order_by(shallowest.c.depth, Collection.name, Collection.id)
+        )
+        return [(row.id, row.parent_id) for row in result.all()]
+
     async def subtree_ids(self, collection_ids: Sequence[uuid.UUID]) -> list[uuid.UUID]:
         """These collections and every collection below them, deduplicated - overlapping
         subtrees (a parent and its own child both given) count once. Same UNION cycle guard as

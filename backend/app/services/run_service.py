@@ -2,11 +2,13 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import RunSettings
 from app.core.security.factory import RequestContext
 from app.core.tasks import enqueue_resume_agent, enqueue_run_agent, revoke_task
 from app.models.feedback import FeedbackSourceRole
 from app.models.message import MessageRole
 from app.models.run import RunStatus
+from app.repositories.collection_hierarchy_repository import CollectionHierarchyRepository
 from app.repositories.collection_repository import CollectionRepository
 from app.repositories.conversation_repository import ConversationRepository
 from app.repositories.feedback_repository import FeedbackRepository
@@ -15,6 +17,9 @@ from app.repositories.source_repository import SourceRepository
 from app.schemas.feedback import FeedbackCreate, FeedbackOut
 from app.schemas.run import RunCreate, RunEventOut, RunOut
 from app.services.document_upload_service import _uploader_display
+
+# Module attribute (not closed over) so tests can change the limit with monkeypatch.setattr.
+_run_settings = RunSettings()
 
 
 class RunNotFoundError(Exception):
@@ -42,6 +47,7 @@ class RunService:
         self.runs = RunRepository(db)
         self.conversations = ConversationRepository(db)
         self.collections = CollectionRepository(db)
+        self.hierarchy = CollectionHierarchyRepository(db)
         self.feedbacks = FeedbackRepository(db)
         self.sources = SourceRepository(db)
 
@@ -61,7 +67,9 @@ class RunService:
         # always searches files uploaded straight into this conversation, without the user
         # having to pin it explicitly like a regular collection. None if nothing has ever been
         # uploaded into this conversation - nothing to pin, same as today.
-        collection_ids = list(body.collection_ids or [])
+        collection_ids, unexplored_ids = await self._resolve_pinned(
+            list(body.collection_ids or []), user, body.include_descendants
+        )
         temp_collection = await self.collections.get_temporary_for_conversation(conversation.id)
         if temp_collection is not None and temp_collection.id not in collection_ids:
             collection_ids.append(temp_collection.id)
@@ -77,6 +85,7 @@ class RunService:
             user_is_admin=user.is_admin,
             user_display=_uploader_display(user),
             continue_exploration=body.continue_exploration,
+            unexplored_collection_ids=unexplored_ids,
         )
         await self.db.commit()
         # Dispatched after the first commit: the worker's very first read of
@@ -90,6 +99,39 @@ class RunService:
         # back the real value instead of lazy-loading outside a greenlet.
         await self.db.refresh(run, attribute_names=["created_at", "updated_at"])
         return self._to_out(run)
+
+    async def _resolve_pinned(
+        self, collection_ids: list[uuid.UUID], user: RequestContext, include_descendants: bool
+    ) -> tuple[list[uuid.UUID], list[str]]:
+        """The collections to pin for this run, and the ones left unexplored by pinning (#220).
+
+        Pinning a collection pins the sub-collections below it too, nearest level first, up to
+        PINNED_DESCENDANTS_LIMIT. What doesn't fit isn't dropped silently: the closest pinned
+        ancestor of each leftover is returned as unexplored, so the answer offers to go further
+        from there (#219). Only collections the user can read are expanded - a subtree is
+        readable along with its root (#216), but an id they can't read stays as the caller sent it
+        and is ignored by the worker, as before."""
+        if not include_descendants or not collection_ids:
+            return collection_ids, []
+
+        readable = await self.collections.filter_accessible_ids(collection_ids, user.user_id, user.groups)
+        descendants = await self.hierarchy.descendants_by_depth(list(readable))
+        limit = _run_settings.PINNED_DESCENDANTS_LIMIT
+        kept, dropped = descendants[:limit], descendants[limit:]
+
+        pinned = list(dict.fromkeys([*collection_ids, *(collection_id for collection_id, _ in kept)]))
+        searched = readable | {collection_id for collection_id, _ in kept}
+        parent_of = dict(descendants)
+        unexplored: dict[uuid.UUID, None] = {}
+        for collection_id, _ in dropped:
+            ancestor = parent_of.get(collection_id)
+            # parent_of covers every descendant, so this ends at a searched collection: the
+            # starting point of the walk is always one of the readable roots.
+            while ancestor is not None and ancestor not in searched:
+                ancestor = parent_of.get(ancestor)
+            if ancestor is not None:
+                unexplored[ancestor] = None
+        return pinned, [str(collection_id) for collection_id in unexplored]
 
     async def get_run(self, run_id: uuid.UUID, user: RequestContext) -> RunOut:
         run = await self._get_owned(run_id, user)
