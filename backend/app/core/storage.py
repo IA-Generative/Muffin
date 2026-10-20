@@ -1,3 +1,5 @@
+from typing import BinaryIO
+
 import boto3
 
 from app.config import RustFsSettings
@@ -31,6 +33,13 @@ def _ensure_bucket() -> None:
 def put_object(key: str, data: bytes, content_type: str = "application/octet-stream") -> None:
     _ensure_bucket()
     _client.put_object(Bucket=_settings.AWS_BUCKET, Key=key, Body=data, ContentType=content_type)
+
+
+def upload_fileobj(key: str, fileobj: BinaryIO, content_type: str = "application/octet-stream") -> None:
+    """Streams a file-like object to RustFS in parts, never holding it whole in memory - for
+    uploads too large for put_object's single in-memory body (a ZIP import, #223)."""
+    _ensure_bucket()
+    _client.upload_fileobj(fileobj, _settings.AWS_BUCKET, key, ExtraArgs={"ContentType": content_type})
 
 
 def get_presigned_url(key: str, expires_in: int = 3600) -> str:

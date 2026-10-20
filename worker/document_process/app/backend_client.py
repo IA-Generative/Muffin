@@ -16,6 +16,37 @@ class BackendClient:
             timeout=60.0,
         )
 
+    # --- ZIP import (#223) ---
+
+    def begin_collection_import(self, import_id: str) -> dict[str, Any]:
+        response = self._client.post(f"/api/internal/collection-imports/{import_id}/begin")
+        response.raise_for_status()
+        return response.json()
+
+    def create_imported_collection(self, import_id: str, parent_id: str, name: str) -> str:
+        response = self._client.post(
+            f"/api/internal/collection-imports/{import_id}/collections", json={"parent_id": parent_id, "name": name}
+        )
+        response.raise_for_status()
+        return response.json()["id"]
+
+    def add_imported_document(self, import_id: str, collection_id: str, name: str, storage_key: str) -> str:
+        response = self._client.post(
+            f"/api/internal/collection-imports/{import_id}/documents",
+            json={"collection_id": collection_id, "name": name, "storage_key": storage_key},
+        )
+        response.raise_for_status()
+        return response.json()["id"]
+
+    def finish_collection_import(
+        self, import_id: str, status: str, summary: dict[str, Any], error: str | None = None
+    ) -> None:
+        response = self._client.put(
+            f"/api/internal/collection-imports/{import_id}/result",
+            json={"status": status, "summary": summary, "error": error},
+        )
+        response.raise_for_status()
+
     def get_document(self, document_id: str) -> dict[str, Any]:
         response = self._client.get(f"/api/internal/documents/{document_id}")
         response.raise_for_status()

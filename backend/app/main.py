@@ -9,6 +9,8 @@ from app.routers.admin_reports import router as admin_reports_router
 from app.routers.admin_settings import router as admin_settings_router
 from app.routers.auth import router as auth_router
 from app.routers.cgu import router as cgu_router
+from app.routers.collection_imports import internal_router as internal_collection_imports_router
+from app.routers.collection_imports import router as collection_imports_router
 from app.routers.collections import router as collections_router
 from app.routers.conversations import router as conversations_router
 from app.routers.document_drafts import router as document_drafts_router
@@ -96,6 +98,8 @@ app.include_router(auth_router, prefix="/api/auth")
 app.include_router(health_router, prefix="/api")
 app.include_router(models_router, prefix="/api")
 app.include_router(collections_router, prefix="/api")
+app.include_router(collection_imports_router, prefix="/api")
+app.include_router(internal_collection_imports_router, prefix="/api")
 app.include_router(conversations_router, prefix="/api")
 app.include_router(documents_router, prefix="/api")
 app.include_router(living_documents_router, prefix="/api")
