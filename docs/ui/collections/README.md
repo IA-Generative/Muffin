@@ -207,3 +207,22 @@ Quand l'agent n'a pas exploré certaines sous-collections, la dernière réponse
 d'**aller plus loin**, ce qui relance la recherche à partir de là :
 
 ![Aller plus loin](screenshots/collections-sub-09-go-further.png)
+
+### Importer un ZIP (#223)
+
+Une archive `.zip` déposée dans l'onglet Documents devient une sous-collection, avec toute son
+arborescence ; le récapitulatif liste ce qui a été écarté et pourquoi :
+
+![Import d'un ZIP dans une collection](screenshots/collections-zip-01-documents-tab.png)
+
+Déposée sur « Fichiers à ranger » ou dans une conversation, elle devient une collection de premier
+niveau :
+
+![Import d'un ZIP depuis Fichiers à ranger](screenshots/collections-zip-02-filing.png)
+
+Dans une conversation, la collection importée apparaît dans le composeur ; une fois décrite par le
+pipeline, une icône propose de la rattacher à une collection existante :
+
+![Collection importée dans le chat](screenshots/collections-zip-03-chat-chip.png)
+
+![Rattacher la collection importée](screenshots/collections-zip-04-attach.png)
