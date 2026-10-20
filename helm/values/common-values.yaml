@@ -6,12 +6,28 @@ global:
   vault:
     # Environment prefix: secrets live at <project>/<env>/muffin/<name>
     env: dev
+  # One Ingress for the whole application: `/api` goes to the backend, everything else to the frontend.
+  # The real host (and `tls`) belong to the environment file; `whitelist` (a list of CIDRs, from the
+  # shared `ipwhitelist.yaml`) restricts the source addresses, any address when it is empty.
   ingress:
     enabled: true
     annotations:
       monitor: enabled
       nginx.ingress.kubernetes.io/whitelist-source-range: '{{ .Values.whitelist | join "," | default "0.0.0.0/0" }}'
       k8s.apisix.apache.org/allowlist-source-range: '{{ .Values.whitelist | join "," | default "0.0.0.0/0" }}'
+    hosts:
+    - name: "muffin.example.org"
+      paths:
+      - path: "/api"
+        pathType: "Prefix"
+        backend:
+          serviceName: "muffin-backend"
+          portNumber: 8000
+      - path: "/"
+        pathType: "Prefix"
+        backend:
+          serviceName: "muffin-frontend"
+          portNumber: 8080
   imagePullSecrets:
   - name: "registry-pull-secret"
 
@@ -635,7 +651,7 @@ extraObjects:
     spec:
       vaultAuthRef: vault-auth
       mount: '{{ .Values.global.project }}'
-      path: '{{ .Values.global.vault.env }}/muffin/searxng-secret'
+      path: '{{ .Values.global.vault.env }}/muffin/searxng'
       type: kv-v2
       destination:
         name: searxng-secret
@@ -788,6 +804,16 @@ cnpg:
   mode: "standalone"
   cluster:
     imageName: "ghcr.io/cloudnative-pg/postgresql:17.7"
+    # The namespace quota (dso-quota) rejects any pod without requests/limits. CNPG applies these to
+    # every pod of the cluster, including the `initdb` job and its `bootstrap-controller` init
+    # container, so they are required for the cluster to bootstrap at all.
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "512Mi"
+      limits:
+        cpu: "500m"
+        memory: "1Gi"
     enableSuperuserAccess: true
     superuserSecret: "muffin-db-superuser"
     initdb:
