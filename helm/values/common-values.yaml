@@ -1,6 +1,11 @@
 fullnameOverride: muffin
 
 global:
+  # Project name: Harbor project of the images (<project>/muffin-<service>) and Vault KV mount.
+  project: exploration
+  vault:
+    # Environment prefix: secrets live at <project>/<env>/muffin/<name>
+    env: dev
   ingress:
     enabled: true
     annotations:
@@ -13,7 +18,7 @@ global:
 backend:
   image:
     registry: "harbor.sdid.cpin.numerique-interieur.com"
-    repository: "exploration/muffin-backend"
+    repository: "{{ .Values.global.project }}/muffin-backend"
     pullPolicy: "Always"
   replicaCount: 2
   # FastAPI/uvicorn listens on 8000, not the chart default 8080. Without this override the
@@ -96,7 +101,7 @@ backend:
 document_process:
   image:
     registry: "harbor.sdid.cpin.numerique-interieur.com"
-    repository: "exploration/muffin-worker-document-process"
+    repository: "{{ .Values.global.project }}/muffin-worker-document-process"
     pullPolicy: "Always"
   serviceAccount:
     enabled: true
@@ -132,7 +137,7 @@ document_process:
 agent_execution:
   image:
     registry: "harbor.sdid.cpin.numerique-interieur.com"
-    repository: "exploration/muffin-worker-agent-execution"
+    repository: "{{ .Values.global.project }}/muffin-worker-agent-execution"
     pullPolicy: "Always"
   serviceAccount:
     enabled: true
@@ -164,7 +169,7 @@ agent_execution:
 worker_evaluation:
   image:
     registry: "harbor.sdid.cpin.numerique-interieur.com"
-    repository: "exploration/muffin-worker-evaluation"
+    repository: "{{ .Values.global.project }}/muffin-worker-evaluation"
     pullPolicy: "Always"
   serviceAccount:
     enabled: true
@@ -189,7 +194,7 @@ worker_evaluation:
 worker_document_edit:
   image:
     registry: "harbor.sdid.cpin.numerique-interieur.com"
-    repository: "exploration/muffin-worker-document-edit"
+    repository: "{{ .Values.global.project }}/muffin-worker-document-edit"
     pullPolicy: "Always"
   serviceAccount:
     enabled: true
@@ -228,7 +233,7 @@ jobs:
       deletePolicy: "before-hook-creation,hook-succeeded"
     image:
       registry: "harbor.sdid.cpin.numerique-interieur.com"
-      repository: "exploration/muffin-backend"
+      repository: "{{ .Values.global.project }}/muffin-backend"
       # The tag defaults to the chart's appVersion (a fixed release), so the image does not need
       # to be pulled again on every run.
       pullPolicy: "IfNotPresent"
@@ -250,7 +255,7 @@ jobs:
       # which is unreachable from restricted environments and left the pod stuck in
       # `PodInitializing`. Polls the TCP port every second; alembic then fails fast if
       # PostgreSQL is not really ready.
-      image: "harbor.sdid.cpin.numerique-interieur.com/exploration/muffin-backend:{{ .Chart.AppVersion }}"
+      image: "harbor.sdid.cpin.numerique-interieur.com/{{ .Values.global.project }}/muffin-backend:{{ .Chart.AppVersion }}"
       imagePullPolicy: "IfNotPresent"
       command:
       - "python"
@@ -298,7 +303,7 @@ jobs:
 frontend:
   image:
     registry: "harbor.sdid.cpin.numerique-interieur.com"
-    repository: "exploration/muffin-frontend"
+    repository: "{{ .Values.global.project }}/muffin-frontend"
     pullPolicy: "Always"
   replicaCount: 2
   service:
@@ -468,7 +473,8 @@ extraObjects:
       name: muffin-s3
     spec:
       vaultAuthRef: vault-auth
-      mount: mirai
+      mount: '{{ .Values.global.project }}'
+      path: '{{ .Values.global.vault.env }}/muffin/s3'
       type: kv-v2
       destination:
         name: muffin-s3
@@ -480,7 +486,8 @@ extraObjects:
       name: muffin-openai
     spec:
       vaultAuthRef: vault-auth
-      mount: mirai
+      mount: '{{ .Values.global.project }}'
+      path: '{{ .Values.global.vault.env }}/muffin/openai'
       type: kv-v2
       destination:
         name: muffin-openai
@@ -492,7 +499,8 @@ extraObjects:
       name: muffin-keycloak
     spec:
       vaultAuthRef: vault-auth
-      mount: mirai
+      mount: '{{ .Values.global.project }}'
+      path: '{{ .Values.global.vault.env }}/muffin/keycloak'
       type: kv-v2
       destination:
         name: muffin-keycloak
@@ -504,7 +512,8 @@ extraObjects:
       name: muffin-worker
     spec:
       vaultAuthRef: vault-auth
-      mount: mirai
+      mount: '{{ .Values.global.project }}'
+      path: '{{ .Values.global.vault.env }}/muffin/worker'
       type: kv-v2
       destination:
         name: muffin-worker
@@ -516,7 +525,8 @@ extraObjects:
       name: muffin-redis
     spec:
       vaultAuthRef: vault-auth
-      mount: mirai
+      mount: '{{ .Values.global.project }}'
+      path: '{{ .Values.global.vault.env }}/muffin/redis'
       type: kv-v2
       destination:
         name: muffin-redis
@@ -535,7 +545,8 @@ extraObjects:
       name: muffin-db-superuser
     spec:
       vaultAuthRef: vault-auth
-      mount: mirai
+      mount: '{{ .Values.global.project }}'
+      path: '{{ .Values.global.vault.env }}/muffin/db-superuser'
       type: kv-v2
       destination:
         name: muffin-db-superuser
@@ -551,7 +562,8 @@ extraObjects:
       name: muffin-db-appuser
     spec:
       vaultAuthRef: vault-auth
-      mount: mirai
+      mount: '{{ .Values.global.project }}'
+      path: '{{ .Values.global.vault.env }}/muffin/db-appuser'
       type: kv-v2
       destination:
         name: muffin-db-appuser
@@ -567,7 +579,8 @@ extraObjects:
       name: muffin-db-infos
     spec:
       vaultAuthRef: vault-auth
-      mount: mirai
+      mount: '{{ .Values.global.project }}'
+      path: '{{ .Values.global.vault.env }}/muffin/db-infos'
       type: kv-v2
       destination:
         name: muffin-db-infos
@@ -589,7 +602,8 @@ extraObjects:
       name: muffin-db-backups
     spec:
       vaultAuthRef: vault-auth
-      mount: mirai
+      mount: '{{ .Values.global.project }}'
+      path: '{{ .Values.global.vault.env }}/muffin/db-backups'
       type: kv-v2
       destination:
         name: muffin-db-backups
@@ -601,7 +615,8 @@ extraObjects:
       name: muffin-meilisearch
     spec:
       vaultAuthRef: vault-auth
-      mount: mirai
+      mount: '{{ .Values.global.project }}'
+      path: '{{ .Values.global.vault.env }}/muffin/meilisearch'
       type: kv-v2
       destination:
         name: muffin-meilisearch
@@ -619,7 +634,8 @@ extraObjects:
       name: searxng-secret
     spec:
       vaultAuthRef: vault-auth
-      mount: mirai
+      mount: '{{ .Values.global.project }}'
+      path: '{{ .Values.global.vault.env }}/muffin/searxng-secret'
       type: kv-v2
       destination:
         name: searxng-secret
