@@ -117,12 +117,32 @@ collections accessibles, tous niveaux confondus, sont en concurrence sur leur de
   plus proche de chaque collection laissée de côté devient un point d'arrêt du run.
 - Les citations portent `vdb_path`, le chemin de leur collection.
 
+## Import d'un ZIP (#223)
+
+Un ZIP uploadé crée une collection à son nom (suffixé « (2) » si le nom est déjà pris au même
+niveau) : ses dossiers deviennent des sous-collections et ses fichiers des documents.
+
+- **Où** : déposé dans l'onglet Documents d'une collection, il va juste en dessous. Déposé dans une
+  conversation ou sur « Fichiers à ranger », il va au premier niveau. Depuis une conversation, ses
+  runs l'épinglent avec ses sous-collections, et il reste si la conversation est supprimée.
+- **Comment** : le backend (`POST /api/collection-imports`) stocke l'archive dans RustFS et crée
+  la collection racine ; la tâche `import_zip` du worker `document_process` lit l'archive et crée
+  le reste par l'API interne. Les règles de sécurité (Zip Slip, zip bomb, liens symboliques,
+  fichiers cachés, types non pris en charge...) sont dans `worker/document_process/app/zip_import.py`
+  ; ce qui est écarté est listé dans le récapitulatif de l'import.
+- **Suggestion de rattachement** : pour un ZIP déposé sans emplacement, la description de sa
+  collection est comparée à celles des collections de l'utilisateur dès que le pipeline l'a
+  produite, et les 3 plus proches sont proposées (accepter, choisir une autre, ignorer), comme le
+  rangement des fichiers (#122).
+
 ## Variables d'environnement
 
 | Variable | Service | Défaut |
 |---|---|---|
 | `MAX_ROUTED_COLLECTIONS` | worker `agent_execution` | `15` |
 | `PINNED_DESCENDANTS_LIMIT` | backend | `30` |
+| `ZIP_IMPORT_MAX_UPLOAD_BYTES` | backend | 500 Mo |
+| `ZIP_IMPORT_MAX_FILES`, `ZIP_IMPORT_MAX_TOTAL_BYTES`, `ZIP_IMPORT_MAX_FILE_BYTES`, `ZIP_IMPORT_MAX_RATIO`, `ZIP_IMPORT_MAX_DEPTH` | worker `document_process` | 2000, 2 Go, 200 Mo, 100, 20 |
 
 Détail dans [docs/environment-variables.md](environment-variables.md).
 
@@ -135,4 +155,3 @@ Détail dans [docs/environment-variables.md](environment-variables.md).
   (« Rapports 2024 ») peut donc manquer de contexte pour la recherche vectorielle du routage ;
   l'IA, elle, voit le chemin.
 - Pas de glisser-déposer pour déplacer une collection.
-- L'import d'un ZIP qui recrée son arborescence (#223) est à rediscuter.
