@@ -53,8 +53,18 @@ class CollectionRepository:
         )
 
     async def list_accessible(
-        self, user_id: str, group_ids: Sequence[str], *, limit: int, offset: int, exclude_temporary: bool = False
+        self,
+        user_id: str,
+        group_ids: Sequence[str],
+        *,
+        limit: int,
+        offset: int,
+        exclude_temporary: bool = False,
+        roots_only: bool = False,
+        parent_id: uuid.UUID | None = None,
     ) -> tuple[Sequence[Collection], int]:
+        """Flat across the whole sub-collection tree by default (#215); `roots_only` keeps only
+        top-level collections, `parent_id` only the direct children of that collection."""
         where = self._accessible_where(user_id, group_ids)
         if exclude_temporary:
             # The user-facing listing (§ conv-files) - a temporary collection is conversation-
@@ -62,6 +72,10 @@ class CollectionRepository:
             # from a list of their collections. list_all_accessible below must NOT get this
             # filter: the agent's pinned/accessible intersection still needs to find it there.
             where = where & (Collection.is_temporary.is_(False))
+        if roots_only:
+            where = where & (Collection.parent_id.is_(None))
+        if parent_id is not None:
+            where = where & (Collection.parent_id == parent_id)
 
         total = await self.db.scalar(select(func.count()).select_from(Collection).where(where))
 
@@ -76,6 +90,18 @@ class CollectionRepository:
         for a UI listing."""
         result = await self.db.execute(self._base_query().where(self._accessible_where(user_id, group_ids)))
         return result.scalars().all()
+
+    async def filter_accessible_ids(
+        self, collection_ids: Sequence[uuid.UUID], user_id: str, group_ids: Sequence[str]
+    ) -> set[uuid.UUID]:
+        """The subset of these ids the user can read - same barrier as list_accessible, for a
+        batch of ids found some other way (e.g. a page's ancestors and children, #215)."""
+        if not collection_ids:
+            return set()
+        result = await self.db.scalars(
+            select(Collection.id).where(Collection.id.in_(collection_ids), self._accessible_where(user_id, group_ids))
+        )
+        return set(result.all())
 
     async def list_owned_ids(self, owner_id: str) -> Sequence[uuid.UUID]:
         """Every non-temporary collection this user owns (§122) - the candidate set a filing
@@ -142,9 +168,34 @@ class CollectionRepository:
         )
         return dict(result.all())
 
-    async def create(self, *, owner_id: str, name: str, description: str = "", embedding_model: str) -> Collection:
+    async def create(
+        self,
+        *,
+        owner_id: str,
+        name: str,
+        description: str = "",
+        embedding_model: str,
+        settings_template: CollectionSettings | None = None,
+    ) -> Collection:
+        """`settings_template` (a sub-collection's parent settings, #215) is copied, not shared:
+        the new collection can change its own settings afterwards without touching the parent."""
         collection = Collection(owner_id=owner_id, name=name, description=description)
-        collection.settings = CollectionSettings(embedding_model=embedding_model)
+        if settings_template is None:
+            collection.settings = CollectionSettings(embedding_model=embedding_model)
+        else:
+            collection.settings = CollectionSettings(
+                embedding_model=settings_template.embedding_model,
+                chunking_strategy=settings_template.chunking_strategy,
+                chunk_size=settings_template.chunk_size,
+                chunk_overlap=settings_template.chunk_overlap,
+                instructions_qa=settings_template.instructions_qa,
+                instructions_extraction=settings_template.instructions_extraction,
+                instructions_chunking=settings_template.instructions_chunking,
+                instructions_tagging=settings_template.instructions_tagging,
+                instructions_summary=settings_template.instructions_summary,
+                generation_models=dict(settings_template.generation_models or {}) or None,
+                pipeline_windows=dict(settings_template.pipeline_windows or {}) or None,
+            )
         self.db.add(collection)
         await self.db.flush()
         await self.db.refresh(collection, attribute_names=["tags", "settings"])
