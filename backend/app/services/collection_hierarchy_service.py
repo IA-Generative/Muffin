@@ -35,7 +35,10 @@ class CollectionHierarchyService:
         """Attaches `collection` under `parent`, or moves it back to the root with None. The
         caller is expected to have already checked the user may write to both."""
         if parent is None:
-            collection.parent_id = None
+            # Only when it actually changes: any assignment makes the ORM emit an UPDATE, which
+            # expires the server-side updated_at for nothing.
+            if collection.parent_id is not None:
+                collection.parent_id = None
             return
 
         if collection.is_temporary or parent.is_temporary:

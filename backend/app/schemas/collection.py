@@ -120,11 +120,23 @@ class PipelineWindowsUpdate(BaseModel):
     collection_qa_count: int | None = None
 
 
+class CollectionPathItem(BaseModel):
+    id: uuid.UUID
+    name: str
+
+
 class CollectionOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
     name: str
+    # Sub-collections (#215), all relative to what the caller can read: `path` is the chain of
+    # ancestors from the root down to the parent, cut at the first one the caller can't read, and
+    # `parent_id` is None whenever the parent itself isn't readable - a collection shared on its
+    # own never reveals the tree above it. `children_count` counts readable direct children only.
+    parent_id: uuid.UUID | None
+    path: list[CollectionPathItem]
+    children_count: int
     description: str
     description_meta: FieldStamp | None
     tags: list[str]
@@ -153,11 +165,22 @@ class CollectionOut(BaseModel):
     pipeline_windows: PipelineWindowsOut
 
     @classmethod
-    def from_model(cls, collection: "CollectionModel", viewer_id: str) -> "CollectionOut":
+    def from_model(
+        cls,
+        collection: "CollectionModel",
+        viewer_id: str,
+        *,
+        path: list[CollectionPathItem] | None = None,
+        children_count: int = 0,
+    ) -> "CollectionOut":
         settings = collection.settings
+        path = path or []
         return cls(
             id=collection.id,
             name=collection.name,
+            parent_id=path[-1].id if path else None,
+            path=path,
+            children_count=children_count,
             description=collection.description,
             description_meta=(
                 FieldStamp(
@@ -204,12 +227,19 @@ class CollectionCreate(BaseModel):
     # (§122 follow-up) to pre-fill from an unfiled document's name/summary.
     name: str | None = None
     description: str | None = None
+    # Creates a sub-collection (#215) under this collection, which must be one the caller owns;
+    # it starts with a copy of the parent's settings.
+    parent_id: uuid.UUID | None = None
 
 
 class CollectionUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
     tags: list[str] | None = None
+    # Moves the collection (#215): another collection the caller owns, or an explicit null to
+    # move it back to the root. Leaving the field out keeps the current parent - the service
+    # tells the two apart with model_fields_set.
+    parent_id: uuid.UUID | None = None
 
 
 class CollectionSettingsUpdate(BaseModel):

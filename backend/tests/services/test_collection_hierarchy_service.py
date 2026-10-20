@@ -148,3 +148,53 @@ class TestSetParent:
 
         with pytest.raises(TemporaryCollectionHierarchyError):
             await _set_parent(child, temporary)
+
+
+class TestAncestorChains:
+    async def test_root_has_no_entry(self, cleanup):
+        root = await _create("Root")
+
+        async with async_session_factory() as session:
+            assert await CollectionHierarchyRepository(session).ancestor_chains([root]) == {}
+
+    async def test_nearest_first_for_several_collections_at_once(self, cleanup):
+        root = await _create("Root")
+        child = await _create("Child", parent_id=root)
+        grandchild = await _create("Grandchild", parent_id=child)
+        other_root = await _create("Other root")
+        other_child = await _create("Other child", parent_id=other_root)
+
+        async with async_session_factory() as session:
+            chains = await CollectionHierarchyRepository(session).ancestor_chains([grandchild, other_child, root])
+
+        assert chains == {
+            grandchild: [(child, "Child"), (root, "Root")],
+            other_child: [(other_root, "Other root")],
+        }
+
+    async def test_terminates_on_inconsistent_cyclic_data(self, cleanup):
+        a = await _create("A")
+        b = await _create("B", parent_id=a)
+        async with async_session_factory() as session:
+            (await session.get(Collection, a)).parent_id = b
+            await session.commit()
+
+        async with async_session_factory() as session:
+            chains = await CollectionHierarchyRepository(session).ancestor_chains([a])
+
+        assert chains == {a: [(b, "B")]}
+
+
+class TestChildIdsByParent:
+    async def test_direct_children_only(self, cleanup):
+        root = await _create("Root")
+        child = await _create("Child", parent_id=root)
+        other_child = await _create("Other child", parent_id=root)
+        await _create("Grandchild", parent_id=child)
+        leaf = await _create("Leaf")
+
+        async with async_session_factory() as session:
+            children = await CollectionHierarchyRepository(session).child_ids_by_parent([root, leaf])
+
+        assert set(children[root]) == {child, other_child}
+        assert leaf not in children

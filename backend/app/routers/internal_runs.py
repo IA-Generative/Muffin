@@ -223,6 +223,7 @@ async def list_accessible_collections(
     return [
         AccessibleCollectionOut(
             id=collection.id,
+            parent_id=collection.parent_id,
             name=collection.name,
             description=collection.description,
             tags=[tag.tag for tag in collection.tags],

@@ -1,4 +1,5 @@
 import uuid
+from collections.abc import Sequence
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,6 +24,7 @@ from app.repositories.run_repository import RunRepository
 from app.schemas.collection import (
     ChunkOut,
     CollectionOut,
+    CollectionPathItem,
     CollectionSettingsUpdate,
     CollectionUpdate,
     EntityOut,
@@ -36,6 +38,7 @@ from app.schemas.collection import (
 from app.schemas.feedback import FeedbackStatsOut
 from app.schemas.pagination import Page, PaginationParams
 from app.services import embedding_model_lookup, vector_store
+from app.services.collection_hierarchy_service import CollectionHierarchyService
 
 # Last resort only, when the hub is unreachable/unconfigured and there's nothing else to go on -
 # see create_collection, which otherwise resolves the admin-configured or hub-discovered model.
@@ -45,6 +48,11 @@ DEFAULT_COLLECTION_NAME = "Nouvelle collection"
 
 class CollectionNotFoundError(Exception):
     pass
+
+
+class ParentCollectionNotFoundError(Exception):
+    """The requested parent of a sub-collection doesn't exist or isn't the caller's - kept apart
+    from CollectionNotFoundError so the router can say which of the two ids was wrong."""
 
 
 class CollectionNotEditableError(Exception):
@@ -72,43 +80,85 @@ class CollectionService:
         self.db = db
         self.repository = CollectionRepository(db)
         self.hierarchy = CollectionHierarchyRepository(db)
+        self.hierarchy_rules = CollectionHierarchyService(db)
         self.qa_pairs = QaPairRepository(db)
         self.entities = EntityRepository(db)
         self.runs = RunRepository(db)
         self.feedbacks = FeedbackRepository(db)
         self.chunks = ChunkRepository(db)
 
-    async def list_collections(self, user: RequestContext, pagination: PaginationParams) -> Page[CollectionOut]:
+    async def list_collections(
+        self, user: RequestContext, pagination: PaginationParams, *, roots_only: bool = False
+    ) -> Page[CollectionOut]:
         collections, total = await self.repository.list_accessible(
-            user.user_id, user.groups, limit=pagination.limit, offset=pagination.offset, exclude_temporary=True
+            user.user_id,
+            user.groups,
+            limit=pagination.limit,
+            offset=pagination.offset,
+            exclude_temporary=True,
+            roots_only=roots_only,
         )
-        return pagination.to_page(
-            [CollectionOut.from_model(collection, user.user_id) for collection in collections],
-            total,
+        return pagination.to_page(await self._present_many(collections, user), total)
+
+    async def list_children(
+        self, collection_id: uuid.UUID, user: RequestContext, pagination: PaginationParams
+    ) -> Page[CollectionOut]:
+        await self._get_accessible(collection_id, user)
+        collections, total = await self.repository.list_accessible(
+            user.user_id,
+            user.groups,
+            limit=pagination.limit,
+            offset=pagination.offset,
+            exclude_temporary=True,
+            parent_id=collection_id,
         )
+        return pagination.to_page(await self._present_many(collections, user), total)
 
     async def create_collection(
-        self, user: RequestContext, *, name: str | None = None, description: str | None = None
+        self,
+        user: RequestContext,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+        parent_id: uuid.UUID | None = None,
     ) -> CollectionOut:
-        embedding_model = await embedding_model_lookup.default_embedding_model(self.db) or FALLBACK_EMBEDDING_MODEL
+        parent = await self._get_owned_parent(parent_id, user) if parent_id is not None else None
+        if parent is not None:
+            # A sub-collection starts from a copy of its parent's settings (#215), embedding
+            # model included, rather than from the platform defaults.
+            embedding_model = parent.settings.embedding_model
+        else:
+            embedding_model = await embedding_model_lookup.default_embedding_model(self.db) or FALLBACK_EMBEDDING_MODEL
         collection = await self.repository.create(
             owner_id=user.user_id,
             name=name or DEFAULT_COLLECTION_NAME,
             description=description or "",
             embedding_model=embedding_model,
+            settings_template=parent.settings if parent is not None else None,
         )
+        # Raises before the commit below on a broken rule, so nothing is created.
+        await self.hierarchy_rules.set_parent(collection, parent)
         await self.db.commit()
-        return CollectionOut.from_model(collection, user.user_id)
+        # Attaching to a parent is an UPDATE after the INSERT, which expires updated_at - same
+        # reload as update_collection.
+        await self.db.refresh(collection, attribute_names=["updated_at"])
+        return await self._present(collection, user)
 
     async def get_collection(self, collection_id: uuid.UUID, user: RequestContext) -> CollectionOut:
         collection = await self._get_accessible(collection_id, user)
-        return CollectionOut.from_model(collection, user.user_id)
+        return await self._present(collection, user)
 
     async def update_collection(
         self, collection_id: uuid.UUID, user: RequestContext, update: CollectionUpdate
     ) -> CollectionOut:
         collection = await self._get_owned(collection_id, user)
         updated_by = _display_name(user)
+
+        if "parent_id" in update.model_fields_set:
+            parent = await self._get_owned_parent(update.parent_id, user) if update.parent_id is not None else None
+            # Raises before any commit on a broken rule (cycle, temporary collection), so the
+            # other fields of this same request aren't half-applied either.
+            await self.hierarchy_rules.set_parent(collection, parent)
 
         if update.name is not None and update.name.strip():
             await self.repository.update_name(collection, update.name.strip())
@@ -123,7 +173,7 @@ class CollectionService:
         # after the UPDATE, and accessing it later outside an active await
         # crashes with MissingGreenlet instead of lazy-loading like sync ORM would.
         await self.db.refresh(collection, attribute_names=["updated_at"])
-        return CollectionOut.from_model(collection, user.user_id)
+        return await self._present(collection, user)
 
     async def update_settings(
         self,
@@ -156,7 +206,7 @@ class CollectionService:
         # No refresh needed: only collection_settings columns changed (none
         # with a server-side onupdate), so nothing on `collection` is expired.
         await self.db.commit()
-        return CollectionOut.from_model(collection, user.user_id)
+        return await self._present(collection, user)
 
     async def list_qa_pairs(
         self,
@@ -270,7 +320,7 @@ class CollectionService:
         # Same reasoning as update_collection: onupdate=func.now() expires updated_at after the
         # UPDATE regardless of expire_on_commit, so it needs an explicit reload before use.
         await self.db.refresh(collection, attribute_names=["updated_at"])
-        return CollectionOut.from_model(collection, user.user_id)
+        return await self._present(collection, user)
 
     async def create_share(self, collection_id: uuid.UUID, user: RequestContext, create: ShareCreate) -> ShareOut:
         """Never looks the identifier up anywhere (Keycloak or otherwise) - only ever creates a
@@ -323,3 +373,38 @@ class CollectionService:
         if collection is None:
             raise CollectionNotFoundError(str(collection_id))
         return collection
+
+    async def _get_owned_parent(self, parent_id: uuid.UUID, user: RequestContext) -> Collection:
+        """Only the owner may put a collection under another one - readable isn't enough."""
+        parent = await self.repository.get(parent_id, user.user_id)
+        if parent is None:
+            raise ParentCollectionNotFoundError(str(parent_id))
+        return parent
+
+    async def _present(self, collection: Collection, user: RequestContext) -> CollectionOut:
+        return (await self._present_many([collection], user))[0]
+
+    async def _present_many(self, collections: Sequence[Collection], user: RequestContext) -> list[CollectionOut]:
+        """CollectionOut with its place in the tree (#215), batched for a whole page: one query
+        for every ancestor chain, one for every child, one access check over both."""
+        ids = [collection.id for collection in collections]
+        chains = await self.hierarchy.ancestor_chains(ids)
+        children = await self.hierarchy.child_ids_by_parent(ids)
+        related_ids = {ancestor_id for chain in chains.values() for ancestor_id, _ in chain}
+        related_ids |= {child_id for child_ids in children.values() for child_id in child_ids}
+        readable = await self.repository.filter_accessible_ids(list(related_ids), user.user_id, user.groups)
+
+        presented = []
+        for collection in collections:
+            path: list[CollectionPathItem] = []
+            # Nearest first: stop at the first unreadable ancestor, what's above it stays hidden.
+            for ancestor_id, name in chains.get(collection.id, []):
+                if ancestor_id not in readable:
+                    break
+                path.append(CollectionPathItem(id=ancestor_id, name=name))
+            path.reverse()
+            children_count = sum(child_id in readable for child_id in children.get(collection.id, []))
+            presented.append(
+                CollectionOut.from_model(collection, user.user_id, path=path, children_count=children_count)
+            )
+        return presented
