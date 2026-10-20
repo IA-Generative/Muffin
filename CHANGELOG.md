@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.15.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.14.4...v0.15.0-rc) (2026-10-20)
+
+
+### Features
+
+* **agent:** route sub-collections flat on their descriptions ([6a0b887](https://github.com/IA-Generative/Muffin/commit/6a0b88745a5bcc43108092df42dd50e646e60c31)), closes [#233](https://github.com/IA-Generative/Muffin/issues/233)
+* **agent:** route through the sub-collection tree within a budget ([5e1ff78](https://github.com/IA-Generative/Muffin/commit/5e1ff786fec1d3e135a5c36ad9ce64721d3b6dfd)), closes [#219](https://github.com/IA-Generative/Muffin/issues/219)
+* **chat:** pin a collection with its sub-collections, cite with paths ([aa2f8d5](https://github.com/IA-Generative/Muffin/commit/aa2f8d5e7c84e0fd57679df1b71490f65c814701)), closes [#220](https://github.com/IA-Generative/Muffin/issues/220)
+* **collections:** add parent/child hierarchy for sub-collections ([e756619](https://github.com/IA-Generative/Muffin/commit/e756619d39553ec91e78ddbd72d81fb9ec44b9ba)), closes [#214](https://github.com/IA-Generative/Muffin/issues/214)
+* **collections:** expose sub-collections through the API ([e0b6739](https://github.com/IA-Generative/Muffin/commit/e0b67390628a3542353df41fcd1a4efba054e956)), closes [#215](https://github.com/IA-Generative/Muffin/issues/215)
+* **collections:** import a ZIP as a collection and its sub-collections ([ae2a531](https://github.com/IA-Generative/Muffin/commit/ae2a5318ccf1029b6b974c11b06fc24d750efe0e)), closes [#223](https://github.com/IA-Generative/Muffin/issues/223)
+* **collections:** roll up a parent's description from its sub-collections ([743f1ee](https://github.com/IA-Generative/Muffin/commit/743f1ee1bfec73b59e9e33fe1a73e8dcff50b521)), closes [#218](https://github.com/IA-Generative/Muffin/issues/218)
+* **collections:** suggest where to attach a collection imported from a ZIP ([4b188e2](https://github.com/IA-Generative/Muffin/commit/4b188e24d47f3f18d77dba437dabd365142e201b)), closes [#223](https://github.com/IA-Generative/Muffin/issues/223)
+* **frontend:** browse and manage sub-collections ([5200c01](https://github.com/IA-Generative/Muffin/commit/5200c01730cbc9e1641eceae43e00300321c5bf3)), closes [#221](https://github.com/IA-Generative/Muffin/issues/221)
+* **frontend:** import ZIPs and attach the collections they create ([86dd512](https://github.com/IA-Generative/Muffin/commit/86dd512942ed1610adafb58540fad23470e64702)), closes [#223](https://github.com/IA-Generative/Muffin/issues/223)
+* **search:** opt-in search across a collection's sub-collections ([df046d2](https://github.com/IA-Generative/Muffin/commit/df046d239e0c38554f242f1bec5e09cad8976b8a)), closes [#217](https://github.com/IA-Generative/Muffin/issues/217)
+* **sharing:** inherit read access down the sub-collection tree ([6ab3616](https://github.com/IA-Generative/Muffin/commit/6ab36165c56d10e539baee3e22a9df528d993e39)), closes [#216](https://github.com/IA-Generative/Muffin/issues/216)
+
 ## [0.14.4](https://github.com/IA-Generative/Muffin/compare/v0.14.3...v0.14.4) (2026-10-20)
 
 
