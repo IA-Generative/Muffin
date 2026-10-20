@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security.worker_auth import require_worker_api_key
 from app.db import get_db
+from app.repositories.collection_hierarchy_repository import CollectionHierarchyRepository
 from app.repositories.collection_repository import CollectionRepository
 from app.repositories.document_repository import DocumentRepository
 from app.schemas.internal_pipeline import (
@@ -16,9 +17,11 @@ from app.schemas.internal_pipeline import (
     CollectionSearchResultOut,
     CollectionSettingsInternalOut,
     CollectionTagsUpdate,
+    SubCollectionDescriptionOut,
 )
 from app.schemas.internal_run import SearchRequest
 from app.services import vector_store
+from app.services.description_rollup_service import DescriptionRollupService
 from app.services.search_service import SearchService
 
 router = APIRouter(prefix="/internal", tags=["Internal"], dependencies=[Depends(require_worker_api_key)])
@@ -71,10 +74,14 @@ async def get_collection_metadata(
     if collection is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found")
     summaries = await DocumentRepository(db).list_summaries_by_collection(collection_id)
+    sub_collections = await CollectionHierarchyRepository(db).children_with_description(collection_id)
     return CollectionMetadataOut(
         description=collection.description,
         tags=[tag.tag for tag in collection.tags],
         document_summaries=list(summaries),
+        sub_collections=[
+            SubCollectionDescriptionOut(name=name, description=description) for name, description in sub_collections
+        ],
     )
 
 
@@ -88,7 +95,12 @@ async def update_collection_description(
     collection = await repository.get_by_id(collection_id)
     if collection is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found")
+    changed = update.description != collection.description
     await repository.update_description(collection, update.description, PIPELINE_UPDATED_BY)
+    if changed:
+        # Also how a recomputed parent description climbs to the next level (#218): the
+        # rollup task reports through this same route, and only a real change goes further up.
+        await DescriptionRollupService(db).schedule(collection.parent_id)
     await db.commit()
     return {"status": "ok"}
 

@@ -227,3 +227,59 @@ def test_chunk_document_with_skip_chunking_skips_chunking_but_still_indexes(
     assert "app.tasks.extract_entities_window" not in spawned_names
     assert "app.tasks.summarize_document" not in spawned_names
     assert "app.tasks.generate_qa_window" not in spawned_names
+
+
+def _rollup_fixture(monkeypatch, metadata: dict, chat_reply: str = "Rolled-up description."):
+    monkeypatch.setattr(tasks._shared, "backend_client", MagicMock())
+    monkeypatch.setattr(task_logging, "backend_client", MagicMock())
+    chat = MagicMock(return_value=chat_reply)
+    monkeypatch.setattr(tasks._shared, "_chat", chat)
+    client = tasks._shared.backend_client
+    client.get_collection_settings.return_value = {
+        "generation_models": {"summary": "chat-model"},
+        "instructions": {"summary": ""},
+    }
+    client.get_collection_metadata.return_value = {"description": "", "tags": [], "document_summaries": [], **metadata}
+    client.get_default_embedding_model.return_value = "embedder"
+    client.embed.return_value = [0.1, 0.2]
+    return client, chat
+
+
+def test_rollup_does_nothing_without_a_described_sub_collection(monkeypatch):
+    client, chat = _rollup_fixture(monkeypatch, {"document_summaries": ["A summary"], "sub_collections": []})
+
+    tasks.rollup_collection_description("col-1")
+
+    chat.assert_not_called()
+    client.update_collection_description.assert_not_called()
+
+
+def test_rollup_synthesizes_from_sub_collections_and_own_documents(monkeypatch):
+    client, chat = _rollup_fixture(
+        monkeypatch,
+        {
+            "document_summaries": ["Own document summary"],
+            "sub_collections": [{"name": "Leave", "description": "Leave policies."}],
+        },
+    )
+
+    tasks.rollup_collection_description("col-1")
+
+    user_content = chat.call_args.args[2]
+    assert "- Leave: Leave policies." in user_content
+    assert "Own document summary" in user_content
+    client.update_collection_description.assert_called_once_with("col-1", "Rolled-up description.")
+    client.update_collection_description_embedding.assert_called_once_with("col-1", [0.1, 0.2])
+
+
+def test_rollup_revises_an_existing_description_and_stops_when_unchanged(monkeypatch):
+    client, chat = _rollup_fixture(
+        monkeypatch,
+        {"description": "Current.", "sub_collections": [{"name": "Leave", "description": "Leave policies."}]},
+        chat_reply="Current.",
+    )
+
+    tasks.rollup_collection_description("col-1")
+
+    assert chat.call_args.args[2].startswith("Current description:\nCurrent.")
+    client.update_collection_description.assert_not_called()

@@ -5,6 +5,9 @@
   ``generate_collection_qa`` quand la description change.
 - ``update_collection_tags`` : maintient les tags de la collection de la
   même façon.
+- ``rollup_collection_description`` : recalcule la description d'une
+  collection parente à partir de ses documents propres et des descriptions de
+  ses sous-collections (#218). Programmée par le backend, jamais par ce worker.
 """
 
 from loguru import logger
@@ -13,6 +16,25 @@ from app.celery_app import celery_app
 from app.task_logging import capture_task_logs
 from app.tasks import _shared
 from app.tasks.qa import generate_collection_qa  # noqa: E402,F401
+
+
+def _publish_description(collection_id: str, description: str) -> None:
+    """Stores a changed description - which is also what makes the backend schedule the parent's
+    rollup, see rollup_collection_description - then indexes its embedding."""
+    _shared.backend_client.update_collection_description(collection_id, description)
+    logger.info(f"Description updated for collection {collection_id} ({len(description)} chars)")
+
+    # Global embedding model (admin-configured, or the hub's
+    # default), not the collection's own embedding_model - every
+    # collection must land in the same embedding space for a
+    # query to be matched against them by similarity.
+    try:
+        embedding_model = _shared.backend_client.get_default_embedding_model()
+        if embedding_model is not None:
+            embedding = _shared.backend_client.embed(embedding_model, description)
+            _shared.backend_client.update_collection_description_embedding(collection_id, embedding)
+    except Exception:
+        logger.exception(f"Failed to embed the new description for collection {collection_id}")
 
 
 @celery_app.task(name="app.tasks.update_collection_description", bind=True)
@@ -60,21 +82,7 @@ def update_collection_description(self, document_id: str, collection_id: str) ->
                 new_description = _shared._chat(model, prompt, user_content).strip()
 
             if new_description and new_description != metadata["description"]:
-                _shared.backend_client.update_collection_description(collection_id, new_description)
-                logger.info(f"Description updated for collection {collection_id} ({len(new_description)} chars)")
-
-                # Global embedding model (admin-configured, or the hub's
-                # default), not the collection's own embedding_model - every
-                # collection must land in the same embedding space for a
-                # query to be matched against them by similarity.
-                try:
-                    embedding_model = _shared.backend_client.get_default_embedding_model()
-                    if embedding_model is not None:
-                        embedding = _shared.backend_client.embed(embedding_model, new_description)
-                        _shared.backend_client.update_collection_description_embedding(collection_id, embedding)
-                except Exception:
-                    logger.exception(f"Failed to embed the new description for collection {collection_id}")
-
+                _publish_description(collection_id, new_description)
                 _shared._spawn(
                     generate_collection_qa,
                     [document_id, collection_id, new_description],
@@ -140,3 +148,63 @@ def update_collection_tags(self, document_id: str, collection_id: str) -> None:
         except Exception as error:
             _shared._fail(document_id, "update the collection tags", error)
             raise
+
+
+@celery_app.task(name="app.tasks.rollup_collection_description", bind=True)
+def rollup_collection_description(self, collection_id: str) -> None:
+    """Recomputes a parent collection's description from its own document summaries and its
+    direct sub-collections' descriptions (#218), so the research agent can tell from the parent
+    alone whether its subtree is worth descending into.
+
+    Scheduled by the backend, delayed so that every change below within that window is read
+    here at once. A changed description is reported like any other, which schedules the next
+    level up; an unchanged one stops the propagation. Unlike update_collection_description, no
+    collection QA pairs are generated: there is no triggering document to attach that task to.
+    """
+    with capture_task_logs(self.request.id):
+        settings = _shared.backend_client.get_collection_settings(collection_id)
+        model = _shared._model_for(settings, "summary")
+        if model is None:
+            logger.warning(f"No model available to roll up the description of {collection_id}, skipping")
+            return
+
+        metadata = _shared.backend_client.get_collection_metadata(collection_id)
+        sub_collections = metadata.get("sub_collections") or []
+        if not sub_collections:
+            # Nothing to roll up: its own documents already keep it current, document by document.
+            logger.info(f"Collection {collection_id} has no described sub-collection, nothing to roll up")
+            return
+
+        content = "Sub-collections:\n" + "\n".join(
+            f"- {sub_collection['name']}: {sub_collection['description']}" for sub_collection in sub_collections
+        )
+        if metadata["document_summaries"]:
+            content += "\n\nDocuments directly in this collection:\n" + "\n\n---\n\n".join(
+                metadata["document_summaries"]
+            )
+
+        instructions = settings["instructions"].get("summary", "")
+        if not metadata["description"]:
+            prompt = (
+                f"{instructions}\nWrite a short, factual description (2-4 sentences) of a document collection "
+                "that is organised into sub-collections, based on the sub-collections' descriptions and the "
+                "summaries of the documents directly in it. Cover what the whole collection contains, so a "
+                "reader can tell whether it is worth looking into. Respond with only the description."
+            ).strip()
+            user_content = content
+        else:
+            prompt = (
+                f"{instructions}\nYou maintain a short description for a document collection that is organised "
+                "into sub-collections. You are given its current description, its sub-collections' descriptions "
+                "and the summaries of the documents directly in it. Decide whether the description still "
+                "accurately represents the whole collection. If it does, respond with it unchanged. If not, "
+                "respond with an updated description (2-4 sentences). Respond with only the description text, "
+                "nothing else."
+            ).strip()
+            user_content = f"Current description:\n{metadata['description']}\n\n{content}"
+
+        new_description = _shared._chat(model, prompt, user_content).strip()
+        if new_description and new_description != metadata["description"]:
+            _publish_description(collection_id, new_description)
+        else:
+            logger.info(f"Rolled-up description for collection {collection_id} left unchanged")

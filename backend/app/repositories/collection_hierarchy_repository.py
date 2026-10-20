@@ -49,6 +49,16 @@ class CollectionHierarchyRepository:
         result = await self.db.scalars(select(subtree.c.id))
         return list(result.all())
 
+    async def children_with_description(self, parent_id: uuid.UUID) -> list[tuple[str, str]]:
+        """(name, description) of the direct children that have a description yet, by name -
+        what a parent's description is rolled up from (#218)."""
+        result = await self.db.execute(
+            select(Collection.name, Collection.description)
+            .where(Collection.parent_id == parent_id, Collection.description != "")
+            .order_by(Collection.name)
+        )
+        return [(name, description) for name, description in result.all()]
+
     async def names(self, collection_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, Ancestor]:
         """Each collection as an Ancestor-shaped row, to prepend to its own ancestor_chains entry
         when a path must include the collection itself."""

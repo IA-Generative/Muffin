@@ -38,6 +38,7 @@ from app.tasks._shared import (  # noqa: F401
 )
 from app.tasks.chunk import chunk_document  # noqa: F401
 from app.tasks.collection import (  # noqa: F401
+    rollup_collection_description,
     update_collection_description,
     update_collection_tags,
 )
@@ -78,6 +79,7 @@ __all__ = [
     "extract_entities_window",
     "update_collection_description",
     "update_collection_tags",
+    "rollup_collection_description",
     "generate_collection_qa",
     # Internal helpers used by tests
     "_process_url",

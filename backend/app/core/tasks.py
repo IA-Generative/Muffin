@@ -20,6 +20,11 @@ _celery_app.conf.result_expires = 60 * 60 * 24 * 7
 DOCUMENT_PROCESSING_QUEUE = "document_processing"
 PROCESS_DOCUMENT_TASK = "app.tasks.process_document"
 
+# Same worker and queue: recomputing a parent collection's description from its own documents and
+# its sub-collections' descriptions (#218). Always sent with a countdown, see
+# app/services/description_rollup_service.py.
+ROLLUP_COLLECTION_DESCRIPTION_TASK = "app.tasks.rollup_collection_description"
+
 # Same reasoning, for the separate worker/agent_execution service - a
 # distinct queue so scaling/deploying one worker never affects the other,
 # even though both are produced from this same Celery app instance.
@@ -49,6 +54,18 @@ def enqueue_process_document(document_id: str) -> str:
     """Returns the Celery task id, so the caller can record it (see
     app/models/task.py) for later status lookups and revocation."""
     result = _celery_app.send_task(PROCESS_DOCUMENT_TASK, args=[document_id], queue=DOCUMENT_PROCESSING_QUEUE)
+    return result.id
+
+
+def enqueue_rollup_collection_description(collection_id: str, countdown: int) -> str:
+    """Returns the Celery task id. `countdown` delays the run so that every change to the
+    sub-collections within that window is picked up by this single run."""
+    result = _celery_app.send_task(
+        ROLLUP_COLLECTION_DESCRIPTION_TASK,
+        args=[collection_id],
+        queue=DOCUMENT_PROCESSING_QUEUE,
+        countdown=countdown,
+    )
     return result.id
 
 
