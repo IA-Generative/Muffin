@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.3](https://github.com/IA-Generative/Muffin/compare/v0.14.2...v0.14.3) (2026-10-20)
+
+
+### Bug Fixes
+
+* **chart:** parametrize project and vault env through global values ([b962a9f](https://github.com/IA-Generative/Muffin/commit/b962a9f4d78777824b3ff9d792bec6e6be64bf3c))
+
 ## [0.14.3-rc](https://github.com/IA-Generative/Muffin/compare/v0.14.2...v0.14.3-rc) (2026-10-20)
 
 
