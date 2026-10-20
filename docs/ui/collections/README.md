@@ -6,7 +6,7 @@ documents que l'agent de recherche pourra citer. Suit la même logique que
 
 Composants Vue : [`frontend/src/components/CollectionsView.vue`](../../../frontend/src/components/CollectionsView.vue)
 (liste, recherche, tri), [`frontend/src/components/CollectionDetailView.vue`](../../../frontend/src/components/CollectionDetailView.vue)
-(fiche détail : header, description/tags, onglets Paramètres/Documents/Questions-Réponses/Évaluation/Entités
+(fiche détail : header, description/tags, onglets Paramètres/Documents/Sous-collections/Questions-Réponses/Évaluation/Entités
 & Relations/Chunks).
 Composable : [`useCollections.ts`](../../../frontend/src/composables/useCollections.ts).
 
@@ -163,3 +163,47 @@ modification applicable, la fenêtre l'indique et propose de reformuler :
 Tant qu'une proposition existe, elle tient le **verrou** du document : le remplacement par fichier et la
 restauration sont désactivés, et le bandeau de verrou le rappelle. Une proposition abandonnée (fiche fermée,
 plus aucune consultation) est supprimée avec ses fichiers quand son verrou expire.
+
+## Sous-collections (#213)
+
+Une collection peut contenir des sous-collections, comme des dossiers. Fonctionnement côté serveur
+(droits hérités, agent, limites) : [docs/collection-hierarchy.md](../../collection-hierarchy.md).
+
+Sans recherche, la liste ne montre que les collections de premier niveau, avec leur nombre de
+sous-collections. Une recherche porte sur tous les niveaux et indique où se trouve chaque résultat :
+
+![Liste : collections de premier niveau](screenshots/collections-sub-01-list.png)
+
+![Recherche : chemin de chaque résultat](screenshots/collections-sub-02-search.png)
+
+L'onglet **Sous-collections** liste les sous-collections directes ; le propriétaire peut en créer une,
+qui part d'une copie des paramètres de la collection :
+
+![Onglet Sous-collections](screenshots/collections-sub-03-tab.png)
+
+Une sous-collection affiche son chemin dans un fil d'Ariane cliquable. Les droits descendent dans
+l'arbre : une collection privée sous une collection publique est publique elle aussi (badge
+« Publique (héritée) »), et les partages de ses collections parentes s'y appliquent, sans pouvoir y
+être révoqués :
+
+![Fil d'Ariane et visibilité héritée](screenshots/collections-sub-04-breadcrumb.png)
+
+![Partage hérité dans l'onglet Paramètres](screenshots/collections-sub-05-inherited.png)
+
+Le bouton **Déplacer** (icône dossier) propose les collections du propriétaire, hors de la
+collection elle-même et de ses sous-collections, ou le premier niveau. Supprimer une collection
+supprime aussi ses sous-collections, ce que la confirmation précise :
+
+![Déplacer une collection](screenshots/collections-sub-06-move.png)
+
+![Suppression d'une collection qui a des sous-collections](screenshots/collections-sub-07-delete.png)
+
+Dans le chat, le sélecteur affiche le chemin de chaque collection ; attacher une collection attache
+aussi ses sous-collections, sauf si la case est décochée :
+
+![Sélecteur de collections du chat](screenshots/collections-sub-08-chat-picker.png)
+
+Quand l'agent n'a pas exploré certaines sous-collections, la dernière réponse les nomme et propose
+d'**aller plus loin**, ce qui relance la recherche à partir de là :
+
+![Aller plus loin](screenshots/collections-sub-09-go-further.png)

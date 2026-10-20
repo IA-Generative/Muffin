@@ -20,7 +20,9 @@ pour qu'elles puissent être reprises plus tard sans avoir à ré-auditer tout l
   - Aucun client Keycloak Admin, aucun service account : tout est dérivé du token déjà vérifié.
 - `CollectionRepository.list_accessible`/`get_accessible`/`list_all_accessible`
   (`backend/app/repositories/collection_repository.py`) : owner OR `visibility=public` OR
-  partage `active` direct OR partage `active` vers un groupe de l'utilisateur. C'est la seule
+  partage `active` direct OR partage `active` vers un groupe de l'utilisateur, **sur la
+  collection ou sur l'un de ses ancêtres** (droits hérités dans les sous-collections, #216 - voir
+  [collection-hierarchy.md](collection-hierarchy.md#droits-hérités-216)). C'est la seule
   barrière de permission, utilisée à la fois par la liste UI et par
   `GET /internal/users/{id}/accessible-collections` (routing VDB de l'agent).
 - `Run.user_groups` (`backend/app/models/run.py`) : snapshot de `RequestContext.groups` pris à la
