@@ -3,7 +3,18 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -64,6 +75,15 @@ class Collection(UUIDMixin, TimestampMixin, Base):
     conversation_id: Mapped[uuid.UUID | None] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=True, unique=True
     )
+    # Sub-collections (#213): NULL for a root collection. Unlimited depth; a child is a full
+    # collection of its own (documents, index, settings) and always has its parent's owner.
+    # Deleting a parent deletes its whole subtree at the database level (ON DELETE CASCADE) -
+    # no ORM `children` relationship on purpose, so the ORM never tries to load or null out a
+    # potentially large subtree itself. The rules the database can't express (no cycle, same
+    # owner, never temporary) live in CollectionHierarchyService.
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("collections.id", ondelete="CASCADE"), nullable=True, index=True
+    )
 
     tags: Mapped[list["CollectionTag"]] = relationship(back_populates="collection", cascade="all, delete-orphan")
     shares: Mapped[list["CollectionShare"]] = relationship(back_populates="collection", cascade="all, delete-orphan")
@@ -101,6 +121,11 @@ class Collection(UUIDMixin, TimestampMixin, Base):
             unique=True,
             postgresql_where=(is_temporary.is_(True)) & (conversation_id.is_(None)),
         ),
+        # The one cycle the database can rule out on its own (a collection as its own parent);
+        # longer cycles need the subtree, see CollectionHierarchyService.set_parent.
+        CheckConstraint("parent_id IS NULL OR parent_id <> id", name="ck_collections_not_own_parent"),
+        # A temporary collection is conversation/holding-scoped and never part of a hierarchy.
+        CheckConstraint("NOT (is_temporary AND parent_id IS NOT NULL)", name="ck_collections_temporary_has_no_parent"),
     )
 
 
