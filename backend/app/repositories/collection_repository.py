@@ -268,19 +268,20 @@ class CollectionRepository:
 
         return embedding_model_changed
 
-    async def list_rustfs_keys(self, collection_id: uuid.UUID) -> list[str]:
-        """Every RustFS object under this collection - uploaded files and page
+    async def list_rustfs_keys(self, collection_ids: Sequence[uuid.UUID]) -> list[str]:
+        """Every RustFS object under these collections - uploaded files and page
         screenshots - collected before the cascade delete removes the rows
-        that reference them."""
+        that reference them. Several ids because deleting a collection deletes
+        its whole sub-collection subtree with it (#213)."""
         storage_keys = await self.db.scalars(
             select(Document.storage_key).where(
-                Document.collection_id == collection_id, Document.storage_key.is_not(None)
+                Document.collection_id.in_(collection_ids), Document.storage_key.is_not(None)
             )
         )
         screenshot_keys = await self.db.scalars(
             select(DocumentPage.screenshot)
             .join(Document, DocumentPage.document_id == Document.id)
-            .where(Document.collection_id == collection_id, DocumentPage.screenshot.is_not(None))
+            .where(Document.collection_id.in_(collection_ids), DocumentPage.screenshot.is_not(None))
         )
         return [*storage_keys.all(), *screenshot_keys.all()]
 
