@@ -1,13 +1,20 @@
 import uuid
 from collections import defaultdict
 from collections.abc import Sequence
+from typing import NamedTuple
 
 from sqlalchemy import any_, func, literal, not_, select
 from sqlalchemy.dialects.postgresql import array
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from app.models.collection import Collection
+from app.models.collection import Collection, CollectionVisibility
+
+
+class Ancestor(NamedTuple):
+    id: uuid.UUID
+    name: str
+    visibility: CollectionVisibility
 
 
 class CollectionHierarchyRepository:
@@ -31,10 +38,8 @@ class CollectionHierarchyRepository:
         result = await self.db.scalars(select(descendants.c.id).where(descendants.c.id != collection_id))
         return list(result.all())
 
-    async def ancestor_chains(
-        self, collection_ids: Sequence[uuid.UUID]
-    ) -> dict[uuid.UUID, list[tuple[uuid.UUID, str]]]:
-        """(id, name) of every ancestor of each collection, nearest (its parent) first - one
+    async def ancestor_chains(self, collection_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, list[Ancestor]]:
+        """Every ancestor of each collection, nearest (its parent) first - one
         query for a whole page of collections rather than one per collection. Roots have no
         entry.
 
@@ -67,13 +72,13 @@ class CollectionHierarchyRepository:
             )
         )
         result = await self.db.execute(
-            select(ancestors.c.start_id, Collection.id, Collection.name)
+            select(ancestors.c.start_id, Collection.id, Collection.name, Collection.visibility)
             .join(Collection, Collection.id == ancestors.c.ancestor_id)
             .order_by(ancestors.c.start_id, ancestors.c.depth)
         )
-        chains: dict[uuid.UUID, list[tuple[uuid.UUID, str]]] = defaultdict(list)
-        for start_id, ancestor_id, name in result.all():
-            chains[start_id].append((ancestor_id, name))
+        chains: dict[uuid.UUID, list[Ancestor]] = defaultdict(list)
+        for start_id, ancestor_id, name, visibility in result.all():
+            chains[start_id].append(Ancestor(ancestor_id, name, visibility))
         return dict(chains)
 
     async def child_ids_by_parent(self, parent_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, list[uuid.UUID]]:
