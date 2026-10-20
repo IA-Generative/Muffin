@@ -2,7 +2,7 @@ import enum
 import uuid
 from typing import Any
 
-from sqlalchemy import Enum, ForeignKey, String, Text
+from sqlalchemy import Boolean, Enum, Float, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -49,3 +49,18 @@ class CollectionImport(UUIDMixin, TimestampMixin, Base):
     # {"collections_created": int, "documents_created": int, "skipped": [{"path", "reason"}]}
     summary: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Attach suggestion (#223), only for an archive dropped with no place of its own (a
+    # conversation, the "Fichiers à ranger" page) - one dropped into a collection already went
+    # where the user put it. Same idea as a conversation file's filing suggestion (§122): the
+    # collection's description compared to those of the collections its owner has, recomputed
+    # each time that description changes until the user decides.
+    attach_eligible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    suggested_parent_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("collections.id", ondelete="SET NULL"), nullable=True
+    )
+    suggested_parent_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Top-K candidates behind suggested_parent_id (candidates[0]) - {"collection_id",
+    # "collection_name", "collection_description", "score"}, like Document.filing_candidates.
+    attach_candidates: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
+    attach_dismissed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
