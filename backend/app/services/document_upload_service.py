@@ -50,6 +50,11 @@ def _uploader_display(user: RequestContext) -> str:
     return user.user_id
 
 
+def document_storage_key(collection_id: uuid.UUID | str, name: str) -> str:
+    """Where an uploaded file lives in RustFS - the same layout for every upload path."""
+    return f"documents/{collection_id}/{uuid.uuid4()}-{name}"
+
+
 def _document_out(document: Document) -> DocumentOut:
     out = DocumentOut.model_validate(document)
     if document.suggested_collection is not None:
@@ -81,23 +86,31 @@ class DocumentUploadService:
     ) -> DocumentOut:
         await self._get_owned_collection(collection_id, user)
         safe_name = os.path.basename(filename) or "document"
-        storage_key = f"documents/{collection_id}/{uuid.uuid4()}-{safe_name}"
+        storage_key = document_storage_key(collection_id, safe_name)
         storage.put_object(storage_key, content, content_type=content_type)
-
-        document = await self.documents.create_file(
+        document = await self.register_stored_file(
             collection_id, safe_name, storage_key, user.user_id, _uploader_display(user)
         )
+        return DocumentOut.model_validate(document)
+
+    async def register_stored_file(
+        self, collection_id: uuid.UUID, name: str, storage_key: str, owner_id: str, owner_display: str
+    ) -> Document:
+        """Records a file already stored in RustFS as a document and queues it for processing -
+        shared by a plain upload and a ZIP import (#223), whose worker stores each file itself.
+        No ownership check here: callers have done it already."""
+        document = await self.documents.create_file(collection_id, name, storage_key, owner_id, owner_display)
         await self.db.commit()
         celery_task_id = enqueue_process_document(str(document.id))
         await self.tasks.create(
             celery_task_id,
             PROCESS_DOCUMENT_TASK,
-            user.user_id,
+            owner_id,
             document_id=document.id,
             collection_id=collection_id,
         )
         await self.db.commit()
-        return DocumentOut.model_validate(document)
+        return document
 
     async def create_conversation_file_document(
         self,

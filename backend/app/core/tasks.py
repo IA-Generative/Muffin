@@ -25,6 +25,9 @@ PROCESS_DOCUMENT_TASK = "app.tasks.process_document"
 # app/services/description_rollup_service.py.
 ROLLUP_COLLECTION_DESCRIPTION_TASK = "app.tasks.rollup_collection_description"
 
+# Same worker and queue: turning an uploaded ZIP into a collection and its sub-collections (#223).
+IMPORT_ZIP_TASK = "app.tasks.import_zip"
+
 # Same reasoning, for the separate worker/agent_execution service - a
 # distinct queue so scaling/deploying one worker never affects the other,
 # even though both are produced from this same Celery app instance.
@@ -66,6 +69,12 @@ def enqueue_rollup_collection_description(collection_id: str, countdown: int) ->
         queue=DOCUMENT_PROCESSING_QUEUE,
         countdown=countdown,
     )
+    return result.id
+
+
+def enqueue_import_zip(import_id: str) -> str:
+    """Returns the Celery task id, recorded as a collection-scoped Task row."""
+    result = _celery_app.send_task(IMPORT_ZIP_TASK, args=[import_id], queue=DOCUMENT_PROCESSING_QUEUE)
     return result.id
 
 

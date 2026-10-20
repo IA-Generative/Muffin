@@ -143,6 +143,15 @@ class CollectionRepository:
         )
         return set(result.all())
 
+    async def sibling_names(self, owner_id: str, parent_id: uuid.UUID | None) -> set[str]:
+        """Names of this owner's collections at one level of the tree (top level for None) - to
+        give a new one a name that doesn't clash, e.g. a ZIP imported twice (#223)."""
+        level = Collection.parent_id.is_(None) if parent_id is None else Collection.parent_id == parent_id
+        result = await self.db.scalars(
+            select(Collection.name).where(Collection.owner_id == owner_id, Collection.is_temporary.is_(False), level)
+        )
+        return set(result.all())
+
     async def list_owned_ids(self, owner_id: str) -> Sequence[uuid.UUID]:
         """Every non-temporary collection this user owns (§122) - the candidate set a filing
         suggestion is allowed to point at, since only the owner can add a document to a

@@ -10,6 +10,7 @@ from app.models.collection import (
     CollectionTag,
     ShareSubjectType,
 )
+from app.models.collection_import import CollectionImport, CollectionImportStatus
 from app.models.conversation import Conversation
 from app.models.discussion_feedback import DiscussionFeedback
 from app.models.discussion_score import DiscussionScore
@@ -54,6 +55,8 @@ __all__ = [
     "Chunk",
     "ChunkingStrategy",
     "Collection",
+    "CollectionImport",
+    "CollectionImportStatus",
     "CollectionSettings",
     "CollectionShare",
     "CollectionTag",

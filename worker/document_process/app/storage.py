@@ -1,3 +1,5 @@
+from typing import BinaryIO
+
 import boto3
 
 from app.config import settings
@@ -42,6 +44,12 @@ class RustFsStorage:
         grandeur plus léger qu'un GET pour valider le type d'un fichier."""
         self._ensure_bucket()
         return self._client.head_object(Bucket=self._bucket, Key=key)
+
+    def download_fileobj(self, key: str, fileobj: BinaryIO) -> None:
+        """Streams an object into a file-like object in parts - for an archive too large to read
+        in one go (a ZIP import, #223)."""
+        self._ensure_bucket()
+        self._client.download_fileobj(self._bucket, key, fileobj)
 
     def put_object(self, key: str, data: bytes, content_type: str = "application/octet-stream") -> None:
         self._ensure_bucket()
