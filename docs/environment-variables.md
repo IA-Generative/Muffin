@@ -140,6 +140,7 @@ désactivée par défaut en amont et doit être explicitement activée côté se
 |---|---|---|---|
 | `DOCUMENT_LOCK_TTL_SECONDS` | Durée de validité, en secondes, du verrou d'édition souple d'un document vivant (`POST /api/collections/{id}/documents/{doc}/lock`) tant qu'il n'est pas renouvelé (`PUT`). Passé ce délai le verrou est ignoré, un onglet abandonné libère donc le document tout seul | `600` | **backend** (`app/config/documents.py`, `app/services/living_document_service.py`) |
 | `PINNED_DESCENDANTS_LIMIT` | Nombre max de sous-collections ajoutées quand l'utilisateur épingle une collection dans le chat (les plus proches d'abord) ; au-delà, l'agent propose d'aller plus loin depuis la collection épinglée la plus proche | `30` | **backend** (`app/config/runs.py`, `app/services/run_service.py`) |
+| `ZIP_IMPORT_MAX_UPLOAD_BYTES` | Taille maximale, en octets, d'un ZIP importé en collection (vérifiée à l'upload, avant tout stockage) | `524288000` (500 Mo) | **backend** (`app/config/documents.py`, `app/services/collection_import_service.py`) |
 
 ## Backend ↔ workers (URLs)
 
@@ -160,6 +161,11 @@ désactivée par défaut en amont et doit être explicitement activée côté se
 |---|---|---|---|
 | `CELERY_QUEUE_NAME` | Nom de la queue Celery consommée par ce worker | `document_processing` | **worker/document_process** (`app/config.py`) |
 | `OCR_LANGUAGE` | Code langue Tesseract (ISO 639-2) utilisé pour l'OCR des pages scannées | `fra` | idem (pipeline OCR) |
+| `ZIP_IMPORT_MAX_FILES` | Nombre maximal de fichiers d'un ZIP importé ; au-delà, l'archive entière est refusée | `2000` | **worker-document-process** (`app/config.py`, `app/tasks/import_zip.py`) |
+| `ZIP_IMPORT_MAX_TOTAL_BYTES` | Taille maximale d'un ZIP une fois décompressé, en octets ; au-delà, l'archive est refusée (vérifiée sur la taille annoncée puis sur ce qui est réellement lu) | `2147483648` (2 Go) | idem |
+| `ZIP_IMPORT_MAX_FILE_BYTES` | Taille maximale d'un fichier du ZIP, en octets ; un fichier plus gros est ignoré et listé dans le récapitulatif | `209715200` (200 Mo) | idem |
+| `ZIP_IMPORT_MAX_RATIO` | Taux de compression maximal d'un fichier du ZIP (protection zip bomb) ; au-delà, le fichier est ignoré | `100` | idem |
+| `ZIP_IMPORT_MAX_DEPTH` | Profondeur maximale de dossiers dans un ZIP ; un fichier plus profond est ignoré | `20` | idem |
 | `TESSDATA_PATH` | Chemin vers les fichiers de données Tesseract, si non standard — le `Dockerfile` du worker le fixe au chemin du paquet apt `tesseract-ocr-fra` | `None` | idem |
 
 ## worker/agent_execution — budgets d'exécution de l'agent

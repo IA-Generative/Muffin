@@ -24,16 +24,20 @@ def _process_url(document_id: str, url: str) -> None:
     _shared.backend_client.add_page(document_id, page_number=1, content=markdown)
 
 
+# Already text - one page, no liteparse, no screenshot. liteparse only handles PDF/Office/image
+# formats; plain text files arrive notably through a ZIP import (#223).
+_TEXT_EXTENSIONS = (".md", ".txt")
+
+
 def _process_markdown(document_id: str, data: bytes) -> None:
-    """A Markdown file is already text (living documents, #166) - one page, no liteparse, no
-    screenshot. liteparse only handles PDF/Office/image formats."""
+    """A Markdown (living documents, #166) or plain text file."""
     _shared.backend_client.add_page(document_id, page_number=1, content=data.decode("utf-8", errors="replace"))
 
 
 def _process_file(document_id: str, storage_key: str, data: bytes | None = None, name: str = "") -> None:
     if data is None:
         data = _shared.storage.get_object(storage_key)
-    if name.lower().endswith(".md"):
+    if name.lower().endswith(_TEXT_EXTENSIONS):
         _process_markdown(document_id, data)
         return
     result = _shared.parse_file(data)

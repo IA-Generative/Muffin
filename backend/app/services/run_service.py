@@ -9,6 +9,7 @@ from app.models.feedback import FeedbackSourceRole
 from app.models.message import MessageRole
 from app.models.run import RunStatus
 from app.repositories.collection_hierarchy_repository import CollectionHierarchyRepository
+from app.repositories.collection_import_repository import CollectionImportRepository
 from app.repositories.collection_repository import CollectionRepository
 from app.repositories.conversation_repository import ConversationRepository
 from app.repositories.feedback_repository import FeedbackRepository
@@ -48,6 +49,7 @@ class RunService:
         self.conversations = ConversationRepository(db)
         self.collections = CollectionRepository(db)
         self.hierarchy = CollectionHierarchyRepository(db)
+        self.imports = CollectionImportRepository(db)
         self.feedbacks = FeedbackRepository(db)
         self.sources = SourceRepository(db)
 
@@ -67,9 +69,11 @@ class RunService:
         # always searches files uploaded straight into this conversation, without the user
         # having to pin it explicitly like a regular collection. None if nothing has ever been
         # uploaded into this conversation - nothing to pin, same as today.
-        collection_ids, unexplored_ids = await self._resolve_pinned(
-            list(body.collection_ids or []), user, body.include_descendants
-        )
+        # Collections created from ZIPs dropped into this conversation (#223) are pinned like its
+        # temporary collection below - but before resolving, so their sub-collections come along.
+        imported_ids = await self.imports.root_collection_ids_for_conversation(conversation.id)
+        requested_ids = list(dict.fromkeys([*(body.collection_ids or []), *imported_ids]))
+        collection_ids, unexplored_ids = await self._resolve_pinned(requested_ids, user, body.include_descendants)
         temp_collection = await self.collections.get_temporary_for_conversation(conversation.id)
         if temp_collection is not None and temp_collection.id not in collection_ids:
             collection_ids.append(temp_collection.id)
