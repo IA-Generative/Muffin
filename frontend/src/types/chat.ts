@@ -16,6 +16,8 @@ export interface Source {
   // instead; every other tool is just input/output, there's nothing to open for either.
   type?: 'document' | 'document_summary' | 'qa' | 'collection' | 'tool' | 'web'
   collectionId?: string
+  // Names from the root down to the cited collection, through collections the user can read (#220).
+  collectionPath?: string[]
   documentId?: string
   pageNumber?: number
   // Only for a citation of a living document (#171): which revision of it the answer was drawn from.
@@ -56,6 +58,9 @@ export interface ChatMessage {
   // Set when this answer comes with a proposed edit of a living document - shown as its own card
   // below the answer, clearly apart from it.
   editProposal?: EditProposal
+  // Collections whose sub-collections the run behind this answer didn't explore (#219, #233) -
+  // the latest answer offers to "go further" into them.
+  unexploredCollectionIds?: string[]
 }
 
 export interface ExecutionEvent {

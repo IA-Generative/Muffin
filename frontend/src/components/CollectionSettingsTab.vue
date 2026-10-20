@@ -585,7 +585,11 @@ const SHARE_STATUS_LABEL: Record<'pending' | 'active', string> = { pending: 'En 
           </select>
           <p class="settings-tab__hint">
             Une collection publique est visible et cherchable par n'importe quel utilisateur authentifié, en
-            lecture seule.
+            lecture seule. Ses sous-collections le sont aussi.
+          </p>
+          <p v-if="collection.inheritedPublicFrom && collection.visibility === 'private'" class="settings-tab__hint settings-tab__hint--inherited">
+            Cette collection est tout de même publique, car sa collection parente « {{ collection.inheritedPublicFrom.name }} »
+            l'est.
           </p>
         </div>
       </div>
@@ -634,7 +638,8 @@ const SHARE_STATUS_LABEL: Record<'pending' | 'active', string> = { pending: 'En 
           </div>
           <p class="settings-tab__hint">
             Aucune vérification n'est faite ici : l'invitation est créée et s'activera automatiquement à la
-            prochaine connexion de la personne ou d'un membre du groupe.
+            prochaine connexion de la personne ou d'un membre du groupe. Un partage s'applique aussi aux
+            sous-collections.
           </p>
           <p v-if="shareError" class="settings-tab__hint settings-tab__hint--error">{{ shareError }}</p>
         </div>
@@ -642,6 +647,9 @@ const SHARE_STATUS_LABEL: Record<'pending' | 'active', string> = { pending: 'En 
         <ul v-if="collection.shares.length" class="settings-tab__share-list">
           <li v-for="share in collection.shares" :key="share.id" class="settings-tab__share-row">
             <span class="settings-tab__share-hint">{{ share.displayHint }}</span>
+            <span v-if="share.inheritedFrom" class="settings-tab__share-inherited">
+              Hérité de « {{ share.inheritedFrom.name }} »
+            </span>
             <span
               class="settings-tab__share-status"
               :class="`settings-tab__share-status--${share.status}`"
@@ -649,6 +657,7 @@ const SHARE_STATUS_LABEL: Record<'pending' | 'active', string> = { pending: 'En 
               {{ SHARE_STATUS_LABEL[share.status] }}
             </span>
             <button
+              v-if="!share.inheritedFrom"
               type="button"
               class="fr-btn fr-btn--sm fr-btn--tertiary-no-outline"
               :aria-label="`Révoquer ce partage`"
@@ -815,6 +824,22 @@ const SHARE_STATUS_LABEL: Record<'pending' | 'active', string> = { pending: 'En 
   flex: 1;
   font-size: 0.8125rem;
   font-family: monospace;
+}
+
+.settings-tab__share-row {
+  flex-wrap: wrap;
+}
+
+/* On its own line under the identifier, so the status and the revoke action keep their place. */
+.settings-tab__share-inherited {
+  flex-basis: 100%;
+  order: 3;
+  font-size: 0.75rem;
+  color: var(--text-mention-grey);
+}
+
+.settings-tab__hint--inherited {
+  color: var(--text-default-info, var(--text-default-grey));
 }
 
 .settings-tab__share-status {

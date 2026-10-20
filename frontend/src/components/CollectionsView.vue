@@ -3,13 +3,16 @@ import { watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useCollections } from '../composables/useCollections'
 import { useCollectionsBrowser } from '../composables/useCollectionsBrowser'
+import { formatPath } from '../utils/collectionPath'
 import CollectionDetailView from './CollectionDetailView.vue'
 import PaginationControls from './PaginationControls.vue'
 
 const route = useRoute()
 const { collections, isLoading, activeCollection, createCollection, openCollection, closeCollection } =
   useCollections()
-const { search, sortKey, page, pageCount, results: sorted, paged } = useCollectionsBrowser(collections)
+const { search, sortKey, page, pageCount, results: sorted, paged } = useCollectionsBrowser(collections, {
+  rootsOnlyWhenIdle: true,
+})
 
 // Keeps the open/closed collection state in sync with direct URL navigation
 // (typed URL, back/forward) - clicks already go through openCollection/closeCollection.
@@ -103,6 +106,9 @@ function indexedCount(documents: { status: string }[]) {
             {{ !collection.isOwner ? (collection.visibility === 'public' ? 'Publique' : 'Partagée') : 'Publique' }}
           </span>
         </div>
+        <span v-if="search.trim() && collection.path.length" class="collection-card__path">
+          Dans {{ formatPath(collection.path.map((item) => item.name)) }}
+        </span>
         <span class="collection-card__description">{{ collection.description }}</span>
 
         <div v-if="collection.tags.length" class="collection-card__tags">
@@ -111,6 +117,9 @@ function indexedCount(documents: { status: string }[]) {
 
         <div class="collection-card__meta">
           <span>{{ indexedCount(collection.documents) }}/{{ collection.documents.length }} documents indexés</span>
+          <span v-if="collection.childrenCount">
+            {{ collection.childrenCount }} sous-collection{{ collection.childrenCount > 1 ? 's' : '' }}
+          </span>
           <span>Mis à jour le {{ formatDate(collection.updatedAt) }}</span>
         </div>
       </button>
@@ -255,6 +264,11 @@ function indexedCount(documents: { status: string }[]) {
 .collection-card__badge--shared {
   background: var(--background-alt-green-emeraude, var(--background-alt-grey));
   color: var(--text-default-success, var(--text-default-grey));
+}
+
+.collection-card__path {
+  font-size: 0.75rem;
+  color: var(--text-mention-grey);
 }
 
 .collection-card__description {

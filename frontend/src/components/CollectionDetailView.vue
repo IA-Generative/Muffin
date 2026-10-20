@@ -9,7 +9,9 @@ import CollectionEvaluationTab from './CollectionEvaluationTab.vue'
 import CollectionQaTab from './CollectionQaTab.vue'
 import CollectionRelationsTab from './CollectionRelationsTab.vue'
 import CollectionSettingsTab from './CollectionSettingsTab.vue'
+import CollectionSubcollectionsTab from './CollectionSubcollectionsTab.vue'
 import ConfirmDeleteModal from './ConfirmDeleteModal.vue'
+import MoveCollectionModal from './MoveCollectionModal.vue'
 
 const props = defineProps<{
   collection: Collection
@@ -18,8 +20,16 @@ const props = defineProps<{
 
 const route = useRoute()
 const router = useRouter()
-const { closeCollection, updateName, updateDescription, updateTags, deleteCollection, isCollectionReady, loadTabData } =
-  useCollections()
+const {
+  closeCollection,
+  openCollection,
+  updateName,
+  updateDescription,
+  updateTags,
+  deleteCollection,
+  isCollectionReady,
+  loadTabData,
+} = useCollections()
 
 const tagDraft = ref('')
 const isReady = computed(() => isCollectionReady(props.collection))
@@ -40,7 +50,7 @@ function toggleEditMeta() {
   if (isEditingMeta.value) showDetails.value = true
 }
 
-type TabKey = 'documents' | 'qa' | 'evaluation' | 'relations' | 'chunks' | 'settings'
+type TabKey = 'documents' | 'subcollections' | 'qa' | 'evaluation' | 'relations' | 'chunks' | 'settings'
 // §141: seuls Paramètres/Documents/Questions-Réponses restent au premier niveau - le reste
 // (Chunks, Entités & Relations, Évaluation) est regroupé sous le menu "Avancé" pour ne pas
 // mettre au même niveau visuel l'essentiel et les vues d'analyse/debug. Les URLs par onglet
@@ -48,6 +58,7 @@ type TabKey = 'documents' | 'qa' | 'evaluation' | 'relations' | 'chunks' | 'sett
 const PRIMARY_TABS: { key: TabKey; label: string }[] = [
   { key: 'settings', label: 'Paramètres' },
   { key: 'documents', label: 'Documents' },
+  { key: 'subcollections', label: 'Sous-collections' },
   { key: 'qa', label: 'Questions / Réponses' },
 ]
 const ADVANCED_TABS: { key: TabKey; label: string }[] = [
@@ -160,6 +171,29 @@ function removeTag(tag: string) {
 }
 
 const showDeleteModal = ref(false)
+const showMoveModal = ref(false)
+
+// Deleting a collection deletes its whole subtree (#214) - say so before the user confirms.
+const deleteWarning = computed(() => {
+  const subtree = props.collection.childrenCount
+    ? `, ainsi que toutes ses sous-collections et leur contenu,`
+    : ''
+  return `Cette action est irréversible : tous les documents, questions/réponses, entités et chunks de « ${props.collection.name} »${subtree} seront définitivement supprimés, y compris les fichiers et captures d'écran stockés.`
+})
+
+const visibilityLabel = computed(() => {
+  const collection = props.collection
+  if (collection.visibility === 'public') return 'Publique'
+  // Readable by everyone through a public ancestor (#216), whatever its own setting says - which
+  // ancestor is in the badge's title, the badge itself stays short.
+  if (collection.inheritedPublicFrom) return 'Publique (héritée)'
+  return collection.isOwner ? 'Privée' : 'Partagée avec vous'
+})
+const visibilityModifier = computed(() => {
+  const collection = props.collection
+  if (collection.visibility === 'public' || collection.inheritedPublicFrom) return 'public'
+  return collection.isOwner ? 'owner' : 'shared'
+})
 
 function confirmDelete() {
   showDeleteModal.value = false
@@ -170,12 +204,24 @@ function confirmDelete() {
 <template>
   <section class="collection-detail">
     <div class="collection-detail__inner">
-      <button type="button" class="collection-detail__back" @click="closeCollection()">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12l7.5-7.5M3 12h18" />
-        </svg>
-        Collections
-      </button>
+      <nav class="collection-detail__breadcrumb" aria-label="Fil d'Ariane">
+        <button type="button" class="collection-detail__back" @click="closeCollection()">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12l7.5-7.5M3 12h18" />
+          </svg>
+          Collections
+        </button>
+        <template v-for="ancestor in collection.path" :key="ancestor.id">
+          <span class="collection-detail__breadcrumb-separator" aria-hidden="true">›</span>
+          <button
+            type="button"
+            class="collection-detail__back"
+            @click="openCollection(ancestor.id, { tab: 'subcollections' })"
+          >
+            {{ ancestor.name }}
+          </button>
+        </template>
+      </nav>
 
       <div class="collection-detail__header">
         <input
@@ -188,9 +234,14 @@ function confirmDelete() {
         <h2 v-else class="collection-detail__name collection-detail__name--readonly">{{ collection.name }}</h2>
         <span
           class="collection-detail__visibility-badge"
-          :class="`collection-detail__visibility-badge--${collection.isOwner ? 'owner' : collection.visibility === 'public' ? 'public' : 'shared'}`"
+          :class="`collection-detail__visibility-badge--${visibilityModifier}`"
+          :title="
+            collection.inheritedPublicFrom && collection.visibility !== 'public'
+              ? `Publique car « ${collection.inheritedPublicFrom.name} » l'est`
+              : undefined
+          "
         >
-          {{ collection.isOwner ? (collection.visibility === 'public' ? 'Publique' : 'Privée') : collection.visibility === 'public' ? 'Publique' : 'Partagée avec vous' }}
+          {{ visibilityLabel }}
         </span>
         <button
           v-if="collection.isOwner && isReady"
@@ -233,6 +284,22 @@ function confirmDelete() {
             <path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6" />
           </svg>
           <span class="fr-sr-only">{{ showDetails ? 'Masquer les détails' : 'Afficher les détails' }}</span>
+        </button>
+        <button
+          v-if="collection.isOwner && isReady"
+          type="button"
+          class="collection-detail__details-toggle"
+          title="Déplacer vers une autre collection"
+          @click="showMoveModal = true"
+        >
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M3.75 9.776c.112-.017.227-.026.344-.026h15.812c.117 0 .232.009.344.026m-16.5 0a2.25 2.25 0 0 0-1.883 2.542l.857 6a2.25 2.25 0 0 0 2.227 1.932H19.05a2.25 2.25 0 0 0 2.227-1.932l.857-6a2.25 2.25 0 0 0-1.883-2.542m-16.5 0V6A2.25 2.25 0 0 1 6 3.75h3.879a1.5 1.5 0 0 1 1.06.44l2.122 2.12a1.5 1.5 0 0 0 1.06.44H18A2.25 2.25 0 0 1 20.25 9v.776"
+            />
+          </svg>
+          <span class="fr-sr-only">Déplacer</span>
         </button>
         <button
           v-if="collection.isOwner"
@@ -375,6 +442,11 @@ function confirmDelete() {
             :collection="collection"
             :active-document-id="activeDocumentId"
           />
+          <CollectionSubcollectionsTab
+            v-else-if="activeTab === 'subcollections'"
+            key="subcollections"
+            :collection="collection"
+          />
           <CollectionQaTab v-else-if="activeTab === 'qa'" key="qa" :collection="collection" />
           <CollectionEvaluationTab v-else-if="activeTab === 'evaluation'" key="evaluation" :collection="collection" />
           <CollectionRelationsTab v-else-if="activeTab === 'relations'" key="relations" :collection="collection" />
@@ -387,11 +459,13 @@ function confirmDelete() {
     <ConfirmDeleteModal
       v-if="showDeleteModal"
       title="Supprimer cette collection ?"
-      :warning="`Cette action est irréversible : tous les documents, questions/réponses, entités et chunks de « ${collection.name} » seront définitivement supprimés, y compris les fichiers et captures d'écran stockés.`"
+      :warning="deleteWarning"
       :confirm-text="collection.name"
       @confirm="confirmDelete"
       @cancel="showDeleteModal = false"
     />
+
+    <MoveCollectionModal v-if="showMoveModal" :collection="collection" @close="showMoveModal = false" />
   </section>
 </template>
 
@@ -409,6 +483,19 @@ function confirmDelete() {
   margin: 0 auto;
 }
 
+.collection-detail__breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem;
+  margin-bottom: 1rem;
+  font-size: 0.875rem;
+}
+
+.collection-detail__breadcrumb-separator {
+  color: var(--text-mention-grey);
+}
+
 .collection-detail__back {
   display: flex;
   align-items: center;
@@ -418,7 +505,6 @@ function confirmDelete() {
   color: var(--text-mention-grey);
   cursor: pointer;
   padding: 0;
-  margin-bottom: 1rem;
   font-size: 0.875rem;
 }
 

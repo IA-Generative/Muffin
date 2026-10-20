@@ -6,6 +6,7 @@ import type {
   Chunk,
   Collection,
   CollectionDocument,
+  CollectionPathItem,
   CollectionVisibility,
   Entity,
   EvaluationRun,
@@ -45,6 +46,10 @@ interface CollectionOut {
   updated_at: string
   visibility: CollectionVisibility
   is_owner: boolean
+  parent_id: string | null
+  path: CollectionPathItem[]
+  children_count: number
+  inherited_public_from: CollectionPathItem | null
   documents: CollectionDocument[]
   qa_pairs: QaPair[]
   entities: Entity[]
@@ -98,6 +103,10 @@ function toCollection(raw: CollectionOut): Collection {
     updatedAt: raw.updated_at,
     visibility: raw.visibility,
     isOwner: raw.is_owner,
+    parentId: raw.parent_id,
+    path: raw.path,
+    childrenCount: raw.children_count,
+    inheritedPublicFrom: raw.inherited_public_from,
     documents: raw.documents,
     qaPairs: raw.qa_pairs,
     entities: raw.entities,
@@ -127,10 +136,18 @@ interface ShareOut {
   status: Share['status']
   display_hint: string
   created_at: string
+  inherited_from: CollectionPathItem | null
 }
 
 function toShare(raw: ShareOut): Share {
-  return { id: raw.id, subjectType: raw.subject_type, status: raw.status, displayHint: raw.display_hint, createdAt: raw.created_at }
+  return {
+    id: raw.id,
+    subjectType: raw.subject_type,
+    status: raw.status,
+    displayHint: raw.display_hint,
+    createdAt: raw.created_at,
+    inheritedFrom: raw.inherited_from,
+  }
 }
 
 interface DocumentOut {
@@ -214,11 +231,47 @@ async function fetchCollection(id: string) {
   try {
     const response = await fetch(`${API_BASE_URL}/api/collections/${id}`, { credentials: 'include' })
     if (!response.ok) return
-    const collection = toCollection(await response.json())
-    if (collections.value.some((item) => item.id === id)) replaceCollection(id, collection)
-    else collections.value.push(collection)
+    upsertCollection(toCollection(await response.json()))
   } catch {
     // Ignored: the detail view already handles a missing/unfetchable collection.
+  }
+}
+
+function upsertCollection(collection: Collection) {
+  if (collections.value.some((item) => item.id === collection.id)) replaceCollection(collection.id, collection)
+  else collections.value.push(collection)
+}
+
+// The direct sub-collections of a collection (#215), merged into the shared list rather than kept
+// apart: the list is what every view reads from, and a sub-collection may not be in its first page.
+async function refreshChildren(collectionId: string) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/collections/${collectionId}/children?page_size=100`, {
+      credentials: 'include',
+    })
+    if (!response.ok) return
+    const body: { items: CollectionOut[] } = await response.json()
+    body.items.map(toCollection).forEach(upsertCollection)
+  } catch {
+    // Ignored: the tab just keeps whatever it last had.
+  }
+}
+
+// Moving or deleting a collection changes the path of everything below it (and a parent's
+// children count) - reloads the list while keeping every collection's already-loaded tabs, unlike
+// fetchCollections, which starts over.
+async function refreshTree() {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/collections?page_size=100`, { credentials: 'include' })
+    if (!response.ok) return
+    const body: { items: CollectionOut[] } = await response.json()
+    const fresh = body.items.map(toCollection)
+    const freshIds = new Set(fresh.map((item) => item.id))
+    // Kept: anything fetched on its own (an opened sub-collection beyond the first page).
+    collections.value = collections.value.filter((item) => freshIds.has(item.id) || item.id === activeCollectionId.value)
+    fresh.forEach(upsertCollection)
+  } catch {
+    // Ignored: the list stays as it was until the next reload.
   }
 }
 
@@ -241,6 +294,7 @@ const TAB_LOADERS: Record<string, (id: string) => void | Promise<void>> = {
   relations: refreshEntitiesAndRelations,
   evaluation: refreshEvaluation,
   settings: refreshShares,
+  subcollections: refreshChildren,
 }
 
 // Tracks which tabs have already been loaded for the active collection, so
@@ -281,17 +335,55 @@ function closeCollection(options: { navigate?: boolean } = {}) {
 // name/description: pre-filled from an unfiled file's own name/summary when creating a
 // collection straight from the filing review page's "Créer une collection" shortcut (§122
 // follow-up) - omitted (defaults apply server-side) for the plain "+ Nouvelle collection" click.
-async function createCollection(name?: string, description?: string) {
+// parentId: creates a sub-collection (#215), which starts from a copy of its parent's settings.
+async function createCollection(name?: string, description?: string, parentId?: string) {
   const response = await fetch(`${API_BASE_URL}/api/collections`, {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, description }),
+    body: JSON.stringify({ name, description, parent_id: parentId }),
   })
   if (!response.ok) return
   const collection = toCollection(await response.json())
   collections.value.unshift(collection)
+  // The parent's children count just changed.
+  if (parentId) fetchCollection(parentId)
   openCollection(collection.id)
+}
+
+const moveError = ref<string | null>(null)
+
+// parentId null moves the collection back to the top level. Only between collections the user
+// owns - the backend answers 404 for a parent they don't own and 409 for a cycle.
+async function moveCollection(id: string, parentId: string | null): Promise<boolean> {
+  moveError.value = null
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/collections/${id}`, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ parent_id: parentId }),
+    })
+    if (response.status === 409) {
+      moveError.value = 'Une collection ne peut pas être déplacée dans elle-même ni dans une de ses sous-collections.'
+      return false
+    }
+    if (!response.ok) {
+      moveError.value = 'Impossible de déplacer cette collection.'
+      return false
+    }
+    replaceCollection(id, toCollection(await response.json()))
+  } catch {
+    moveError.value = 'Impossible de déplacer cette collection : le serveur est inaccessible.'
+    return false
+  }
+  await refreshTree()
+  return true
+}
+
+// Every collection below `id`, at any depth, among those already loaded.
+function descendantsOf(id: string): Collection[] {
+  return collections.value.filter((collection) => collection.path.some((item) => item.id === id))
 }
 
 // CollectionOut doesn't embed documents/qaPairs/entities/relations/chunks/shares (see
@@ -342,8 +434,16 @@ async function deleteCollection(id: string) {
     credentials: 'include',
   })
   if (!response.ok) return
-  collections.value = collections.value.filter((item) => item.id !== id)
-  if (activeCollectionId.value === id) closeCollection()
+  // Its whole subtree goes with it (#214).
+  const parentId = collections.value.find((item) => item.id === id)?.parentId
+  const deletedIds = new Set([id, ...descendantsOf(id).map((item) => item.id)])
+  collections.value = collections.value.filter((item) => !deletedIds.has(item.id))
+  if (activeCollectionId.value && deletedIds.has(activeCollectionId.value)) {
+    // Back up to the parent rather than the top-level list when deleting a sub-collection.
+    if (parentId) openCollection(parentId, { tab: 'subcollections' })
+    else closeCollection()
+  }
+  if (parentId) fetchCollection(parentId)
 }
 
 const shareError = ref<string | null>(null)
@@ -881,6 +981,10 @@ export function useCollections() {
     updateDescription,
     updateTags,
     deleteCollection,
+    moveCollection,
+    moveError,
+    descendantsOf,
+    refreshChildren,
     shareError,
     updateVisibility,
     refreshShares,

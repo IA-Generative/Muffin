@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import type { Source } from '../types/chat'
+import { formatPath } from '../utils/collectionPath'
 import SourceDocumentModal from './SourceDocumentModal.vue'
 
 defineProps<{
@@ -34,6 +35,7 @@ const openSource = ref<Source>()
         >
           <span class="sources-panel__card-kind">Document</span>
           <span class="sources-panel__title">{{ source.title }}</span>
+          <span v-if="source.collectionPath" class="sources-panel__meta">{{ formatPath(source.collectionPath) }}</span>
           <span v-if="source.revision" class="sources-panel__meta">Révision {{ source.revision }}</span>
           <span v-if="source.pageNumber" class="sources-panel__meta">Page {{ source.pageNumber }}</span>
         </button>
