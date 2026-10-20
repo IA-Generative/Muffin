@@ -66,7 +66,7 @@ fonctionnalité :
 
 | Fonctionnalité | Doc |
 |---|---|
-| Collections : création, documents, chunks, Q/R, entités & relations, évaluation du retrieval | [docs/ui/collections/README.md](docs/ui/collections/README.md) |
+| Collections : création, sous-collections, documents, chunks, Q/R, entités & relations, évaluation du retrieval | [docs/ui/collections/README.md](docs/ui/collections/README.md) |
 | Chat : dictée vocale et lecture à voix haute des réponses | [docs/ui/chat/README.md](docs/ui/chat/README.md) |
 | Suggestion de rangement automatique des fichiers uploadés dans le chat | [docs/ui/filing/README.md](docs/ui/filing/README.md) |
 | Tutoriel de découverte affiché aux nouveaux utilisateurs | [docs/ui/onboarding/README.md](docs/ui/onboarding/README.md) |
@@ -79,5 +79,7 @@ fonctionnalité :
 
 - [docs/environment-variables.md](docs/environment-variables.md) — toutes les variables
   d'environnement, leur valeur par défaut et le(s) service(s) qui les consomment.
+- [docs/collection-hierarchy.md](docs/collection-hierarchy.md) — sous-collections : modèle,
+  droits hérités, description agrégée, routage de l'agent et « aller plus loin ».
 - [docs/research-agent-plan.md](docs/research-agent-plan.md) — architecture détaillée de l'agent
   de recherche (LangGraph, routing multi-collections, budgets d'exécution, grounding).
