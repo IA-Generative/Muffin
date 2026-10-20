@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.4](https://github.com/IA-Generative/Muffin/compare/v0.14.3...v0.14.4) (2026-10-20)
+
+
+### Bug Fixes
+
+* **chart:** set ingress class and routes, add resources to the cnpg cluster ([ecd6d9d](https://github.com/IA-Generative/Muffin/commit/ecd6d9d3efbcd611241a45b75ec07eabd20e6627))
+
 ## [0.14.3](https://github.com/IA-Generative/Muffin/compare/v0.14.2...v0.14.3) (2026-10-20)
 
 
