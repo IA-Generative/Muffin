@@ -11,14 +11,19 @@ from app.core.security.factory import RequestContext
 from app.core.tasks import IMPORT_ZIP_TASK, enqueue_import_zip
 from app.models.collection import Collection
 from app.models.collection_import import CollectionImport, CollectionImportStatus
+from app.repositories.collection_hierarchy_repository import CollectionHierarchyRepository
 from app.repositories.collection_import_repository import CollectionImportRepository
 from app.repositories.collection_repository import CollectionRepository
 from app.repositories.conversation_repository import ConversationRepository
 from app.repositories.task_repository import TaskRepository
-from app.schemas.collection_import import CollectionImportOut, CollectionImportResult
+from app.schemas.collection_import import AttachDecision, CollectionImportOut, CollectionImportResult
+from app.services import vector_store
 from app.services.collection_hierarchy_service import CollectionHierarchyService
-from app.services.collection_service import CollectionService
+from app.services.collection_service import CollectionService, ParentCollectionNotFoundError
+from app.services.description_rollup_service import DescriptionRollupService
 from app.services.document_upload_service import DocumentUploadService, _uploader_display
+from app.services.embedding_model_lookup import default_embedding_model
+from app.services.search_service import embed_text
 
 # Module attribute (not closed over) so tests can change the limit with monkeypatch.setattr.
 _document_settings = DocumentSettings()
@@ -38,6 +43,11 @@ class CollectionImportNotFoundError(Exception):
 
 class ConversationNotFoundError(Exception):
     pass
+
+
+class InvalidAttachDecisionError(Exception):
+    """An attach decision that can't apply: nothing suggested to accept, no target to choose, or
+    an import with no attach suggestion at all."""
 
 
 class ImportTargetError(Exception):
@@ -69,8 +79,12 @@ class CollectionImportService:
         self.conversations = ConversationRepository(db)
         self.tasks = TaskRepository(db)
         self.collection_service = CollectionService(db)
+        self.hierarchy = CollectionHierarchyRepository(db)
         self.hierarchy_rules = CollectionHierarchyService(db)
         self.documents = DocumentUploadService(db)
+
+    # How many candidates an attach suggestion keeps, as for a filing suggestion (§122).
+    ATTACH_TOP_K = 3
 
     async def start(
         self,
@@ -106,6 +120,7 @@ class CollectionImportService:
                 status=CollectionImportStatus.PENDING,
                 root_collection_id=root.id,
                 conversation_id=conversation_id,
+                attach_eligible=parent_id is None,
             )
         )
         collection_import.archive_key = f"imports/{collection_import.id}.zip"
@@ -116,13 +131,89 @@ class CollectionImportService:
         await self.tasks.create(celery_task_id, IMPORT_ZIP_TASK, user.user_id, collection_id=root.id)
         await self.db.commit()
         await self.db.refresh(collection_import, attribute_names=["created_at"])
-        return CollectionImportOut.model_validate(collection_import)
+        return await self._present(collection_import)
 
     async def get(self, import_id: uuid.UUID, user: RequestContext) -> CollectionImportOut:
-        collection_import = await self.imports.get(import_id, user.user_id)
-        if collection_import is None:
-            raise CollectionImportNotFoundError(str(import_id))
-        return CollectionImportOut.model_validate(collection_import)
+        return await self._present(await self._get_owned(import_id, user))
+
+    async def list(
+        self, user: RequestContext, *, conversation_id: uuid.UUID | None = None, awaiting_attachment: bool = False
+    ) -> list[CollectionImportOut]:
+        imports = await self.imports.list_for_owner(
+            user.user_id, conversation_id=conversation_id, awaiting_attachment=awaiting_attachment
+        )
+        return [await self._present(collection_import) for collection_import in imports]
+
+    async def suggest_attachment(self, collection_id: uuid.UUID) -> None:
+        """Recomputes the attach suggestion of the import this collection is the root of, if
+        any, from its current description - called whenever a collection's description changes,
+        a no-op for every other collection. Same ranking as a filing suggestion (§122): the
+        description embedded with the global embedding model, compared to the descriptions of the
+        collections the owner has - never the imported collection itself or anything below it."""
+        collection_import = await self.imports.get_by_root_collection(collection_id)
+        if collection_import is None or not collection_import.attach_eligible or collection_import.attach_dismissed:
+            return
+        root = await self.collections.get_by_id(collection_id)
+        if root is None or root.parent_id is not None or not root.description:
+            return
+
+        model = await default_embedding_model(self.db)
+        if model is None:
+            return
+        embedding = await embed_text(model, root.description)
+        excluded = {root.id, *await self.hierarchy.descendant_ids(root.id)}
+        candidate_ids = [cid for cid in await self.collections.list_owned_ids(root.owner_id) if cid not in excluded]
+        results = vector_store.search_collections(root.description, embedding, candidate_ids, limit=self.ATTACH_TOP_K)
+        collections_by_id = {c.id: c for c in await self.collections.get_by_ids([cid for cid, _ in results])}
+        candidates = [
+            {
+                "collection_id": str(cid),
+                "collection_name": collections_by_id[cid].name,
+                "collection_description": collections_by_id[cid].description,
+                "score": score,
+            }
+            for cid, score in results
+            if cid in collections_by_id  # defensive: deleted between search and here
+        ]
+        collection_import.attach_candidates = candidates or None
+        collection_import.suggested_parent_id = uuid.UUID(candidates[0]["collection_id"]) if candidates else None
+        collection_import.suggested_parent_score = candidates[0]["score"] if candidates else None
+        await self.db.commit()
+
+    async def decide_attachment(
+        self, import_id: uuid.UUID, user: RequestContext, decision: AttachDecision
+    ) -> CollectionImportOut:
+        """The user's answer to an attach suggestion: "accept" moves the imported collection
+        under the suggested one, "choose_other" under `target_collection_id`, "dismiss" leaves it
+        at the top level and stops suggesting. Moving follows the usual rules (#215) - only under
+        a collection the user owns, never under the collection itself or below it."""
+        collection_import = await self._get_owned(import_id, user)
+        if not collection_import.attach_eligible or collection_import.root_collection_id is None:
+            raise InvalidAttachDecisionError(decision.action)
+
+        if decision.action == "dismiss":
+            collection_import.attach_dismissed = True
+            await self.db.commit()
+            return await self._present(collection_import)
+
+        target_id = (
+            collection_import.suggested_parent_id if decision.action == "accept" else decision.target_collection_id
+        )
+        if target_id is None:
+            raise InvalidAttachDecisionError(decision.action)
+        target = await self.collections.get(target_id, user.user_id)
+        if target is None:
+            raise ParentCollectionNotFoundError(str(target_id))
+        root = await self.collections.get(collection_import.root_collection_id, user.user_id)
+        if root is None:
+            raise InvalidAttachDecisionError(decision.action)
+        # Raises HierarchyError on a cycle - before anything is committed.
+        await self.hierarchy_rules.set_parent(root, target)
+        if root.description:
+            # Its new parent's rolled-up description now has it to draw from (#218).
+            await DescriptionRollupService(self.db).schedule(target.id)
+        await self.db.commit()
+        return await self._present(collection_import)
 
     # --- Internal, called by the worker ---
 
@@ -169,6 +260,20 @@ class CollectionImportService:
         # Best-effort and after the commit, same as every other RustFS cleanup.
         if archive_key:
             storage.delete_objects([archive_key])
+
+    async def _get_owned(self, import_id: uuid.UUID, user: RequestContext) -> CollectionImport:
+        collection_import = await self.imports.get(import_id, user.user_id)
+        if collection_import is None:
+            raise CollectionImportNotFoundError(str(import_id))
+        return collection_import
+
+    async def _present(self, collection_import: CollectionImport) -> CollectionImportOut:
+        root = (
+            await self.collections.get_by_id(collection_import.root_collection_id)
+            if collection_import.root_collection_id is not None
+            else None
+        )
+        return CollectionImportOut.from_model(collection_import, root)
 
     async def _get_by_id(self, import_id: uuid.UUID) -> CollectionImport:
         collection_import = await self.imports.get_by_id(import_id)
