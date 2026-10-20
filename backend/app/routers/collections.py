@@ -1,7 +1,7 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security.factory import RequestContext, get_current_user
@@ -24,10 +24,17 @@ from app.schemas.collection import (
 from app.schemas.evaluation import EvaluationRunOut, EvaluationTriggerRequest
 from app.schemas.feedback import FeedbackStatsOut
 from app.schemas.pagination import Page, PaginationParams
+from app.services.collection_hierarchy_service import (
+    HierarchyCycleError,
+    HierarchyError,
+    HierarchyOwnerMismatchError,
+    TemporaryCollectionHierarchyError,
+)
 from app.services.collection_service import (
     AlreadyInvitedError,
     CollectionNotFoundError,
     CollectionService,
+    ParentCollectionNotFoundError,
     ShareNotFoundError,
 )
 from app.services.evaluation_service import (
@@ -39,6 +46,18 @@ from app.services.evaluation_service import (
 )
 
 router = APIRouter(tags=["Collections"])
+
+_HIERARCHY_ERROR_DETAILS: dict[type[HierarchyError], str] = {
+    HierarchyCycleError: "A collection cannot be moved under itself or one of its sub-collections",
+    HierarchyOwnerMismatchError: "A sub-collection must have the same owner as its parent",
+    TemporaryCollectionHierarchyError: "Temporary collections cannot be part of a hierarchy",
+}
+
+
+def _hierarchy_http_error(error: HierarchyError | ParentCollectionNotFoundError) -> HTTPException:
+    if isinstance(error, ParentCollectionNotFoundError):
+        return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Parent collection not found")
+    return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_HIERARCHY_ERROR_DETAILS[type(error)])
 
 
 def get_collection_service(
@@ -60,15 +79,16 @@ UserDep = Annotated[RequestContext, Depends(get_current_user)]
 
 @router.get(
     "/collections",
-    summary="List the current user's collections",
+    summary="List the current user's collections, flat across sub-collections unless roots_only",
     response_model=Page[CollectionOut],
 )
 async def list_collections(
     user: UserDep,
     service: ServiceDep,
     pagination: Annotated[PaginationParams, Depends()],
+    roots_only: Annotated[bool, Query()] = False,
 ) -> Page[CollectionOut]:
-    return await service.list_collections(user, pagination)
+    return await service.list_collections(user, pagination, roots_only=roots_only)
 
 
 @router.post(
@@ -78,9 +98,15 @@ async def list_collections(
     response_model=CollectionOut,
 )
 async def create_collection(user: UserDep, service: ServiceDep, body: CollectionCreate | None = None) -> CollectionOut:
-    return await service.create_collection(
-        user, name=body.name if body else None, description=body.description if body else None
-    )
+    try:
+        return await service.create_collection(
+            user,
+            name=body.name if body else None,
+            description=body.description if body else None,
+            parent_id=body.parent_id if body else None,
+        )
+    except (HierarchyError, ParentCollectionNotFoundError) as error:
+        raise _hierarchy_http_error(error) from error
 
 
 @router.get(
@@ -95,9 +121,26 @@ async def get_collection(collection_id: uuid.UUID, user: UserDep, service: Servi
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
 
 
+@router.get(
+    "/collections/{collection_id}/children",
+    summary="List the direct sub-collections of a collection the user can read",
+    response_model=Page[CollectionOut],
+)
+async def list_children(
+    collection_id: uuid.UUID,
+    user: UserDep,
+    service: ServiceDep,
+    pagination: Annotated[PaginationParams, Depends()],
+) -> Page[CollectionOut]:
+    try:
+        return await service.list_children(collection_id, user, pagination)
+    except CollectionNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
+
+
 @router.patch(
     "/collections/{collection_id}",
-    summary="Update a collection's name, description and/or tags",
+    summary="Update a collection's name, description and/or tags, or move it (parent_id)",
     response_model=CollectionOut,
 )
 async def update_collection(
@@ -110,6 +153,8 @@ async def update_collection(
         return await service.update_collection(collection_id, user, update)
     except CollectionNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
+    except (HierarchyError, ParentCollectionNotFoundError) as error:
+        raise _hierarchy_http_error(error) from error
 
 
 @router.patch(

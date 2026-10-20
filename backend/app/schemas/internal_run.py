@@ -121,6 +121,10 @@ class SearchResultOut(BaseModel):
 
 class AccessibleCollectionOut(BaseModel):
     id: uuid.UUID
+    # Raw parent link (#215), not filtered by access like CollectionOut.parent_id: the agent
+    # rebuilds the tree from this list alone, and a parent missing from the list just means
+    # this collection is a root as far as this user's routing is concerned.
+    parent_id: uuid.UUID | None
     name: str
     description: str
     tags: list[str]

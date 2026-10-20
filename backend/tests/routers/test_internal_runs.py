@@ -401,6 +401,24 @@ async def test_list_accessible_collections_owner_only(client):
     body = response.json()
     assert [c["name"] for c in body] == ["Mine"]
     assert body[0]["document_count"] == 2
+    assert body[0]["parent_id"] is None
+
+
+async def test_list_accessible_collections_exposes_the_parent_link(client):
+    async with async_session_factory() as session:
+        parent = Collection(owner_id="dev-user", name="Parent", description="")
+        parent.settings = CollectionSettings(embedding_model="text-embedding-3-small")
+        session.add(parent)
+        await session.flush()
+        child = Collection(owner_id="dev-user", name="Child", description="", parent_id=parent.id)
+        child.settings = CollectionSettings(embedding_model="text-embedding-3-small")
+        session.add(child)
+        await session.commit()
+
+    response = await client.get("/api/internal/users/dev-user/accessible-collections", headers=_headers())
+
+    parents = {c["name"]: c["parent_id"] for c in response.json()}
+    assert parents == {"Parent": None, "Child": str(parent.id)}
 
 
 async def test_list_accessible_collections_includes_a_group_shared_collection_when_groups_passed(client):
