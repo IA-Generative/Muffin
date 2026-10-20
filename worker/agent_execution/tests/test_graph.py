@@ -1520,7 +1520,7 @@ def test_insufficient_coverage_does_not_repeat_web_search_suggestion_when_alread
     assert "enabling web search" not in answer_call[1]["content"]
 
 
-# --- Sub-collection descent (#219) ---
+# --- Flat routing over sub-collections (#233) ---
 
 
 def _hr_tree() -> list[dict]:
@@ -1533,14 +1533,12 @@ def _hr_tree() -> list[dict]:
     ]
 
 
-def _descent_router(sub_collection_picks: list[str]):
+def _routing_router(picks: list[str]):
     def router(system_prompt: str) -> str:
         if "Analyze the user" in system_prompt:
             return _analysis()
         if "select the ones relevant" in system_prompt.lower():
-            return '["hr"]'
-        if "sub-collections worth searching" in system_prompt:
-            return json.dumps(sub_collection_picks)
+            return json.dumps(picks)
         if "Decide whether" in system_prompt:
             return json.dumps({"status": "sufficient", "missing_information": [], "reasoning": "ok"})
         if "Check whether every" in system_prompt:
@@ -1550,34 +1548,35 @@ def _descent_router(sub_collection_picks: list[str]):
     return router
 
 
-def test_search_descends_into_sub_collections_and_reports_where_it_stopped(make_run, monkeypatch):
+def _answer_prompt(fake) -> str:
+    return next(call for call in fake.llm_calls if "Answer the user's query" in call[0]["content"])[1]["content"]
+
+
+def test_search_reaches_a_deep_sub_collection_and_reports_what_the_cap_left_out(make_run, monkeypatch):
     from app.graph.services import vdb_router
 
-    monkeypatch.setattr(vdb_router.settings, "MAX_COLLECTION_DESCENT_DEPTH", 1)
-    graph, fake = make_run(_hr_tree(), _descent_router(["leave"]))
+    monkeypatch.setattr(vdb_router.settings, "MAX_ROUTED_COLLECTIONS", 1)
+    graph, fake = make_run(_hr_tree(), _routing_router(["hr", "parental"]))
     state = initial_state("What is the parental leave policy?")
     result = graph.invoke(state, config=_config(state))
 
-    assert fake.searched_collection_ids == [["hr", "leave"]]
-    assert result["unexplored_vdb_ids"] == ["leave"]
-    answer_call = next(call for call in fake.llm_calls if "Answer the user's query" in call[0]["content"])
-    assert "HR › Leave" in answer_call[1]["content"]
-    assert "go further" in answer_call[1]["content"]
+    assert fake.searched_collection_ids == [["hr"]]
+    assert result["unexplored_vdb_ids"] == ["hr"]  # parental was picked but over the cap
+    assert "go further" in _answer_prompt(fake)
 
 
-def test_go_further_resumes_below_the_previous_frontier(make_run):
-    graph, fake = make_run(_hr_tree(), _descent_router(["parental"]))
+def test_go_further_routes_over_the_sub_collections_of_the_frontier(make_run):
+    graph, fake = make_run(_hr_tree(), _routing_router([]))
     state = initial_state("What is the parental leave policy?", resume_from_vdb_ids=["leave"])
     result = graph.invoke(state, config=_config(state))
 
     assert fake.searched_collection_ids == [["parental"]]
     assert result["unexplored_vdb_ids"] == []
-    answer_call = next(call for call in fake.llm_calls if "Answer the user's query" in call[0]["content"])
-    assert "go further" not in answer_call[1]["content"]
+    assert "go further" not in _answer_prompt(fake)
 
 
 def test_citations_carry_the_path_of_their_collection(make_run):
-    graph, _ = make_run(_hr_tree(), _descent_router(["leave", "parental"]))
+    graph, _ = make_run(_hr_tree(), _routing_router(["hr", "parental"]))
     state = initial_state("What is the parental leave policy?")
     result = graph.invoke(state, config=_config(state))
 
@@ -1587,11 +1586,10 @@ def test_citations_carry_the_path_of_their_collection(make_run):
 
 
 def test_the_run_starts_from_the_frontier_pinning_already_left_unexplored(make_run):
-    graph, fake = make_run(_hr_tree(), _descent_router([]))
+    graph, fake = make_run(_hr_tree(), _routing_router(["hr"]))
     state = initial_state("What is the parental leave policy?")
     state["unexplored_vdb_ids"] = ["leave"]
     result = graph.invoke(state, config=_config(state))
 
     assert "leave" in result["unexplored_vdb_ids"]
-    answer_call = next(call for call in fake.llm_calls if "Answer the user's query" in call[0]["content"])
-    assert "HR › Leave" in answer_call[1]["content"]
+    assert "HR › Leave" in _answer_prompt(fake)
