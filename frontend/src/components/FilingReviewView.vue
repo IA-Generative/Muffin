@@ -1,10 +1,37 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { type CollectionImport, isZip, useCollectionImports } from '../composables/useCollectionImports'
 import { useFiling, type FilingCandidate } from '../composables/useFiling'
+import CollectionImportStatus from './CollectionImportStatus.vue'
 import FileFilingModal from './FileFilingModal.vue'
 
 const { candidates, isLoading, error, fetchFilingCandidates, decideFiling, uploadStandaloneFile } = useFiling()
-onMounted(fetchFilingCandidates)
+const { imports, awaitingAttachment, startImport, fetchAwaitingAttachment, decideAttachment } = useCollectionImports()
+onMounted(() => {
+  fetchFilingCandidates()
+  fetchAwaitingAttachment()
+})
+
+function refresh() {
+  fetchFilingCandidates()
+  fetchAwaitingAttachment()
+}
+
+// ZIPs uploaded from this page during this visit (#223) - each becomes a top-level collection,
+// then shows up below with an attach suggestion once the pipeline has described it.
+const importIds = ref<string[]>([])
+const pageImports = computed(() => importIds.value.map((id) => imports.value[id]).filter((item) => item !== undefined))
+const attachModalImport = ref<CollectionImport>()
+
+async function decideAttachmentFor(action: 'accept' | 'choose_other' | 'dismiss', targetCollectionId?: string) {
+  const item = attachModalImport.value
+  if (!item) return
+  try {
+    await decideAttachment(item.id, action, targetCollectionId)
+  } finally {
+    attachModalImport.value = undefined
+  }
+}
 
 const modalCandidate = ref<FilingCandidate>()
 const fileInput = ref<HTMLInputElement>()
@@ -17,13 +44,21 @@ function openFilePicker() {
 
 async function handleFilesSelected(event: Event) {
   const target = event.target as HTMLInputElement
-  const files = target.files
+  // Copied before the reset below: clearing the input empties its live FileList in place.
+  const files = Array.from(target.files ?? [])
   target.value = ''
-  if (!files?.length) return
+  if (!files.length) return
   uploading.value = true
   uploadError.value = null
   try {
-    for (const file of files) await uploadStandaloneFile(file)
+    for (const file of files) {
+      if (isZip(file)) {
+        const started = await startImport(file)
+        importIds.value = [started.id, ...importIds.value]
+      } else {
+        await uploadStandaloneFile(file)
+      }
+    }
   } catch {
     uploadError.value = "Échec de l'envoi d'un ou plusieurs fichiers."
   } finally {
@@ -62,13 +97,48 @@ function scorePercent(score: number | null): string | null {
         <button type="button" class="fr-btn fr-btn--secondary" :disabled="uploading" @click="openFilePicker">
           {{ uploading ? 'Envoi…' : 'Uploader un fichier' }}
         </button>
-        <button type="button" class="fr-btn fr-btn--secondary" @click="fetchFilingCandidates">Actualiser</button>
+        <button type="button" class="fr-btn fr-btn--secondary" @click="refresh">Actualiser</button>
       </div>
     </div>
     <p class="filing-view__intro">
       Fichiers que vous avez uploadés directement dans une conversation (ou ici même) et qui ne sont pas (ou plus)
-      dans une collection permanente que vous gérez.
+      dans une collection permanente que vous gérez. Une archive .zip devient une collection, avec toute son
+      arborescence.
     </p>
+
+    <div v-if="pageImports.length" class="filing-view__imports">
+      <CollectionImportStatus v-for="item in pageImports" :key="item.id" :item="item" />
+    </div>
+
+    <template v-if="awaitingAttachment.length">
+      <h2 class="filing-view__subtitle">Collections importées à rattacher</h2>
+      <table class="filing-view__table">
+        <thead>
+          <tr>
+            <th scope="col">Collection</th>
+            <th scope="col">Suggestion</th>
+            <th scope="col"></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="item in awaitingAttachment" :key="item.id">
+            <td>{{ item.rootCollectionName ?? item.archiveName }}</td>
+            <td>
+              {{ item.attachCandidates[0]?.collectionName }}
+              <span v-if="item.attachCandidates[0]" class="filing-view__score">
+                {{ scorePercent(item.attachCandidates[0].score) }}
+              </span>
+            </td>
+            <td>
+              <button type="button" class="fr-btn fr-btn--secondary fr-btn--sm" @click="attachModalImport = item">
+                Rattacher
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <h2 class="filing-view__subtitle">Fichiers</h2>
+    </template>
 
     <p v-if="uploadError" class="filing-view__error" role="alert">{{ uploadError }}</p>
     <p v-if="error" class="filing-view__error" role="alert">{{ error }}</p>
@@ -122,6 +192,20 @@ function scorePercent(score: number | null): string | null {
       @close="modalCandidate = undefined"
       @decide="decide"
     />
+    <FileFilingModal
+      v-if="attachModalImport"
+      :file="{
+        name: attachModalImport.rootCollectionName ?? attachModalImport.archiveName,
+        suggestedCollectionId: attachModalImport.attachCandidates[0]?.collectionId,
+        filingCandidates: attachModalImport.attachCandidates,
+      }"
+      :title="`Rattacher « ${attachModalImport.rootCollectionName ?? attachModalImport.archiveName} » à une collection`"
+      owned-only
+      :exclude-collection-ids="attachModalImport.rootCollectionId ? [attachModalImport.rootCollectionId] : []"
+      :allow-create="false"
+      @close="attachModalImport = undefined"
+      @decide="decideAttachmentFor"
+    />
   </section>
 </template>
 
@@ -152,6 +236,18 @@ function scorePercent(score: number | null): string | null {
 .filing-view__intro {
   color: var(--text-mention-grey);
   margin-bottom: 1.5rem;
+}
+
+.filing-view__imports {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.filing-view__subtitle {
+  margin: 1.5rem 0 0.75rem;
+  font-size: 1.125rem;
 }
 
 .filing-view__error {

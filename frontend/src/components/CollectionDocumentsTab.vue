@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { isImportFinished, isZip, useCollectionImports } from '../composables/useCollectionImports'
 import { useCollections } from '../composables/useCollections'
 import { usePagination } from '../composables/usePagination'
 import type { Collection } from '../types/collection'
+import CollectionImportStatus from './CollectionImportStatus.vue'
 import DocumentDetailModal from './DocumentDetailModal.vue'
 import NewMarkdownDocumentModal from './NewMarkdownDocumentModal.vue'
 import PaginationControls from './PaginationControls.vue'
@@ -14,8 +16,32 @@ const props = defineProps<{
 }>()
 
 const router = useRouter()
-const { addDocuments, addLivingDocuments, createMarkdownDocument, reloadDocuments, addUrl, removeDocument, documentError } =
-  useCollections()
+const {
+  addDocuments,
+  addLivingDocuments,
+  createMarkdownDocument,
+  reloadDocuments,
+  addUrl,
+  removeDocument,
+  documentError,
+  refreshChildren,
+} = useCollections()
+const { imports, startImport } = useCollectionImports()
+
+// ZIPs dropped here during this visit (#223) - each becomes a sub-collection of this one.
+const importIds = ref<string[]>([])
+const tabImports = computed(() => importIds.value.map((id) => imports.value[id]).filter((item) => item !== undefined))
+
+async function importZip(file: File) {
+  const started = await startImport(file, { parentId: props.collection.id })
+  importIds.value = [started.id, ...importIds.value]
+}
+
+// The new sub-collection shows in the Sous-collections tab as soon as its import is done.
+watch(
+  () => tabImports.value.filter(isImportFinished).length,
+  () => refreshChildren(props.collection.id),
+)
 
 const documents = computed(() => props.collection.documents)
 const { page, pageCount, paged: pagedDocuments } = usePagination(documents)
@@ -44,7 +70,10 @@ function submitUrl() {
 
 function handleFiles(files: FileList | null) {
   if (!files?.length) return
-  addDocuments(props.collection.id, Array.from(files))
+  const all = Array.from(files)
+  all.filter(isZip).forEach(importZip)
+  const documents = all.filter((file) => !isZip(file))
+  if (documents.length) addDocuments(props.collection.id, documents)
 }
 
 const showMarkdownModal = ref(false)
@@ -94,6 +123,11 @@ const STATUS_LABEL = {
         @change="handleFiles(($event.target as HTMLInputElement).files)"
       />
       <p>Glissez des fichiers ici, ou <span class="documents-tab__browse">cliquez pour parcourir</span></p>
+      <p class="documents-tab__dropzone-hint">Une archive .zip devient une sous-collection, avec toute son arborescence.</p>
+    </div>
+
+    <div v-if="tabImports.length" class="documents-tab__imports">
+      <CollectionImportStatus v-for="item in tabImports" :key="item.id" :item="item" />
     </div>
 
     <form class="documents-tab__url-form" @submit.prevent="submitUrl">
@@ -371,5 +405,18 @@ const STATUS_LABEL = {
   background: transparent;
   color: var(--text-mention-grey);
   cursor: pointer;
+}
+
+.documents-tab__dropzone-hint {
+  margin: 0.25rem 0 0;
+  font-size: 0.75rem;
+  color: var(--text-mention-grey);
+}
+
+.documents-tab__imports {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
 }
 </style>

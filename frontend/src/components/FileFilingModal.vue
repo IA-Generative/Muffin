@@ -18,9 +18,19 @@ interface FilingSubject {
   filingCandidates: FilingSuggestionCandidate[]
 }
 
-const props = defineProps<{
-  file: FilingSubject
-}>()
+const props = withDefaults(
+  defineProps<{
+    file: FilingSubject
+    // Attaching a collection imported from a ZIP (#223) rather than filing a file: only collections
+    // the user owns can receive it, never the collection itself nor anything below it, and creating
+    // a new collection to hold it makes no sense - it already is one.
+    ownedOnly?: boolean
+    excludeCollectionIds?: string[]
+    allowCreate?: boolean
+    title?: string
+  }>(),
+  { ownedOnly: false, excludeCollectionIds: () => [], allowCreate: true, title: undefined },
+)
 
 const emit = defineEmits<{
   close: []
@@ -33,7 +43,13 @@ const choosingOther = ref(false)
 const search = ref('')
 
 const filteredCollections = computed(() =>
-  collections.value.filter((collection) => collection.name.toLowerCase().includes(search.value.trim().toLowerCase())),
+  collections.value.filter(
+    (collection) =>
+      collection.name.toLowerCase().includes(search.value.trim().toLowerCase()) &&
+      (!props.ownedOnly || collection.isOwner) &&
+      !props.excludeCollectionIds.includes(collection.id) &&
+      !collection.path.some((ancestor) => props.excludeCollectionIds.includes(ancestor.id)),
+  ),
 )
 
 // Below this, none of the candidates are convincing enough to lead with - still shown (a rough
@@ -68,7 +84,7 @@ function createCollectionForFile() {
   <div class="filing-modal-overlay" @click.self="emit('close')">
     <div class="filing-modal" role="dialog" aria-modal="true" aria-labelledby="filing-modal-title">
       <header class="filing-modal__header">
-        <h2 id="filing-modal-title" class="filing-modal__title">Ranger « {{ props.file.name }} »</h2>
+        <h2 id="filing-modal-title" class="filing-modal__title">{{ title ?? `Ranger « ${props.file.name} »` }}</h2>
         <button type="button" class="filing-modal__close" aria-label="Fermer" @click="emit('close')">✕</button>
       </header>
 
@@ -89,7 +105,7 @@ function createCollectionForFile() {
                 </button>
               </li>
             </ul>
-            <p v-if="bestScore < CONFIDENT_SCORE" class="filing-modal__hint">
+            <p v-if="allowCreate && bestScore < CONFIDENT_SCORE" class="filing-modal__hint">
               Aucune de ces suggestions n'est très convaincante -
               <button type="button" class="filing-modal__link" @click="createCollectionForFile">
                 créer une nouvelle collection
@@ -99,7 +115,7 @@ function createCollectionForFile() {
           </template>
           <template v-else>
             <p>Je n'ai pas trouvé de collection correspondante.</p>
-            <button type="button" class="filing-modal__link" @click="createCollectionForFile">
+            <button v-if="allowCreate" type="button" class="filing-modal__link" @click="createCollectionForFile">
               Créer une nouvelle collection pour ce fichier
             </button>
           </template>

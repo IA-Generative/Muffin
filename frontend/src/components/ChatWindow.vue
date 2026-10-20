@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useCollections } from '../composables/useCollections'
 import { useChat } from '../composables/useChat'
+import { type CollectionImport, isZip, useCollectionImports } from '../composables/useCollectionImports'
 import { useFiling } from '../composables/useFiling'
 import { useVoiceInput } from '../composables/useVoiceInput'
 import { useVoiceOutput } from '../composables/useVoiceOutput'
@@ -33,7 +34,10 @@ const {
   removeAttachedFile,
   markAttachedFileDismissed,
   dropAttachedFileLocally,
+  attachZip,
+  activeImports,
 } = useChat()
+const { decideAttachment } = useCollectionImports()
 
 const { collections } = useCollections()
 const { decideFiling } = useFiling()
@@ -46,7 +50,12 @@ function openFilePicker() {
 
 function handleFilesSelected(event: Event) {
   const target = event.target as HTMLInputElement
-  if (target.files) for (const file of target.files) attachFile(activeId.value, file)
+  // A ZIP becomes a collection of its own, pinned to this conversation (#223) - not a conversation file.
+  if (target.files)
+    for (const file of target.files) {
+      if (isZip(file)) attachZip(activeId.value, file)
+      else attachFile(activeId.value, file)
+    }
   target.value = '' // lets the same file be re-selected later
 }
 
@@ -80,6 +89,43 @@ async function decideFilingFor(action: 'accept' | 'choose_other' | 'dismiss', ta
     // the rest of the composer) - closing it still leaves the notification for a retry.
     filingModalFile.value = undefined
   }
+}
+
+const IMPORT_STATUS_ICON: Record<CollectionImport['status'], string> = {
+  queued: '⏳',
+  uploading: '⏳',
+  pending: '⏳',
+  running: '⏳',
+  completed: '🗂️',
+  failed: '❌',
+  upload_failed: '❌',
+}
+
+function importTitle(item: CollectionImport): string {
+  if (item.status === 'queued') return 'Sera importée avec votre message'
+  if (item.error) return item.error
+  if (item.status !== 'completed' || !item.summary) return 'Import en cours'
+  const skipped = item.summary.skipped.length ? `, ${item.summary.skipped.length} fichier(s) ignoré(s)` : ''
+  return `${item.summary.collectionsCreated} sous-collection(s), ${item.summary.documentsCreated} document(s)${skipped}`
+}
+
+// The collection of a ZIP dropped here waits for an answer about where to attach it, once the
+// pipeline has described it well enough to suggest somewhere (#223).
+function hasAttachNotification(item: CollectionImport): boolean {
+  return item.attachStatus === 'pending' && item.attachCandidates.length > 0
+}
+
+const attachModalImport = ref<CollectionImport>()
+
+async function decideAttachmentFor(action: 'accept' | 'choose_other' | 'dismiss', targetCollectionId?: string) {
+  const item = attachModalImport.value
+  if (!item) return
+  try {
+    await decideAttachment(item.id, action, targetCollectionId)
+  } catch {
+    // Same tradeoff as decideFilingFor: closing still leaves the notification for a retry.
+  }
+  attachModalImport.value = undefined
 }
 
 const draft = ref('')
@@ -250,6 +296,28 @@ watch(
             </button>
           </li>
         </ul>
+        <ul v-if="activeImports.length > 0" class="chat-window__chips">
+          <li
+            v-for="item in activeImports"
+            :key="item.id"
+            class="chat-window__chip"
+            :class="{ 'chat-window__chip--error': item.status === 'failed' || item.status === 'upload_failed' }"
+            :title="importTitle(item)"
+          >
+            <span aria-hidden="true">{{ IMPORT_STATUS_ICON[item.status] }}</span>
+            <span>{{ item.rootCollectionName ?? item.archiveName }}</span>
+            <button
+              v-if="hasAttachNotification(item)"
+              type="button"
+              class="chat-window__chip-notification"
+              :aria-label="`Proposition de rattachement pour ${item.rootCollectionName ?? item.archiveName}`"
+              title="Proposition de rattachement"
+              @click="attachModalImport = item"
+            >
+              <span aria-hidden="true">📁</span>
+            </button>
+          </li>
+        </ul>
         <ul v-if="pinnedCollectionIds.length > 0" class="chat-window__chips">
           <li v-for="id in pinnedCollectionIds" :key="id" class="chat-window__chip">
             <span>{{ collections.find((collection) => collection.id === id)?.name ?? id }}</span>
@@ -341,6 +409,20 @@ watch(
       </div>
     </form>
 
+    <FileFilingModal
+      v-if="attachModalImport"
+      :file="{
+        name: attachModalImport.rootCollectionName ?? attachModalImport.archiveName,
+        suggestedCollectionId: attachModalImport.attachCandidates[0]?.collectionId,
+        filingCandidates: attachModalImport.attachCandidates,
+      }"
+      :title="`Rattacher « ${attachModalImport.rootCollectionName ?? attachModalImport.archiveName} » à une collection`"
+      owned-only
+      :exclude-collection-ids="attachModalImport.rootCollectionId ? [attachModalImport.rootCollectionId] : []"
+      :allow-create="false"
+      @close="attachModalImport = undefined"
+      @decide="decideAttachmentFor"
+    />
     <FileFilingModal
       v-if="filingModalFile"
       :file="filingModalFile"

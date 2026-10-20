@@ -1,5 +1,6 @@
 import { computed, ref } from 'vue'
 import { router } from '../router'
+import { useCollectionImports } from './useCollectionImports'
 import type {
   ChatMessage,
   Conversation,
@@ -174,6 +175,8 @@ function migrateConversationId(placeholderId: string, realId: string): string {
     queuedFileUploads.delete(currentId)
     for (const { tempId, file } of queued) uploadAttachedFile(realId, file, tempId)
   }
+  // ZIPs dropped before the conversation existed backend-side (#223) - same flush.
+  useCollectionImports().flushConversation(currentId, realId)
   return realId
 }
 
@@ -314,6 +317,8 @@ async function ensureMessagesLoaded(conversationId: string) {
       }
     })
     confirmedConversationIds.add(conversationId)
+    // ZIPs imported from this conversation (#223), with their attach suggestion if any.
+    useCollectionImports().loadConversationImports(conversationId)
     // A running run's assistant message only exists in memory, not in DB (it's persisted
     // when the run completes via update_run_result). After a page refresh, the user message
     // is there but the assistant placeholder is gone - fetch active runs and resume polling
@@ -474,6 +479,20 @@ function attachFile(conversationId: string, file: File) {
     queuedFileUploads.set(resolvedId, queued)
   }
 }
+
+// A ZIP dropped into the composer becomes a collection of its own (#223), not a conversation
+// file - followed by useCollectionImports, queued like attachFile until the conversation exists.
+function attachZip(conversationId: string, file: File) {
+  const resolvedId = resolveConversationId(conversationId)
+  useCollectionImports().importIntoConversation(resolvedId, file, confirmedConversationIds.has(resolvedId))
+}
+
+const activeImports = computed(() => {
+  const { imports, importIdsByConversation } = useCollectionImports()
+  return (importIdsByConversation.value[resolveConversationId(activeId.value)] ?? [])
+    .map((id) => imports.value[id])
+    .filter((item) => item !== undefined)
+})
 
 async function removeAttachedFile(conversationId: string, fileId: string) {
   const resolvedId = resolveConversationId(conversationId)
@@ -1289,6 +1308,8 @@ export function useChat() {
     refreshDiscussionFeedback,
     activeAttachedFiles,
     attachFile,
+    attachZip,
+    activeImports,
     removeAttachedFile,
     markAttachedFileDismissed,
     dropAttachedFileLocally,
