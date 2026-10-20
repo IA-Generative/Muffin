@@ -21,6 +21,7 @@ from app.schemas.internal_pipeline import (
 )
 from app.schemas.internal_run import SearchRequest
 from app.services import vector_store
+from app.services.collection_import_service import CollectionImportService
 from app.services.description_rollup_service import DescriptionRollupService
 from app.services.search_service import SearchService
 
@@ -102,6 +103,14 @@ async def update_collection_description(
         # rollup task reports through this same route, and only a real change goes further up.
         await DescriptionRollupService(db).schedule(collection.parent_id)
     await db.commit()
+    if changed:
+        # Best-effort, after the commit: the collection of a ZIP import with no place of its own
+        # gets its attach suggestion from this description (#223) - a no-op for any other one.
+        try:
+            await CollectionImportService(db).suggest_attachment(collection.id)
+        except Exception:
+            await db.rollback()
+            logger.exception(f"Failed to compute the attach suggestion for collection {collection_id}")
     return {"status": "ok"}
 
 

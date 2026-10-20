@@ -1,13 +1,14 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security.factory import RequestContext, get_current_user
 from app.core.security.worker_auth import require_worker_api_key
 from app.db import get_db
 from app.schemas.collection_import import (
+    AttachDecision,
     CollectionImportInternalOut,
     CollectionImportOut,
     CollectionImportResult,
@@ -23,6 +24,7 @@ from app.services.collection_import_service import (
     ConversationNotFoundError,
     ImportTargetError,
     InvalidArchiveError,
+    InvalidAttachDecisionError,
 )
 from app.services.collection_service import ParentCollectionNotFoundError
 
@@ -78,6 +80,45 @@ async def start_import(
     except HierarchyError as error:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="A ZIP can't be imported into this collection"
+        ) from error
+
+
+@router.get(
+    "/collection-imports",
+    summary="The current user's imports, most recent first - optionally only one conversation's, or "
+    "only those with an attach suggestion still awaiting an answer",
+    response_model=list[CollectionImportOut],
+)
+async def list_imports(
+    user: UserDep,
+    service: ServiceDep,
+    conversation_id: Annotated[uuid.UUID | None, Query()] = None,
+    awaiting_attachment: Annotated[bool, Query()] = False,
+) -> list[CollectionImportOut]:
+    return await service.list(user, conversation_id=conversation_id, awaiting_attachment=awaiting_attachment)
+
+
+@router.post(
+    "/collection-imports/{import_id}/attach",
+    summary="Answer an attach suggestion: accept it, choose another collection, or dismiss it",
+    response_model=CollectionImportOut,
+)
+async def decide_attachment(
+    import_id: uuid.UUID, decision: AttachDecision, user: UserDep, service: ServiceDep
+) -> CollectionImportOut:
+    try:
+        return await service.decide_attachment(import_id, user, decision)
+    except CollectionImportNotFoundError as error:
+        raise _NOT_FOUND from error
+    except InvalidAttachDecisionError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Nothing to attach for this decision"
+        ) from error
+    except ParentCollectionNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Parent collection not found") from error
+    except HierarchyError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="The collection can't be attached there"
         ) from error
 
 

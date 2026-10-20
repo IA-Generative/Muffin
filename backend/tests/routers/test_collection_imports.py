@@ -276,3 +276,164 @@ class TestWorkerRoutes:
             collection_import = await session.get(CollectionImport, uuid.UUID(body["id"]))
         assert collection_import.archive_key is None
         assert collection_import.status == CollectionImportStatus.COMPLETED
+
+
+class TestAttachSuggestion:
+    @pytest.fixture
+    def search(self, monkeypatch) -> MagicMock:
+        """The embedding model and the collections index replaced; returns the index search."""
+        import fakeredis
+
+        from app.services import description_rollup_service
+
+        async def model(_db):
+            return "embedder"
+
+        async def embed(_model, _text):
+            return [0.1, 0.2]
+
+        search = MagicMock(return_value=[])
+        monkeypatch.setattr(collection_import_service, "default_embedding_model", model)
+        monkeypatch.setattr(collection_import_service, "embed_text", embed)
+        monkeypatch.setattr(collection_import_service.vector_store, "search_collections", search)
+        monkeypatch.setattr(description_rollup_service, "_redis", fakeredis.FakeRedis(decode_responses=True))
+        monkeypatch.setattr(description_rollup_service, "enqueue_rollup_collection_description", lambda *_: "r")
+        return search
+
+    async def _conversation(self) -> uuid.UUID:
+        async with async_session_factory() as session:
+            conversation = Conversation(user_id="owner")
+            session.add(conversation)
+            await session.commit()
+            return conversation.id
+
+    async def _describe(self, client: AsyncClient, collection_id: str, description: str) -> None:
+        """What the pipeline does once the collection's documents are summarized."""
+        response = await client.patch(
+            f"/api/internal/collections/{collection_id}/description",
+            headers=_headers(),
+            json={"description": description},
+        )
+        assert response.status_code == 200
+
+    async def _suggested(self, client: AsyncClient, search: MagicMock, target: dict) -> dict:
+        """An import dropped into a conversation, with `target` suggested once it's described."""
+        body = (await _import(client, conversation_id=await self._conversation())).json()
+        search.return_value = [(uuid.UUID(target["id"]), 0.87)]
+        await self._describe(client, body["root_collection_id"], "Politiques RH.")
+        return body
+
+    async def test_waits_for_a_description_before_suggesting(self, client, search):
+        body = (await _import(client, conversation_id=await self._conversation())).json()
+
+        assert body["attach_status"] == "pending"
+        assert body["attach_candidates"] == []
+        search.assert_not_called()
+
+    async def test_suggests_an_owned_collection_never_itself_nor_below_it(self, client, search):
+        target = await _collection(client, "Ressources humaines")
+        body = (await _import(client, conversation_id=await self._conversation())).json()
+        child = await _collection(client, "Sous-dossier", body["root_collection_id"])
+        search.return_value = [(uuid.UUID(target["id"]), 0.87)]
+
+        await self._describe(client, body["root_collection_id"], "Politiques RH.")
+
+        searched_ids = {str(cid) for cid in search.call_args.args[2]}
+        assert target["id"] in searched_ids
+        assert body["root_collection_id"] not in searched_ids and child["id"] not in searched_ids
+        out = (await client.get(f"/api/collection-imports/{body['id']}")).json()
+        assert out["attach_candidates"][0]["collection_id"] == target["id"]
+        assert out["attach_candidates"][0]["score"] == 0.87
+        assert out["root_collection_name"] == "Archive RH"
+
+    async def test_awaiting_imports_are_listed_until_answered(self, client, search):
+        target = await _collection(client, "RH")
+        body = await self._suggested(client, search, target)
+
+        awaiting = (await client.get("/api/collection-imports", params={"awaiting_attachment": "true"})).json()
+        assert [item["id"] for item in awaiting] == [body["id"]]
+
+        await client.post(f"/api/collection-imports/{body['id']}/attach", json={"action": "accept"})
+
+        assert (await client.get("/api/collection-imports", params={"awaiting_attachment": "true"})).json() == []
+
+    async def test_accepting_moves_the_collection_under_the_suggestion(self, client, search):
+        target = await _collection(client, "RH")
+        body = await self._suggested(client, search, target)
+
+        out = (await client.post(f"/api/collection-imports/{body['id']}/attach", json={"action": "accept"})).json()
+
+        assert out["attach_status"] == "attached"
+        root = (await client.get(f"/api/collections/{body['root_collection_id']}")).json()
+        assert root["parent_id"] == target["id"]
+
+    async def test_choosing_another_collection_moves_it_there(self, client, search):
+        suggested = await _collection(client, "RH")
+        chosen = await _collection(client, "Juridique")
+        body = await self._suggested(client, search, suggested)
+
+        await client.post(
+            f"/api/collection-imports/{body['id']}/attach",
+            json={"action": "choose_other", "target_collection_id": chosen["id"]},
+        )
+
+        assert (await client.get(f"/api/collections/{body['root_collection_id']}")).json()["parent_id"] == chosen["id"]
+
+    async def test_a_foreign_target_or_one_below_it_is_refused(self, client, search):
+        target = await _collection(client, "RH")
+        body = await self._suggested(client, search, target)
+        below = await _collection(client, "Dedans", body["root_collection_id"])
+        app.dependency_overrides[get_current_user] = _as_user("someone-else", "else@example.com")
+        theirs = await _collection(client, "Theirs")
+        app.dependency_overrides[get_current_user] = _as_user("owner", "owner@example.com")
+
+        foreign = await client.post(
+            f"/api/collection-imports/{body['id']}/attach",
+            json={"action": "choose_other", "target_collection_id": theirs["id"]},
+        )
+        cycle = await client.post(
+            f"/api/collection-imports/{body['id']}/attach",
+            json={"action": "choose_other", "target_collection_id": below["id"]},
+        )
+
+        assert foreign.status_code == 404 and cycle.status_code == 409
+        assert (await client.get(f"/api/collections/{body['root_collection_id']}")).json()["parent_id"] is None
+
+    async def test_dismissing_keeps_it_at_the_top_and_stops_suggesting(self, client, search):
+        target = await _collection(client, "RH")
+        body = await self._suggested(client, search, target)
+
+        out = (await client.post(f"/api/collection-imports/{body['id']}/attach", json={"action": "dismiss"})).json()
+        search.reset_mock()
+        await self._describe(client, body["root_collection_id"], "Description mise à jour.")
+
+        assert out["attach_status"] == "dismissed"
+        search.assert_not_called()
+        assert (await client.get(f"/api/collections/{body['root_collection_id']}")).json()["parent_id"] is None
+
+    async def test_an_import_dropped_into_a_collection_gets_no_suggestion(self, client, search):
+        parent = await _collection(client, "RH")
+        body = (await _import(client, parent_id=parent["id"])).json()
+
+        await self._describe(client, body["root_collection_id"], "Politiques RH.")
+        response = await client.post(f"/api/collection-imports/{body['id']}/attach", json={"action": "dismiss"})
+
+        assert body["attach_status"] == "not_applicable"
+        search.assert_not_called()
+        assert response.status_code == 422
+
+    async def test_accept_without_a_suggestion_yet_is_refused(self, client, search):
+        body = (await _import(client, conversation_id=await self._conversation())).json()
+
+        response = await client.post(f"/api/collection-imports/{body['id']}/attach", json={"action": "accept"})
+
+        assert response.status_code == 422
+
+    async def test_list_by_conversation(self, client, search):
+        conversation_id = await self._conversation()
+        mine = (await _import(client, conversation_id=conversation_id)).json()
+        await _import(client)
+
+        listed = (await client.get("/api/collection-imports", params={"conversation_id": str(conversation_id)})).json()
+
+        assert [item["id"] for item in listed] == [mine["id"]]
