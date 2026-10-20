@@ -76,6 +76,7 @@ class RunService:
             body.web_search_enabled,
             user_is_admin=user.is_admin,
             user_display=_uploader_display(user),
+            continue_exploration=body.continue_exploration,
         )
         await self.db.commit()
         # Dispatched after the first commit: the worker's very first read of
@@ -228,6 +229,7 @@ class RunService:
             answer=run.answer,
             citations=run.citations,
             edit_proposal=run.edit_proposal,
+            unexplored_collection_ids=run.unexplored_collection_ids,
             error=run.error,
             created_at=run.created_at,
             updated_at=run.updated_at,

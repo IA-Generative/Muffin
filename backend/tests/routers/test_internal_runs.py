@@ -212,6 +212,71 @@ async def test_update_run_result_persists_grounding_verdict(client):
         assert run.grounding_research_count == 1
 
 
+async def test_update_run_result_stores_unexplored_collections(client):
+    run_id = await _create_run()
+    await client.patch(
+        f"/api/internal/runs/{run_id}/result",
+        headers=_headers(),
+        json={"answer": "Partial answer.", "unexplored_collection_ids": ["leave", "benefits"]},
+    )
+    other_id = await _create_run()
+    await client.patch(
+        f"/api/internal/runs/{other_id}/result",
+        headers=_headers(),
+        json={"answer": "Full answer.", "unexplored_collection_ids": []},
+    )
+
+    async with async_session_factory() as session:
+        assert (await session.get(Run, run_id)).unexplored_collection_ids == ["leave", "benefits"]
+        assert (await session.get(Run, other_id)).unexplored_collection_ids is None
+
+
+async def _add_run_to_conversation_of(run_id: uuid.UUID, *, continue_exploration: bool) -> uuid.UUID:
+    async with async_session_factory() as session:
+        conversation_id = (await session.get(Run, run_id)).conversation_id
+        message = Message(conversation_id=conversation_id, role=MessageRole.USER, content="Go further")
+        session.add(message)
+        await session.flush()
+        run = Run(
+            user_id="dev-user",
+            message_id=message.id,
+            conversation_id=conversation_id,
+            query="Go further",
+            continue_exploration=continue_exploration,
+        )
+        session.add(run)
+        await session.commit()
+        return run.id
+
+
+async def test_a_go_further_run_resumes_from_the_previous_answer_frontier(client):
+    first = await _create_run()
+    await client.patch(
+        f"/api/internal/runs/{first}/result",
+        headers=_headers(),
+        json={"answer": "Partial answer.", "unexplored_collection_ids": ["leave"]},
+    )
+    follow_up = await _add_run_to_conversation_of(first, continue_exploration=True)
+
+    body = (await client.get(f"/api/internal/runs/{follow_up}", headers=_headers())).json()
+
+    assert body["resume_from_collection_ids"] == ["leave"]
+
+
+async def test_a_regular_follow_up_never_resumes(client):
+    first = await _create_run()
+    await client.patch(
+        f"/api/internal/runs/{first}/result",
+        headers=_headers(),
+        json={"answer": "Partial answer.", "unexplored_collection_ids": ["leave"]},
+    )
+    follow_up = await _add_run_to_conversation_of(first, continue_exploration=False)
+
+    body = (await client.get(f"/api/internal/runs/{follow_up}", headers=_headers())).json()
+
+    assert body["resume_from_collection_ids"] is None
+
+
 async def test_update_run_result_defaults_grounding_to_none(client):
     """A run that skipped validate_grounding entirely (no evidence to check - see
     after_generate_answer in the worker's graph) reports no grounding fields at all."""

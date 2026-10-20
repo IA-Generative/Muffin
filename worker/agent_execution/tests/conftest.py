@@ -271,6 +271,7 @@ def initial_state(
     pinned_vdb_ids: list[str] | None = None,
     user_groups: list[str] | None = None,
     web_search_enabled: bool = False,
+    resume_from_vdb_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     return {
         "run_id": str(uuid.uuid4()),
@@ -283,6 +284,8 @@ def initial_state(
         "chat_model": "test-model",
         "pinned_vdb_ids": pinned_vdb_ids or [],
         "web_search_enabled": web_search_enabled,
+        "resume_from_vdb_ids": resume_from_vdb_ids or [],
+        "unexplored_vdb_ids": [],
         "accessible_vdbs": [],
         "edit_target": None,
         "edit_proposal": None,

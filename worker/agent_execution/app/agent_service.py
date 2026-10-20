@@ -95,6 +95,9 @@ class AgentService:
                 # AgentState.pinned_vdb_ids.
                 "pinned_vdb_ids": [str(vdb_id) for vdb_id in (run.get("pinned_collection_ids") or [])],
                 "web_search_enabled": bool(run.get("web_search_enabled", False)),
+                # See AgentState.resume_from_vdb_ids - set only for a "go further" follow-up.
+                "resume_from_vdb_ids": [str(vdb_id) for vdb_id in (run.get("resume_from_collection_ids") or [])],
+                "unexplored_vdb_ids": [],
                 "accessible_vdbs": [],
                 "edit_target": None,
                 "edit_proposal": None,
@@ -169,6 +172,7 @@ class AgentService:
             prompt_tokens=final_state.get("answer_prompt_tokens"),
             completion_tokens=final_state.get("answer_completion_tokens"),
             edit_proposal=final_state.get("edit_proposal"),
+            unexplored_collection_ids=_unexplored(final_state),
         )
         backend_client.update_run_status(run_id, "completed")
         backend_client.add_run_event(run_id, "run_completed", {"citation_count": len(final_state["citations"])})
@@ -183,6 +187,13 @@ class AgentService:
             final_state["original_query"],
             final_state["answer"] or "",
         )
+
+
+def _unexplored(final_state: dict[str, Any]) -> list[str]:
+    """Deduplicated across research tasks, and only collections still in this run's accessible set -
+    the next "go further" starts from these, and they come back through the backend as is."""
+    accessible_ids = {str(vdb["id"]) for vdb in final_state.get("accessible_vdbs") or []}
+    return [vdb_id for vdb_id in dict.fromkeys(final_state.get("unexplored_vdb_ids") or []) if vdb_id in accessible_ids]
 
 
 agent_service = AgentService()

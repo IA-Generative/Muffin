@@ -15,7 +15,7 @@ from app.graph.services.tabular_query import (
     generate_sql,
 )
 from app.graph.services.time_tool import build_time_context, format_time_context
-from app.graph.services.vdb_router import select_relevant_vdbs
+from app.graph.services.vdb_router import RoutingScope, select_relevant_vdbs
 from app.graph.state import Evidence, ResearchTaskInput
 from app.searxng_client import searxng_client
 
@@ -175,15 +175,22 @@ def _run_search(
     _user_id: str,
     accessible_vdbs: list[dict[str, Any]],
     model: str | None,
-    pinned_vdb_ids: list[str],
+    scope: RoutingScope,
     _web_search_enabled: bool,
 ) -> tuple[dict[str, Any], list[Evidence]]:
-    selected_vdbs = select_relevant_vdbs(task["query"], accessible_vdbs, model, pinned_vdb_ids)
+    routing = select_relevant_vdbs(task["query"], accessible_vdbs, model, *scope)
+    selected_vdbs = routing.selected
     if not selected_vdbs:
         return {"selected_vdbs": [], "results": []}, []
     vdb_ids = [str(v["id"]) for v in selected_vdbs]
     vdb_names = {str(v["id"]): v["name"] for v in selected_vdbs}
-    base_updates = {"selected_vdbs": vdb_ids, "search_queries": [task["query"]]}
+    # Only content search reports what the sub-collection descent left out (#219): "go further"
+    # is about searching deeper, the meta-lookups below don't need to offer it.
+    base_updates = {
+        "selected_vdbs": vdb_ids,
+        "search_queries": [task["query"]],
+        "unexplored_vdb_ids": [str(v["id"]) for v in routing.unexplored],
+    }
 
     # Tier 1: has this exact question already been answered (a QA pair), in these collections?
     qa_hits = backend_client.search_qa(vdb_ids, task["query"], limit=1)
@@ -220,9 +227,9 @@ def _run_collection_summary(
     task: dict[str, Any],
     accessible_vdbs: list[dict[str, Any]],
     model: str | None,
-    pinned_vdb_ids: list[str],
+    scope: RoutingScope,
 ) -> tuple[dict, list[Evidence]]:
-    selected_vdbs = select_relevant_vdbs(task["query"], accessible_vdbs, model, pinned_vdb_ids)
+    selected_vdbs = select_relevant_vdbs(task["query"], accessible_vdbs, model, *scope).selected
     evidence = [_collection_evidence(vdb, task["id"], task["query"]) for vdb in selected_vdbs]
     return {"selected_vdbs": [str(v["id"]) for v in selected_vdbs]}, evidence
 
@@ -232,10 +239,10 @@ def _run_list_documents(
     user_id: str,
     accessible_vdbs: list[dict[str, Any]],
     model: str | None,
-    pinned_vdb_ids: list[str],
+    scope: RoutingScope,
     _web_search_enabled: bool,
 ) -> tuple[dict, list[Evidence]]:
-    selected_vdbs = select_relevant_vdbs(task["query"], accessible_vdbs, model, pinned_vdb_ids)
+    selected_vdbs = select_relevant_vdbs(task["query"], accessible_vdbs, model, *scope).selected
     evidence: list[Evidence] = []
     for vdb in selected_vdbs:
         documents = backend_client.list_collection_documents(user_id, str(vdb["id"]))
@@ -282,10 +289,10 @@ def _run_page_content(
     user_id: str,
     accessible_vdbs: list[dict[str, Any]],
     model: str | None,
-    pinned_vdb_ids: list[str],
+    scope: RoutingScope,
     _web_search_enabled: bool,
 ) -> tuple[dict, list[Evidence]]:
-    selected_vdbs = select_relevant_vdbs(task["query"], accessible_vdbs, model, pinned_vdb_ids)
+    selected_vdbs = select_relevant_vdbs(task["query"], accessible_vdbs, model, *scope).selected
     if not selected_vdbs:
         return {"selected_vdbs": []}, []
 
@@ -324,7 +331,7 @@ def _run_web_search(
     _user_id: str,
     _accessible_vdbs: list[dict[str, Any]],
     _model: str | None,
-    _pinned_vdb_ids: list[str],
+    _scope: RoutingScope,
     web_search_enabled: bool,
 ) -> tuple[dict[str, Any], list[Evidence]]:
     if not web_search_enabled:
@@ -347,7 +354,7 @@ def _run_time(
     _user_id: str,
     _accessible_vdbs: list[dict[str, Any]],
     _model: str | None,
-    _pinned_vdb_ids: list[str],
+    _scope: RoutingScope,
     _web_search_enabled: bool,
 ) -> tuple[dict[str, Any], list[Evidence]]:
     """Time tool: gives the LLM precise temporal context (current time to the second) and
@@ -383,7 +390,7 @@ def _run_tabular_query(
     user_id: str,
     accessible_vdbs: list[dict[str, Any]],
     model: str | None,
-    pinned_vdb_ids: list[str],
+    scope: RoutingScope,
     _web_search_enabled: bool,
 ) -> tuple[dict[str, Any], list[Evidence]]:
     """Tabular data analysis tool: loads tabular files in DuckDB and runs LLM-generated SQL
@@ -403,7 +410,7 @@ def _run_tabular_query(
         logger.warning(f"Task {task['id']} requested tabular_query but no chat model is configured")
         return {"selected_vdbs": [], "results": []}, []
 
-    selected_vdbs = select_relevant_vdbs(task["query"], accessible_vdbs, model, pinned_vdb_ids)
+    selected_vdbs = select_relevant_vdbs(task["query"], accessible_vdbs, model, *scope).selected
     if not selected_vdbs:
         return {"selected_vdbs": [], "results": []}, []
 
@@ -457,11 +464,11 @@ def _run_tabular_query(
 
 
 _RUNNERS = {
-    "list_collections": lambda task, user_id, accessible_vdbs, model, pinned_vdb_ids, web_search_enabled: (
-        _run_list_collections(task, accessible_vdbs)
+    "list_collections": lambda task, user_id, accessible_vdbs, model, scope, web_search_enabled: _run_list_collections(
+        task, accessible_vdbs
     ),
-    "collection_summary": lambda task, user_id, accessible_vdbs, model, pinned_vdb_ids, web_search_enabled: (
-        _run_collection_summary(task, accessible_vdbs, model, pinned_vdb_ids)
+    "collection_summary": lambda task, user_id, accessible_vdbs, model, scope, web_search_enabled: (
+        _run_collection_summary(task, accessible_vdbs, model, scope)
     ),
     "list_documents": _run_list_documents,
     "page_content": _run_page_content,
@@ -504,7 +511,7 @@ def research_task(state: ResearchTaskInput) -> dict[str, Any]:
             user_id,
             state["accessible_vdbs"],
             state["chat_model"],
-            state["pinned_vdb_ids"],
+            RoutingScope(state["pinned_vdb_ids"], state["resume_from_vdb_ids"]),
             state["web_search_enabled"],
         )
         # Stamped centrally here (not in each runner) so every evidence-producing branch tags
@@ -512,6 +519,8 @@ def research_task(state: ResearchTaskInput) -> dict[str, Any]:
         # panel: a "search" citation links to a real page/chunk, a meta-tool one is just
         # input/output, no page to link to).
         evidence = [{**e, "metadata": {**e["metadata"], "tool": task["tool"]}} for e in evidence]
+        # Run-level, not part of the task itself - see AgentState.unexplored_vdb_ids.
+        unexplored_vdb_ids = updates.pop("unexplored_vdb_ids", [])
         emit(
             run_id,
             "vdb_routing_completed",
@@ -525,6 +534,7 @@ def research_task(state: ResearchTaskInput) -> dict[str, Any]:
             "research_tasks": [completed],
             "completed_task_ids": [task_id],
             "evidence": evidence,
+            "unexplored_vdb_ids": unexplored_vdb_ids,
         }
     except Exception as error:
         # One branch failing must not take the whole run down (§29) - evaluate_coverage decides
