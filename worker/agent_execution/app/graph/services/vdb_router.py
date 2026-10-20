@@ -145,9 +145,9 @@ def select_relevant_vdbs(
     return RoutingResult(selected, _unique(unexplored))
 
 
-def collection_path(vdb: dict[str, Any], by_id: dict[str, dict[str, Any]]) -> str:
-    """ "Root › Child › vdb" through the collections in `by_id` (the user's accessible set) - an
-    ancestor outside it is never named."""
+def collection_path_names(vdb: dict[str, Any], by_id: dict[str, dict[str, Any]]) -> list[str]:
+    """["Root", "Child", vdb's name] through the collections in `by_id` (the user's accessible
+    set) - an ancestor outside it is never named."""
     names = [vdb["name"]]
     seen = {str(vdb["id"])}
     parent_id = str(vdb.get("parent_id") or "")
@@ -156,7 +156,12 @@ def collection_path(vdb: dict[str, Any], by_id: dict[str, dict[str, Any]]) -> st
         parent = by_id[parent_id]
         names.append(parent["name"])
         parent_id = str(parent.get("parent_id") or "")
-    return _PATH_SEPARATOR.join(reversed(names))
+    return list(reversed(names))
+
+
+def collection_path(vdb: dict[str, Any], by_id: dict[str, dict[str, Any]]) -> str:
+    """ "Root › Child › vdb", see collection_path_names."""
+    return _PATH_SEPARATOR.join(collection_path_names(vdb, by_id))
 
 
 def _select_flat(

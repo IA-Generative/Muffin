@@ -97,7 +97,9 @@ class AgentService:
                 "web_search_enabled": bool(run.get("web_search_enabled", False)),
                 # See AgentState.resume_from_vdb_ids - set only for a "go further" follow-up.
                 "resume_from_vdb_ids": [str(vdb_id) for vdb_id in (run.get("resume_from_collection_ids") or [])],
-                "unexplored_vdb_ids": [],
+                # Starts from what pinning already couldn't bring along (#220) - this run's own
+                # exploration adds to it, see AgentState.unexplored_vdb_ids.
+                "unexplored_vdb_ids": [str(vdb_id) for vdb_id in (run.get("unexplored_collection_ids") or [])],
                 "accessible_vdbs": [],
                 "edit_target": None,
                 "edit_proposal": None,
