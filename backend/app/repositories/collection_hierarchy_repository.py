@@ -38,6 +38,27 @@ class CollectionHierarchyRepository:
         result = await self.db.scalars(select(descendants.c.id).where(descendants.c.id != collection_id))
         return list(result.all())
 
+    async def subtree_ids(self, collection_ids: Sequence[uuid.UUID]) -> list[uuid.UUID]:
+        """These collections and every collection below them, deduplicated - overlapping
+        subtrees (a parent and its own child both given) count once. Same UNION cycle guard as
+        descendant_ids."""
+        if not collection_ids:
+            return []
+        subtree = select(Collection.id).where(Collection.id.in_(collection_ids)).cte("subtree", recursive=True)
+        subtree = subtree.union(select(Collection.id).where(Collection.parent_id == subtree.c.id))
+        result = await self.db.scalars(select(subtree.c.id))
+        return list(result.all())
+
+    async def names(self, collection_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, Ancestor]:
+        """Each collection as an Ancestor-shaped row, to prepend to its own ancestor_chains entry
+        when a path must include the collection itself."""
+        if not collection_ids:
+            return {}
+        result = await self.db.execute(
+            select(Collection.id, Collection.name, Collection.visibility).where(Collection.id.in_(collection_ids))
+        )
+        return {row.id: Ancestor(row.id, row.name, row.visibility) for row in result.all()}
+
     async def ancestor_chains(self, collection_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, list[Ancestor]]:
         """Every ancestor of each collection, nearest (its parent) first - one
         query for a whole page of collections rather than one per collection. Roots have no

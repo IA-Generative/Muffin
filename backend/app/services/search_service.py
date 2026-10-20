@@ -11,9 +11,11 @@ from app.models.chunk import Chunk
 from app.models.document import Document
 from app.models.qa import QaPair
 from app.repositories.chunk_repository import ChunkRepository
+from app.repositories.collection_hierarchy_repository import CollectionHierarchyRepository
 from app.repositories.collection_repository import CollectionRepository
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.qa_pair_repository import QaPairRepository
+from app.schemas.collection import CollectionPathItem
 from app.services import vector_store
 from app.services.embedding_model_lookup import default_embedding_model
 
@@ -39,8 +41,41 @@ class SearchService:
         self.db = db
         self.chunks = ChunkRepository(db)
         self.collections = CollectionRepository(db)
+        self.hierarchy = CollectionHierarchyRepository(db)
         self.qa_pairs = QaPairRepository(db)
         self.documents = DocumentRepository(db)
+
+    async def resolve_scope(self, collection_ids: list[uuid.UUID], include_descendants: bool) -> list[uuid.UUID]:
+        """The collections a search actually queries (#217). Opt-in, never implied: each
+        collection has its own index, so a subtree costs one index query per descendant - the
+        research agent decides how deep to go (#219) rather than every search widening itself.
+
+        No access check here, on purpose: callers only ever pass collections the user can read,
+        and read access is inherited down the tree (#216), so the whole subtree is readable too."""
+        if not include_descendants:
+            return collection_ids
+        return await self.hierarchy.subtree_ids(collection_ids)
+
+    async def collection_paths(
+        self, result_collection_ids: set[uuid.UUID], requested_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, list[CollectionPathItem]]:
+        """For each collection a result came from, its path from the highest requested
+        collection above it (or itself) down to itself, inclusive - e.g. ["Policies", "HR",
+        "Leave"] for a result in Leave when Policies was searched with its descendants.
+
+        Never above the requested collections: this route has no user to check the rest of the
+        tree against, and an ancestor of a collection shared on its own isn't readable (#216)."""
+        requested = set(requested_ids)
+        own = await self.hierarchy.names(list(result_collection_ids))
+        chains = await self.hierarchy.ancestor_chains(list(result_collection_ids))
+        paths = {}
+        for collection_id, node in own.items():
+            chain = [node, *chains.get(collection_id, [])]
+            top = max((index for index, item in enumerate(chain) if item.id in requested), default=0)
+            paths[collection_id] = [
+                CollectionPathItem(id=item.id, name=item.name) for item in reversed(chain[: top + 1])
+            ]
+        return paths
 
     async def search(
         self, collection_ids: list[uuid.UUID], query: str, limit: int

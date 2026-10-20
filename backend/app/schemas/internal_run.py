@@ -3,6 +3,8 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from app.schemas.collection import CollectionPathItem
+
 
 class InternalRunOut(BaseModel):
     id: uuid.UUID
@@ -88,11 +90,17 @@ class SearchRequest(BaseModel):
     collection_ids: list[uuid.UUID]
     query: str
     limit: int = 10
+    # Also search every sub-collection below the given ones (#217) - opt-in, see
+    # SearchService.resolve_scope for why a search never widens itself.
+    include_descendants: bool = False
 
 
 class QaSearchResultOut(BaseModel):
     qa_pair_id: uuid.UUID
     collection_id: uuid.UUID
+    # From the highest requested collection down to collection_id, inclusive (#217) - see
+    # SearchService.collection_paths. Same on the two result models below.
+    collection_path: list[CollectionPathItem]
     question: str
     answer: str
     score: float
@@ -101,6 +109,7 @@ class QaSearchResultOut(BaseModel):
 class SummarySearchResultOut(BaseModel):
     document_id: uuid.UUID
     collection_id: uuid.UUID
+    collection_path: list[CollectionPathItem]
     name: str
     summary: str | None
     score: float
@@ -111,6 +120,7 @@ class SearchResultOut(BaseModel):
     document_id: uuid.UUID
     document_name: str
     collection_id: uuid.UUID
+    collection_path: list[CollectionPathItem]
     text: str
     rank: float
     # The document page(s) this chunk spans (Chunk.extras["page_start"/"page_end"], set for both

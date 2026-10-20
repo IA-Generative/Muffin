@@ -682,6 +682,122 @@ async def test_summary_search_finds_matching_document(client, monkeypatch):
     assert results[0]["score"] == 0.81
 
 
+async def _create_search_tree() -> dict[str, uuid.UUID]:
+    """Root > Child > Grandchild, each with one document and one chunk, plus an unrelated root."""
+    from app.models.chunk import Chunk
+
+    ids: dict[str, uuid.UUID] = {}
+    async with async_session_factory() as session:
+        parent_id = None
+        for name in ("Root", "Child", "Grandchild", "Unrelated"):
+            collection = Collection(
+                owner_id="dev-user", name=name, description="", parent_id=None if name == "Unrelated" else parent_id
+            )
+            collection.settings = CollectionSettings(embedding_model="text-embedding-3-small")
+            session.add(collection)
+            await session.flush()
+            document = Document(collection_id=collection.id, name=f"{name}.pdf", type="file", storage_key=name)
+            session.add(document)
+            await session.flush()
+            chunk = Chunk(document_id=document.id, index=0, text=f"Text in {name}", token_count=3)
+            session.add(chunk)
+            await session.flush()
+            ids[name] = collection.id
+            ids[f"{name} chunk"] = chunk.id
+            parent_id = collection.id
+        await session.commit()
+    return ids
+
+
+def _fake_chunk_search(monkeypatch, ids: dict[str, uuid.UUID]) -> list[uuid.UUID]:
+    """Every collection returns its own chunk; records which collections were queried."""
+    from types import SimpleNamespace
+
+    from app.services import search_service, vector_store
+
+    async def create_embedding(**_kwargs):
+        return SimpleNamespace(data=[SimpleNamespace(embedding=[0.1, 0.2])])
+
+    chunk_of = {ids[name]: ids[f"{name} chunk"] for name in ("Root", "Child", "Grandchild", "Unrelated")}
+    queried: list[uuid.UUID] = []
+
+    def search(collection_id, query, query_embedding, limit):
+        queried.append(collection_id)
+        return [(chunk_of[collection_id], 0.5)]
+
+    monkeypatch.setattr(
+        search_service, "_openai_client", SimpleNamespace(embeddings=SimpleNamespace(create=create_embedding))
+    )
+    monkeypatch.setattr(vector_store, "search", search)
+    return queried
+
+
+async def test_search_stays_on_the_given_collections_by_default(client, monkeypatch):
+    ids = await _create_search_tree()
+    queried = _fake_chunk_search(monkeypatch, ids)
+
+    response = await client.post(
+        "/api/internal/search",
+        headers=_headers(),
+        json={"collection_ids": [str(ids["Root"])], "query": "text", "limit": 10},
+    )
+
+    assert queried == [ids["Root"]]
+    assert [r["collection_path"] for r in response.json()] == [[{"id": str(ids["Root"]), "name": "Root"}]]
+
+
+async def test_search_with_descendants_queries_the_whole_subtree_and_reports_paths(client, monkeypatch):
+    ids = await _create_search_tree()
+    queried = _fake_chunk_search(monkeypatch, ids)
+
+    response = await client.post(
+        "/api/internal/search",
+        headers=_headers(),
+        json={"collection_ids": [str(ids["Child"])], "query": "text", "limit": 10, "include_descendants": True},
+    )
+
+    assert set(queried) == {ids["Child"], ids["Grandchild"]}
+    paths = {r["collection_id"]: [item["name"] for item in r["collection_path"]] for r in response.json()}
+    # Never above the searched collection: Root stays out of the path.
+    assert paths == {str(ids["Child"]): ["Child"], str(ids["Grandchild"]): ["Child", "Grandchild"]}
+
+
+async def test_qa_and_summary_search_honor_include_descendants(client, monkeypatch):
+    from types import SimpleNamespace
+
+    from app.models.qa import QaOrigin, QaPair
+    from app.services import search_service, vector_store
+
+    ids = await _create_search_tree()
+    async with async_session_factory() as session:
+        qa_pair = QaPair(collection_id=ids["Grandchild"], question="q", answer="a", origin=QaOrigin.GENERATED)
+        session.add(qa_pair)
+        await session.commit()
+        qa_pair_id = qa_pair.id
+        document_id = await session.scalar(select(Document.id).where(Document.collection_id == ids["Grandchild"]))
+
+    async def create_embedding(**_kwargs):
+        return SimpleNamespace(data=[SimpleNamespace(embedding=[0.1, 0.2])])
+
+    def only_in_grandchild(result_id):
+        return lambda collection_id, query, query_embedding, limit: (
+            [(result_id, 0.9)] if collection_id == ids["Grandchild"] else []
+        )
+
+    monkeypatch.setattr(
+        search_service, "_openai_client", SimpleNamespace(embeddings=SimpleNamespace(create=create_embedding))
+    )
+    monkeypatch.setattr(vector_store, "search_qa", only_in_grandchild(qa_pair_id))
+    monkeypatch.setattr(vector_store, "search_summaries", only_in_grandchild(document_id))
+    body = {"collection_ids": [str(ids["Root"])], "query": "q", "limit": 5}
+
+    for route in ("/api/internal/qa-search", "/api/internal/summary-search"):
+        assert (await client.post(route, headers=_headers(), json=body)).json() == []
+
+        widened = (await client.post(route, headers=_headers(), json={**body, "include_descendants": True})).json()
+        assert [item["name"] for item in widened[0]["collection_path"]] == ["Root", "Child", "Grandchild"]
+
+
 async def test_search_tolerates_an_embedding_model_that_is_unavailable(client, monkeypatch):
     """A collection's embedding_model can be misconfigured/unavailable on the LLM hub (real
     incident: the hub didn't have "text-embedding-3-small") - that must degrade to empty results
