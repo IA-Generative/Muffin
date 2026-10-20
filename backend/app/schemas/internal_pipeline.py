@@ -95,6 +95,11 @@ class EntityOut(BaseModel):
     mentions: int
 
 
+class SubCollectionDescriptionOut(BaseModel):
+    name: str
+    description: str
+
+
 class CollectionMetadataOut(BaseModel):
     """What the worker needs to decide whether the collection's
     description/tags should change: their current values, plus every
@@ -104,6 +109,9 @@ class CollectionMetadataOut(BaseModel):
     description: str
     tags: list[str]
     document_summaries: list[str]
+    # Direct sub-collections that already have a description (#218) - what a parent's
+    # description is rolled up from, alongside its own document summaries.
+    sub_collections: list[SubCollectionDescriptionOut] = []
 
 
 class CollectionDescriptionUpdate(BaseModel):

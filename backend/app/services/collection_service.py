@@ -39,6 +39,7 @@ from app.schemas.feedback import FeedbackStatsOut
 from app.schemas.pagination import Page, PaginationParams
 from app.services import embedding_model_lookup, vector_store
 from app.services.collection_hierarchy_service import CollectionHierarchyService
+from app.services.description_rollup_service import DescriptionRollupService
 
 # Last resort only, when the hub is unreachable/unconfigured and there's nothing else to go on -
 # see create_collection, which otherwise resolves the admin-configured or hub-discovered model.
@@ -81,6 +82,7 @@ class CollectionService:
         self.repository = CollectionRepository(db)
         self.hierarchy = CollectionHierarchyRepository(db)
         self.hierarchy_rules = CollectionHierarchyService(db)
+        self.description_rollup = DescriptionRollupService(db)
         self.qa_pairs = QaPairRepository(db)
         self.entities = EntityRepository(db)
         self.runs = RunRepository(db)
@@ -153,6 +155,8 @@ class CollectionService:
     ) -> CollectionOut:
         collection = await self._get_owned(collection_id, user)
         updated_by = _display_name(user)
+        previous_parent_id = collection.parent_id
+        previous_description = collection.description
 
         if "parent_id" in update.model_fields_set:
             parent = await self._get_owned_parent(update.parent_id, user) if update.parent_id is not None else None
@@ -167,6 +171,7 @@ class CollectionService:
         if update.tags is not None:
             await self.repository.update_tags(collection, update.tags, updated_by)
 
+        await self._schedule_parent_rollups(collection, previous_parent_id, previous_description)
         await self.db.commit()
         # tags/settings are already correct in memory (mutated directly above),
         # this is only to reload updated_at - onupdate=func.now() expires it
@@ -300,6 +305,9 @@ class CollectionService:
         # Collected before the cascade delete removes the rows that reference
         # them - Postgres cleanup and RustFS cleanup can't be one transaction.
         rustfs_keys = await self.repository.list_rustfs_keys(subtree_ids)
+        if collection.description:
+            # Its parent's rolled-up description no longer has this sub-collection to draw from.
+            await self.description_rollup.schedule(collection.parent_id)
         await self.repository.delete(collection)
         await self.db.commit()
         # Best-effort and after the commit: a RustFS/Meilisearch failure here must
@@ -387,6 +395,20 @@ class CollectionService:
         if collection is None:
             raise CollectionNotFoundError(str(collection_id))
         return collection
+
+    async def _schedule_parent_rollups(
+        self, collection: Collection, previous_parent_id: uuid.UUID | None, previous_description: str
+    ) -> None:
+        """A parent's description is rolled up from its sub-collections' descriptions (#218), so it
+        needs recomputing when one of them changes, or when a described sub-collection moves in or
+        out of it. A collection without a description contributes nothing either way."""
+        if collection.parent_id != previous_parent_id:
+            if previous_description:
+                await self.description_rollup.schedule(previous_parent_id)
+            if collection.description:
+                await self.description_rollup.schedule(collection.parent_id)
+        elif collection.description != previous_description:
+            await self.description_rollup.schedule(collection.parent_id)
 
     async def _get_owned_parent(self, parent_id: uuid.UUID, user: RequestContext) -> Collection:
         """Only the owner may put a collection under another one - readable isn't enough."""
