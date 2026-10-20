@@ -213,9 +213,9 @@ class TestTreeVisibility:
         assert detail["parent_id"] is None
         assert detail["path"] == []
 
-    async def test_children_count_ignores_unreadable_children(self, client):
-        # Until rights are inherited down the tree (#216), a public parent doesn't make its
-        # private child readable - that test will flip with it.
+    async def test_children_of_a_readable_collection_are_counted(self, client):
+        # Read access is inherited down the tree (#216): a private child of a public parent is
+        # readable too, so it counts.
         root = await _create(client, "Public root")
         await client.patch(f"/api/collections/{root['id']}/visibility", json={"visibility": "public"})
         await _create(client, "Private child", root["id"])
@@ -223,4 +223,4 @@ class TestTreeVisibility:
         _as("viewer")
         detail = await _get(client, root["id"])
 
-        assert detail["children_count"] == 0
+        assert detail["children_count"] == 1
