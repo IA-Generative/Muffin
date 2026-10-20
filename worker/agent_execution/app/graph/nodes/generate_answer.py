@@ -4,6 +4,7 @@ from typing import Any
 from app.backend_client import backend_client
 from app.graph.services.events import emit, is_cancelled, set_activity
 from app.graph.services.prompts import get_prompt
+from app.graph.services.vdb_router import collection_path
 from app.graph.state import AgentState
 
 _SYSTEM_PROMPT = (
@@ -52,10 +53,16 @@ def generate_answer(state: AgentState) -> dict[str, Any]:
         " You could try enabling web search to look this up on the internet." if not state["web_search_enabled"] else ""
     )
 
+    unexplored = _unexplored_paths(state)
     if not context["excerpts"]:
+        go_further_hint = (
+            f" Some sub-collections were not searched ({', '.join(unexplored)}) - you can ask to go further."
+            if unexplored
+            else ""
+        )
         return {
             "answer": "I couldn't find any relevant information in your accessible knowledge bases to answer "
-            f"this query.{web_search_hint}",
+            f"this query.{web_search_hint}{go_further_hint}",
             "citations": [],
         }
 
@@ -67,7 +74,18 @@ def generate_answer(state: AgentState) -> dict[str, Any]:
         if context["coverage_insufficient"]
         else ""
     )
-    user_content = f"Query: {state['contextualized_query']}\n\nEvidence:{missing_note}\n\n{evidence_block}"
+    # In the evidence itself rather than the system prompt (administrable, see get_prompt), so an
+    # overridden prompt still gets it - same as missing_note above.
+    exploration_note = (
+        "\n\nNote: the search stopped before the sub-collections of these collections: "
+        f"{'; '.join(unexplored)}. End the answer with one short sentence telling the user they can ask to "
+        "go further into them."
+        if unexplored
+        else ""
+    )
+    user_content = (
+        f"Query: {state['contextualized_query']}\n\nEvidence:{missing_note}{exploration_note}\n\n{evidence_block}"
+    )
     start = time.monotonic()
     result = backend_client.llm_chat_with_usage(
         model,
@@ -105,3 +123,11 @@ def generate_answer(state: AgentState) -> dict[str, Any]:
         "answer_completion_tokens": completion_tokens,
         "prompt_usages": [prompt_version_id] if prompt_version_id else [],
     }
+
+
+def _unexplored_paths(state: AgentState) -> list[str]:
+    """Readable paths of the collections whose sub-collections the search didn't get to (#219),
+    only those still in the accessible set."""
+    by_id = {str(vdb["id"]): vdb for vdb in state["accessible_vdbs"]}
+    unexplored_ids = dict.fromkeys(state.get("unexplored_vdb_ids") or [])
+    return [collection_path(by_id[vdb_id], by_id) for vdb_id in unexplored_ids if vdb_id in by_id]

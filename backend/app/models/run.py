@@ -113,6 +113,14 @@ class Run(UUIDMixin, TimestampMixin, Base):
     # retries to become grounded is a weaker result than one that was grounded on the first pass.
     grounding_research_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
+    # Sub-collection exploration (#219). The research agent descends the collection tree level by
+    # level within a budget; `unexplored_collection_ids` are the collections it selected but whose
+    # sub-collections it didn't get to - where a "go further" follow-up resumes from. Plain strings,
+    # same reasoning as pinned_collection_ids. `continue_exploration` marks such a follow-up (the
+    # chat's "go further" button), snapshotted like web_search_enabled.
+    unexplored_collection_ids: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
+    continue_exploration: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+
     events: Mapped[list["RunEvent"]] = relationship(
         back_populates="run", cascade="all, delete-orphan", order_by="RunEvent.created_at"
     )

@@ -105,6 +105,7 @@ class BackendClient:
         prompt_tokens: int | None = None,
         completion_tokens: int | None = None,
         edit_proposal: dict[str, Any] | None = None,
+        unexplored_collection_ids: list[str] | None = None,
     ) -> None:
         response = self._client.patch(
             f"/api/internal/runs/{run_id}/result",
@@ -118,6 +119,7 @@ class BackendClient:
                 "prompt_tokens": prompt_tokens,
                 "completion_tokens": completion_tokens,
                 "edit_proposal": edit_proposal,
+                "unexplored_collection_ids": unexplored_collection_ids,
             },
         )
         response.raise_for_status()

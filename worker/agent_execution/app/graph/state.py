@@ -81,6 +81,7 @@ class ResearchTaskInput(TypedDict):
     task: ResearchTask
     chat_model: str | None
     pinned_vdb_ids: list[str]
+    resume_from_vdb_ids: list[str]
     web_search_enabled: bool
 
 
@@ -111,6 +112,14 @@ class AgentState(TypedDict):
     # picker) - always searched regardless of what VDB routing's own relevance guess would have
     # picked, see select_relevant_vdbs. Empty list, never None, when nothing was attached.
     pinned_vdb_ids: list[str]
+
+    # Sub-collection exploration (#219). `resume_from_vdb_ids`: for a "go further" follow-up, the
+    # collections the previous answer left unexplored - VDB routing descends from below them
+    # instead of from the top level (still intersected with accessible_vdbs). `unexplored_vdb_ids`:
+    # collections this run's routing selected but couldn't descend into within its budget,
+    # gathered from every research task, reported with the answer for the next "go further".
+    resume_from_vdb_ids: list[str]
+    unexplored_vdb_ids: Annotated[list[str], operator.add]
 
     # Opt-in per message (chat composer toggle, off by default) - see Run.web_search_enabled.
     # Read by decompose_query (only offers the "web_search" tool to the planner when true) and

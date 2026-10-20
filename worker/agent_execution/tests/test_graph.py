@@ -1518,3 +1518,59 @@ def test_insufficient_coverage_does_not_repeat_web_search_suggestion_when_alread
 
     answer_call = next(call for call in fake.llm_calls if "Answer the user's query" in call[0]["content"])
     assert "enabling web search" not in answer_call[1]["content"]
+
+
+# --- Sub-collection descent (#219) ---
+
+
+def _hr_tree() -> list[dict]:
+    """HR > Leave > Parental leave, plus a flat Engineering root."""
+    return [
+        {"id": "hr", "parent_id": None, "name": "HR", "description": "HR policies", "tags": []},
+        {"id": "leave", "parent_id": "hr", "name": "Leave", "description": "Leave policies", "tags": []},
+        {"id": "parental", "parent_id": "leave", "name": "Parental", "description": "Parental leave", "tags": []},
+        {"id": "eng", "parent_id": None, "name": "Engineering", "description": "Eng docs", "tags": []},
+    ]
+
+
+def _descent_router(sub_collection_picks: list[str]):
+    def router(system_prompt: str) -> str:
+        if "Analyze the user" in system_prompt:
+            return _analysis()
+        if "select the ones relevant" in system_prompt.lower():
+            return '["hr"]'
+        if "sub-collections worth searching" in system_prompt:
+            return json.dumps(sub_collection_picks)
+        if "Decide whether" in system_prompt:
+            return json.dumps({"status": "sufficient", "missing_information": [], "reasoning": "ok"})
+        if "Check whether every" in system_prompt:
+            return json.dumps({"valid": True, "unsupported_claims": []})
+        return "Parental leave is 16 weeks [abc]."
+
+    return router
+
+
+def test_search_descends_into_sub_collections_and_reports_where_it_stopped(make_run, monkeypatch):
+    from app.graph.services import vdb_router
+
+    monkeypatch.setattr(vdb_router.settings, "MAX_COLLECTION_DESCENT_DEPTH", 1)
+    graph, fake = make_run(_hr_tree(), _descent_router(["leave"]))
+    state = initial_state("What is the parental leave policy?")
+    result = graph.invoke(state, config=_config(state))
+
+    assert fake.searched_collection_ids == [["hr", "leave"]]
+    assert result["unexplored_vdb_ids"] == ["leave"]
+    answer_call = next(call for call in fake.llm_calls if "Answer the user's query" in call[0]["content"])
+    assert "HR › Leave" in answer_call[1]["content"]
+    assert "go further" in answer_call[1]["content"]
+
+
+def test_go_further_resumes_below_the_previous_frontier(make_run):
+    graph, fake = make_run(_hr_tree(), _descent_router(["parental"]))
+    state = initial_state("What is the parental leave policy?", resume_from_vdb_ids=["leave"])
+    result = graph.invoke(state, config=_config(state))
+
+    assert fake.searched_collection_ids == [["parental"]]
+    assert result["unexplored_vdb_ids"] == []
+    answer_call = next(call for call in fake.llm_calls if "Answer the user's query" in call[0]["content"])
+    assert "go further" not in answer_call[1]["content"]

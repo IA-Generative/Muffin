@@ -177,6 +177,8 @@ boucle de vérification (« grounding »).
 | `MAX_REPLANS` | Nombre max de replans autorisés | `2` | idem |
 | `MAX_GROUNDING_RESEARCHES` | Nombre max de relances de recherche déclenchées par un échec de vérification (grounding) | `1` | idem |
 | `SEARCH_RESULTS_PER_QUERY` | Nombre de résultats retournés par recherche vectorielle | `5` | idem |
+| `MAX_COLLECTION_DESCENT_DEPTH` | Nombre de niveaux de sous-collections que le routage peut descendre sous son point de départ, par tâche de recherche | `3` | idem |
+| `MAX_ROUTED_COLLECTIONS` | Nombre max de collections retenues par le routage pour une tâche de recherche ; au-delà, l'agent propose à l'utilisateur d'aller plus loin | `15` | idem |
 
 Délégation d'une modification de document vivant à l'agent d'édition (#171) :
 

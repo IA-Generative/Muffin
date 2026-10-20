@@ -15,6 +15,10 @@ class RunCreate(BaseModel):
     # implied by anything else. Gates both whether the planner is even told a "web_search" tool
     # exists and whether research_task will actually run it (see worker/agent_execution).
     web_search_enabled: bool = False
+    # "Go further" (#219): resume the sub-collection exploration where the previous answer of
+    # this conversation stopped (its RunOut.unexplored_collection_ids), instead of starting
+    # again from the top-level collections.
+    continue_exploration: bool = False
 
 
 class RunResumeRequest(BaseModel):
@@ -45,6 +49,9 @@ class RunOut(BaseModel):
     # The edit of a living document this run delegated to the editing agent, if any (#171) - what
     # the chat needs to show the proposal next to the answer.
     edit_proposal: dict[str, Any] | None = None
+    # Collections the agent selected but whose sub-collections it didn't explore within its budget
+    # (#219) - what a follow-up with continue_exploration resumes from. None when nothing was left.
+    unexplored_collection_ids: list[str] | None = None
     error: str | None
     created_at: datetime
     updated_at: datetime
