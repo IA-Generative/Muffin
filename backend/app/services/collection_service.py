@@ -350,9 +350,23 @@ class CollectionService:
         return ShareOut.from_model(share)
 
     async def list_shares(self, collection_id: uuid.UUID, user: RequestContext) -> list[ShareOut]:
+        """Its own shares first, then the ones inherited from its ancestors (#216), nearest
+        ancestor first. The caller owns the whole tree (a child always has its parent's owner),
+        so every ancestor here is one they can see."""
         await self._get_owned(collection_id, user)
-        shares = await self.repository.list_shares(collection_id)
-        return [ShareOut.from_model(share) for share in shares]
+        ancestors = (await self.hierarchy.ancestor_chains([collection_id])).get(collection_id, [])
+        shares = await self.repository.list_shares([collection_id, *(ancestor.id for ancestor in ancestors)])
+
+        own = [ShareOut.from_model(share) for share in shares if share.collection_id == collection_id]
+        inherited = []
+        for ancestor in ancestors:
+            source = CollectionPathItem(id=ancestor.id, name=ancestor.name)
+            inherited += [
+                ShareOut.from_model(share, inherited_from=source)
+                for share in shares
+                if share.collection_id == ancestor.id
+            ]
+        return own + inherited
 
     async def delete_share(self, collection_id: uuid.UUID, user: RequestContext, share_id: uuid.UUID) -> None:
         await self._get_owned(collection_id, user)
@@ -390,21 +404,37 @@ class CollectionService:
         ids = [collection.id for collection in collections]
         chains = await self.hierarchy.ancestor_chains(ids)
         children = await self.hierarchy.child_ids_by_parent(ids)
-        related_ids = {ancestor_id for chain in chains.values() for ancestor_id, _ in chain}
+        related_ids = {ancestor.id for chain in chains.values() for ancestor in chain}
         related_ids |= {child_id for child_ids in children.values() for child_id in child_ids}
         readable = await self.repository.filter_accessible_ids(list(related_ids), user.user_id, user.groups)
 
         presented = []
         for collection in collections:
             path: list[CollectionPathItem] = []
+            inherited_public_from = None
             # Nearest first: stop at the first unreadable ancestor, what's above it stays hidden.
-            for ancestor_id, name in chains.get(collection.id, []):
-                if ancestor_id not in readable:
+            # A public ancestor is never above an unreadable one - it makes its whole subtree
+            # readable - so the nearest public one is always found before the walk stops.
+            for ancestor in chains.get(collection.id, []):
+                if ancestor.id not in readable:
                     break
-                path.append(CollectionPathItem(id=ancestor_id, name=name))
+                item = CollectionPathItem(id=ancestor.id, name=ancestor.name)
+                path.append(item)
+                if (
+                    inherited_public_from is None
+                    and collection.visibility != CollectionVisibility.PUBLIC
+                    and ancestor.visibility == CollectionVisibility.PUBLIC
+                ):
+                    inherited_public_from = item
             path.reverse()
             children_count = sum(child_id in readable for child_id in children.get(collection.id, []))
             presented.append(
-                CollectionOut.from_model(collection, user.user_id, path=path, children_count=children_count)
+                CollectionOut.from_model(
+                    collection,
+                    user.user_id,
+                    path=path,
+                    children_count=children_count,
+                    inherited_public_from=inherited_public_from,
+                )
             )
         return presented

@@ -168,8 +168,8 @@ class TestAncestorChains:
             chains = await CollectionHierarchyRepository(session).ancestor_chains([grandchild, other_child, root])
 
         assert chains == {
-            grandchild: [(child, "Child"), (root, "Root")],
-            other_child: [(other_root, "Other root")],
+            grandchild: [(child, "Child", "private"), (root, "Root", "private")],
+            other_child: [(other_root, "Other root", "private")],
         }
 
     async def test_terminates_on_inconsistent_cyclic_data(self, cleanup):
@@ -182,7 +182,7 @@ class TestAncestorChains:
         async with async_session_factory() as session:
             chains = await CollectionHierarchyRepository(session).ancestor_chains([a])
 
-        assert chains == {a: [(b, "B")]}
+        assert chains == {a: [(b, "B", "private")]}
 
 
 class TestChildIdsByParent:

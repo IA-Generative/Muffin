@@ -137,6 +137,10 @@ class CollectionOut(BaseModel):
     parent_id: uuid.UUID | None
     path: list[CollectionPathItem]
     children_count: int
+    # Read access is inherited down the tree (#216): a private collection under a public one is
+    # readable by everyone all the same. The nearest public ancestor, so the UI can say so -
+    # None when the collection is public itself or no ancestor is.
+    inherited_public_from: CollectionPathItem | None
     description: str
     description_meta: FieldStamp | None
     tags: list[str]
@@ -172,6 +176,7 @@ class CollectionOut(BaseModel):
         *,
         path: list[CollectionPathItem] | None = None,
         children_count: int = 0,
+        inherited_public_from: CollectionPathItem | None = None,
     ) -> "CollectionOut":
         settings = collection.settings
         path = path or []
@@ -181,6 +186,7 @@ class CollectionOut(BaseModel):
             parent_id=path[-1].id if path else None,
             path=path,
             children_count=children_count,
+            inherited_public_from=inherited_public_from,
             description=collection.description,
             description_meta=(
                 FieldStamp(
@@ -274,13 +280,19 @@ class ShareOut(BaseModel):
     # full email/group identifier the owner originally typed.
     display_hint: str
     created_at: datetime
+    # Set when the share is on an ancestor and only applies here by inheritance (#216) - it can
+    # be managed on that ancestor only, never removed from this collection.
+    inherited_from: CollectionPathItem | None = None
 
     @classmethod
-    def from_model(cls, share: "CollectionShareModel") -> "ShareOut":
+    def from_model(
+        cls, share: "CollectionShareModel", *, inherited_from: CollectionPathItem | None = None
+    ) -> "ShareOut":
         return cls(
             id=share.id,
             subject_type=share.subject_type,
             status=share.status,
             display_hint=share.display_hint,
             created_at=share.created_at,
+            inherited_from=inherited_from,
         )

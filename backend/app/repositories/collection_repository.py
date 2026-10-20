@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy import delete, exists, false, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import aliased, selectinload
 
 from app.models.collection import (
     Collection,
@@ -26,18 +26,58 @@ class CollectionRepository:
         return select(Collection).options(selectinload(Collection.tags), selectinload(Collection.settings))
 
     def _accessible_where(self, user_id: str, group_ids: Sequence[str]):
+        """The collection itself or one of its ancestors is granted to the caller (see
+        _granted_where) - read access is inherited down the sub-collection tree (#216), never
+        up it. The single permission barrier both the UI listing and the research agent's VDB
+        routing (GET /internal/users/{user_id}/accessible-collections) must agree on.
+
+        Walks top-down from every granted collection rather than up from each candidate row: one
+        recursive CTE per query, whatever the number of rows it filters. UNION is the cycle
+        guard, same as CollectionHierarchyRepository.descendant_ids."""
+        granted = aliased(Collection)
+        readable = select(granted.id).where(self._granted_where(granted, user_id, group_ids))
+        readable = readable.cte("readable", recursive=True)
+        child = aliased(Collection)
+        readable = readable.union(select(child.id).where(child.parent_id == readable.c.id))
+        return Collection.id.in_(select(readable.c.id))
+
+    def _accessible_among_where(self, collection_ids: Sequence[uuid.UUID], user_id: str, group_ids: Sequence[str]):
+        """Same barrier as _accessible_where, for a known set of ids: walks up from those ids
+        (a handful of rows each) instead of down from everything the caller can read, which
+        is what every lookup of a single collection needs - see the #216 benchmark.
+
+        UNION over (start_id, node_id) is the cycle guard."""
+        start = aliased(Collection)
+        chain = (
+            select(start.id.label("start_id"), start.id.label("node_id"))
+            .where(start.id.in_(collection_ids))
+            .cte("self_and_ancestors", recursive=True)
+        )
+        step = aliased(Collection)
+        chain = chain.union(
+            select(chain.c.start_id, step.parent_id).where(step.id == chain.c.node_id, step.parent_id.is_not(None))
+        )
+        granted = aliased(Collection)
+        readable_ids = (
+            select(chain.c.start_id)
+            .join(granted, granted.id == chain.c.node_id)
+            .where(self._granted_where(granted, user_id, group_ids))
+        )
+        return Collection.id.in_(readable_ids)
+
+    @staticmethod
+    def _granted_where(target, user_id: str, group_ids: Sequence[str]):
         """owner OR public OR an ACTIVE direct share OR an ACTIVE share to one of the caller's
-        groups - the single permission barrier both the UI listing and the research agent's VDB
-        routing (GET /internal/users/{user_id}/accessible-collections) must agree on."""
+        groups, on `target` itself - before any inheritance from its ancestors."""
         direct_share = exists().where(
-            CollectionShare.collection_id == Collection.id,
+            CollectionShare.collection_id == target.id,
             CollectionShare.subject_type == ShareSubjectType.USER,
             CollectionShare.status == ShareStatus.ACTIVE,
             CollectionShare.subject_id == user_id,
         )
         group_share = (
             exists().where(
-                CollectionShare.collection_id == Collection.id,
+                CollectionShare.collection_id == target.id,
                 CollectionShare.subject_type == ShareSubjectType.GROUP,
                 CollectionShare.status == ShareStatus.ACTIVE,
                 CollectionShare.subject_id.in_(group_ids),
@@ -46,8 +86,8 @@ class CollectionRepository:
             else false()
         )
         return or_(
-            Collection.owner_id == user_id,
-            Collection.visibility == CollectionVisibility.PUBLIC,
+            target.owner_id == user_id,
+            target.visibility == CollectionVisibility.PUBLIC,
             direct_share,
             group_share,
         )
@@ -99,7 +139,7 @@ class CollectionRepository:
         if not collection_ids:
             return set()
         result = await self.db.scalars(
-            select(Collection.id).where(Collection.id.in_(collection_ids), self._accessible_where(user_id, group_ids))
+            select(Collection.id).where(self._accessible_among_where(collection_ids, user_id, group_ids))
         )
         return set(result.all())
 
@@ -127,7 +167,7 @@ class CollectionRepository:
         collection - read access for owner/public/shared, not just the "is it mine" check `get`
         does for owner-only write operations."""
         result = await self.db.execute(
-            self._base_query().where(Collection.id == collection_id, self._accessible_where(user_id, group_ids))
+            self._base_query().where(self._accessible_among_where([collection_id], user_id, group_ids))
         )
         return result.scalar_one_or_none()
 
@@ -356,10 +396,12 @@ class CollectionRepository:
         await self.db.flush()
         return share
 
-    async def list_shares(self, collection_id: uuid.UUID) -> Sequence[CollectionShare]:
+    async def list_shares(self, collection_ids: Sequence[uuid.UUID]) -> Sequence[CollectionShare]:
+        """Several ids so a collection's shares can be listed with its ancestors' in one query
+        (inherited shares, #216)."""
         result = await self.db.execute(
             select(CollectionShare)
-            .where(CollectionShare.collection_id == collection_id)
+            .where(CollectionShare.collection_id.in_(collection_ids))
             .order_by(CollectionShare.created_at.desc())
         )
         return result.scalars().all()
