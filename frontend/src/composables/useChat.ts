@@ -48,6 +48,8 @@ interface Citation {
   source_id?: string | null
   // Set when the cited document is a living one (#171): the revision of it the answer was drawn from.
   document_revision?: number | null
+  // Names from the root down to the cited collection (#220) - absent on older citations.
+  vdb_path?: string[]
 }
 
 interface MessageOut {
@@ -58,6 +60,7 @@ interface MessageOut {
   run_id: string | null
   citations: Citation[] | null
   edit_proposal: EditProposalOut | null
+  unexplored_collection_ids?: string[] | null
   feedback: 'up' | 'down' | null
 }
 
@@ -92,6 +95,7 @@ interface RunOut {
   answer: string | null
   citations: Citation[] | null
   edit_proposal: EditProposalOut | null
+  unexplored_collection_ids?: string[] | null
   error: string | null
 }
 
@@ -306,6 +310,7 @@ async function ensureMessagesLoaded(conversationId: string) {
         runId: item.run_id ?? undefined,
         feedback: item.feedback ?? null,
         editProposal: toEditProposal(item.edit_proposal),
+        unexploredCollectionIds: item.unexplored_collection_ids ?? undefined,
       }
     })
     confirmedConversationIds.add(conversationId)
@@ -683,11 +688,19 @@ async function loadMoreConversations() {
   }
 }
 
+// What, beyond the query, a message asks of its run: whether attached collections bring their
+// sub-collections along (#220), and whether it resumes the previous answer's exploration (#219).
+interface RunOptions {
+  includeDescendants?: boolean
+  continueExploration?: boolean
+}
+
 async function createRun(
   conversationId: string,
   query: string,
   collectionIds: string[],
   webSearchEnabled: boolean,
+  options: RunOptions = {},
 ): Promise<RunOut> {
   // Only ever send a conversation_id the backend actually confirmed exists - the sidebar's
   // placeholder id would 404 (ConversationNotFoundError), so a brand-new conversation's first
@@ -702,6 +715,8 @@ async function createRun(
       conversation_id: known,
       collection_ids: collectionIds.length > 0 ? collectionIds : undefined,
       web_search_enabled: webSearchEnabled,
+      include_descendants: options.includeDescendants ?? true,
+      continue_exploration: options.continueExploration ?? false,
     }),
   })
   if (!response.ok) throw new Error(`${response.status}`)
@@ -805,6 +820,7 @@ function formatAnswerWithCitations(answer: string, citations: Citation[] | null 
         type,
         url: isWeb ? (citation.url ?? undefined) : undefined,
         collectionId: citation.vdb_id,
+        collectionPath: citation.vdb_path?.length ? citation.vdb_path : undefined,
         documentId: isDocument ? (citation.document_id ?? undefined) : undefined,
         pageNumber: isDocument ? (citation.page_number ?? undefined) : undefined,
         revision: isDocument ? (citation.document_revision ?? undefined) : undefined,
@@ -854,7 +870,15 @@ function assistantMessageFor(id: string, run: RunOut): ChatMessage {
       run.answer || "Je n'ai pas trouvé de réponse dans vos collections.",
       run.citations,
     )
-    return { id, role: 'assistant', content, sources, runId: run.id, editProposal: toEditProposal(run.edit_proposal) }
+    return {
+      id,
+      role: 'assistant',
+      content,
+      sources,
+      runId: run.id,
+      editProposal: toEditProposal(run.edit_proposal),
+      unexploredCollectionIds: run.unexplored_collection_ids ?? undefined,
+    }
   }
   return {
     id,
@@ -935,9 +959,10 @@ async function runQuery(
   query: string,
   collectionIds: string[],
   webSearchEnabled: boolean,
+  options: RunOptions = {},
 ) {
   try {
-    const run = await createRun(conversationId, query, collectionIds, webSearchEnabled)
+    const run = await createRun(conversationId, query, collectionIds, webSearchEnabled, options)
     const resolvedId = run.conversation_id ? migrateConversationId(conversationId, run.conversation_id) : conversationId
     trackRun(resolvedId, messageId, run)
   } catch {
@@ -964,7 +989,13 @@ async function resumeAndTrack(conversationId: string, runId: string, messageId: 
   }
 }
 
-function sendMessage(content: string, collectionIds: string[] = [], webSearchEnabled = false) {
+function sendMessage(
+  content: string,
+  collectionIds: string[] = [],
+  webSearchEnabled = false,
+  includeDescendants = true,
+  continueExploration = false,
+) {
   const conversationId = activeId.value
 
   const pending = pendingClarifications[conversationId]
@@ -986,7 +1017,17 @@ function sendMessage(content: string, collectionIds: string[] = [], webSearchEna
     { id: crypto.randomUUID(), role: 'user', content },
     { id: messageId, role: 'assistant', content: 'Recherche en cours', pending: true },
   )
-  runQuery(conversationId, messageId, content, collectionIds, webSearchEnabled)
+  runQuery(conversationId, messageId, content, collectionIds, webSearchEnabled, {
+    includeDescendants,
+    continueExploration,
+  })
+}
+
+// "Go further" on the latest answer (#219): a new message resuming the exploration where that
+// answer stopped - the backend hands the agent that answer's unexplored collections. The text is
+// what the user sees in the thread; the agent reads it against the conversation's history.
+function goFurther() {
+  sendMessage('Va plus loin dans les sous-collections non explorées.', [], false, true, true)
 }
 
 function regenerateMessage(id: string) {
@@ -1232,6 +1273,7 @@ export function useChat() {
     renameConversation,
     deleteConversation,
     sendMessage,
+    goFurther,
     regenerateMessage,
     sendFeedback,
     fetchFeedback,

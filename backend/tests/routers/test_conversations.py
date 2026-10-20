@@ -105,6 +105,20 @@ async def test_list_conversation_messages_includes_user_and_assistant_turns_in_o
     assert body[1]["citations"] == [{"evidence_id": "abc", "source": "policy.pdf", "vdb_id": "hr"}]
 
 
+async def test_restored_answer_carries_the_sub_collections_its_run_left_unexplored(client):
+    run = await _create_run(client, "What is the leave policy?")
+    await client.patch(
+        f"/api/internal/runs/{run['id']}/result",
+        headers={"X-API-Key": WORKER_API_KEY},
+        json={"answer": "Partial answer.", "unexplored_collection_ids": ["leave"]},
+    )
+
+    body = (await client.get(f"/api/conversations/{run['conversation_id']}/messages")).json()
+
+    assert body[0]["unexplored_collection_ids"] is None
+    assert body[1]["unexplored_collection_ids"] == ["leave"]
+
+
 async def test_list_conversation_messages_accumulates_across_multiple_runs(client):
     first = await _create_run(client, "What is the telework policy?")
     await _complete_run(client, first["id"], "Two days a week [x].")

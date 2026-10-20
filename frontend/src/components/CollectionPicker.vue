@@ -1,12 +1,16 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useCollections } from '../composables/useCollections'
+import { collectionPathLabel } from '../utils/collectionPath'
 
 const selected = defineModel<string[]>({ required: true })
 // Off by default (§ security: never search the web unless explicitly asked - see backend
 // RunCreate.web_search_enabled) - stays on across messages once toggled, same as `selected`,
 // until turned back off or the page reloads (owned by the parent, see ChatWindow.vue).
 const webSearchEnabled = defineModel<boolean>('webSearchEnabled', { default: false })
+// Whether attaching a collection also attaches its sub-collections (#220) - on by default, kept
+// across messages like the rest of the picker's state (owned by ChatWindow.vue).
+const includeDescendants = defineModel<boolean>('includeDescendants', { default: true })
 
 const { collections } = useCollections()
 
@@ -40,9 +44,16 @@ function toggle(id: string) {
     : [...selected.value, id]
 }
 
-const filteredCollections = computed(() =>
-  collections.value.filter((collection) => collection.name.toLowerCase().includes(search.value.trim().toLowerCase())),
-)
+// Each collection with its full path ("RH › Congés"), sorted by it so sub-collections sit right
+// under their parent like a tree; the search matches anywhere in the path.
+const filteredCollections = computed(() => {
+  const query = search.value.trim().toLowerCase()
+  return collections.value
+    .map((collection) => ({ ...collection, label: collectionPathLabel(collection) }))
+    .filter((collection) => collection.label.toLowerCase().includes(query))
+    .sort((a, b) => a.label.localeCompare(b.label))
+})
+const hasSubCollections = computed(() => collections.value.some((collection) => collection.childrenCount > 0))
 </script>
 
 <template>
@@ -149,10 +160,20 @@ const filteredCollections = computed(() =>
                     <path fill="currentColor" d="M9 16.2l-3.5-3.5L4 14.2l5 5 11-11-1.5-1.5z" />
                   </svg>
                 </span>
-                <span class="collection-picker-modal__label">{{ collection.name }}</span>
+                <span class="collection-picker-modal__label">
+                  <span v-if="collection.path.length" class="collection-picker-modal__path">
+                    {{ collection.path.map((item) => item.name).join(' › ') }} ›
+                  </span>
+                  {{ collection.name }}
+                </span>
               </button>
             </li>
           </ul>
+
+          <label v-if="hasSubCollections" class="collection-picker-modal__descendants">
+            <input v-model="includeDescendants" type="checkbox" />
+            Inclure les sous-collections des collections attachées
+          </label>
         </div>
       </div>
     </div>
@@ -389,5 +410,18 @@ const filteredCollections = computed(() =>
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.collection-picker-modal__path {
+  color: var(--text-mention-grey);
+  font-size: 0.8125rem;
+}
+
+.collection-picker-modal__descendants {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding-top: 0.75rem;
+  font-size: 0.875rem;
 }
 </style>
