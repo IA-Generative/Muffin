@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.0-rc.2](https://github.com/IA-Generative/Muffin/compare/v0.19.0-rc.1...v0.19.0-rc.2) (2026-10-21)
+
+
+### Features
+
+* **chat:** suggest starter questions on a new conversation, answered from the stored QA pair ([d734320](https://github.com/IA-Generative/Muffin/commit/d73432039a0c9e1a6b9eadbd623b7c3c42128e13))
+
 ## [0.19.0-rc.1](https://github.com/IA-Generative/Muffin/compare/v0.19.0-rc...v0.19.0-rc.1) (2026-10-21)
 
 
