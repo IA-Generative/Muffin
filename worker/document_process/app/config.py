@@ -32,11 +32,11 @@ class WorkerSettings(BaseSettings):
     ZIP_IMPORT_MAX_DEPTH: int = 20
     TESSDATA_PATH: str | None = None
 
-    # The scheduled refresh of URL documents (#19): how often the beat (run inside each worker, see
-    # the Dockerfile's `-B`) looks for documents due for one. A document's own interval is a multiple
-    # of it. Several replicas each running their own beat is harmless: the backend hands each due
-    # document to one scan only.
-    URL_REFRESH_SCAN_SECONDS: int = 30 * 60
+    # The scheduled refresh of URL documents (#19): the minutes of each hour the beat (run inside each
+    # worker, see the Dockerfile's `-B`) looks for documents due for one - on the hour and at half
+    # past, the times a schedule can be set to. Several replicas each running their own beat is
+    # harmless: the backend hands each due document to one scan only.
+    URL_REFRESH_SCAN_MINUTES: str = "0,30"
 
     model_config = SettingsConfigDict(case_sensitive=True, env_file=(".env", ".env.local"), extra="ignore")
 

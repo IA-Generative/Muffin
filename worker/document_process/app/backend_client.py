@@ -137,9 +137,10 @@ class BackendClient:
         response = self._client.post(f"/api/internal/documents/{document_id}/suggest-filing")
         response.raise_for_status()
 
-    def set_content_hash(self, document_id: str, content_hash: str) -> None:
+    def set_content_hash(self, document_id: str, content_hash: str, storage_key: str | None = None) -> None:
         response = self._client.put(
-            f"/api/internal/documents/{document_id}/content-hash", json={"content_hash": content_hash}
+            f"/api/internal/documents/{document_id}/content-hash",
+            json={"content_hash": content_hash, "storage_key": storage_key},
         )
         response.raise_for_status()
 

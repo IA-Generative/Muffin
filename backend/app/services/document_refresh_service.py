@@ -1,14 +1,16 @@
 import uuid
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security.factory import RequestContext
 from app.models.document import Document, DocumentStatus, DocumentType
+from app.models.document_refresh_schedule import SCAN_MINUTES, DocumentRefreshSchedule, RefreshKind
 from app.repositories.collection_repository import CollectionRepository
 from app.repositories.document_refresh_repository import DocumentRefreshRepository
 from app.repositories.document_repository import DocumentRepository
-from app.schemas.document import RefreshScheduleOut
+from app.schemas.document import RefreshSchedule, RefreshScheduleOut
 
 from .collection_service import CollectionNotFoundError
 from .document_upload_service import DocumentNotFoundError, DocumentUploadService
@@ -22,9 +24,51 @@ class NotUrlDocumentError(Exception):
     """Only a document added from a URL can be fetched again."""
 
 
+def _next_slot(moment: datetime) -> datetime:
+    """The first time the scan runs at or after `moment` - on the hour or at half past."""
+    slot = moment.replace(minute=moment.minute - moment.minute % SCAN_MINUTES, second=0, microsecond=0)
+    return slot if slot >= moment else slot + timedelta(minutes=SCAN_MINUTES)
+
+
+def first_run(schedule: RefreshSchedule, now: datetime) -> datetime:
+    """When a schedule just set runs first."""
+    if schedule.kind == RefreshKind.ONCE:
+        return schedule.run_at.astimezone(UTC)
+    if schedule.kind == RefreshKind.INTERVAL:
+        return _next_slot(now + timedelta(minutes=schedule.interval_minutes))
+    return _next_at_time_of_day(schedule, now)
+
+
+def next_run(schedule: DocumentRefreshSchedule, now: datetime) -> datetime | None:
+    """When a schedule that just ran runs next - None for a single fetch, which is done."""
+    if schedule.kind == RefreshKind.ONCE:
+        return None
+    if schedule.kind == RefreshKind.INTERVAL:
+        # Counted from the previous run, not from when the scan got to it: no drift. Runs missed while
+        # the scan was down are skipped, not caught up one after the other.
+        interval = timedelta(minutes=schedule.interval_minutes)
+        return schedule.next_run_at + interval * ((now - schedule.next_run_at) // interval + 1)
+    return _next_at_time_of_day(schedule, now)
+
+
+def _next_at_time_of_day(schedule: RefreshSchedule | DocumentRefreshSchedule, now: datetime) -> datetime:
+    """The first day (any, or one of the weekdays) whose time_of_day, in the owner's time zone, is
+    after `now` - so 9:00 stays 9:00 across daylight saving changes."""
+    zone = ZoneInfo(schedule.timezone)
+    today = now.astimezone(zone).date()
+    for offset in range(8):
+        day = today + timedelta(days=offset)
+        if schedule.kind == RefreshKind.WEEKLY and day.weekday() not in schedule.weekdays:
+            continue
+        candidate = datetime.combine(day, schedule.time_of_day, tzinfo=zone).astimezone(UTC)
+        if candidate > now:
+            return candidate
+    raise ValueError("a weekly schedule without any day")  # the schema refuses one
+
+
 class DocumentRefreshService:
-    """The scheduled refresh of URL documents (#19). The owner sets how often a page is fetched again;
-    a periodic scan (worker/document_process, every 30 minutes) claims the documents that are due and
+    """The scheduled refresh of URL documents (#19). The owner sets when a page is fetched again;
+    a periodic scan (worker/document_process, on the hour and at half past) claims the documents due and
     has each page fetched; the worker reports its content hash. Unchanged, nothing happens but the
     date of the check. Changed, the document is reprocessed from scratch - everything the pipeline
     derived from the old page is replaced."""
@@ -46,29 +90,46 @@ class DocumentRefreshService:
         return await self._out(document)
 
     async def set_schedule(
-        self, collection_id: uuid.UUID, user: RequestContext, document_id: uuid.UUID, interval_minutes: int | None
+        self,
+        collection_id: uuid.UUID,
+        user: RequestContext,
+        document_id: uuid.UUID,
+        refresh_schedule: RefreshSchedule | None,
     ) -> RefreshScheduleOut:
         if await self.collections.get(collection_id, user.user_id) is None:
             raise CollectionNotFoundError(str(collection_id))
         document = await self._document(collection_id, document_id)
         if document.type != DocumentType.URL:
             raise NotUrlDocumentError(str(document_id))
-        schedule = await self.schedules.get(document.id)
-        if interval_minutes is None:
-            if schedule is not None:
-                await self.schedules.delete(schedule)
-        else:
-            next_run_at = datetime.now(UTC) + timedelta(minutes=interval_minutes)
-            await self.schedules.set(document.id, interval_minutes, next_run_at)
+        await self.apply(document.id, refresh_schedule)
         await self.db.commit()
         return await self._out(document)
+
+    async def apply(self, document_id: uuid.UUID, refresh_schedule: RefreshSchedule | None) -> None:
+        """Sets (or, with None, removes) a URL document's schedule - also when the URL is added.
+        Doesn't commit."""
+        if refresh_schedule is None:
+            schedule = await self.schedules.get(document_id)
+            if schedule is not None:
+                await self.schedules.delete(schedule)
+            return
+        await self.schedules.set(document_id, refresh_schedule, first_run(refresh_schedule, datetime.now(UTC)))
 
     # -- the worker's side ------------------------------------------------------------------------
 
     async def claim_due(self) -> list[uuid.UUID]:
-        document_ids = await self.schedules.claim_due(datetime.now(UTC), CLAIM_LIMIT)
+        """The documents due, each claimed once: its next run moves forward in the same transaction,
+        or, for a single fetch, its schedule goes away."""
+        now = datetime.now(UTC)
+        schedules = await self.schedules.claim_due(now, CLAIM_LIMIT)
+        for schedule in schedules:
+            following = next_run(schedule, now)
+            if following is None:
+                await self.schedules.delete(schedule)
+            else:
+                schedule.next_run_at = following
         await self.db.commit()
-        return list(document_ids)
+        return [schedule.document_id for schedule in schedules]
 
     async def report_fetch(self, document_id: uuid.UUID, content_hash: str) -> bool:
         """The worker fetched the page again. Returns whether it changed - and then the document is
@@ -90,11 +151,18 @@ class DocumentRefreshService:
         await DocumentUploadService(self.db).reprocess(document, owner_id)
         return True
 
-    async def set_content_hash(self, document_id: uuid.UUID, content_hash: str) -> None:
-        """The hash of the page as it was just indexed - what the next refresh compares against."""
+    async def set_content_hash(self, document_id: uuid.UUID, content_hash: str, storage_key: str | None) -> None:
+        """The hash of the page as it was just indexed - what the next refresh compares against. For a
+        URL serving a file, also where the worker stored it: processed like an upload from there, and
+        deleted with the document."""
         document = await self.documents.get(document_id)
         if document is None:
             raise DocumentNotFoundError(str(document_id))
+        if storage_key is not None:
+            # The same layout as an upload, in this document's own collection.
+            if not storage_key.startswith(f"documents/{document.collection_id}/"):
+                raise ValueError(f"storage_key outside the document's collection: {storage_key}")
+            document.storage_key = storage_key
         document.content_hash = content_hash
         document.last_fetched_at = datetime.now(UTC)
         await self.db.commit()
@@ -109,8 +177,18 @@ class DocumentRefreshService:
 
     async def _out(self, document: Document) -> RefreshScheduleOut:
         schedule = await self.schedules.get(document.id)
+        if schedule is None:
+            return RefreshScheduleOut(schedule=None, next_run_at=None, last_fetched_at=document.last_fetched_at)
         return RefreshScheduleOut(
-            interval_minutes=schedule.interval_minutes if schedule else None,
-            next_run_at=schedule.next_run_at if schedule else None,
+            schedule=RefreshSchedule.model_construct(
+                kind=schedule.kind.value,
+                # A single fetch's date is its next run.
+                run_at=schedule.next_run_at if schedule.kind == RefreshKind.ONCE else None,
+                time_of_day=schedule.time_of_day,
+                weekdays=schedule.weekdays,
+                interval_minutes=schedule.interval_minutes,
+                timezone=schedule.timezone,
+            ),
+            next_run_at=schedule.next_run_at,
             last_fetched_at=document.last_fetched_at,
         )

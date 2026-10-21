@@ -16,7 +16,7 @@ Ordre d'import carefully choisi pour casser les dépendances circulaires :
 # --- Shared utilities (constants + helpers) ---
 # --- Re-exports used by tests via monkeypatch.setattr(tasks, ...) ---
 # These are imported into process.py but tests patch them on the package
-# level, so they must be accessible as tasks.fetch_url_markdown etc.
+# level, so they must be accessible as tasks.fetch_url etc.
 from app.celery_app import celery_app  # noqa: F401
 from app.tasks._shared import (  # noqa: F401
     PIPELINE_WINDOW_DEFAULTS,
@@ -33,7 +33,7 @@ from app.tasks._shared import (  # noqa: F401
     _windows,
     backend_client,
     content_hash,
-    fetch_url_markdown,
+    fetch_url,
     parse_file,
     storage,
 )
@@ -96,7 +96,7 @@ __all__ = [
     "backend_client",
     "celery_app",
     "parse_file",
-    "fetch_url_markdown",
+    "fetch_url",
     "content_hash",
     "storage",
 ]

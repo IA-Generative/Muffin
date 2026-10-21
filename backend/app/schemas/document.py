@@ -1,8 +1,9 @@
 import uuid
-from datetime import datetime
-from typing import Any
+from datetime import UTC, datetime, time
+from typing import Any, Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class DocumentOut(BaseModel):
@@ -76,6 +77,8 @@ class DocumentPageOut(BaseModel):
 
 class DocumentUrlCreate(BaseModel):
     url: str
+    # Asked when the URL is added (#19): when its page is fetched again. None: never.
+    refresh_schedule: "RefreshSchedule | None" = None
 
 
 class FilingCandidateOut(BaseModel):
@@ -153,31 +156,81 @@ class DocumentRevisionOut(BaseModel):
 # -- scheduled refresh of a URL document (#19) --------------------------------------------------
 
 
+class RefreshSchedule(BaseModel):
+    """When a URL document's page is fetched again: once at a date and time, every day or on some
+    days of the week at a time, or every N minutes. Every time is on the hour or at half past - when
+    the scan runs (app/models/document_refresh_schedule.py)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    kind: Literal["once", "daily", "weekly", "interval"]
+    # once: when (in the future).
+    run_at: datetime | None = None
+    # daily, weekly: at what time, in `timezone`.
+    time_of_day: time | None = None
+    # weekly: which days, 0 = Monday.
+    weekdays: list[int] | None = None
+    # interval: how often, a multiple of 30 minutes, up to a week.
+    interval_minutes: int | None = None
+    # The owner's time zone (the browser's): what time_of_day means.
+    timezone: str = "Europe/Paris"
+
+    @model_validator(mode="after")
+    def _complete(self) -> "RefreshSchedule":
+        from app.models.document_refresh_schedule import MAX_INTERVAL_MINUTES, SCAN_MINUTES
+
+        try:
+            ZoneInfo(self.timezone)
+        except (ZoneInfoNotFoundError, ValueError) as error:
+            raise ValueError(f"unknown time zone {self.timezone!r}") from error
+        on_grid = "must be on the hour or at half past"
+        if self.kind == "once":
+            if self.run_at is None or self.run_at.tzinfo is None:
+                raise ValueError("run_at (with a time zone) is required")
+            if self.run_at.minute % SCAN_MINUTES or self.run_at.second or self.run_at.microsecond:
+                raise ValueError(f"run_at {on_grid}")
+            if self.run_at <= datetime.now(UTC):
+                raise ValueError("run_at must be in the future")
+            self.time_of_day, self.weekdays, self.interval_minutes = None, None, None
+        elif self.kind in ("daily", "weekly"):
+            if self.time_of_day is None:
+                raise ValueError("time_of_day is required")
+            if self.time_of_day.minute % SCAN_MINUTES or self.time_of_day.second:
+                raise ValueError(f"time_of_day {on_grid}")
+            if self.kind == "weekly":
+                if not self.weekdays or any(day not in range(7) for day in self.weekdays):
+                    raise ValueError("weekdays: at least one day, 0 (Monday) to 6 (Sunday)")
+                self.weekdays = sorted(set(self.weekdays))
+            else:
+                self.weekdays = None
+            self.run_at, self.interval_minutes = None, None
+        else:
+            minutes = self.interval_minutes
+            if minutes is None or minutes <= 0 or minutes % SCAN_MINUTES or minutes > MAX_INTERVAL_MINUTES:
+                raise ValueError(f"interval_minutes: a multiple of {SCAN_MINUTES}, up to {MAX_INTERVAL_MINUTES}")
+            self.run_at, self.time_of_day, self.weekdays = None, None, None
+        return self
+
+
 class RefreshScheduleOut(BaseModel):
     # None: no automatic refresh.
-    interval_minutes: int | None
+    schedule: RefreshSchedule | None
     next_run_at: datetime | None
     # When the page was last fetched - by its indexing or by a refresh check.
     last_fetched_at: datetime | None
 
 
 class RefreshScheduleUpdate(BaseModel):
-    # One of REFRESH_INTERVALS_MINUTES, or None to stop refreshing.
-    interval_minutes: int | None
-
-    @field_validator("interval_minutes")
-    @classmethod
-    def _allowed(cls, value: int | None) -> int | None:
-        from app.models.document_refresh_schedule import REFRESH_INTERVALS_MINUTES
-
-        if value is not None and value not in REFRESH_INTERVALS_MINUTES:
-            raise ValueError(f"must be one of {list(REFRESH_INTERVALS_MINUTES)}")
-        return value
+    # None to stop refreshing.
+    schedule: RefreshSchedule | None
 
 
 class ContentHashIn(BaseModel):
-    # SHA-256 (hex) of the page as the worker extracted it.
+    # SHA-256 (hex) of the page as the worker extracted it - or of the file, for a URL serving one.
     content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    # Where the worker stored the file a URL served (PDF, Office, image, text, tabular), processed
+    # like an upload from there. None for an HTML page.
+    storage_key: str | None = None
 
 
 class UrlRefreshClaimOut(BaseModel):
@@ -187,3 +240,7 @@ class UrlRefreshClaimOut(BaseModel):
 class UrlFetchReportOut(BaseModel):
     # The page differs from what is indexed: the document is being reprocessed.
     changed: bool
+
+
+# DocumentUrlCreate refers to RefreshSchedule, defined after it.
+DocumentUrlCreate.model_rebuild()

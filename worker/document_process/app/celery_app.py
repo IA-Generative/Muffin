@@ -1,4 +1,5 @@
 from celery import Celery
+from celery.schedules import crontab
 from kombu import Queue
 
 from app.config import settings
@@ -29,7 +30,7 @@ celery_app.conf.update(
     beat_schedule={
         "scan-url-refresh": {
             "task": "app.tasks.scan_url_refresh",
-            "schedule": settings.URL_REFRESH_SCAN_SECONDS,
+            "schedule": crontab(minute=settings.URL_REFRESH_SCAN_MINUTES),
             "options": {"queue": settings.CELERY_QUEUE_NAME},
         }
     },

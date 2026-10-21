@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { describeSchedule, type RefreshSchedule } from '../utils/refreshSchedule'
+import RefreshScheduleForm from './RefreshScheduleForm.vue'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
 
@@ -11,24 +13,17 @@ const props = defineProps<{
 }>()
 
 interface ScheduleOut {
-  interval_minutes: number | null
+  schedule: RefreshSchedule | null
   next_run_at: string | null
   last_fetched_at: string | null
 }
 
-// Multiples of the 30-minute scan that looks for documents due (see the backend's
-// REFRESH_INTERVALS_MINUTES): anything shorter couldn't be honoured.
-const OPTIONS: { value: number | null; label: string }[] = [
-  { value: null, label: 'Jamais' },
-  { value: 30, label: 'Toutes les 30 minutes' },
-  { value: 60, label: 'Toutes les heures' },
-  { value: 360, label: 'Toutes les 6 heures' },
-  { value: 720, label: 'Toutes les 12 heures' },
-  { value: 1440, label: 'Tous les jours' },
-  { value: 10080, label: 'Toutes les semaines' },
-]
-
-const schedule = ref<ScheduleOut | null>(null)
+const current = ref<ScheduleOut | null>(null)
+// What the form holds - saved only on "Enregistrer", the form having several fields.
+const draft = ref<RefreshSchedule | null>(null)
+const valid = ref(true)
+// Re-creates the form from what was saved.
+const formKey = ref(0)
 const busy = ref(false)
 const error = ref<string | null>(null)
 
@@ -36,19 +31,30 @@ const url = computed(
   () => `${API_BASE_URL}/api/collections/${props.collectionId}/documents/${props.documentId}/refresh-schedule`,
 )
 const formatter = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'short', timeStyle: 'short' })
-const label = computed(() => OPTIONS.find((option) => option.value === schedule.value?.interval_minutes)?.label)
+const changed = computed(() => JSON.stringify(comparable(draft.value)) !== JSON.stringify(comparable(current.value?.schedule ?? null)))
+
+// The fields the form sets, without the time zone or a time's seconds the backend adds.
+function comparable(schedule: RefreshSchedule | null) {
+  if (!schedule) return null
+  return {
+    kind: schedule.kind,
+    run_at: schedule.run_at ? new Date(schedule.run_at).getTime() : null,
+    time_of_day: schedule.time_of_day?.slice(0, 5) ?? null,
+    weekdays: schedule.weekdays ?? null,
+    interval_minutes: schedule.interval_minutes ?? null,
+  }
+}
 
 async function load() {
   try {
     const response = await fetch(url.value, { credentials: 'include' })
-    if (response.ok) schedule.value = await response.json()
+    if (response.ok) current.value = await response.json()
   } catch {
     // The setting just doesn't show; the document itself is unaffected.
   }
 }
 
-async function change(event: Event) {
-  const raw = (event.target as HTMLSelectElement).value
+async function save() {
   busy.value = true
   error.value = null
   try {
@@ -56,12 +62,13 @@ async function change(event: Event) {
       method: 'PUT',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ interval_minutes: raw === '' ? null : Number(raw) }),
+      body: JSON.stringify({ schedule: draft.value }),
     })
     if (!response.ok) throw new Error(String(response.status))
-    schedule.value = await response.json()
+    current.value = await response.json()
+    formKey.value += 1
   } catch {
-    error.value = 'La fréquence n’a pas pu être enregistrée.'
+    error.value = 'La mise à jour automatique n’a pas pu être enregistrée.'
   } finally {
     busy.value = false
   }
@@ -71,28 +78,33 @@ onMounted(load)
 </script>
 
 <template>
-  <section v-if="schedule" class="url-refresh">
-    <h3 class="url-refresh__title">Mise à jour automatique</h3>
-    <select
-      v-if="editable"
-      class="fr-select url-refresh__select"
-      aria-label="Fréquence de mise à jour de la page"
-      :value="schedule.interval_minutes ?? ''"
-      :disabled="busy"
-      @change="change"
-    >
-      <option v-for="option in OPTIONS" :key="option.label" :value="option.value ?? ''">{{ option.label }}</option>
-    </select>
-    <p v-else class="url-refresh__line">{{ label }}</p>
-    <p class="url-refresh__hint">
-      La page est relue à cette fréquence. Si son contenu a changé, le document est entièrement réindexé (résumé,
-      questions-réponses, entités, tags) ; sinon rien ne change.
+  <section v-if="current" class="url-refresh">
+    <template v-if="editable">
+      <RefreshScheduleForm
+        :key="formKey"
+        v-model="draft"
+        v-model:valid="valid"
+        :initial="current.schedule"
+        :id-prefix="`refresh-${documentId}`"
+      />
+      <button
+        type="button"
+        class="fr-btn fr-btn--secondary fr-btn--sm url-refresh__save"
+        :disabled="busy || !valid || !changed"
+        @click="save"
+      >
+        Enregistrer
+      </button>
+    </template>
+    <template v-else>
+      <h3 class="url-refresh__title">Mise à jour automatique</h3>
+      <p class="url-refresh__line">{{ describeSchedule(current.schedule) }}</p>
+    </template>
+    <p v-if="current.last_fetched_at" class="url-refresh__line">
+      Dernière lecture : {{ formatter.format(new Date(current.last_fetched_at)) }}
     </p>
-    <p v-if="schedule.last_fetched_at" class="url-refresh__line">
-      Dernière lecture : {{ formatter.format(new Date(schedule.last_fetched_at)) }}
-    </p>
-    <p v-if="schedule.next_run_at" class="url-refresh__line">
-      Prochaine vérification : vers {{ formatter.format(new Date(schedule.next_run_at)) }}
+    <p v-if="current.next_run_at" class="url-refresh__line">
+      Prochaine vérification : {{ formatter.format(new Date(current.next_run_at)) }}
     </p>
     <p v-if="error" class="url-refresh__error" role="alert">{{ error }}</p>
   </section>
@@ -110,11 +122,10 @@ onMounted(load)
   font-size: 0.9375rem;
 }
 
-.url-refresh__select {
-  max-width: 18rem;
+.url-refresh__save {
+  margin-top: 0.75rem;
 }
 
-.url-refresh__hint,
 .url-refresh__line {
   margin: 0.375rem 0 0;
   font-size: 0.8125rem;
