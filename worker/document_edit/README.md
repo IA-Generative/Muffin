@@ -9,7 +9,7 @@ Ne parle jamais directement à Postgres : toute lecture/écriture de données pa
 internes du backend (`app/backend_client.py`, authentifiés par `WORKER_API_KEY`). Seuls les fichiers
 (source et brouillon) sont lus/écrits directement dans RustFS, comme `worker/document_process`.
 
-Dans sa propre queue Celery (`document_edit`), séparée de `document_processing`, `agent_execution` et
+Dans sa propre queue Celery (`document_edit`), séparée de celles de worker/document_process, `agent_execution` et
 `evaluation` : un job d'édition appelle un LLM puis une conversion LibreOffice, ni l'un ni l'autre ne
 doit retarder une ingestion ou une réponse de chat.
 

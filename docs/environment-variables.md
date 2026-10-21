@@ -35,10 +35,11 @@ d'environnement (exportée par Docker Compose ou la CI) l'emporte toujours sur u
 |---|---|---|---|
 | `REDIS_URL` | URL Redis (broker ET result backend Celery, aussi utilisé comme checkpointer LangGraph côté agent_execution) | `redis://localhost:6379/0` | **backend** (`app/config/redis.py` → `app/core/tasks.py`, producteur Celery), **worker/document_process**, **worker/agent_execution**, **worker/evaluation**, **worker/document_edit** (`app/config.py`, chacun avec sa propre queue) |
 
-Le broker est un unique `redis-stack-server` partagé ; les deux workers consomment des queues
-Celery distinctes (`document_processing`, `agent_execution`) sur ce même Redis, avec une queue
-name configurable côté worker (`CELERY_QUEUE_NAME`, non exposée dans `docker-compose.yaml`, garde
-sa valeur par défaut en pratique).
+Le broker est un unique `redis-stack-server` partagé ; chaque worker consomme ses propres queues
+Celery sur ce même Redis (`document_extraction`, `document_enrichment`, `document_import`,
+`index_rebuild` pour worker/document_process, voir son README ; `agent_execution`, `evaluation`,
+`document_edit` pour les autres). Les noms sont configurables côté worker mais gardent leur valeur
+par défaut en pratique, et doivent correspondre à ceux de `backend/app/core/tasks.py`.
 
 ## Authentification (Keycloak)
 
@@ -158,8 +159,11 @@ désactivée par défaut en amont et doit être explicitement activée côté se
 
 | Variable | Définition | Défaut | Utilisée par |
 |---|---|---|---|
-| `CELERY_QUEUE_NAME` | Nom de la queue Celery consommée par ce worker | `document_processing` | **worker/document_process** (`app/config.py`) |
-| `REBUILD_QUEUE_NAME` | Queue Celery des reconstructions blue/green d'index (#12) - doit correspondre à `INDEX_REBUILD_QUEUE` de `backend/app/core/tasks.py`. Consommée par tout worker démarré sans `-Q` ; `docker-compose.yaml` lance un worker dédié (`worker-index-rebuild`, `-Q index_rebuild`) pour qu'une grosse reconstruction ne retarde pas l'ingestion | `index_rebuild` | **worker/document_process** (`app/config.py`, `app/celery_app.py`) |
+| `EXTRACTION_QUEUE_NAME` | Queue Celery de l'extraction (OCR, parsing, fetch d'URL), pod `document_process` (#291) - doit correspondre à `DOCUMENT_EXTRACTION_QUEUE` de `backend/app/core/tasks.py` | `document_extraction` | **worker/document_process** (`app/config.py`, `app/celery_app.py`) |
+| `ENRICHMENT_QUEUE_NAME` | Queue Celery de l'enrichissement (embeddings, appels LLM), pod `document_enrichment` (#291) - doit correspondre à `DOCUMENT_ENRICHMENT_QUEUE` du backend | `document_enrichment` | **worker/document_process** (`app/config.py`, `app/celery_app.py`) |
+| `IMPORT_QUEUE_NAME` | Queue Celery des imports ZIP (#223), pod `index_rebuild` (#291) - doit correspondre à `DOCUMENT_IMPORT_QUEUE` du backend | `document_import` | **worker/document_process** (`app/config.py`, `app/celery_app.py`) |
+| `REBUILD_QUEUE_NAME` | Queue Celery des reconstructions blue/green d'index (#12), pod `index_rebuild` - doit correspondre à `INDEX_REBUILD_QUEUE` de `backend/app/core/tasks.py` | `index_rebuild` | **worker/document_process** (`app/config.py`, `app/celery_app.py`) |
+| `LEGACY_QUEUE_NAME` | La queue unique d'avant #291, encore vidée par le pod d'extraction pendant une release pour ne rien perdre à la bascule - à retirer ensuite | `document_processing` | **worker/document_process** (`app/config.py`, `Dockerfile`) |
 | `OCR_LANGUAGE` | Code langue Tesseract (ISO 639-2) utilisé pour l'OCR des pages scannées | `fra` | idem (pipeline OCR) |
 | `ZIP_IMPORT_MAX_FILES` | Nombre maximal de fichiers d'un ZIP importé ; au-delà, l'archive entière est refusée | `2000` | **worker-document-process** (`app/config.py`, `app/tasks/import_zip.py`) |
 | `ZIP_IMPORT_MAX_TOTAL_BYTES` | Taille maximale d'un ZIP une fois décompressé, en octets ; au-delà, l'archive est refusée (vérifiée sur la taille annoncée puis sur ce qui est réellement lu) | `2147483648` (2 Go) | idem |

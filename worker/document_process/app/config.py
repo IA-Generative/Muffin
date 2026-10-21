@@ -3,11 +3,22 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class WorkerSettings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0"
-    CELERY_QUEUE_NAME: str = "document_processing"
-    # The blue/green index rebuilds (#12) - must match INDEX_REBUILD_QUEUE on the backend. Consumed
-    # by every worker unless started with `-Q` (docker-compose runs a dedicated one), so a rebuild
-    # works out of the box and can be isolated from ingestion when it matters.
+    # The queues of this image (#291), each consumed by its own pod - started with `-Q`, see
+    # docker-compose.yaml and the Helm values. Names shared with the backend's app/core/tasks.py.
+    # Extraction (CPU: OCR, parsing, fetching a URL), prefork. A document a ZIP import created is sent
+    # with a low priority (the backend's BULK_PRIORITY): Redis keeps it in a list of its own that the
+    # worker only reads once the normal one is empty - a file someone just dropped never waits behind
+    # a 2000-file archive.
+    EXTRACTION_QUEUE_NAME: str = "document_extraction"
+    # Enrichment (network: embeddings and LLM calls), a pool of threads.
+    ENRICHMENT_QUEUE_NAME: str = "document_enrichment"
+    # Long I/O jobs, with the index rebuilds: reading a ZIP into documents (#223).
+    IMPORT_QUEUE_NAME: str = "document_import"
+    # The blue/green index rebuilds (#12) - must match INDEX_REBUILD_QUEUE on the backend.
     REBUILD_QUEUE_NAME: str = "index_rebuild"
+    # The single queue every task used before #291: still consumed by the extraction pod for one
+    # release, so what was queued before the deploy is not lost. To remove after.
+    LEGACY_QUEUE_NAME: str = "document_processing"
 
     BACKEND_API_URL: str = "http://localhost:8000"
     WORKER_API_KEY: str = ""

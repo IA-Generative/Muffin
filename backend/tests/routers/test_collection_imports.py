@@ -31,7 +31,10 @@ def stored(monkeypatch) -> MagicMock:
     storage.upload_fileobj.side_effect = lambda key, fileobj, content_type: setattr(storage, "uploaded", fileobj.read())
     monkeypatch.setattr(collection_import_service, "storage", storage)
     monkeypatch.setattr(collection_import_service, "enqueue_import_zip", lambda import_id: f"celery-{import_id}")
-    monkeypatch.setattr("app.services.document_upload_service.enqueue_process_document", lambda doc_id: f"p-{doc_id}")
+    monkeypatch.setattr(
+        "app.services.document_upload_service.enqueue_process_document",
+        lambda doc_id, bulk=False: f"p-{doc_id}{'-bulk' if bulk else ''}",
+    )
     monkeypatch.setattr(worker_auth._worker_settings, "WORKER_API_KEY", API_KEY)
     return storage
 
@@ -241,7 +244,8 @@ class TestWorkerRoutes:
             document = await session.get(Document, uuid.UUID(response.json()["id"]))
             task = await session.scalar(select(Task).where(Task.document_id == document.id))
         assert document.name == "doc.pdf" and document.added_by_user_id == "owner"
-        assert task.celery_task_id == f"p-{document.id}"
+        # Queued behind any document someone dropped by hand (#291).
+        assert task.celery_task_id == f"p-{document.id}-bulk"
 
     async def test_a_storage_key_outside_the_collection_is_refused(self, client):
         body = (await _import(client)).json()

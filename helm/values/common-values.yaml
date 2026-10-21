@@ -120,7 +120,12 @@ backend:
     # OPENAI_API_BASE_URL: ""
     LOG_LEVEL: "INFO"
 
-# Celery worker - document ingestion/OCR pipeline (worker/document_process).
+# worker/document_process runs as three pods from the same image (#291), one per kind of work - see
+# app/celery_app.py there for which task goes where.
+#
+# Celery worker - document extraction: OCR, parsing, fetching a URL (CPU-bound, prefork). Runs the
+# image's default command (its Dockerfile): queues document_extraction and document_processing (the
+# one before #291, drained for one release), and the beat of the URL refresh scan.
 document_process:
   image:
     registry: "harbor.sdid.cpin.numerique-interieur.com"
@@ -149,10 +154,83 @@ document_process:
   - secretRef:
       name: "muffin-redis"
   env:
-    CELERY_QUEUE_NAME: "document_processing"
     BACKEND_API_URL: "http://muffin-backend:8000"
     AWS_ENDPOINT_URL: "https://s3.fr-par.scw.cloud"
     OCR_LANGUAGE: "fra"
+
+# Celery worker - document enrichment: chunking with its embeddings, summary, QA, entities, tags.
+# Mostly waiting for the embeddings/LLM API, so a pool of threads runs many at once; no beat.
+document_enrichment:
+  image:
+    registry: "harbor.sdid.cpin.numerique-interieur.com"
+    repository: "{{ .Values.global.project }}/muffin-worker-document-process"
+    pullPolicy: "Always"
+  serviceAccount:
+    enabled: true
+    create: true
+  # Probes disabled - see document_process above for rationale.
+  probes:
+    startupProbe: null
+    readinessProbe: null
+    livenessProbe: null
+  args:
+  - "celery"
+  - "-A"
+  - "app.celery_app"
+  - "worker"
+  - "--loglevel=info"
+  - "-Q"
+  - "document_enrichment"
+  - "-P"
+  - "threads"
+  - "-c"
+  - "16"
+  envFrom:
+  - secretRef:
+      name: "muffin-s3"
+  - secretRef:
+      name: "muffin-worker"
+  - secretRef:
+      name: "muffin-redis"
+  env:
+    BACKEND_API_URL: "http://muffin-backend:8000"
+    AWS_ENDPOINT_URL: "https://s3.fr-par.scw.cloud"
+
+# Celery worker - long I/O jobs: the blue/green index rebuilds (#12) and the ZIP imports (#223), so
+# that neither holds up the ingestion of new documents. Prefork, a couple at a time; no beat.
+index_rebuild:
+  image:
+    registry: "harbor.sdid.cpin.numerique-interieur.com"
+    repository: "{{ .Values.global.project }}/muffin-worker-document-process"
+    pullPolicy: "Always"
+  serviceAccount:
+    enabled: true
+    create: true
+  # Probes disabled - see document_process above for rationale.
+  probes:
+    startupProbe: null
+    readinessProbe: null
+    livenessProbe: null
+  args:
+  - "celery"
+  - "-A"
+  - "app.celery_app"
+  - "worker"
+  - "--loglevel=info"
+  - "-Q"
+  - "index_rebuild,document_import"
+  - "-c"
+  - "2"
+  envFrom:
+  - secretRef:
+      name: "muffin-s3"
+  - secretRef:
+      name: "muffin-worker"
+  - secretRef:
+      name: "muffin-redis"
+  env:
+    BACKEND_API_URL: "http://muffin-backend:8000"
+    AWS_ENDPOINT_URL: "https://s3.fr-par.scw.cloud"
 
 # Celery worker - agentic research/chat execution (worker/agent_execution).
 # NOTE: this worker's LangGraph checkpointer needs RediSearch (redis-stack), which is why
@@ -689,7 +767,7 @@ extraObjects:
   # Per-env overrides (minReplicaCount, maxReplicaCount, pollingInterval, listLength) live
   # in `values-<env>.yaml` under `extraObjects.<name>.spec`.
 
-  # TriggerAuthentication: shared by all 3 worker ScaledObjects.
+  # TriggerAuthentication: shared by all the worker ScaledObjects.
   muffin-keda-triggerauth:
     apiVersion: keda.sh/v1alpha1
     kind: TriggerAuthentication
@@ -701,7 +779,10 @@ extraObjects:
         name: "muffin-redis"
         key: "REDIS_PASSWORD"
 
-  # ScaledObject for document_process (queue: document_processing)
+  # ScaledObject for document_process - the extraction pod (#291). One trigger per Redis list it
+  # reads, KEDA scaling on the busiest: document_extraction, the low-priority list Celery keeps
+  # next to it for a ZIP import's documents (`<queue>\x06\x16<priority>`, see BULK_PRIORITY in
+  # backend/app/core/tasks.py), and document_processing, the queue before #291 (to remove with it).
   muffin-keda-document-process:
     apiVersion: keda.sh/v1alpha1
     kind: ScaledObject
@@ -720,8 +801,83 @@ extraObjects:
         metricType: AverageValue
         metadata:
           address: "muffin-redis.{{ .Release.Namespace }}.svc.cluster.local:6379"
+          listName: "document_extraction"
+          listLength: "5"
+        authenticationRef:
+          name: muffin-keda-triggerauth
+      - type: redis
+        metricType: AverageValue
+        metadata:
+          address: "muffin-redis.{{ .Release.Namespace }}.svc.cluster.local:6379"
+          listName: "document_extraction\x06\x169"
+          listLength: "5"
+        authenticationRef:
+          name: muffin-keda-triggerauth
+      - type: redis
+        metricType: AverageValue
+        metadata:
+          address: "muffin-redis.{{ .Release.Namespace }}.svc.cluster.local:6379"
           listName: "document_processing"
           listLength: "5"
+        authenticationRef:
+          name: muffin-keda-triggerauth
+
+  # ScaledObject for document_enrichment (queue: document_enrichment) - each pod runs 16 tasks at
+  # once (threads), hence a longer list per pod before scaling out.
+  muffin-keda-document-enrichment:
+    apiVersion: keda.sh/v1alpha1
+    kind: ScaledObject
+    metadata:
+      name: muffin-document-enrichment
+    spec:
+      scaleTargetRef:
+        name: muffin-document-enrichment
+        kind: Deployment
+        apiVersion: apps/v1
+      minReplicaCount: 2
+      maxReplicaCount: 4
+      pollingInterval: 30
+      triggers:
+      - type: redis
+        metricType: AverageValue
+        metadata:
+          address: "muffin-redis.{{ .Release.Namespace }}.svc.cluster.local:6379"
+          listName: "document_enrichment"
+          listLength: "32"
+        authenticationRef:
+          name: muffin-keda-triggerauth
+
+  # ScaledObject for index_rebuild (queues: index_rebuild, document_import). Never to zero: a
+  # running rebuild or import has already left the list (acks_late), so KEDA would not see it and
+  # could stop the pod under it.
+  muffin-keda-index-rebuild:
+    apiVersion: keda.sh/v1alpha1
+    kind: ScaledObject
+    metadata:
+      name: muffin-index-rebuild
+    spec:
+      scaleTargetRef:
+        name: muffin-index-rebuild
+        kind: Deployment
+        apiVersion: apps/v1
+      minReplicaCount: 1
+      maxReplicaCount: 4
+      pollingInterval: 30
+      triggers:
+      - type: redis
+        metricType: AverageValue
+        metadata:
+          address: "muffin-redis.{{ .Release.Namespace }}.svc.cluster.local:6379"
+          listName: "index_rebuild"
+          listLength: "2"
+        authenticationRef:
+          name: muffin-keda-triggerauth
+      - type: redis
+        metricType: AverageValue
+        metadata:
+          address: "muffin-redis.{{ .Release.Namespace }}.svc.cluster.local:6379"
+          listName: "document_import"
+          listLength: "2"
         authenticationRef:
           name: muffin-keda-triggerauth
 

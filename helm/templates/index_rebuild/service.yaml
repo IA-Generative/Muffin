@@ -1,0 +1,26 @@
+{{- if .Values.enabled }}
+{{- /* Not gated on `deploymentType`: every supported kind (Deployment/StatefulSet/DaemonSet) can
+sit behind a Service, and `service.enabled` is the switch for components that take no traffic.
+This matches metrics.yaml, which is gated the same way. */ -}}
+{{- if .Values.index_rebuild.service.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "helper.componentFullname" (dict "root" . "componentName" "index_rebuild") }}
+  labels: {{- (include "helper.labels" (dict "root" . "componentName" "index_rebuild")) | nindent 4 }}
+spec:
+  type: {{ .Values.index_rebuild.service.type | default "ClusterIP" }}
+  ports:
+  - port: {{ .Values.index_rebuild.service.port | default 80 }}
+    targetPort: {{ .Values.index_rebuild.containerPortName | default .Values.index_rebuild.containerPort | default 8080 }}
+    protocol: {{ .Values.index_rebuild.service.protocol | default "TCP" }}
+    {{- if and (eq .Values.index_rebuild.service.type "NodePort") .Values.index_rebuild.service.nodePort }}
+    nodePort: {{ .Values.index_rebuild.service.nodePort }}
+    {{- end }}
+    name: {{ .Values.index_rebuild.service.portName | default "http" }}
+  {{- if .Values.index_rebuild.service.extraPorts -}}
+  {{- toYaml .Values.index_rebuild.service.extraPorts | nindent 2 -}}
+  {{- end }}
+  selector: {{- include "helper.selectorLabels" (dict "root" . "componentName" "index_rebuild") | nindent 4 }}
+{{- end }}
+{{- end }}
