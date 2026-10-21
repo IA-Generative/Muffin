@@ -79,7 +79,7 @@ def _detect_format(filename: str) -> str:
 class LivingDocumentService:
     """Living documents (#166): files whose content evolves through append-only revisions.
     Replacing one swaps the file Document.storage_key points at and reprocesses that single
-    document - nothing else in the collection is touched, unlike reindex_collection."""
+    document - nothing else in the collection is touched."""
 
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
@@ -370,7 +370,7 @@ class LivingDocumentService:
     async def _reprocess(
         self, document: Document, collection_id: uuid.UUID, storage_key: str, user: RequestContext
     ) -> None:
-        """Single-document counterpart of reindex_collection: drops this document's embeddings
+        """Single-document reprocessing: drops this document's embeddings
         and pages/chunks, points it at the new file and re-queues processing. Embeddings go
         first - once the chunk rows are cleared their ids can't be looked up anymore."""
         chunk_ids = await self.documents.list_chunk_ids(document.id)

@@ -9,6 +9,18 @@ export interface CollectionDocument {
   progress: number
 }
 
+// A blue/green rebuild of a collection's search index (#12): the current index keeps answering while
+// the new one is built; once swapped in, the old one is kept until the owner validates or rolls back.
+export interface IndexRebuild {
+  id: string
+  status: 'building' | 'swapped' | 'finalized' | 'rolled_back' | 'failed'
+  targetModel: string
+  previousModel: string
+  totalPoints: number
+  donePoints: number
+  error: string | null
+}
+
 export interface FieldStamp {
   updatedBy: string
   updatedAt: string
@@ -193,6 +205,9 @@ export interface Collection {
   chunks: Chunk[]
   chunkingSettings: ChunkingSettings
   embeddingModel: string
+  // The model of the vectors the active index holds, when it isn't embeddingModel yet (#12): the
+  // chosen model only applies once the index has been rebuilt with it.
+  indexEmbeddingModel: string | null
   reindexRequired: boolean
   instructions: PipelineInstructions
   generationModels: GenerationModels

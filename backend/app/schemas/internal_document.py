@@ -40,3 +40,6 @@ class ChunkCreate(BaseModel):
     # embedding_model) and upserted into Meilisearch here rather than stored in Postgres -
     # None when no LLM hub is configured, in which case this chunk is just not searchable.
     embedding: list[float] | None = None
+    # The model the worker made the vector with - redone with the index's own model when it differs
+    # (a vector computed just before the index was rebuilt with a new one, #12).
+    embedding_model: str | None = None

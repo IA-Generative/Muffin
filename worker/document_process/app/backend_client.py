@@ -6,6 +6,20 @@ from app.config import settings
 from app.usage_context import current_usage
 
 
+class Embedding(list):
+    """A vector that remembers the model it was made with. Sent along with it wherever it is stored,
+    so the backend can tell a vector made with another model than its index's - one computed just
+    before the index was rebuilt with a new model (#12) - and redo it."""
+
+    def __init__(self, values: list[float], model: str) -> None:
+        super().__init__(values)
+        self.model = model
+
+
+def _model_of(embedding: list[float] | None) -> str | None:
+    return getattr(embedding, "model", None)
+
+
 class BackendClient:
     """Talks to the backend's /api/internal/* routes, authenticated with the
     shared WORKER_API_KEY instead of a Keycloak session."""
@@ -107,6 +121,7 @@ class BackendClient:
                 "token_count": token_count,
                 "extras": extras,
                 "embedding": embedding,
+                "embedding_model": _model_of(embedding),
             },
         )
         response.raise_for_status()
@@ -114,7 +129,7 @@ class BackendClient:
     def set_document_summary(self, document_id: str, summary: str, embedding: list[float] | None = None) -> None:
         response = self._client.patch(
             f"/api/internal/documents/{document_id}/summary",
-            json={"summary": summary, "embedding": embedding},
+            json={"summary": summary, "embedding": embedding, "embedding_model": _model_of(embedding)},
         )
         response.raise_for_status()
 
@@ -126,6 +141,30 @@ class BackendClient:
         response = self._client.put(
             f"/api/internal/documents/{document_id}/content-hash", json={"content_hash": content_hash}
         )
+        response.raise_for_status()
+
+    # --- Blue/green index rebuild (#12) ---
+
+    def get_rebuild_plan(self, rebuild_id: str) -> dict[str, Any]:
+        response = self._client.get(f"/api/internal/index-rebuilds/{rebuild_id}/plan")
+        response.raise_for_status()
+        return response.json()
+
+    def submit_rebuild_vectors(self, rebuild_id: str, model: str, points: list[dict[str, Any]]) -> int:
+        response = self._client.post(
+            f"/api/internal/index-rebuilds/{rebuild_id}/vectors", json={"model": model, "points": points}
+        )
+        response.raise_for_status()
+        return response.json()["stored"]
+
+    def swap_rebuild(self, rebuild_id: str) -> bool:
+        """Whether the new index is now the active one - False while the backend still sees points missing."""
+        response = self._client.post(f"/api/internal/index-rebuilds/{rebuild_id}/swap")
+        response.raise_for_status()
+        return response.json()["swapped"]
+
+    def fail_rebuild(self, rebuild_id: str, error: str) -> None:
+        response = self._client.post(f"/api/internal/index-rebuilds/{rebuild_id}/fail", json={"error": error})
         response.raise_for_status()
 
     def claim_url_refresh(self) -> list[str]:
@@ -176,6 +215,7 @@ class BackendClient:
                 "question": question,
                 "answer": answer,
                 "embedding": embedding,
+                "embedding_model": _model_of(embedding),
             },
         )
         response.raise_for_status()
@@ -280,7 +320,15 @@ class BackendClient:
             "/api/internal/llm/embed", json={"model": model, "input": text, "usage": current_usage()}
         )
         response.raise_for_status()
-        return response.json()["embedding"]
+        return Embedding(response.json()["embedding"], model)
+
+    def embed_batch(self, model: str, texts: list[str]) -> list[list[float]]:
+        """One call for many texts - what an index rebuild (#12) uses to redo thousands of vectors."""
+        response = self._client.post(
+            "/api/internal/llm/embed-batch", json={"model": model, "inputs": texts, "usage": current_usage()}
+        )
+        response.raise_for_status()
+        return response.json()["embeddings"]
 
     def update_collection_description_embedding(self, collection_id: str, embedding: list[float]) -> None:
         """Not persisted in Postgres - indexed straight into Meilisearch (§124), which is now

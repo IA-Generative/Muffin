@@ -48,6 +48,10 @@ SCORE_DISCUSSION_TASK = "app.tasks.score_discussion"
 # And again for worker/document_edit (#167) - an edit job runs an LLM and a LibreOffice
 # conversion, so it gets its own queue rather than competing with the others.
 DOCUMENT_EDIT_QUEUE = "document_edit"
+# Rebuilding a collection's search index with a new embedding model (#12): its own queue, consumed by
+# the document_process worker, so a large rebuild never holds up the ingestion of new documents.
+INDEX_REBUILD_QUEUE = "index_rebuild"
+REBUILD_INDEX_TASK = "app.tasks.rebuild_index"
 EDIT_DOCUMENT_TASK = "app.tasks.edit_document"
 # Same worker and queue: putting a user's uploaded images into an ODT draft (#169).
 INSERT_IMAGES_TASK = "app.tasks.insert_images"
@@ -146,6 +150,11 @@ def enqueue_render_upload(payload: dict, task_id: str | None = None) -> str:
     """`payload` is worker/document_edit's RenderUploadInput. Same `task_id` convention as
     enqueue_insert_images."""
     result = _celery_app.send_task(RENDER_UPLOAD_TASK, args=[payload], queue=DOCUMENT_EDIT_QUEUE, task_id=task_id)
+    return result.id
+
+
+def enqueue_rebuild_index(rebuild_id: str) -> str:
+    result = _celery_app.send_task(REBUILD_INDEX_TASK, args=[rebuild_id], queue=INDEX_REBUILD_QUEUE)
     return result.id
 
 

@@ -1,4 +1,5 @@
 from celery import Celery
+from kombu import Queue
 
 from app.config import settings
 
@@ -6,7 +7,11 @@ celery_app = Celery("muffin_document_process", broker=settings.REDIS_URL, backen
 
 celery_app.conf.update(
     task_default_queue=settings.CELERY_QUEUE_NAME,
-    task_routes={"app.tasks.process_document": {"queue": settings.CELERY_QUEUE_NAME}},
+    task_queues=(Queue(settings.CELERY_QUEUE_NAME), Queue(settings.REBUILD_QUEUE_NAME)),
+    task_routes={
+        "app.tasks.process_document": {"queue": settings.CELERY_QUEUE_NAME},
+        "app.tasks.rebuild_index": {"queue": settings.REBUILD_QUEUE_NAME},
+    },
     # Rogue documents (corrupt PDFs, hung OCR) get killed instead of stalling
     # the queue - SIGKILL, not a graceful ask, since parsing isn't interruptible.
     task_time_limit=300,

@@ -226,10 +226,13 @@ class CollectionRepository:
         """Which embedding model each collection's chunks were embedded with (§12: VDB routing
         picks collections, but the query itself must be embedded once per distinct model among
         them before searching each one's own Meilisearch index)."""
+        # The model of the vectors in the active index, which is the configured one unless the owner
+        # picked another model and the index hasn't been rebuilt with it yet (#12).
         result = await self.db.execute(
-            select(CollectionSettings.collection_id, CollectionSettings.embedding_model).where(
-                CollectionSettings.collection_id.in_(collection_ids)
-            )
+            select(
+                CollectionSettings.collection_id,
+                func.coalesce(CollectionSettings.index_embedding_model, CollectionSettings.embedding_model),
+            ).where(CollectionSettings.collection_id.in_(collection_ids))
         )
         return dict(result.all())
 
@@ -367,10 +370,13 @@ class CollectionRepository:
             settings.chunk_size = chunk_size
         if chunk_overlap is not None:
             settings.chunk_overlap = chunk_overlap
-        if embedding_model is not None:
-            settings.embedding_model = embedding_model
         if embedding_model_changed:
-            settings.reindex_required = True
+            # The index keeps its vectors - and search the model they were made with - until it is
+            # rebuilt with the new one (#12): queries stay comparable to what the index holds.
+            index_model = settings.index_embedding_model or settings.embedding_model
+            settings.embedding_model = embedding_model
+            settings.index_embedding_model = None if embedding_model == index_model else index_model
+            settings.reindex_required = embedding_model != index_model
         if instructions is not None:
             settings.instructions_qa = instructions["qa"]
             settings.instructions_extraction = instructions["extraction"]

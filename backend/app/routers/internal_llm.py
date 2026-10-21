@@ -15,6 +15,8 @@ from app.repositories.app_settings_repository import AppSettingsRepository
 from app.schemas.internal_pipeline import (
     LlmChatRequest,
     LlmChatResponse,
+    LlmEmbedBatchRequest,
+    LlmEmbedBatchResponse,
     LlmEmbedRequest,
     LlmEmbedResponse,
 )
@@ -156,6 +158,29 @@ async def embed(request: LlmEmbedRequest, db: Annotated[AsyncSession, Depends(ge
         request.usage, TokenUsageKind.EMBEDDING, request.model, usage.prompt_tokens if usage else None, 0
     )
     return LlmEmbedResponse(embedding=result.data[0].embedding)
+
+
+@router.post(
+    "/llm/embed-batch",
+    summary="Embed several texts in one call on the worker's behalf (an index rebuild, #12)",
+    response_model=LlmEmbedBatchResponse,
+)
+async def embed_batch(
+    request: LlmEmbedBatchRequest, db: Annotated[AsyncSession, Depends(get_db)]
+) -> LlmEmbedBatchResponse:
+    if _openai_client is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="LLM hub is not configured",
+        )
+    result = await _openai_client.embeddings.create(model=request.model, input=request.inputs)
+    usage = getattr(result, "usage", None)
+    await UsageService(db).record(
+        request.usage, TokenUsageKind.EMBEDDING, request.model, usage.prompt_tokens if usage else None, 0
+    )
+    # The hub answers in input order, but says so with an index: trusted over the list order.
+    ordered = sorted(result.data, key=lambda item: item.index)
+    return LlmEmbedBatchResponse(embeddings=[item.embedding for item in ordered])
 
 
 @router.get(

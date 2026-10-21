@@ -4,6 +4,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class WorkerSettings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0"
     CELERY_QUEUE_NAME: str = "document_processing"
+    # The blue/green index rebuilds (#12) - must match INDEX_REBUILD_QUEUE on the backend. Consumed
+    # by every worker unless started with `-Q` (docker-compose runs a dedicated one), so a rebuild
+    # works out of the box and can be isolated from ingestion when it matters.
+    REBUILD_QUEUE_NAME: str = "index_rebuild"
 
     BACKEND_API_URL: str = "http://localhost:8000"
     WORKER_API_KEY: str = ""

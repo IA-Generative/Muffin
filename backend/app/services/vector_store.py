@@ -71,6 +71,12 @@ def _index_name(collection_id: uuid.UUID) -> str:
     return f"chunks_{collection_id}"
 
 
+def _next_index_name(collection_id: uuid.UUID) -> str:
+    # The index a blue/green rebuild (#12) builds next to the active one. After the swap it holds
+    # the old index instead, until the switch is validated (deleted) or rolled back (swapped again).
+    return f"chunks_{collection_id}_next"
+
+
 def _index_exists(name: str) -> bool:
     try:
         _client.get_index(name)
@@ -97,27 +103,34 @@ def _create_index(name: str, embedding: list[float]) -> None:
     )
 
 
+def _point(
+    collection_id: uuid.UUID, point_id: uuid.UUID, embedding: list[float], kind: str, text: str, model: str | None
+) -> dict:
+    point = {
+        "id": str(point_id),
+        _KIND_FIELD: kind,
+        "collection_id": str(collection_id),
+        "text": text,
+        "_vectors": {_EMBEDDER: embedding},
+    }
+    # Which model made the vector: what a rebuild (#12) checks to redo a vector made with another one.
+    if model:
+        point["model"] = model
+    return point
+
+
 def _upsert(
     collection_id: uuid.UUID,
     point_id: uuid.UUID,
     embedding: list[float],
     kind: str,
     text: str = "",
+    model: str | None = None,
 ) -> None:
     name = _index_name(collection_id)
     if not _index_exists(name):
         _create_index(name, embedding)
-    _client.index(name).add_documents(
-        [
-            {
-                "id": str(point_id),
-                _KIND_FIELD: kind,
-                "collection_id": str(collection_id),
-                "text": text,
-                "_vectors": {_EMBEDDER: embedding},
-            }
-        ]
-    )
+    _client.index(name).add_documents([_point(collection_id, point_id, embedding, kind, text, model)])
 
 
 def upsert_chunk_embedding(
@@ -125,8 +138,9 @@ def upsert_chunk_embedding(
     chunk_id: uuid.UUID,
     embedding: list[float],
     text: str = "",
+    model: str | None = None,
 ) -> None:
-    _upsert(collection_id, chunk_id, embedding, _KIND_CHUNK, text)
+    _upsert(collection_id, chunk_id, embedding, _KIND_CHUNK, text, model)
 
 
 def upsert_qa_embedding(
@@ -134,8 +148,9 @@ def upsert_qa_embedding(
     qa_pair_id: uuid.UUID,
     embedding: list[float],
     text: str = "",
+    model: str | None = None,
 ) -> None:
-    _upsert(collection_id, qa_pair_id, embedding, _KIND_QA, text)
+    _upsert(collection_id, qa_pair_id, embedding, _KIND_QA, text, model)
 
 
 def upsert_summary_embedding(
@@ -143,8 +158,9 @@ def upsert_summary_embedding(
     document_id: uuid.UUID,
     embedding: list[float],
     text: str = "",
+    model: str | None = None,
 ) -> None:
-    _upsert(collection_id, document_id, embedding, _KIND_SUMMARY, text)
+    _upsert(collection_id, document_id, embedding, _KIND_SUMMARY, text, model)
 
 
 def _search(
@@ -191,29 +207,30 @@ def search_summaries(
 def delete_document_embeddings(collection_id: uuid.UUID, document_id: uuid.UUID, chunk_ids: list[uuid.UUID]) -> None:
     """Best-effort cleanup of every Meilisearch point tied to one document - the chunk
     embeddings (keyed by chunk_id) and the summary embedding (keyed by document_id itself,
-    see upsert_summary_embedding). Called from delete_document/reindex_collection *before* the
+    see upsert_summary_embedding). Called from delete_document/reprocess *before* the
     Postgres rows go away, so a Meilisearch/network failure here only leaves orphaned vectors
     (never stale references the search path can still hit)."""
-    name = _index_name(collection_id)
-    if not _index_exists(name):
-        return
-    try:
-        ids = [str(document_id)] + [str(chunk_id) for chunk_id in chunk_ids]
-        _client.index(name).delete_documents(ids)
-    except Exception:
-        logger.exception(f"Failed to delete document {document_id} embeddings from index '{name}'")
+    ids = [str(document_id)] + [str(chunk_id) for chunk_id in chunk_ids]
+    # Both indexes: a rebuild's index (#12) must not keep what the active one no longer has.
+    for name in (_index_name(collection_id), _next_index_name(collection_id)):
+        if not _index_exists(name):
+            continue
+        try:
+            _client.index(name).delete_documents(ids)
+        except Exception:
+            logger.exception(f"Failed to delete document {document_id} embeddings from index '{name}'")
 
 
 def delete_qa_embedding(collection_id: uuid.UUID, qa_pair_id: uuid.UUID) -> None:
     """Best-effort, same reasoning as delete_document_embeddings: a failure only leaves an orphaned
     vector, and search_qa resolves its ids against Postgres, which no longer has the pair."""
-    name = _index_name(collection_id)
-    if not _index_exists(name):
-        return
-    try:
-        _client.index(name).delete_documents([str(qa_pair_id)])
-    except Exception:
-        logger.exception(f"Failed to delete QA pair {qa_pair_id} embedding from index '{name}'")
+    for name in (_index_name(collection_id), _next_index_name(collection_id)):
+        if not _index_exists(name):
+            continue
+        try:
+            _client.index(name).delete_documents([str(qa_pair_id)])
+        except Exception:
+            logger.exception(f"Failed to delete QA pair {qa_pair_id} embedding from index '{name}'")
 
 
 def delete_collection(collection_id: uuid.UUID) -> None:
@@ -221,17 +238,107 @@ def delete_collection(collection_id: uuid.UUID) -> None:
     Collection row is already gone, so a Meilisearch/network failure here must not roll that
     back - it just leaves an orphaned index under a collection id nothing references anymore.
     """
-    name = _index_name(collection_id)
-    try:
-        if _index_exists(name):
-            _client.delete_index(name)
-    except Exception:
-        logger.exception(f"Failed to delete Meilisearch index '{name}' - it is now orphaned")
+    for name in (_index_name(collection_id), _next_index_name(collection_id)):
+        try:
+            if _index_exists(name):
+                _client.delete_index(name)
+        except Exception:
+            logger.exception(f"Failed to delete Meilisearch index '{name}' - it is now orphaned")
     try:
         if _index_exists(_COLLECTIONS_INDEX):
             _client.index(_COLLECTIONS_INDEX).delete_document(str(collection_id))
     except Exception:
         logger.exception(f"Failed to remove collection {collection_id} from the '{_COLLECTIONS_INDEX}' index")
+
+
+# -- blue/green rebuild of a collection's index (#12) ---------------------------------------------
+# The active index keeps its name, chunks_<id>: searches never need to know a rebuild is going on.
+# The new one is built under chunks_<id>_next, then the two are swapped in one Meilisearch task.
+
+_PAGE = 1000
+# A swap is quick, but it waits for every task queued before it on both indexes.
+_SWAP_TIMEOUT_MS = 120_000
+
+
+def _target(collection_id: uuid.UUID, next_index: bool) -> str:
+    return _next_index_name(collection_id) if next_index else _index_name(collection_id)
+
+
+def list_points(collection_id: uuid.UUID, *, next_index: bool) -> dict[str, dict[str, str | None]]:
+    """Every point of the index, by id: its kind, text and the model that made its vector (None for a
+    point indexed before the model was recorded). What a rebuild compares to PostgreSQL."""
+    name = _target(collection_id, next_index)
+    if not _index_exists(name):
+        return {}
+    points: dict[str, dict[str, str | None]] = {}
+    offset = 0
+    while True:
+        page = _client.index(name).get_documents(
+            {"fields": ["id", _KIND_FIELD, "text", "model"], "limit": _PAGE, "offset": offset}
+        )
+        for document in page.results:
+            fields = dict(document)
+            points[str(fields["id"])] = {
+                "kind": fields.get(_KIND_FIELD),
+                "text": fields.get("text"),
+                "model": fields.get("model"),
+            }
+        offset += len(page.results)
+        if not page.results or offset >= page.total:
+            return points
+
+
+def upsert_points(
+    collection_id: uuid.UUID,
+    points: list[tuple[str, uuid.UUID, str, list[float]]],
+    model: str,
+    *,
+    next_index: bool,
+) -> None:
+    """(kind, id, text, embedding) points, all made with `model`, in one Meilisearch task."""
+    if not points:
+        return
+    name = _target(collection_id, next_index)
+    if not _index_exists(name):
+        _create_index(name, points[0][3])
+    _client.index(name).add_documents(
+        [_point(collection_id, point_id, embedding, kind, text, model) for kind, point_id, text, embedding in points]
+    )
+
+
+def delete_points(collection_id: uuid.UUID, point_ids: list[str], *, next_index: bool) -> None:
+    name = _target(collection_id, next_index)
+    if point_ids and _index_exists(name):
+        _client.index(name).delete_documents(point_ids)
+
+
+def next_index_exists(collection_id: uuid.UUID) -> bool:
+    return _index_exists(_next_index_name(collection_id))
+
+
+def delete_next_index(collection_id: uuid.UUID) -> None:
+    name = _next_index_name(collection_id)
+    if _index_exists(name):
+        _wait(_client.delete_index(name).task_uid)
+
+
+def swap_with_next(collection_id: uuid.UUID) -> None:
+    """Swaps the active index and the rebuilt one, atomically: every search before it reads the old
+    index, every search after it the new one, never anything in between. Waits for it to be done,
+    and raises if Meilisearch refused it. A collection with no active index yet (nothing indexed
+    before the rebuild) gets an empty one first - a swap needs both."""
+    active, rebuilt = _index_name(collection_id), _next_index_name(collection_id)
+    if not _index_exists(active):
+        dimensions = _client.index(rebuilt).get_settings()["embedders"][_EMBEDDER].dimensions
+        _create_index(active, [0.0] * dimensions)
+    _wait(_client.swap_indexes([{"indexes": [active, rebuilt]}]).task_uid)
+
+
+def _wait(task_uid: int) -> None:
+    task = _client.wait_for_task(task_uid, timeout_in_ms=_SWAP_TIMEOUT_MS)
+    status = getattr(task, "status", None)
+    if status != "succeeded":
+        raise RuntimeError(f"Meilisearch task {task_uid} ended {status}: {getattr(task, 'error', None)}")
 
 
 def _ensure_collections_index(embedding: list[float]) -> None:

@@ -53,6 +53,7 @@ from app.tasks.process import (  # noqa: F401
     process_document,
 )
 from app.tasks.qa import generate_collection_qa, generate_qa_window  # noqa: F401
+from app.tasks.rebuild import rebuild_index  # noqa: F401
 from app.tasks.refresh import refresh_url_document, scan_url_refresh  # noqa: F401
 from app.tasks.summarize import summarize_document, tag_document  # noqa: F401
 from app.tasks.tabular import process_tabular_document  # noqa: F401
@@ -87,6 +88,7 @@ __all__ = [
     "generate_collection_qa",
     "scan_url_refresh",
     "refresh_url_document",
+    "rebuild_index",
     # Internal helpers used by tests
     "_process_url",
     "_process_file",

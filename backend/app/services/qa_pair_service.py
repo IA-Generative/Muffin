@@ -73,7 +73,9 @@ class QaPairService:
         embedded still exists and shows in the list, it just isn't matched by the assistant."""
         try:
             model = (await self.collections.get_embedding_models([collection_id]))[collection_id]
-            vector_store.upsert_qa_embedding(collection_id, qa_pair_id, await embed_text(model, question), question)
+            vector_store.upsert_qa_embedding(
+                collection_id, qa_pair_id, await embed_text(model, question), question, model
+            )
         except Exception:
             logger.exception(f"Failed to embed the manual QA pair {qa_pair_id}")
 
