@@ -159,6 +159,7 @@ désactivée par défaut en amont et doit être explicitement activée côté se
 | Variable | Définition | Défaut | Utilisée par |
 |---|---|---|---|
 | `CELERY_QUEUE_NAME` | Nom de la queue Celery consommée par ce worker | `document_processing` | **worker/document_process** (`app/config.py`) |
+| `REBUILD_QUEUE_NAME` | Queue Celery des reconstructions blue/green d'index (#12) - doit correspondre à `INDEX_REBUILD_QUEUE` de `backend/app/core/tasks.py`. Consommée par tout worker démarré sans `-Q` ; `docker-compose.yaml` lance un worker dédié (`worker-index-rebuild`, `-Q index_rebuild`) pour qu'une grosse reconstruction ne retarde pas l'ingestion | `index_rebuild` | **worker/document_process** (`app/config.py`, `app/celery_app.py`) |
 | `OCR_LANGUAGE` | Code langue Tesseract (ISO 639-2) utilisé pour l'OCR des pages scannées | `fra` | idem (pipeline OCR) |
 | `ZIP_IMPORT_MAX_FILES` | Nombre maximal de fichiers d'un ZIP importé ; au-delà, l'archive entière est refusée | `2000` | **worker-document-process** (`app/config.py`, `app/tasks/import_zip.py`) |
 | `ZIP_IMPORT_MAX_TOTAL_BYTES` | Taille maximale d'un ZIP une fois décompressé, en octets ; au-delà, l'archive est refusée (vérifiée sur la taille annoncée puis sur ce qui est réellement lu) | `2147483648` (2 Go) | idem |

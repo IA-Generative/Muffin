@@ -95,6 +95,8 @@ services:
       AWS_ACCESS_KEY_ID: rustfsadmin
       AWS_SECRET_ACCESS_KEY: rustfsadmin
       AWS_BUCKET: muffin-documents
+    # Ingestion only: the index rebuilds (#12) have their own worker below.
+    command: ["celery", "-A", "app.celery_app", "worker", "-B", "--schedule=/tmp/celerybeat-schedule", "--loglevel=info", "-Q", "document_processing"]
     depends_on:
       redis:
         condition: service_healthy
@@ -102,6 +104,25 @@ services:
         condition: service_started
       rustfs:
         condition: service_healthy
+    restart: unless-stopped
+
+  # Same image as worker-document-process, consuming the queue of the blue/green index rebuilds
+  # (#12) alone: a large rebuild never delays the ingestion of new documents. No beat (-B) here -
+  # the periodic scans run once, in worker-document-process.
+  worker-index-rebuild:
+    build:
+      context: ./worker/document_process
+      dockerfile: Dockerfile
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      BACKEND_API_URL: http://backend:8000
+      WORKER_API_KEY: ${WORKER_API_KEY:-dev-only-worker-key-not-for-prod}
+    command: ["celery", "-A", "app.celery_app", "worker", "--loglevel=info", "-Q", "index_rebuild"]
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_started
     restart: unless-stopped
 
   worker-agent-execution:

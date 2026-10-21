@@ -199,6 +199,9 @@ class CollectionOut(BaseModel):
 
     chunking_settings: ChunkingSettings
     embedding_model: str
+    # The model of the vectors the active index holds when it differs from embedding_model - the
+    # index hasn't been rebuilt with the new model yet (#12) and search still uses this one.
+    index_embedding_model: str | None = None
     reindex_required: bool
     instructions: PipelineInstructions
     generation_models: GenerationModels
@@ -253,6 +256,7 @@ class CollectionOut(BaseModel):
                 chunk_overlap=settings.chunk_overlap,
             ),
             embedding_model=settings.embedding_model,
+            index_embedding_model=settings.index_embedding_model,
             reindex_required=settings.reindex_required,
             instructions=PipelineInstructions(
                 qa=settings.instructions_qa,

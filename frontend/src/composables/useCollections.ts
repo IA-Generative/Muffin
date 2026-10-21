@@ -10,6 +10,7 @@ import type {
   CollectionVisibility,
   Entity,
   EvaluationRun,
+  IndexRebuild,
   FieldStamp,
   GenerationModels,
   PipelineInstructions,
@@ -45,6 +46,7 @@ interface CollectionOut {
   evaluation_runs: EvaluationRun[]
   chunking_settings: { strategy: ChunkingSettings['strategy']; chunk_size: number; chunk_overlap: number }
   embedding_model: string
+  index_embedding_model: string | null
   reindex_required: boolean
   instructions: PipelineInstructions
   generation_models: GenerationModels
@@ -107,6 +109,7 @@ function toCollection(raw: CollectionOut): Collection {
       chunkOverlap: raw.chunking_settings.chunk_overlap,
     },
     embeddingModel: raw.embedding_model,
+    indexEmbeddingModel: raw.index_embedding_model ?? null,
     reindexRequired: raw.reindex_required,
     instructions: raw.instructions,
     generationModels: raw.generation_models,
@@ -287,7 +290,7 @@ const TAB_LOADERS: Record<string, (id: string) => void | Promise<void>> = {
   chunks: refreshChunks,
   relations: refreshEntitiesAndRelations,
   evaluation: refreshEvaluation,
-  settings: refreshShares,
+  settings: (id) => Promise.all([refreshShares(id), refreshIndexRebuild(id)]),
   subcollections: refreshChildren,
 }
 
@@ -958,17 +961,108 @@ async function updatePipelineWindows(collectionId: string, values: Partial<Pipel
   await patchSettings(collectionId, { pipeline_windows })
 }
 
-async function reindexCollection(collectionId: string) {
-  const response = await fetch(`${API_BASE_URL}/api/collections/${collectionId}/documents/reindex`, {
-    method: 'POST',
-    credentials: 'include',
-  })
-  if (!response.ok) return
-  const collection = collections.value.find((item) => item.id === collectionId)
-  if (collection) collection.reindexRequired = false
-  await refreshDocuments(collectionId)
-  pollDocumentsWhileProcessing(collectionId)
+interface IndexRebuildOut {
+  id: string
+  status: IndexRebuild['status']
+  target_model: string
+  previous_model: string
+  total_points: number
+  done_points: number
+  error: string | null
 }
+
+function toIndexRebuild(raw: IndexRebuildOut): IndexRebuild {
+  return {
+    id: raw.id,
+    status: raw.status,
+    targetModel: raw.target_model,
+    previousModel: raw.previous_model,
+    totalPoints: raw.total_points,
+    donePoints: raw.done_points,
+    error: raw.error,
+  }
+}
+
+// The latest blue/green rebuild of each collection's index (#12), null when it never had one.
+const indexRebuilds = ref<Record<string, IndexRebuild | null>>({})
+const indexRebuildError = ref<string | null>(null)
+const indexRebuildPolls = new Map<string, ReturnType<typeof setInterval>>()
+
+async function refreshIndexRebuild(collectionId: string) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/collections/${collectionId}/index-rebuild`, {
+      credentials: 'include',
+    })
+    if (!response.ok) return
+    const raw: IndexRebuildOut | null = await response.json()
+    const previous = indexRebuilds.value[collectionId]
+    const rebuild = raw ? toIndexRebuild(raw) : null
+    indexRebuilds.value[collectionId] = rebuild
+    if (rebuild?.status === 'building') {
+      pollIndexRebuild(collectionId)
+      return
+    }
+    stopPollingIndexRebuild(collectionId)
+    // The swap (or a failure) changed which model the index holds: reflected in the collection.
+    if (previous?.status === 'building') await fetchCollection(collectionId)
+  } catch {
+    // Ignored: the next poll tick (or the next manual refresh) retries.
+  }
+}
+
+function pollIndexRebuild(collectionId: string) {
+  if (indexRebuildPolls.has(collectionId)) return
+  indexRebuildPolls.set(
+    collectionId,
+    setInterval(() => refreshIndexRebuild(collectionId), 3000),
+  )
+}
+
+function stopPollingIndexRebuild(collectionId: string) {
+  const interval = indexRebuildPolls.get(collectionId)
+  if (interval) clearInterval(interval)
+  indexRebuildPolls.delete(collectionId)
+}
+
+// Starts the blue/green rebuild: search keeps using the current index until the new one is complete.
+async function reindexCollection(collectionId: string) {
+  indexRebuildError.value = null
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/collections/${collectionId}/documents/reindex`, {
+      method: 'POST',
+      credentials: 'include',
+    })
+    if (response.status === 409) {
+      indexRebuildError.value = 'Une réindexation est déjà en cours pour cette collection.'
+    } else if (!response.ok) {
+      indexRebuildError.value = `Échec du lancement de la réindexation (${response.status}).`
+    }
+  } catch {
+    indexRebuildError.value = 'Échec du lancement de la réindexation : le serveur est inaccessible.'
+  }
+  await refreshIndexRebuild(collectionId)
+}
+
+// Validating deletes the old index kept since the swap; rolling back returns to it (and its model).
+async function settleIndexRebuild(collectionId: string, action: 'finalize' | 'rollback') {
+  const rebuild = indexRebuilds.value[collectionId]
+  if (!rebuild) return
+  indexRebuildError.value = null
+  try {
+    const response = await fetch(
+      `${API_BASE_URL}/api/collections/${collectionId}/index-rebuild/${rebuild.id}/${action}`,
+      { method: 'POST', credentials: 'include' },
+    )
+    if (!response.ok) indexRebuildError.value = `Échec de l'opération (${response.status}).`
+  } catch {
+    indexRebuildError.value = "Échec de l'opération : le serveur est inaccessible."
+  }
+  await refreshIndexRebuild(collectionId)
+  await fetchCollection(collectionId)
+}
+
+const finalizeIndexRebuild = (collectionId: string) => settleIndexRebuild(collectionId, 'finalize')
+const rollbackIndexRebuild = (collectionId: string) => settleIndexRebuild(collectionId, 'rollback')
 
 async function updateInstructionField(collectionId: string, field: keyof PipelineInstructions, value: string) {
   const collection = collections.value.find((item) => item.id === collectionId)
@@ -1114,6 +1208,11 @@ export function useCollections() {
     updateGenerationModel,
     updatePipelineWindows,
     reindexCollection,
+    indexRebuilds,
+    indexRebuildError,
+    refreshIndexRebuild,
+    finalizeIndexRebuild,
+    rollbackIndexRebuild,
     updateInstructionField,
     runEvaluation,
     isEvaluating,

@@ -12,6 +12,7 @@ from app.models.chunk import Chunk
 from app.models.collection import Collection
 from app.models.document import Document, DocumentPage, DocumentStatus, DocumentTag
 from app.models.task import Task
+from app.services.document_upload_service import DocumentUploadService
 from tests.routers.test_collections import _as_user
 
 
@@ -291,7 +292,7 @@ async def test_delete_unknown_document_returns_404(client):
     assert response.status_code == 404
 
 
-async def test_reindex_resets_status_and_requeues(client):
+async def test_reprocess_resets_status_and_requeues(client):
     collection_id = await _create_collection(client)
     with (
         patch("app.services.document_upload_service.storage.put_object"),
@@ -327,15 +328,17 @@ async def test_reindex_resets_status_and_requeues(client):
         ) as mock_enqueue,
         patch("app.services.document_upload_service.vector_store.delete_document_embeddings"),
     ):
-        response = await client.post(f"/api/collections/{collection_id}/documents/reindex")
+        async with async_session_factory() as session:
+            document = await session.get(Document, uuid.UUID(created["id"]))
+            await DocumentUploadService(session).reprocess(document, "dev-user")
 
-    assert response.status_code == 200
-    body = response.json()
-    assert body[0]["status"] == "pending"
-    assert body[0]["progress"] == 0
     mock_enqueue.assert_called_once_with(created["id"])
     mock_delete.assert_called_once_with(["old.png"])
 
+    async with async_session_factory() as session:
+        document = await session.get(Document, uuid.UUID(created["id"]))
+        assert document.status == DocumentStatus.PENDING
+        assert document.progress == 0
     async with async_session_factory() as session:
         pages = (await session.execute(select(DocumentPage))).scalars().all()
         chunks = (await session.execute(select(Chunk))).scalars().all()

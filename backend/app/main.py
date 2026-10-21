@@ -19,6 +19,8 @@ from app.routers.document_refresh import router as document_refresh_router
 from app.routers.documents import router as documents_router
 from app.routers.filing import router as filing_router
 from app.routers.health import router as health_router
+from app.routers.index_rebuilds import internal_router as internal_index_rebuilds_router
+from app.routers.index_rebuilds import router as index_rebuilds_router
 from app.routers.internal_collections import router as internal_collections_router
 from app.routers.internal_conversations import router as internal_conversations_router
 from app.routers.internal_document_drafts import router as internal_document_drafts_router
@@ -106,6 +108,8 @@ app.include_router(qa_pairs_router, prefix="/api")
 app.include_router(collection_imports_router, prefix="/api")
 app.include_router(internal_collection_imports_router, prefix="/api")
 app.include_router(conversations_router, prefix="/api")
+app.include_router(index_rebuilds_router, prefix="/api")
+app.include_router(internal_index_rebuilds_router, prefix="/api")
 app.include_router(documents_router, prefix="/api")
 app.include_router(document_refresh_router, prefix="/api")
 app.include_router(internal_document_refresh_router, prefix="/api")

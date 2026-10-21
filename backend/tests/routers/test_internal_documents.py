@@ -140,9 +140,11 @@ async def test_create_document_chunk_with_embedding_upserts_into_meilisearch(cli
 
     assert response.status_code == 201
     assert len(upserted) == 1
-    collection_id, chunk_id, embedding, text = upserted[0]
+    collection_id, chunk_id, embedding, text, model = upserted[0]
     assert embedding == [0.1, 0.2, 0.3]
     assert text == "Hello world"
+    # Recorded with the vector: what a rebuild checks to redo one made with another model (#12).
+    assert model == "text-embedding-3-small"
 
     async with async_session_factory() as session:
         from sqlalchemy import select
@@ -402,3 +404,53 @@ async def test_replace_document_tags(client):
             (await session.execute(select(DocumentTag).where(DocumentTag.document_id == document_id))).scalars().all()
         )
     assert sorted(tag.tag for tag in tags) == ["2024", "invoice"]
+
+
+async def _post_chunk_made_with(client, monkeypatch, document_id, model, embed):
+    from app.services import index_vectors, vector_store
+
+    upserted: list[tuple] = []
+    monkeypatch.setattr(vector_store, "upsert_chunk_embedding", lambda *args: upserted.append(args))
+    monkeypatch.setattr(index_vectors, "embed_text", embed)
+    response = await client.post(
+        f"/api/internal/documents/{document_id}/chunks",
+        headers=_headers(),
+        json={"index": 0, "text": "Hello", "token_count": 1, "embedding": [1.0], "embedding_model": model},
+    )
+    assert response.status_code == 201
+    return upserted
+
+
+async def test_a_vector_made_with_the_indexs_model_is_stored_as_is(client, monkeypatch):
+    document_id = await _create_document(client)
+
+    async def embed(model, text):
+        raise AssertionError("must not embed again")
+
+    upserted = await _post_chunk_made_with(client, monkeypatch, document_id, "text-embedding-3-small", embed)
+
+    assert [args[2] for args in upserted] == [[1.0]]
+
+
+async def test_a_vector_made_with_another_model_than_the_indexs_is_made_again(client, monkeypatch):
+    # The worker read the settings just before an index rebuild swapped in a new model (#12).
+    document_id = await _create_document(client)
+
+    async def embed(model, text):
+        assert (model, text) == ("text-embedding-3-small", "Hello")
+        return [9.0]
+
+    upserted = await _post_chunk_made_with(client, monkeypatch, document_id, "an-older-model", embed)
+
+    assert [(args[2], args[4]) for args in upserted] == [([9.0], "text-embedding-3-small")]
+
+
+async def test_a_vector_that_cannot_be_made_again_is_left_out_rather_than_stored_wrong(client, monkeypatch):
+    document_id = await _create_document(client)
+
+    async def embed(model, text):
+        raise RuntimeError("hub down")
+
+    upserted = await _post_chunk_made_with(client, monkeypatch, document_id, "an-older-model", embed)
+
+    assert upserted == []

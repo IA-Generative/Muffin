@@ -56,3 +56,15 @@ uv run ruff check . && uv run ruff format --check .
 
 Le worker tourne dans `docker-compose.yaml` sous le service `worker-document-process`, sur la
 queue Celery `document_processing`.
+
+## Reconstruction blue/green de l'index (#12)
+
+La tâche `app.tasks.rebuild_index` (`app/tasks/rebuild.py`) reconstruit l'index de recherche d'une
+collection avec un nouveau modèle d'embedding, pendant que l'index actuel continue de répondre. Elle
+ne garde aucun état : à chaque tour elle demande au backend ce qu'il manque au nouvel index (comparé à
+PostgreSQL, source de vérité), calcule les vecteurs par lots, les renvoie, puis demande la bascule
+atomique quand il ne manque plus rien. Un job tué ou redélivré reprend donc là où en est la base.
+
+Elle tourne sur sa propre queue, `index_rebuild` (`REBUILD_QUEUE_NAME`), servie par le service
+`worker-index-rebuild` de `docker-compose.yaml` (même image, `-Q index_rebuild`) : une grosse
+reconstruction ne retarde pas l'ingestion. Sans `-Q`, un worker consomme les deux queues.

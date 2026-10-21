@@ -16,6 +16,7 @@ from app.schemas.internal_document import (
 from app.schemas.internal_pipeline import TabularProfileCreate
 from app.services import vector_store
 from app.services.embedding_model_lookup import default_embedding_model
+from app.services.index_vectors import vector_for_active_index
 from app.services.search_service import embed_text
 
 
@@ -57,15 +58,29 @@ class DocumentService:
         created = await self.repository.add_chunk(document_id, chunk.index, chunk.text, chunk.token_count, chunk.extras)
         await self.db.commit()
         if chunk.embedding is not None:
-            vector_store.upsert_chunk_embedding(document.collection_id, created.id, chunk.embedding, chunk.text)
+            embedding, model = await vector_for_active_index(
+                self.db, document.collection_id, chunk.text, chunk.embedding, chunk.embedding_model
+            )
+            if embedding is not None:
+                vector_store.upsert_chunk_embedding(document.collection_id, created.id, embedding, chunk.text, model)
         return created
 
-    async def set_summary(self, document_id: uuid.UUID, summary: str, embedding: list[float] | None = None) -> None:
+    async def set_summary(
+        self,
+        document_id: uuid.UUID,
+        summary: str,
+        embedding: list[float] | None = None,
+        embedding_model: str | None = None,
+    ) -> None:
         document = await self.get_document(document_id)
         await self.repository.set_summary(document, summary)
         await self.db.commit()
         if embedding is not None:
-            vector_store.upsert_summary_embedding(document.collection_id, document.id, embedding, summary)
+            embedding, model = await vector_for_active_index(
+                self.db, document.collection_id, summary, embedding, embedding_model
+            )
+            if embedding is not None:
+                vector_store.upsert_summary_embedding(document.collection_id, document.id, embedding, summary, model)
 
     async def set_error(self, document_id: uuid.UUID, error: str) -> None:
         document = await self.get_document(document_id)
