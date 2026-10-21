@@ -4,6 +4,7 @@ import zipfile
 from unittest.mock import MagicMock
 
 import pytest
+from celery.exceptions import SoftTimeLimitExceeded
 
 from app import task_logging, tasks
 from app.config import settings
@@ -169,8 +170,10 @@ class TestExtractMember:
 
 
 class TestImportTask:
-    def _run(self, monkeypatch, archive_bytes: bytes):
+    def _run(self, monkeypatch, archive_bytes: bytes, add_document=None):
         backend = MagicMock()
+        if add_document is not None:
+            backend.add_imported_document.side_effect = add_document
         backend.begin_collection_import.return_value = {"archive_key": "imports/i.zip", "root_collection_id": "root"}
         created = iter(f"col-{i}" for i in range(100))
         backend.create_imported_collection.side_effect = lambda import_id, parent, name: next(created)
@@ -204,6 +207,29 @@ class TestImportTask:
         status, summary, error = backend.finish_collection_import.call_args.args[1:4]
         assert status == "failed" and "corrompue" in error
         backend.create_imported_collection.assert_not_called()
+
+    def test_an_import_past_its_soft_limit_ends_as_failed_with_what_it_created(self, monkeypatch):
+        """Never left running (#294): the backend is told, with the summary of the partial import."""
+        archive = _zip({"a.pdf": b"%PDF a", "b.pdf": b"%PDF b"})
+        added = []
+
+        def add_document(*args):
+            added.append(args)
+            if len(added) == 1:
+                raise SoftTimeLimitExceeded()
+
+        monkeypatch.setattr(settings, "IMPORT_SOFT_TIME_LIMIT_SECONDS", 2 * 3600)
+        with pytest.raises(SoftTimeLimitExceeded):
+            self._run(monkeypatch, archive, add_document=add_document)
+
+        backend = tasks._shared.backend_client
+        status, summary, error = backend.finish_collection_import.call_args.args[1:4]
+        assert status == "failed" and "2 h" in error
+        assert len(added) == 1
+
+    def test_an_import_is_not_killed_for_being_long(self):
+        assert tasks.import_zip.time_limit is None
+        assert tasks.import_zip.soft_time_limit == settings.IMPORT_SOFT_TIME_LIMIT_SECONDS
 
     def test_a_refused_archive_creates_nothing(self, monkeypatch):
         monkeypatch.setattr(settings, "ZIP_IMPORT_MAX_FILES", 1)

@@ -77,6 +77,26 @@ Une seule image, trois pods, chacun sur ses queues (routage par nom de tâche da
 - Les logs d'une tâche (`capture_task_logs`) ne prennent que les lignes de son propre thread : sans
   ça, en pool de threads, chaque tâche récupérerait aussi celles des autres.
 
+## Limites de temps (#294)
+
+Aucune tâche n'est tuée parce qu'elle est grosse : il n'y a plus de limite dure (l'ancienne,
+`task_time_limit=300`, tuait un gros OCR ou un import ZIP en plein milieu, le laissant « en cours »).
+Ce qui peut bloquer est borné là où ça se passe :
+
+- **OCR** : le parseur tourne dans un processus à lui, avec un délai (`OCR_PARSE_TIMEOUT_SECONDS`). Passé
+  ce délai, il est tué et remplacé, et la tâche échoue proprement : le document passe en erreur.
+- **Appels backend, S3, URL** : délais explicites (client backend 60 s, S3 10 s / 60 s, URL 120 s).
+- **Toute tâche** : une limite *souple* (`TASK_SOFT_TIME_LIMIT_SECONDS`), filet de sécurité large - une
+  exception levée dans la tâche, qui échoue et rend compte. Seuls les pods en prefork l'appliquent.
+- **Import ZIP** : au-delà de `IMPORT_SOFT_TIME_LIMIT_SECONDS`, l'import se termine en `failed`, avec le
+  résumé de ce qui a été créé.
+- **Reconstruction d'index** : reprenable, elle tourne par tranches (`REBUILD_SLICE_SECONDS`) : à la fin
+  d'une, une nouvelle tâche continue là où la base en est. Au-delà de `REBUILD_MAX_SLICES` tranches, elle
+  échoue.
+- **`BROKER_VISIBILITY_TIMEOUT_SECONDS`** doit dépasser toutes ces limites : les tâches sont acquittées
+  à leur fin (`acks_late`) et, passé ce délai, Redis en donnerait une qui tourne encore à un second
+  worker. C'est aussi le temps de reprise d'une tâche dont le worker est mort.
+
 ## Reconstruction blue/green de l'index (#12)
 
 La tâche `app.tasks.rebuild_index` (`app/tasks/rebuild.py`) reconstruit l'index de recherche d'une
