@@ -1,7 +1,7 @@
 import enum
 import uuid
 
-from sqlalchemy import Boolean, Enum, ForeignKey, Text
+from sqlalchemy import Boolean, Enum, ForeignKey, Integer, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -37,6 +37,14 @@ class QaPair(UUIDMixin, TimestampMixin, Base):
     # the rest of the code reads; the evaluation counts a retrieved chunk as relevant when its
     # document is in this list.
     relevant_document_ids: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
+    # Where in `document` the answer comes from (#126): the page, and the passage itself. Set when a
+    # pair is generated; for an older one, found the first time it is shown as a suggestion. None
+    # for a pair that has no document, or whose passage couldn't be pinned down.
+    source_page: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source_chunk_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("chunks.id", ondelete="SET NULL"), nullable=True
+    )
+    source_excerpt: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     collection: Mapped["Collection"] = relationship(back_populates="qa_pairs")  # noqa: F821
     document: Mapped["Document | None"] = relationship()  # noqa: F821

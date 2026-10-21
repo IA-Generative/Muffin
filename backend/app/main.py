@@ -35,6 +35,7 @@ from app.routers.internal_tasks import router as internal_tasks_router
 from app.routers.living_documents import router as living_documents_router
 from app.routers.models import router as models_router
 from app.routers.qa_pairs import router as qa_pairs_router
+from app.routers.qa_suggestions import router as qa_suggestions_router
 from app.routers.quality import router as quality_router
 from app.routers.reports import router as reports_router
 from app.routers.runs import router as runs_router
@@ -105,6 +106,7 @@ app.include_router(health_router, prefix="/api")
 app.include_router(models_router, prefix="/api")
 app.include_router(collections_router, prefix="/api")
 app.include_router(qa_pairs_router, prefix="/api")
+app.include_router(qa_suggestions_router, prefix="/api")
 app.include_router(collection_imports_router, prefix="/api")
 app.include_router(internal_collection_imports_router, prefix="/api")
 app.include_router(conversations_router, prefix="/api")

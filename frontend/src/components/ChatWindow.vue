@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useCollections } from '../composables/useCollections'
 import { useChat } from '../composables/useChat'
+import { type QaSuggestion, useQaSuggestions } from '../composables/useQaSuggestions'
 import { type CollectionImport, isZip, useCollectionImports } from '../composables/useCollectionImports'
 import { useFiling } from '../composables/useFiling'
 import { useVoiceInput } from '../composables/useVoiceInput'
@@ -20,6 +21,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   send: [content: string, collectionIds: string[], webSearchEnabled: boolean, includeDescendants: boolean]
+  askSuggestion: [suggestion: QaSuggestion]
   regenerate: [id: string]
   feedback: [id: string, value: 'up' | 'down', details?: FeedbackDetails]
   showSources: [id: string]
@@ -203,6 +205,17 @@ const webSearchEnabled = ref(false)
 // Attaching a collection brings its sub-collections along unless unchecked (#220).
 const includeDescendants = ref(true)
 const textarea = ref<HTMLTextAreaElement>()
+const { suggestions, loadSuggestions } = useQaSuggestions()
+
+// Drawn again each time the chat is empty - a new conversation, or another set of pinned
+// collections - so the starter questions vary and follow what the user is about to search.
+watch(
+  () => [props.messages.length === 0, activeId.value, pinnedCollectionIds.value.join(',')] as const,
+  ([isEmpty]) => {
+    if (isEmpty) loadSuggestions(pinnedCollectionIds.value)
+  },
+  { immediate: true },
+)
 const scrollAnchor = ref<HTMLElement>()
 
 function submit() {
@@ -240,7 +253,17 @@ watch(
     </header>
 
     <div v-if="messages.length === 0" class="chat-window__intro">
-      <h1>Qu'est-ce qu'on fait aujourd'hui ?</h1>
+      <div class="chat-window__welcome">
+        <h1>Qu'est-ce qu'on fait aujourd'hui ?</h1>
+        <ul v-if="suggestions.length" class="chat-window__suggestions" aria-label="Questions suggérées">
+          <li v-for="suggestion in suggestions" :key="suggestion.id">
+            <button type="button" class="chat-window__suggestion" @click="emit('askSuggestion', suggestion)">
+              <span class="chat-window__suggestion-question">{{ suggestion.question }}</span>
+              <span class="chat-window__suggestion-collection">{{ suggestion.collectionName }}</span>
+            </button>
+          </li>
+        </ul>
+      </div>
     </div>
 
     <div v-else class="chat-window__messages">
@@ -466,6 +489,52 @@ watch(
 .chat-window__intro h1 {
   font-size: 1.75rem;
   font-weight: 600;
+}
+
+.chat-window__welcome {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.5rem;
+  max-width: 40rem;
+  width: 100%;
+}
+
+.chat-window__suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chat-window__suggestion {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border-default-grey);
+  border-radius: 0.5rem;
+  background: var(--background-default-grey);
+  color: var(--text-default-grey);
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat-window__suggestion:hover {
+  background: var(--background-default-grey-hover);
+}
+
+.chat-window__suggestion-question {
+  font-size: 0.9375rem;
+}
+
+.chat-window__suggestion-collection {
+  font-size: 0.75rem;
+  color: var(--text-mention-grey);
 }
 
 .chat-window__messages {
