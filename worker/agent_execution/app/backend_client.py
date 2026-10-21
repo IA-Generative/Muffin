@@ -3,6 +3,7 @@ from typing import Any
 import httpx
 
 from app.config import settings
+from app.usage_context import current_usage
 
 
 class EditRequestRefused(Exception):
@@ -219,7 +220,7 @@ class BackendClient:
     def llm_chat(self, model: str, messages: list[dict[str, str]], max_tokens: int | None = None) -> str:
         response = self._client.post(
             "/api/internal/llm/chat",
-            json={"model": model, "messages": messages, "max_tokens": max_tokens},
+            json={"model": model, "messages": messages, "max_tokens": max_tokens, "usage": current_usage()},
         )
         response.raise_for_status()
         return response.json()["content"]
@@ -232,7 +233,7 @@ class BackendClient:
         """
         response = self._client.post(
             "/api/internal/llm/chat",
-            json={"model": model, "messages": messages, "max_tokens": max_tokens},
+            json={"model": model, "messages": messages, "max_tokens": max_tokens, "usage": current_usage()},
         )
         response.raise_for_status()
         data = response.json()
