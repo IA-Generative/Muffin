@@ -51,6 +51,12 @@ class RustFsStorage:
         self._ensure_bucket()
         self._client.download_fileobj(self._bucket, key, fileobj)
 
+    def upload_fileobj(self, key: str, fileobj: BinaryIO, content_type: str = "application/octet-stream") -> None:
+        """Streams a file-like object to RustFS in parts, never holding it whole in memory - a file
+        extracted from a ZIP import (#223) can be large."""
+        self._ensure_bucket()
+        self._client.upload_fileobj(fileobj, self._bucket, key, ExtraArgs={"ContentType": content_type})
+
     def put_object(self, key: str, data: bytes, content_type: str = "application/octet-stream") -> None:
         self._ensure_bucket()
         self._client.put_object(Bucket=self._bucket, Key=key, Body=data, ContentType=content_type)

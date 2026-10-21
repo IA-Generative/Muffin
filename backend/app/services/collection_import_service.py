@@ -5,7 +5,6 @@ from typing import BinaryIO
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import DocumentSettings
 from app.core import storage
 from app.core.security.factory import RequestContext
 from app.core.tasks import IMPORT_ZIP_TASK, enqueue_import_zip
@@ -25,16 +24,9 @@ from app.services.document_upload_service import DocumentUploadService, _uploade
 from app.services.embedding_model_lookup import default_embedding_model
 from app.services.search_service import embed_text
 
-# Module attribute (not closed over) so tests can change the limit with monkeypatch.setattr.
-_document_settings = DocumentSettings()
-
 
 class InvalidArchiveError(Exception):
     """Not a ZIP archive at all - refused before anything is stored or created."""
-
-
-class ArchiveTooLargeError(Exception):
-    pass
 
 
 class CollectionImportNotFoundError(Exception):
@@ -99,8 +91,9 @@ class CollectionImportService:
         """`parent_id`: dropped into a collection's Documents tab - the ZIP's collection goes
         right under it. `conversation_id`: dropped into a conversation - top level, pinned to that
         conversation's runs. Neither: the "Fichiers à ranger" page - top level."""
-        if size is not None and size > _document_settings.ZIP_IMPORT_MAX_UPLOAD_BYTES:
-            raise ArchiveTooLargeError(filename)
+        # No size limit on the archive itself: it is streamed to the object store, never held in
+        # memory, and what it expands to is bounded worker-side (ZIP_IMPORT_*: file count, sizes,
+        # compression ratio), where a zip bomb would actually do harm.
         if not filename.lower().endswith(".zip") or not zipfile.is_zipfile(archive):
             raise InvalidArchiveError(filename)
         archive.seek(0)

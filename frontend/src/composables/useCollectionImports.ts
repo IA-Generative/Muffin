@@ -150,7 +150,8 @@ function poll(id: string) {
 }
 
 function uploadErrorMessage(status: number): string {
-  if (status === 413) return "L'archive est trop volumineuse."
+  // Muffin itself sets no size limit on an archive: a 413 comes from a proxy in front of it.
+  if (status === 413) return "L'archive a été refusée par le serveur : elle dépasse la taille qu'il accepte."
   if (status === 422) return "Ce fichier n'est pas une archive ZIP valide."
   return "Impossible d'envoyer l'archive."
 }

@@ -140,7 +140,6 @@ désactivée par défaut en amont et doit être explicitement activée côté se
 |---|---|---|---|
 | `DOCUMENT_LOCK_TTL_SECONDS` | Durée de validité, en secondes, du verrou d'édition souple d'un document vivant (`POST /api/collections/{id}/documents/{doc}/lock`) tant qu'il n'est pas renouvelé (`PUT`). Passé ce délai le verrou est ignoré, un onglet abandonné libère donc le document tout seul | `600` | **backend** (`app/config/documents.py`, `app/services/living_document_service.py`) |
 | `PINNED_DESCENDANTS_LIMIT` | Nombre max de sous-collections ajoutées quand l'utilisateur épingle une collection dans le chat (les plus proches d'abord) ; au-delà, l'agent propose d'aller plus loin depuis la collection épinglée la plus proche | `30` | **backend** (`app/config/runs.py`, `app/services/run_service.py`) |
-| `ZIP_IMPORT_MAX_UPLOAD_BYTES` | Taille maximale, en octets, d'un ZIP importé en collection (vérifiée à l'upload, avant tout stockage) | `524288000` (500 Mo) | **backend** (`app/config/documents.py`, `app/services/collection_import_service.py`) |
 
 ## Backend ↔ workers (URLs)
 
