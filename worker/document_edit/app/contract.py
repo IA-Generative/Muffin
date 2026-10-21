@@ -24,6 +24,9 @@ class EditJobInput(BaseModel):
     # Set when the user asked for an adjustment of an earlier draft rather than a fresh edit: the
     # job then starts from that draft instead of from source_storage_key.
     previous_draft_key: str | None = None
+    # Also render the PDF of the source file (ODT only), so the user can look at the current document
+    # next to the proposal. Set on a draft's first job only: an adjustment finds it already there.
+    render_base: bool = False
 
 
 class PendingImage(BaseModel):
@@ -43,11 +46,26 @@ class EditJobResult(BaseModel):
     draft_storage_key: str
     # RustFS key of the PDF preview shown to the user - None until the conversion is wired (#169).
     preview_pdf_key: str | None = None
+    # RustFS key of the PDF of the document the draft started from - only when the job rendered it.
+    base_preview_pdf_key: str | None = None
     # Human-readable list of the operations applied, shown next to the preview.
     operations_summary: str = ""
     pending_images: list[PendingImage] = []
     # False while the worker only copies its starting point unchanged (this skeleton, #167).
     edited: bool = False
+
+
+class RenderUploadInput(BaseModel):
+    """Input of the render_upload task: the PDF previews of a file the user picked to replace an ODT
+    document - the file itself and the document it would replace - so they can be compared before
+    anything is saved. No model involved."""
+
+    # The picked file, already in RustFS (under drafts/): the result points back at it, unchanged.
+    draft_storage_key: str
+    # The document's current file.
+    source_storage_key: str
+    document_id: str
+    user_id: str
 
 
 class ImageToInsert(BaseModel):

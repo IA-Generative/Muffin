@@ -15,8 +15,14 @@ export interface DocumentDraft {
   id: string
   // pending: a worker job is running; ready: there is something to look at; failed: the edit job failed.
   status: 'pending' | 'ready' | 'failed'
-  // Which job is running (or ran last): the edit itself, or the insertion of dropped images.
-  jobKind: 'edit' | 'images'
+  // Which job is running (or ran last): the edit itself, the insertion of dropped images, or the
+  // rendering of a file picked to replace the document.
+  jobKind: 'edit' | 'images' | 'upload'
+  // "upload": the user picked a file to replace the document with and is looking at it before it
+  // becomes a revision. "chat": the agent produced it (an adjustment turns an upload into this).
+  origin: 'chat' | 'upload'
+  // The picked file's name (origin "upload").
+  filename: string | null
   prompt: string
   baseRevision: number
   format: 'odt' | 'md'
@@ -26,6 +32,8 @@ export interface DocumentDraft {
   error: string | null
   // What GET .../draft/preview serves: the PDF of an edited ODT, the text of an edited Markdown.
   preview: 'pdf' | 'markdown' | null
+  // What GET .../draft/preview?version=base serves: the document as it is now, to compare with.
+  basePreview: 'pdf' | 'markdown' | null
   pendingImages: DraftImage[]
   expiresAt: string | null
   createdAt: string
@@ -36,6 +44,8 @@ interface DraftOut {
   id: string
   status: DocumentDraft['status']
   job_kind: DocumentDraft['jobKind']
+  origin: DocumentDraft['origin']
+  filename: string | null
   prompt: string
   base_revision: number
   format: DocumentDraft['format']
@@ -43,6 +53,7 @@ interface DraftOut {
   operations_summary: string
   error: string | null
   preview: DocumentDraft['preview']
+  base_preview: DocumentDraft['basePreview']
   pending_images: {
     id: string
     description: string
@@ -60,6 +71,8 @@ function toDraft(raw: DraftOut): DocumentDraft {
     id: raw.id,
     status: raw.status,
     jobKind: raw.job_kind,
+    origin: raw.origin,
+    filename: raw.filename,
     prompt: raw.prompt,
     baseRevision: raw.base_revision,
     format: raw.format,
@@ -67,6 +80,7 @@ function toDraft(raw: DraftOut): DocumentDraft {
     operationsSummary: raw.operations_summary,
     error: raw.error,
     preview: raw.preview,
+    basePreview: raw.base_preview,
     pendingImages: raw.pending_images.map((image) => ({
       id: image.id,
       description: image.description,
@@ -146,6 +160,29 @@ async function createDraft(collectionId: string, documentId: string, prompt: str
   return toDraft(await (await send(draftUrl(collectionId, documentId), { method: 'POST', json: { prompt } })).json())
 }
 
+// Holds the file the user picked to replace the document as a draft: nothing becomes a revision until
+// they have compared it with the current document and validated it. The statuses that mean something
+// else on the image upload (415, 422) are worded here for this one.
+async function uploadDraft(collectionId: string, documentId: string, file: File, baseRevision: number): Promise<DocumentDraft> {
+  const formData = new FormData()
+  formData.append('file', file)
+  const response = await fetch(`${draftUrl(collectionId, documentId, '/upload')}?base_revision=${baseRevision}`, {
+    method: 'POST',
+    credentials: 'include',
+    body: formData,
+  })
+  if (response.status === 415) throw new DraftError('Seuls les fichiers .odt et .md sont acceptés.')
+  if (response.status === 422) throw new DraftError('Le nouveau fichier doit avoir le même format que le document.')
+  if (response.status === 409) {
+    const body = (await response.clone().json().catch(() => ({}))).detail ?? {}
+    if (body.code === 'draft_exists') {
+      throw new DraftError('Ce document a déjà une modification en attente : validez-la ou refusez-la d’abord.')
+    }
+  }
+  if (!response.ok) throw await toError(response)
+  return toDraft(await response.json())
+}
+
 async function adjustDraft(collectionId: string, documentId: string, prompt: string): Promise<DocumentDraft> {
   const response = await send(draftUrl(collectionId, documentId, '/adjust'), { method: 'POST', json: { prompt } })
   return toDraft(await response.json())
@@ -179,8 +216,13 @@ export type DraftPreview = { kind: 'pdf'; url: string } | { kind: 'markdown'; te
 
 // The PDF comes back as a blob URL (the caller revokes it with releasePreview): an <iframe> can't send
 // the session cookie to the API origin the way fetch does, and the backend never hands out a storage URL.
-async function fetchPreview(collectionId: string, documentId: string, kind: 'pdf' | 'markdown'): Promise<DraftPreview> {
-  const response = await send(draftUrl(collectionId, documentId, '/preview'))
+async function fetchPreview(
+  collectionId: string,
+  documentId: string,
+  kind: 'pdf' | 'markdown',
+  version: 'draft' | 'base' = 'draft',
+): Promise<DraftPreview> {
+  const response = await send(draftUrl(collectionId, documentId, version === 'base' ? '/preview?version=base' : '/preview'))
   if (kind === 'markdown') return { kind, text: await response.text() }
   return { kind, url: URL.createObjectURL(await response.blob()) }
 }
@@ -193,6 +235,7 @@ export function useDocumentDraft() {
   return {
     fetchDraft,
     createDraft,
+    uploadDraft,
     adjustDraft,
     refuseDraft,
     validateDraft,

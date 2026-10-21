@@ -20,7 +20,9 @@ const emit = defineEmits<{
   changed: []
 }>()
 
-const { fetchRevisions, fetchLock, replaceDocument, restoreRevision, downloadDocument } = useLivingDocuments()
+const { fetchRevisions, fetchLock, restoreRevision, downloadDocument } = useLivingDocuments()
+
+const edit = ref<InstanceType<typeof LivingDocumentEdit> | null>(null)
 
 const revisions = ref<DocumentRevision[]>()
 const lock = ref<DocumentLock | null>(null)
@@ -102,8 +104,9 @@ function onFileSelected(event: Event) {
   const file = input.files?.[0]
   input.value = '' // lets the same file be picked again after a refusal
   if (!file || !current.value) return
-  const baseRevision = current.value.number
-  run(() => replaceDocument(props.collectionId, props.documentId, file, baseRevision))
+  // Not saved yet: the file is held as a draft, shown next to the current version to compare, and
+  // only becomes a revision (and is reindexed) once the user validates it.
+  edit.value?.replaceWithFile(file, current.value.number)
 }
 
 function restore(revision: DocumentRevision) {
@@ -129,6 +132,7 @@ onUnmounted(() => clearInterval(timer))
 
     <template v-else>
       <LivingDocumentEdit
+        ref="edit"
         :collection-id="collectionId"
         :document-id="documentId"
         :editable="editable"
@@ -166,8 +170,9 @@ onUnmounted(() => clearInterval(timer))
           />
         </label>
         <p class="revisions__hint">
-          Le nouveau fichier doit être de même format ({{ current?.format === 'md' ? 'Markdown' : 'ODT' }}). Le document est
-          ré-indexé, l'historique est conservé.
+          Le nouveau fichier doit être de même format ({{ current?.format === 'md' ? 'Markdown' : 'ODT' }}). Vous le
+          comparez à la version actuelle avant de valider ; le document est alors ré-indexé et l'historique est
+          conservé.
         </p>
       </div>
 

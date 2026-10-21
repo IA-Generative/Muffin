@@ -28,15 +28,27 @@ class DocumentDraftRepository:
         prompt: str,
         user_id: str,
         user_display: str | None,
-        celery_task_id: str,
+        celery_task_id: str | None,
         lock_token: str,
+        origin: str = "chat",
+        filename: str | None = None,
+        draft_storage_key: str | None = None,
+        status: DraftStatus = DraftStatus.PENDING,
+        job_kind: str = "edit",
+        edited: bool = False,
+        operations_summary: str = "",
     ) -> DocumentDraft:
         draft = DocumentDraft(
             document_id=document_id,
             base_revision=base_revision,
             format=format_,
-            status=DraftStatus.PENDING,
-            job_kind="edit",
+            status=status,
+            job_kind=job_kind,
+            origin=origin,
+            filename=filename,
+            draft_storage_key=draft_storage_key,
+            edited=edited,
+            operations_summary=operations_summary,
             prompt=prompt,
             requested_by_user_id=user_id,
             requested_by_display=user_display,
@@ -55,5 +67,10 @@ class DocumentDraftRepository:
     def storage_keys(draft: DocumentDraft) -> list[str]:
         """Every RustFS object a draft owns - its file, its preview and the images uploaded for it."""
         images: list[dict[str, Any]] = draft.pending_images or []
-        keys = [draft.draft_storage_key, draft.preview_pdf_key, *(image.get("storage_key") for image in images)]
+        keys = [
+            draft.draft_storage_key,
+            draft.preview_pdf_key,
+            draft.base_preview_pdf_key,
+            *(image.get("storage_key") for image in images),
+        ]
         return [key for key in dict.fromkeys(keys) if key]

@@ -45,6 +45,7 @@ class Io:
     def __init__(self) -> None:
         self.edit_jobs: list[tuple[dict, str]] = []
         self.image_jobs: list[tuple[dict, str]] = []
+        self.render_jobs: list[tuple[dict, str]] = []
         self.objects: dict[str, bytes] = {}
         self.deleted: list[str] = []
         self.fail_enqueue = False
@@ -57,6 +58,12 @@ class Io:
 
     def enqueue_images(self, payload, task_id=None):
         self.image_jobs.append((payload, task_id))
+        return task_id
+
+    def enqueue_render(self, payload, task_id=None):
+        if self.fail_enqueue:
+            raise RuntimeError("broker down")
+        self.render_jobs.append((payload, task_id))
         return task_id
 
     def put(self, key, data, content_type="application/octet-stream"):
@@ -77,6 +84,7 @@ def io():
     with (
         patch(f"{DRAFTS}.enqueue_edit_document", state.enqueue_edit),
         patch(f"{DRAFTS}.enqueue_insert_images", state.enqueue_images),
+        patch(f"{DRAFTS}.enqueue_render_upload", state.enqueue_render),
         patch(f"{DRAFTS}.storage.put_object", state.put),
         patch(f"{DRAFTS}.storage.get_object", state.get),
         patch(f"{DRAFTS}.storage.delete_objects", state.delete),
@@ -654,3 +662,277 @@ async def test_images_cannot_be_uploaded_while_a_job_is_running(client, io):
     response = await _upload(client, collection_id, document_id)
 
     assert response.status_code == 409 and response.json()["detail"]["code"] == "draft_not_ready"
+
+
+# -- replacing a document with a picked file: compare, then validate ----------------------------------
+
+
+async def _pick_file(client, collection_id, document_id, filename="procedure.odt", content=b"new-odt", base_revision=1):
+    media_type = ODT if filename.endswith(".odt") else "text/markdown"
+    return await client.post(
+        _url(collection_id, document_id, "/upload"),
+        params={"base_revision": base_revision},
+        files={"file": (filename, content, media_type)},
+    )
+
+
+async def _store_current(io, document_id, content: bytes) -> None:
+    """The living document's current file, which the fixtures above create without storing."""
+    async with async_session_factory() as session:
+        io.objects[(await session.get(Document, uuid.UUID(document_id))).storage_key] = content
+
+
+async def test_a_picked_markdown_file_is_ready_at_once_to_compare_with_the_current_one(client, io):
+    collection_id, document_id = await _living(client, "notes.md")
+    await _store_current(io, document_id, b"# Notes\n\nAncien")
+
+    response = await _pick_file(client, collection_id, document_id, "notes-v2.md", b"# Notes\n\nNouveau")
+
+    assert response.status_code == 202
+    draft = response.json()
+    assert (draft["status"], draft["origin"], draft["job_kind"], draft["filename"]) == (
+        "ready",
+        "upload",
+        "upload",
+        "notes-v2.md",
+    )
+    assert draft["edited"] is True
+    assert (draft["preview"], draft["base_preview"]) == ("markdown", "markdown")
+    assert draft["operations_summary"] == "- Le fichier « notes-v2.md » remplace la version actuelle."
+    # Nothing to render, so no worker job; the document is locked all the same.
+    assert io.render_jobs == [] and io.edit_jobs == []
+    assert (await client.get(f"/api/collections/{collection_id}/documents/{document_id}/lock")).json()["held_by_me"]
+
+    proposed = await client.get(_url(collection_id, document_id, "/preview"))
+    current = await client.get(_url(collection_id, document_id, "/preview"), params={"version": "base"})
+    assert proposed.content == b"# Notes\n\nNouveau"
+    assert current.content == b"# Notes\n\nAncien"
+    # Nothing is indexed, and the document is still on its first revision, until it is validated.
+    io.process.assert_not_called()
+    async with async_session_factory() as session:
+        count = len(
+            (
+                await session.scalars(
+                    select(DocumentRevision).where(DocumentRevision.document_id == uuid.UUID(document_id))
+                )
+            ).all()
+        )
+    assert count == 1
+
+
+async def test_validating_a_picked_file_makes_it_an_upload_revision_under_its_own_name(client, io):
+    collection_id, document_id = await _living(client, "notes.md")
+    await _pick_file(client, collection_id, document_id, "notes-v2.md", b"# Notes\n\nNouveau")
+
+    response = await client.post(_url(collection_id, document_id, "/validate"))
+
+    assert response.status_code == 200
+    io.process.assert_called_once_with(document_id)
+    async with async_session_factory() as session:
+        revisions = (
+            await session.scalars(
+                select(DocumentRevision)
+                .where(DocumentRevision.document_id == uuid.UUID(document_id))
+                .order_by(DocumentRevision.number)
+            )
+        ).all()
+    assert [(r.number, r.origin.value, r.filename) for r in revisions] == [
+        (1, "upload", "notes.md"),
+        (2, "upload", "notes-v2.md"),
+    ]
+    assert io.objects[revisions[1].storage_key] == b"# Notes\n\nNouveau"
+    assert await _draft_row(uuid.UUID(document_id)) is None
+
+
+async def test_a_picked_odt_is_rendered_by_a_worker_before_it_can_be_compared(client, io):
+    collection_id, document_id = await _living(client)
+
+    response = await _pick_file(client, collection_id, document_id, content=b"new-odt")
+
+    assert response.status_code == 202
+    draft = response.json()
+    assert (draft["status"], draft["origin"], draft["preview"], draft["base_preview"]) == (
+        "pending",
+        "upload",
+        None,
+        None,
+    )
+    ((payload, task_id),) = io.render_jobs
+    assert payload["document_id"] == document_id
+    assert payload["source_storage_key"].endswith("-procedure.odt")
+    assert io.objects[payload["draft_storage_key"]] == b"new-odt"
+    async with async_session_factory() as session:
+        assert await session.scalar(select(Task).where(Task.celery_task_id == task_id)) is not None
+
+    # The worker reports the file it was given, plus both PDFs.
+    stored = payload["draft_storage_key"]
+    await _report(
+        client,
+        io,
+        task_id,
+        kind="upload",
+        draft_storage_key=stored,
+        preview_pdf_key="drafts/d/new.pdf",
+        base_preview_pdf_key="drafts/d/current.pdf",
+        operations_summary="",
+        files={stored: b"new-odt", "drafts/d/new.pdf": b"%PDF-new", "drafts/d/current.pdf": b"%PDF-current"},
+    )
+    ready = (await client.get(_url(collection_id, document_id))).json()
+    assert (ready["status"], ready["preview"], ready["base_preview"]) == ("ready", "pdf", "pdf")
+    # The summary written when the file came in is not erased by the worker's report.
+    assert ready["operations_summary"] == "- Le fichier « procedure.odt » remplace la version actuelle."
+    assert (await client.get(_url(collection_id, document_id, "/preview"))).content == b"%PDF-new"
+    base = await client.get(_url(collection_id, document_id, "/preview"), params={"version": "base"})
+    assert base.content == b"%PDF-current"
+
+    assert (await client.post(_url(collection_id, document_id, "/validate"))).status_code == 200
+    async with async_session_factory() as session:
+        document = await session.get(Document, uuid.UUID(document_id))
+    assert io.objects[document.storage_key] == b"new-odt"
+    # Validating leaves no PDF behind.
+    assert {"drafts/d/new.pdf", "drafts/d/current.pdf"} <= set(io.deleted)
+
+
+async def test_an_odt_whose_current_pdf_could_not_be_rendered_can_still_be_validated(client, io):
+    collection_id, document_id = await _living(client)
+    await _pick_file(client, collection_id, document_id)
+    (payload, task_id) = io.render_jobs[-1]
+    stored = payload["draft_storage_key"]
+
+    await _report(
+        client,
+        io,
+        task_id,
+        kind="upload",
+        draft_storage_key=stored,
+        preview_pdf_key="drafts/d/new.pdf",
+        files={stored: b"new-odt", "drafts/d/new.pdf": b"%PDF-new"},
+    )
+
+    draft = (await client.get(_url(collection_id, document_id))).json()
+    assert (draft["status"], draft["preview"], draft["base_preview"]) == ("ready", "pdf", None)
+    missing = await client.get(_url(collection_id, document_id, "/preview"), params={"version": "base"})
+    assert missing.status_code == 409
+    assert (await client.post(_url(collection_id, document_id, "/validate"))).status_code == 200
+
+
+async def test_a_picked_odt_that_cannot_be_rendered_fails_and_refusing_removes_the_file(client, io):
+    collection_id, document_id = await _living(client)
+    await _pick_file(client, collection_id, document_id)
+    (payload, task_id) = io.render_jobs[-1]
+
+    await client.patch(
+        f"/api/internal/document-drafts/{task_id}/failure", json={"error": "fichier illisible"}, headers=WORKER
+    )
+
+    draft = (await client.get(_url(collection_id, document_id))).json()
+    assert (draft["status"], draft["error"]) == ("failed", "fichier illisible")
+    assert (await client.post(_url(collection_id, document_id, "/validate"))).status_code == 409
+    assert (await client.delete(_url(collection_id, document_id))).status_code == 204
+    assert payload["draft_storage_key"] in io.deleted
+    assert (await client.get(f"/api/collections/{collection_id}/documents/{document_id}/lock")).json() is None
+
+
+async def test_a_picked_file_is_checked_before_anything_is_stored(client, io):
+    collection_id, document_id = await _living(client)
+
+    wrong_format = await _pick_file(client, collection_id, document_id, "notes.md", b"# Notes")
+    unsupported = await _pick_file(client, collection_id, document_id, "photo.png", b"\x89PNG")
+    stale = await _pick_file(client, collection_id, document_id, base_revision=7)
+
+    assert wrong_format.status_code == 422
+    assert unsupported.status_code == 415
+    assert stale.status_code == 409 and stale.json()["detail"] == {"code": "revision_conflict", "current_revision": 1}
+    assert io.render_jobs == [] and io.objects == {}
+    # None of those refusals took the lock.
+    assert (await client.get(f"/api/collections/{collection_id}/documents/{document_id}/lock")).json() is None
+
+
+async def test_a_document_with_a_draft_cannot_get_a_second_one_from_a_picked_file(client, io):
+    collection_id, document_id = await _living(client)
+    await _create(client, collection_id, document_id)
+
+    response = await _pick_file(client, collection_id, document_id)
+
+    assert response.status_code == 409 and response.json()["detail"]["code"] == "draft_exists"
+    assert io.render_jobs == []
+
+
+async def test_a_picked_file_needs_the_owner(client, io):
+    collection_id, document_id = await _living(client)
+    app.dependency_overrides[get_current_user] = _as_user("stranger")
+    try:
+        response = await _pick_file(client, collection_id, document_id)
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+    assert response.status_code in (403, 404)
+    assert io.render_jobs == []
+
+
+async def test_adjusting_a_picked_file_hands_it_to_the_agent_and_it_becomes_a_chat_draft(client, io):
+    collection_id, document_id = await _living(client, "notes.md")
+    await _pick_file(client, collection_id, document_id, "notes-v2.md", b"# Notes\n\nNouveau")
+
+    response = await client.post(_url(collection_id, document_id, "/adjust"), json={"prompt": "Raccourcis"})
+
+    assert response.status_code == 202 and response.json()["origin"] == "chat"
+    ((payload, _),) = io.edit_jobs
+    # The agent works on the picked file, not on the document it was meant to replace.
+    assert payload["previous_draft_key"] is not None and payload["previous_draft_key"] != payload["source_storage_key"]
+
+
+async def test_the_first_agent_job_on_an_odt_also_renders_the_current_document(client, io):
+    collection_id, document_id = await _living(client)
+    await _create(client, collection_id, document_id)
+    ((payload, task_id),) = io.edit_jobs
+    assert payload["render_base"] is True
+
+    await _report(
+        client,
+        io,
+        task_id,
+        base_preview_pdf_key="drafts/d/current.pdf",
+        files={
+            "drafts/d/job.odt": b"edited-odt",
+            "drafts/d/job.pdf": b"%PDF",
+            "drafts/d/current.pdf": b"%PDF-current",
+        },
+    )
+
+    draft = (await client.get(_url(collection_id, document_id))).json()
+    assert draft["base_preview"] == "pdf"
+    base = await client.get(_url(collection_id, document_id, "/preview"), params={"version": "base"})
+    assert base.content == b"%PDF-current"
+
+    # An adjustment does not render it again, and the first PDF is not lost.
+    await client.post(_url(collection_id, document_id, "/adjust"), json={"prompt": "Plus court"})
+    assert io.edit_jobs[-1][0]["render_base"] is False
+    assert (await client.get(_url(collection_id, document_id))).json()["base_preview"] == "pdf"
+
+
+async def test_a_markdown_agent_job_has_nothing_to_render_for_the_current_document(client, io):
+    collection_id, document_id = await _living(client, "notes.md")
+    await _create(client, collection_id, document_id)
+
+    assert io.edit_jobs[0][0]["render_base"] is False
+
+
+async def test_refusing_a_draft_also_removes_the_current_documents_pdf(client, io):
+    collection_id, document_id = await _living(client)
+    await _create(client, collection_id, document_id)
+    await _report(
+        client,
+        io,
+        io.edit_jobs[-1][1],
+        base_preview_pdf_key="drafts/d/current.pdf",
+        files={
+            "drafts/d/job.odt": b"edited-odt",
+            "drafts/d/job.pdf": b"%PDF",
+            "drafts/d/current.pdf": b"%PDF-current",
+        },
+    )
+
+    await client.delete(_url(collection_id, document_id))
+
+    assert {"drafts/d/job.odt", "drafts/d/job.pdf", "drafts/d/current.pdf"} <= set(io.deleted)

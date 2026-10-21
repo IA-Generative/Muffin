@@ -31,9 +31,13 @@ const { fetchPreview, releasePreview } = useDocumentDraft()
 
 const preview = ref<DraftPreview | null>(null)
 const previewError = ref(false)
+// The document as it is now, shown next to the proposal to compare them.
+const basePreview = ref<DraftPreview | null>(null)
+const basePreviewError = ref(false)
 const adjustPrompt = ref('')
 
 const isPending = computed(() => props.draft.status === 'pending')
+const isUpload = computed(() => props.draft.origin === 'upload')
 const canValidate = computed(
   () => props.draft.status === 'ready' && props.draft.edited && !props.busy,
 )
@@ -46,9 +50,11 @@ const summaryLines = computed(() =>
     .filter(Boolean),
 )
 const uploadedCount = computed(() => props.draft.pendingImages.filter((image) => image.uploaded).length)
-const markdownHtml = computed(() =>
-  preview.value?.kind === 'markdown' ? DOMPurify.sanitize(marked.parse(preview.value.text, { async: false })) : '',
-)
+function renderMarkdown(shown: DraftPreview | null): string {
+  return shown?.kind === 'markdown' ? DOMPurify.sanitize(marked.parse(shown.text, { async: false })) : ''
+}
+const markdownHtml = computed(() => renderMarkdown(preview.value))
+const baseMarkdownHtml = computed(() => renderMarkdown(basePreview.value))
 
 // Reload the preview whenever the draft it belongs to changes - a new job finished (an adjustment, or
 // images were inserted) - rather than on every poll.
@@ -72,7 +78,28 @@ async function loadPreview() {
 }
 
 watch(previewKey, loadPreview, { immediate: true })
-onUnmounted(() => releasePreview(preview.value))
+
+// The current document never changes while the draft lives (the draft holds its lock), so it is
+// loaded once, as soon as there is one to show - not again after each adjustment.
+const basePreviewKey = computed(() => (props.draft.basePreview ? `${props.draft.id}|${props.draft.basePreview}` : null))
+
+async function loadBasePreview() {
+  releasePreview(basePreview.value)
+  basePreview.value = null
+  basePreviewError.value = false
+  if (!basePreviewKey.value || !props.draft.basePreview) return
+  try {
+    basePreview.value = await fetchPreview(props.collectionId, props.documentId, props.draft.basePreview, 'base')
+  } catch {
+    basePreviewError.value = true
+  }
+}
+
+watch(basePreviewKey, loadBasePreview, { immediate: true })
+onUnmounted(() => {
+  releasePreview(preview.value)
+  releasePreview(basePreview.value)
+})
 
 function where(image: DraftImage): string {
   const section = image.section?.heading
@@ -100,18 +127,54 @@ function submitAdjust() {
   <div class="review-overlay" @click.self="emit('close')">
     <div class="review" role="dialog" aria-modal="true" aria-labelledby="review-title">
       <header class="review__header">
-        <h2 id="review-title" class="review__title">Modification proposée</h2>
+        <h2 id="review-title" class="review__title">{{ isUpload ? 'Remplacement proposé' : 'Modification proposée' }}</h2>
         <button type="button" class="review__close" aria-label="Fermer (la proposition est conservée)" @click="emit('close')">
           ✕
         </button>
       </header>
-      <p class="review__prompt"><strong>Votre demande :</strong> {{ draft.prompt }}</p>
+      <p v-if="isUpload" class="review__prompt">
+        <strong>Nouveau fichier :</strong> {{ draft.filename }} - comparez-le à la version actuelle avant de valider.
+      </p>
+      <p v-else class="review__prompt"><strong>Votre demande :</strong> {{ draft.prompt }}</p>
 
       <div class="review__content">
+        <div class="review__compare">
+        <div class="review__pane">
+          <h3 class="review__pane-title">Version actuelle <span class="review__pane-note">révision {{ draft.baseRevision }}</span></h3>
+        <section class="review__preview" aria-label="Aperçu de la version actuelle du document">
+          <p v-if="isPending && !draft.basePreview" class="review__state" role="status">
+            <span class="review__spinner" aria-hidden="true" />
+            Préparation de l’aperçu…
+          </p>
+          <p v-else-if="!draft.basePreview" class="review__state">
+            L’aperçu de la version actuelle n’est pas disponible.
+          </p>
+          <p v-else-if="basePreviewError" class="review__state review__state--error" role="alert">
+            Impossible de charger la version actuelle.
+          </p>
+          <p v-else-if="!basePreview" class="review__state" role="status">Chargement de l’aperçu…</p>
+          <iframe
+            v-else-if="basePreview.kind === 'pdf'"
+            :src="basePreview.url"
+            class="review__pdf"
+            title="Aperçu PDF de la version actuelle du document"
+          />
+          <!-- eslint-disable-next-line vue/no-v-html -->
+          <div v-else class="review__markdown" v-html="baseMarkdownHtml" />
+        </section>
+        </div>
+        <div class="review__pane">
+          <h3 class="review__pane-title">{{ isUpload ? 'Nouvelle version' : 'Version proposée' }}</h3>
         <section class="review__preview" aria-label="Aperçu du document modifié">
           <p v-if="isPending" class="review__state" role="status">
             <span class="review__spinner" aria-hidden="true" />
-            {{ draft.jobKind === 'images' ? 'Insertion des images…' : 'L’agent prépare la modification…' }}
+            {{
+              draft.jobKind === 'images'
+                ? 'Insertion des images…'
+                : draft.jobKind === 'upload'
+                  ? 'Préparation de l’aperçu…'
+                  : 'L’agent prépare la modification…'
+            }}
           </p>
           <p v-else-if="draft.status === 'failed'" class="review__state review__state--error" role="alert">
             {{ draft.error ?? 'La modification a échoué.' }}
@@ -130,6 +193,8 @@ function submitAdjust() {
           <!-- eslint-disable-next-line vue/no-v-html -->
           <div v-else class="review__markdown" v-html="markdownHtml" />
         </section>
+        </div>
+        </div>
 
         <aside class="review__side">
           <section v-if="draft.status === 'ready'">
@@ -222,7 +287,7 @@ function submitAdjust() {
         <div class="review__actions">
           <button type="button" class="fr-btn fr-btn--secondary" :disabled="busy" @click="emit('refuse')">Refuser</button>
           <button type="button" class="fr-btn" :disabled="!canValidate" @click="emit('validate')">
-            Valider la modification
+            {{ isUpload ? 'Valider le remplacement' : 'Valider la modification' }}
           </button>
         </div>
       </footer>
@@ -288,8 +353,33 @@ function submitAdjust() {
   padding: 1rem 1.5rem;
 }
 
-.review__preview {
+.review__compare {
   flex: 3;
+  min-width: 0;
+  display: flex;
+  gap: 0.75rem;
+}
+
+.review__pane {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.review__pane-title {
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+.review__pane-note {
+  font-weight: 400;
+  color: var(--text-mention-grey);
+}
+
+.review__preview {
+  flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -482,6 +572,15 @@ function submitAdjust() {
   .review__content {
     flex-direction: column;
     overflow-y: auto;
+  }
+
+  .review__compare {
+    flex: none;
+    flex-direction: column;
+  }
+
+  .review__pane {
+    flex: none;
   }
 
   .review__preview {
