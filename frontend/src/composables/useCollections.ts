@@ -49,6 +49,8 @@ interface CollectionOut {
   parent_id: string | null
   path: CollectionPathItem[]
   children_count: number
+  document_count: number
+  indexed_document_count: number
   inherited_public_from: CollectionPathItem | null
   documents: CollectionDocument[]
   qa_pairs: QaPair[]
@@ -106,6 +108,8 @@ function toCollection(raw: CollectionOut): Collection {
     parentId: raw.parent_id,
     path: raw.path,
     childrenCount: raw.children_count,
+    documentCount: raw.document_count,
+    indexedDocumentCount: raw.indexed_document_count,
     inheritedPublicFrom: raw.inherited_public_from,
     documents: raw.documents,
     qaPairs: raw.qa_pairs,
@@ -219,7 +223,12 @@ async function fetchCollections() {
     const response = await fetch(`${API_BASE_URL}/api/collections?page_size=100`, { credentials: 'include' })
     if (!response.ok) throw new Error(`${response.status}`)
     const body: { items: CollectionOut[] } = await response.json()
-    collections.value = body.items.map(toCollection)
+    // Merged, not replaced: a collection opened by URL may already have had its documents (or
+    // other tabs) loaded before this first list arrives - replacing would wipe them.
+    const fresh = body.items.map(toCollection)
+    const freshIds = new Set(fresh.map((item) => item.id))
+    collections.value = collections.value.filter((item) => freshIds.has(item.id) || item.id === activeCollectionId.value)
+    fresh.forEach(upsertCollection)
   } catch {
     error.value = 'Impossible de récupérer les collections.'
   } finally {
@@ -314,11 +323,12 @@ function loadTabData(collectionId: string, tab: string) {
 // CollectionsView's route watcher) - pushing again there would just double the entry.
 function openCollection(id: string, options: { navigate?: boolean; tab?: string } = {}) {
   activeCollectionId.value = id
-  if (!collections.value.some((item) => item.id === id)) fetchCollection(id)
   // Load only the data for the active tab - the rest is fetched lazily as the
   // user navigates between tabs (see loadTabData / selectTab in the detail view).
   const tab = options.tab ?? (router.currentRoute.value.params.tab as string | undefined) ?? 'settings'
-  loadTabData(id, tab)
+  // A collection opened by URL isn't in the list yet: its tab data has nowhere to land until it is.
+  if (collections.value.some((item) => item.id === id)) loadTabData(id, tab)
+  else fetchCollection(id).then(() => loadTabData(id, tab))
   const target = `/collections/${id}/${tab}`
   if (options.navigate !== false && router.currentRoute.value.fullPath !== target) {
     router.push(target)
@@ -516,6 +526,13 @@ async function deleteShare(collectionId: string, shareId: string) {
   if (collection) collection.shares = collection.shares.filter((share) => share.id !== shareId)
 }
 
+// Keeps the card counts in step with the documents once they're loaded.
+function setDocuments(collection: Collection, documents: CollectionDocument[]) {
+  collection.documents = documents
+  collection.documentCount = documents.length
+  collection.indexedDocumentCount = documents.filter((document) => document.status === 'indexed').length
+}
+
 // One poll loop per collection at most, stopped once nothing is pending/indexing.
 const documentPolls = new Map<string, ReturnType<typeof setInterval>>()
 
@@ -528,7 +545,7 @@ async function refreshDocuments(collectionId: string) {
     const raw: DocumentOut[] = await response.json()
     const collection = collections.value.find((item) => item.id === collectionId)
     if (!collection) return
-    collection.documents = raw.map(toDocument)
+    setDocuments(collection, raw.map(toDocument))
 
     const stillProcessing = collection.documents.some(
       (document) => document.status === 'pending' || document.status === 'indexing',
@@ -781,7 +798,7 @@ async function removeDocument(collectionId: string, documentId: string) {
   })
   if (!response.ok) return
   const collection = collections.value.find((item) => item.id === collectionId)
-  if (collection) collection.documents = collection.documents.filter((item) => item.id !== documentId)
+  if (collection) setDocuments(collection, collection.documents.filter((item) => item.id !== documentId))
 }
 
 function addQaPair(collectionId: string, question: string, answer: string) {
