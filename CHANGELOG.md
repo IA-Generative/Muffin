@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.16.0](https://github.com/IA-Generative/Muffin/compare/v0.15.1...v0.16.0) (2026-10-21)
+
+
+### Features
+
+* **frontend:** offer the user's own groups when sharing a collection ([3a261c1](https://github.com/IA-Generative/Muffin/commit/3a261c1fd30695da3946bea7a1f52f8c980ba6a8))
+
+
+### Bug Fixes
+
+* **frontend:** compact the settings carousel controls and explain them in tooltips ([7ef265d](https://github.com/IA-Generative/Muffin/commit/7ef265de1100dab3d0afb6f7fd98d1c3017f607c))
+
 ## [0.16.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.15.2-rc...v0.16.0-rc) (2026-10-21)
 
 
