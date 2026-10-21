@@ -14,3 +14,17 @@ misconfigurations:
   # static analysis without a `--namespace` override can't tell what a real install would use.
   # Expected noise for any reusable chart.
   - id: KSV-0110
+
+  # "Root file system is not read-only" on the third-party subcharts (helm/charts/*.tgz, scanned
+  # here with their own default values). Upstream ships `readOnlyRootFilesystem: false` for these
+  # three because the containers write to their own filesystem (database files, object storage,
+  # generated settings); our values don't override it. Making them read-only needs a writable
+  # volume per path and a test of each service, so it is accepted for now rather than fixed here.
+  # Scoped to these three files so any other chart, or our own templates, still fail the CI gate.
+  - id: KSV-0014
+    paths:
+      - helm/charts/postgres/templates/statefulset.yaml
+      - helm/charts/rustfs/templates/deployment.yaml
+      - helm/charts/searxng/templates/deployment.yaml
+    statement: Third-party subcharts running with their upstream defaults; see the comment above.
+    expired_at: 2027-01-31

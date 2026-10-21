@@ -9,6 +9,9 @@ COPY app ./app
 RUN uv sync --no-dev
 
 FROM python:3.12-slim AS runtime
+# pip is a build tool: the runtime image never installs anything, and the pip bundled with the base
+# image carries known CVEs. Removed rather than upgraded, so there is nothing left to keep patched.
+RUN python -m pip uninstall -y pip
 # libreoffice (writer only is enough): converts the edited ODT draft to the PDF preview the user
 # validates (#169) - the same package worker/document_process already installs for liteparse.
 RUN apt-get update && apt-get install -y --no-install-recommends \
