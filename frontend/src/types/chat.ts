@@ -35,6 +35,20 @@ export interface EditProposal {
   documentName: string
 }
 
+// A new Markdown document the research agent wrote and proposed to create in one of the user's
+// collections. It exists nowhere until the user creates it from the card: `status` follows what
+// they decided, and survives a reload (it is stored with the run).
+export interface CreationProposal {
+  status: 'pending' | 'created' | 'refused'
+  collectionId: string
+  collectionName: string
+  // The document's title, which becomes its file name (the backend adds the .md).
+  name: string
+  content: string
+  // Set once created.
+  documentId?: string
+}
+
 export interface ChatMessage {
   id: string
   role: 'user' | 'assistant'
@@ -58,6 +72,8 @@ export interface ChatMessage {
   // Set when this answer comes with a proposed edit of a living document - shown as its own card
   // below the answer, clearly apart from it.
   editProposal?: EditProposal
+  // Set when this answer comes with a new Markdown document to create - its own card, like the above.
+  creationProposal?: CreationProposal
   // Collections whose sub-collections the run behind this answer didn't explore (#219, #233) -
   // the latest answer offers to "go further" into them.
   unexploredCollectionIds?: string[]

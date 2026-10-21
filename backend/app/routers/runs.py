@@ -6,8 +6,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security.factory import RequestContext, get_current_user
 from app.db import get_db
+from app.schemas.document import DocumentOut
 from app.schemas.feedback import FeedbackCreate, FeedbackOut
 from app.schemas.run import RunCreate, RunEventOut, RunOut, RunResumeRequest
+from app.services.collection_service import CollectionNotEditableError, CollectionNotFoundError
+from app.services.creation_proposal_service import CreationProposalService, NoPendingCreationError
 from app.services.run_service import (
     ConversationNotFoundError,
     RunHasNoAnswerError,
@@ -23,7 +26,12 @@ def get_run_service(db: Annotated[AsyncSession, Depends(get_db)]) -> RunService:
     return RunService(db)
 
 
+def get_creation_service(db: Annotated[AsyncSession, Depends(get_db)]) -> CreationProposalService:
+    return CreationProposalService(db)
+
+
 ServiceDep = Annotated[RunService, Depends(get_run_service)]
+CreationServiceDep = Annotated[CreationProposalService, Depends(get_creation_service)]
 UserDep = Annotated[RequestContext, Depends(get_current_user)]
 
 
@@ -128,3 +136,43 @@ async def cancel_run(run_id: uuid.UUID, user: UserDep, service: ServiceDep) -> R
         return await service.cancel_run(run_id, user)
     except RunNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found") from error
+
+
+@router.post(
+    "/runs/{run_id}/creation/validate",
+    summary="Create the Markdown document the agent proposed in this run's answer",
+    response_model=DocumentOut,
+)
+async def validate_creation(run_id: uuid.UUID, user: UserDep, service: CreationServiceDep) -> DocumentOut:
+    try:
+        return await service.validate(run_id, user)
+    except RunNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found") from error
+    except NoPendingCreationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "no_pending_creation", "message": "Ce document a déjà été créé ou refusé."},
+        ) from error
+    except CollectionNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
+    except CollectionNotEditableError as error:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Only the collection's owner or an administrator can edit it"
+        ) from error
+
+
+@router.post(
+    "/runs/{run_id}/creation/refuse",
+    summary="Decline the document the agent proposed: nothing is created",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def refuse_creation(run_id: uuid.UUID, user: UserDep, service: CreationServiceDep) -> None:
+    try:
+        await service.refuse(run_id, user)
+    except RunNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found") from error
+    except NoPendingCreationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "no_pending_creation", "message": "Ce document a déjà été créé ou refusé."},
+        ) from error

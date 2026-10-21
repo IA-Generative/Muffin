@@ -6,6 +6,7 @@ from app.graph.nodes.analyze_query import analyze_query
 from app.graph.nodes.answer_identity import answer_identity
 from app.graph.nodes.build_answer_context import build_answer_context
 from app.graph.nodes.build_research_plan import build_research_plan
+from app.graph.nodes.create_document import delegate_create, detect_create
 from app.graph.nodes.decompose_query import decompose_query
 from app.graph.nodes.delegate_edit import delegate_edit
 from app.graph.nodes.detect_edit import detect_edit
@@ -21,6 +22,7 @@ from app.graph.nodes.targeted_research import targeted_research
 from app.graph.nodes.validate_grounding import validate_grounding
 from app.graph.routing.conditions import (
     after_analyze_query,
+    after_detect_create,
     after_detect_edit,
     after_evaluate_coverage,
     after_generate_answer,
@@ -42,6 +44,8 @@ def build_graph(checkpointer: BaseCheckpointSaver | None = None):
     graph.add_node("load_context", load_context)
     graph.add_node("load_accessible_vdbs", load_accessible_vdbs)
     graph.add_node("detect_edit", detect_edit)
+    graph.add_node("detect_create", detect_create)
+    graph.add_node("delegate_create", delegate_create)
     graph.add_node("delegate_edit", delegate_edit)
     graph.add_node("analyze_query", analyze_query)
     graph.add_node("answer_identity", answer_identity)
@@ -70,9 +74,16 @@ def build_graph(checkpointer: BaseCheckpointSaver | None = None):
     graph.add_conditional_edges(
         "detect_edit",
         after_detect_edit,
-        {"delegate_edit": "delegate_edit", "analyze_query": "analyze_query", "cancelled": "cancelled"},
+        {"delegate_edit": "delegate_edit", "detect_create": "detect_create", "cancelled": "cancelled"},
     )
     _cancellable_edge(graph, "delegate_edit", END)
+    # A request to write a new document is answered with a proposal to validate, not searched for.
+    graph.add_conditional_edges(
+        "detect_create",
+        after_detect_create,
+        {"delegate_create": "delegate_create", "analyze_query": "analyze_query", "cancelled": "cancelled"},
+    )
+    _cancellable_edge(graph, "delegate_create", END)
     graph.add_conditional_edges(
         "analyze_query",
         after_analyze_query,

@@ -41,6 +41,10 @@ class WorkerSettings(BaseSettings):
     # Delegating an edit of a living document to the editing agent (#171): how long the run waits
     # for it, and how often it asks the backend where it stands. The editing agent itself is
     # bounded (its own task time limit), this just stops a run from waiting on it forever.
+    # The Markdown document the agent writes when asked to create one: its length in tokens, and the
+    # most characters kept (a longer one is cut at its last whole paragraph).
+    CREATE_MAX_TOKENS: int = 4000
+    CREATE_MAX_CHARS: int = 30000
     EDIT_WAIT_SECONDS: int = 300
     EDIT_POLL_SECONDS: float = 2.0
 
