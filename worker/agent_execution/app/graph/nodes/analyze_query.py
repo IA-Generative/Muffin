@@ -7,7 +7,7 @@ from app.graph.state import AgentState
 
 _SYSTEM_PROMPT = (
     "Analyze the user's current question, in light of the conversation so far if any is given. Respond only "
-    'with a JSON object with keys: "intent" (one of "lookup", "comparison", "synthesis", "meta", "identity"), '
+    'with a JSON object with keys: "intent" (one of "lookup", "comparison", "synthesis", "meta", "identity", "help"), '
     '"topics" (array of short strings), "requires_multiple_sources" (bool), "complexity" (one of "simple", '
     '"complex"), "ambiguous" (bool - true only if the question is still unclear once the conversation history '
     'is taken into account), "clarification_question" (string or null, only set if ambiguous is true), '
@@ -22,6 +22,11 @@ _SYSTEM_PROMPT = (
     'Use "identity" when the query is about the agent itself rather than about the user\'s documents - e.g. '
     '"who are you?", "what can you do?", "what is your name?" - never for a question that happens to mention '
     '"you" while still asking about document content.\n\n'
+    'Use "help" when the user asks how to USE the Muffin application itself - how to do something in the '
+    'interface, where something is, what a feature does - e.g. "how do I share a collection?", "where do '
+    'I import a ZIP?", "can I edit a document?" - never for a question whose answer is in the content of '
+    "their documents, and never for a request to actually do it (editing or creating a document is handled "
+    "elsewhere). A help question is never ambiguous.\n\n"
     'IMPORTANT - be very conservative with "ambiguous": only set it to true if the question is truly '
     "unanswerable without more information. The user has already selected one or more collections to query "
     'against, so references like "le fichier", "les données", "the data", "the file" are NOT ambiguous - '

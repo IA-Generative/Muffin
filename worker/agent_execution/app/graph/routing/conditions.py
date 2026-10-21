@@ -31,6 +31,10 @@ def after_detect_create(state: AgentState) -> str:
 def after_analyze_query(state: AgentState) -> str:
     if state.get("cancelled") or is_cancelled(state["run_id"]):
         return "cancelled"
+    # How to use the application (#251) is answered from the user guide: it is never ambiguous, and
+    # searching the user's documents for it would come back empty or answer something else.
+    if state["query_analysis"].get("intent") == "help":
+        return "answer_help"
     if state["query_analysis"].get("ambiguous"):
         return "request_clarification"
     # A question about the agent itself (§ issue #99) never needs a clarification pass either -
