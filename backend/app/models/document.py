@@ -60,11 +60,14 @@ class Document(UUIDMixin, TimestampMixin, Base):
     # clobber a real summary a previous run already produced, and vice versa.
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    # A URL document (#19): SHA-256 of the page as last extracted and indexed, and when it was last
-    # fetched. A scheduled refresh fetches the page again and only reprocesses it when the hash
-    # differs - most checks find an unchanged page, and reprocessing costs LLM calls. None for a
-    # file, or for a URL indexed before this existed (its first refresh then reprocesses it).
-    content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # SHA-256 of the file's bytes (#300): what tells that the same file is added twice, and what
+    # another document reuses the results of. For a URL serving an HTML page there is no file to hash,
+    # so it is the hash of the page's extracted text, lightly normalized (#19): the page's bytes change
+    # at every read for reasons its content does not show (scripts, tokens, ads), and the scheduled
+    # refresh only reprocesses the document when this hash differs. None until known: a file uploaded
+    # before this existed gets it when it is next processed, and so does one whose file was replaced.
+    content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    # A URL document (#19): when it was last fetched.
     last_fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Soft edit lock of a living document (#170) - all None when unlocked. An expired lock

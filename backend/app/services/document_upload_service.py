@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import storage
+from app.core.file_hash import sha256_hex
 from app.core.security.factory import RequestContext
 from app.core.tasks import PROCESS_DOCUMENT_TASK, enqueue_process_document
 from app.models.document import Document, DocumentStatus
@@ -64,6 +65,15 @@ def _document_out(document: Document) -> DocumentOut:
     return out
 
 
+class DuplicateDocumentError(Exception):
+    """The collection already holds this file, or this URL (#300): what is added is the same document
+    as `existing`. Refused unless the caller says it wants it anyway."""
+
+    def __init__(self, existing: Document) -> None:
+        super().__init__(str(existing.id))
+        self.existing = existing
+
+
 class DocumentUploadService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
@@ -85,13 +95,20 @@ class DocumentUploadService:
         filename: str,
         content: bytes,
         content_type: str,
+        *,
+        allow_duplicate: bool = False,
     ) -> DocumentOut:
         await self._get_owned_collection(collection_id, user)
         safe_name = os.path.basename(filename) or "document"
+        content_hash = sha256_hex(content)
+        if not allow_duplicate:
+            existing = await self.documents.find_by_hash(collection_id, content_hash)
+            if existing is not None:
+                raise DuplicateDocumentError(existing)
         storage_key = document_storage_key(collection_id, safe_name)
         storage.put_object(storage_key, content, content_type=content_type)
         document = await self.register_stored_file(
-            collection_id, safe_name, storage_key, user.user_id, _uploader_display(user)
+            collection_id, safe_name, storage_key, user.user_id, _uploader_display(user), content_hash=content_hash
         )
         return DocumentOut.model_validate(document)
 
@@ -104,12 +121,15 @@ class DocumentUploadService:
         owner_display: str,
         *,
         bulk: bool = False,
+        content_hash: str | None = None,
     ) -> Document:
         """Records a file already stored in RustFS as a document and queues it for processing -
         shared by a plain upload and a ZIP import (#223), whose worker stores each file itself, and
         whose documents are `bulk`: processed after any other waiting (#291). No ownership check
         here: callers have done it already."""
-        document = await self.documents.create_file(collection_id, name, storage_key, owner_id, owner_display)
+        document = await self.documents.create_file(
+            collection_id, name, storage_key, owner_id, owner_display, content_hash=content_hash
+        )
         await self.db.commit()
         celery_task_id = enqueue_process_document(str(document.id), bulk=bulk)
         await self.tasks.create(
@@ -138,7 +158,10 @@ class DocumentUploadService:
         collection = await self.collections.get_or_create_temporary_for_conversation(
             conversation_id, user.user_id, embedding_model=embedding_model
         )
-        return await self.create_file_document(collection.id, user, filename, content, content_type)
+        # The same file attached twice to a conversation is no mistake to refuse: it reuses the results.
+        return await self.create_file_document(
+            collection.id, user, filename, content, content_type, allow_duplicate=True
+        )
 
     async def upload_standalone_for_filing(
         self,
@@ -155,7 +178,9 @@ class DocumentUploadService:
         collection = await self.collections.get_or_create_personal_holding(
             user.user_id, embedding_model=embedding_model
         )
-        return await self.create_file_document(collection.id, user, filename, content, content_type)
+        return await self.create_file_document(
+            collection.id, user, filename, content, content_type, allow_duplicate=True
+        )
 
     async def list_conversation_documents(self, conversation_id: uuid.UUID, user: RequestContext) -> list[DocumentOut]:
         """Files attached to a conversation, via its temporary collection. Empty list (never a
@@ -182,8 +207,14 @@ class DocumentUploadService:
         user: RequestContext,
         url: str,
         refresh_schedule: RefreshSchedule | None = None,
+        *,
+        allow_duplicate: bool = False,
     ) -> DocumentOut:
         await self._get_owned_collection(collection_id, user)
+        if not allow_duplicate:
+            existing = await self.documents.find_url(collection_id, url)
+            if existing is not None:
+                raise DuplicateDocumentError(existing)
         document = await self.documents.create_url(collection_id, url)
         if refresh_schedule is not None:
             # Imported here: that service reprocesses a changed page through this one.

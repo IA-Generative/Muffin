@@ -23,6 +23,9 @@ from app.services import collection_import_service
 from tests.routers.test_collections import _as_user
 from tests.routers.test_internal_runs import API_KEY, _headers
 
+# SHA-256 of a file of the archive, as the worker computes it as it reads the member (#300).
+HASH = "a" * 64
+
 
 @pytest.fixture
 def stored(monkeypatch) -> MagicMock:
@@ -225,7 +228,12 @@ class TestWorkerRoutes:
         to_document = await client.post(
             f"/api/internal/collection-imports/{body['id']}/documents",
             headers=_headers(),
-            json={"collection_id": theirs["id"], "name": "x.pdf", "storage_key": f"documents/{theirs['id']}/x.pdf"},
+            json={
+                "collection_id": theirs["id"],
+                "name": "x.pdf",
+                "storage_key": f"documents/{theirs['id']}/x.pdf",
+                "content_hash": HASH,
+            },
         )
 
         assert to_collection.status_code == 409 and to_document.status_code == 409
@@ -237,15 +245,63 @@ class TestWorkerRoutes:
         response = await client.post(
             f"/api/internal/collection-imports/{body['id']}/documents",
             headers=_headers(),
-            json={"collection_id": root_id, "name": "doc.pdf", "storage_key": f"documents/{root_id}/abc-doc.pdf"},
+            json={
+                "collection_id": root_id,
+                "name": "doc.pdf",
+                "storage_key": f"documents/{root_id}/abc-doc.pdf",
+                "content_hash": HASH,
+            },
         )
 
         async with async_session_factory() as session:
             document = await session.get(Document, uuid.UUID(response.json()["id"]))
             task = await session.scalar(select(Task).where(Task.document_id == document.id))
         assert document.name == "doc.pdf" and document.added_by_user_id == "owner"
+        # The hash the worker computed as it read the member (#300).
+        assert document.content_hash == HASH
         # Queued behind any document someone dropped by hand (#291).
         assert task.celery_task_id == f"p-{document.id}-bulk"
+
+    async def test_a_file_already_in_the_collection_is_reported_as_a_duplicate_before_it_is_stored(self, client):
+        body = (await _import(client)).json()
+        root_id = body["root_collection_id"]
+        check = f"/api/internal/collection-imports/{body['id']}/documents/check"
+        assert (
+            await client.post(check, headers=_headers(), json={"collection_id": root_id, "content_hash": HASH})
+        ).json() == {"duplicate": False}
+
+        await client.post(
+            f"/api/internal/collection-imports/{body['id']}/documents",
+            headers=_headers(),
+            json={
+                "collection_id": root_id,
+                "name": "doc.pdf",
+                "storage_key": f"documents/{root_id}/abc-doc.pdf",
+                "content_hash": HASH,
+            },
+        )
+
+        # The same file, in the same archive or another: it is there now.
+        assert (
+            await client.post(check, headers=_headers(), json={"collection_id": root_id, "content_hash": HASH})
+        ).json() == {"duplicate": True}
+        other = "b" * 64
+        assert (
+            await client.post(check, headers=_headers(), json={"collection_id": root_id, "content_hash": other})
+        ).json() == {"duplicate": False}
+
+    async def test_the_duplicate_check_is_for_the_imports_own_collections(self, client):
+        body = (await _import(client)).json()
+        app.dependency_overrides[get_current_user] = _as_user("someone-else", "else@example.com")
+        theirs = await _collection(client, "Theirs")
+
+        response = await client.post(
+            f"/api/internal/collection-imports/{body['id']}/documents/check",
+            headers=_headers(),
+            json={"collection_id": theirs["id"], "content_hash": HASH},
+        )
+
+        assert response.status_code == 409
 
     async def test_a_storage_key_outside_the_collection_is_refused(self, client):
         body = (await _import(client)).json()
@@ -253,7 +309,12 @@ class TestWorkerRoutes:
         response = await client.post(
             f"/api/internal/collection-imports/{body['id']}/documents",
             headers=_headers(),
-            json={"collection_id": body["root_collection_id"], "name": "x.pdf", "storage_key": "documents/other/x.pdf"},
+            json={
+                "collection_id": body["root_collection_id"],
+                "name": "x.pdf",
+                "storage_key": "documents/other/x.pdf",
+                "content_hash": HASH,
+            },
         )
 
         assert response.status_code == 409

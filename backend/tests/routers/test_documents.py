@@ -385,7 +385,9 @@ async def test_document_entities_and_relations_are_scoped_to_their_own_document(
 async def _add_url_document(client, collection_id: str) -> str:
     with patch("app.services.document_upload_service.enqueue_process_document", return_value=str(uuid.uuid4())):
         response = await client.post(
-            f"/api/collections/{collection_id}/documents/url", json={"url": "https://example.com"}
+            f"/api/collections/{collection_id}/documents/url",
+            # The same URL twice is a duplicate to confirm (#300); these tests only need documents.
+            json={"url": "https://example.com", "allow_duplicate": True},
         )
     return response.json()["id"]
 

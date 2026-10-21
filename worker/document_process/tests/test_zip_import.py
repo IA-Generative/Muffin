@@ -1,3 +1,4 @@
+import hashlib
 import importlib
 import io
 import zipfile
@@ -172,6 +173,7 @@ class TestExtractMember:
 class TestImportTask:
     def _run(self, monkeypatch, archive_bytes: bytes, add_document=None):
         backend = MagicMock()
+        backend.is_imported_duplicate.return_value = False
         if add_document is not None:
             backend.add_imported_document.side_effect = add_document
         backend.begin_collection_import.return_value = {"archive_key": "imports/i.zip", "root_collection_id": "root"}
@@ -231,6 +233,41 @@ class TestImportTask:
         assert tasks.import_zip.time_limit is None
         assert tasks.import_zip.soft_time_limit == settings.IMPORT_SOFT_TIME_LIMIT_SECONDS
 
+    def test_each_file_is_registered_with_the_hash_of_its_bytes(self, monkeypatch):
+        archive = _zip({"a.pdf": b"%PDF a", "dir/b.md": b"# b"})
+
+        backend, _ = self._run(monkeypatch, archive)
+
+        hashes = {call.args[2]: call.args[4] for call in backend.add_imported_document.call_args_list}
+        assert hashes == {
+            "a.pdf": hashlib.sha256(b"%PDF a").hexdigest(),
+            "b.md": hashlib.sha256(b"# b").hexdigest(),
+        }
+
+    def test_a_file_already_in_the_collection_is_neither_stored_nor_registered(self, monkeypatch):
+        """Asked by hash before the upload (#300), so a duplicate costs neither storage nor processing."""
+        archive = _zip({"new.pdf": b"%PDF new", "copy.pdf": b"%PDF already there"})
+        already = hashlib.sha256(b"%PDF already there").hexdigest()
+
+        backend = MagicMock()
+        backend.begin_collection_import.return_value = {"archive_key": "imports/i.zip", "root_collection_id": "root"}
+        backend.is_imported_duplicate.side_effect = lambda import_id, collection_id, content_hash: (
+            content_hash == already
+        )
+        storage = MagicMock()
+        storage.download_fileobj.side_effect = lambda key, fileobj: fileobj.write(archive)
+        monkeypatch.setattr(tasks._shared, "backend_client", backend)
+        monkeypatch.setattr(tasks._shared, "storage", storage)
+        monkeypatch.setattr(task_logging, "backend_client", MagicMock())
+
+        tasks.import_zip("import-1")
+
+        assert [call.args[2] for call in backend.add_imported_document.call_args_list] == ["new.pdf"]
+        assert storage.upload_fileobj.call_count == 1
+        summary = backend.finish_collection_import.call_args.args[2]
+        assert summary["documents_created"] == 1
+        assert summary["skipped"] == [{"path": "copy.pdf", "reason": "déjà présent dans la collection (doublon)"}]
+
     def test_a_refused_archive_creates_nothing(self, monkeypatch):
         monkeypatch.setattr(settings, "ZIP_IMPORT_MAX_FILES", 1)
 
@@ -245,6 +282,7 @@ class TestImportTask:
         uploaded = {}
 
         backend = MagicMock()
+        backend.is_imported_duplicate.return_value = False
         backend.begin_collection_import.return_value = {"archive_key": "imports/i.zip", "root_collection_id": "root"}
         storage = MagicMock()
         storage.download_fileobj.side_effect = lambda key, fileobj: fileobj.write(archive)

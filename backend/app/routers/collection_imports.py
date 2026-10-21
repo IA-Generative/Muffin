@@ -14,6 +14,8 @@ from app.schemas.collection_import import (
     CollectionImportResult,
     ImportedCollectionCreate,
     ImportedCollectionOut,
+    ImportedDocumentCheck,
+    ImportedDocumentCheckOut,
     ImportedDocumentCreate,
 )
 from app.services.collection_hierarchy_service import HierarchyError
@@ -166,6 +168,24 @@ async def create_imported_collection(
 
 
 @internal_router.post(
+    "/collection-imports/{import_id}/documents/check",
+    summary="Whether a file of the ZIP is already in the collection it would go to, by its hash (#300)",
+    response_model=ImportedDocumentCheckOut,
+)
+async def check_imported_document(
+    import_id: uuid.UUID, body: ImportedDocumentCheck, service: ServiceDep
+) -> ImportedDocumentCheckOut:
+    try:
+        return ImportedDocumentCheckOut(
+            duplicate=await service.has_document(import_id, body.collection_id, body.content_hash)
+        )
+    except CollectionImportNotFoundError as error:
+        raise _NOT_FOUND from error
+    except ImportTargetError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Not a collection of this import") from error
+
+
+@internal_router.post(
     "/collection-imports/{import_id}/documents",
     summary="Record a file of the ZIP, already stored in RustFS, as a document and queue it",
     status_code=status.HTTP_201_CREATED,
@@ -174,7 +194,9 @@ async def add_imported_document(
     import_id: uuid.UUID, body: ImportedDocumentCreate, service: ServiceDep
 ) -> dict[str, str]:
     try:
-        document_id = await service.add_document(import_id, body.collection_id, body.name, body.storage_key)
+        document_id = await service.add_document(
+            import_id, body.collection_id, body.name, body.storage_key, body.content_hash
+        )
     except CollectionImportNotFoundError as error:
         raise _NOT_FOUND from error
     except ImportTargetError as error:
