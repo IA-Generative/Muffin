@@ -1,0 +1,60 @@
+# Weekly version updates for every ecosystem the repository builds with - Dependabot's security
+# updates alone only react once an advisory exists, while base images and dependencies otherwise
+# age until a Trivy scan flags them (#193, #194, #196).
+#
+# Every PR targets `dev`, the prerelease branch, and is titled `chore(deps): ...`: a `chore` commit
+# never triggers a release-please release, so an update only ships with the next real change.
+# Minor and patch updates are grouped into one PR per ecosystem to keep the noise down; a major
+# update gets a PR of its own.
+version: 2
+
+updates:
+  - package-ecosystem: docker
+    directories:
+      - /frontend
+      - /backend
+      - /worker/*
+    target-branch: dev
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore(deps)
+    groups:
+      docker-minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: dev
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore(deps)
+    groups:
+      actions-minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: uv
+    directories:
+      - /backend
+      - /worker/*
+    target-branch: dev
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore(deps)
+    groups:
+      python-minor-and-patch:
+        update-types: [minor, patch]
+
+  # pnpm projects are handled by the npm ecosystem (it reads pnpm-lock.yaml).
+  - package-ecosystem: npm
+    directory: /frontend
+    target-branch: dev
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore(deps)
+    groups:
+      npm-minor-and-patch:
+        update-types: [minor, patch]
