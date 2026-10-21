@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.1-rc.1](https://github.com/IA-Generative/Muffin/compare/v0.15.1-rc...v0.15.1-rc.1) (2026-10-21)
+
+
+### Bug Fixes
+
+* **collections:** show documents to every reader and count them on the cards ([76d4b3d](https://github.com/IA-Generative/Muffin/commit/76d4b3d58b9afc8288d2bdceedd24488ad81377d))
+
 ## [0.15.1-rc](https://github.com/IA-Generative/Muffin/compare/v0.15.0...v0.15.1-rc) (2026-10-21)
 
 
