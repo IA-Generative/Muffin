@@ -205,6 +205,7 @@ function indexedCount(documents: { status: string }[]) {
   margin: 0 auto;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-auto-rows: 19rem;
   gap: 1.25rem;
 }
 
@@ -220,6 +221,9 @@ function indexedCount(documents: { status: string }[]) {
   background: var(--background-default-grey);
   cursor: pointer;
   box-sizing: border-box;
+  height: 100%;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .collection-card:hover {
@@ -241,11 +245,21 @@ function indexedCount(documents: { status: string }[]) {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.collection-card__icon {
+  flex-shrink: 0;
 }
 
 .collection-card__name {
   font-size: 1.0625rem;
   font-weight: 700;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .collection-card__badge {
@@ -269,17 +283,29 @@ function indexedCount(documents: { status: string }[]) {
 .collection-card__path {
   font-size: 0.75rem;
   color: var(--text-mention-grey);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .collection-card__description {
   color: var(--text-mention-grey);
   font-size: 0.875rem;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+  max-width: 100%;
 }
 
 .collection-card__tags {
   display: flex;
   flex-wrap: wrap;
   gap: 0.375rem;
+  max-height: 1.625rem;
+  overflow: hidden;
 }
 
 .collection-card__tag {
@@ -296,6 +322,7 @@ function indexedCount(documents: { status: string }[]) {
   display: flex;
   flex-direction: column;
   gap: 0.125rem;
+  flex-shrink: 0;
   font-size: 0.75rem;
   color: var(--text-mention-grey);
 }
