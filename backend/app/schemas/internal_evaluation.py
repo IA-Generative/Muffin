@@ -16,6 +16,11 @@ class EvaluationQaPairOut(BaseModel):
     # Both validated and not-yet-validated pairs get evaluated (see EvaluationRun's docstring) -
     # this is what the worker groups its validated_*/unvalidated_* aggregates by.
     validated: bool
+    # A test question (#260): the worker reports its scores apart from the other pairs'.
+    golden: bool = False
+    # Every document that holds the answer (a golden pair, which can span several) - what a retrieved
+    # chunk is judged against. Empty: the pair's own document_id is the only relevant one.
+    relevant_document_ids: list[uuid.UUID] = []
 
 
 class EvaluationResultIn(BaseModel):
@@ -30,6 +35,8 @@ class EvaluationResultIn(BaseModel):
     # Snapshot of EvaluationQaPairOut.validated at evaluation time - never re-derived from the
     # QaPair later (see EvaluationResult.validated's own docstring).
     validated: bool
+    # Snapshot of EvaluationQaPairOut.golden at evaluation time, for the same reason.
+    golden: bool = False
     # One label per retrieved source (e.g. "handbook.pdf#3") - EvaluationResultSource is a plain
     # detail table, not a foreign key into chunks (a chunk can be deleted/re-chunked later, the
     # record of what this run actually saw should survive that).
@@ -44,11 +51,18 @@ class EvaluationRunCreate(BaseModel):
     snapshot_chunk_size: int
     snapshot_chunk_overlap: int
     snapshot_embedding_model: str
-    # Global aggregate - every evaluated pair, validated and not.
-    precision_at_k: float
-    recall_at_k: float
-    mrr: float
-    ndcg: float
+    # Global aggregate over the pairs that aren't golden, validated and not - None when the run only
+    # had golden pairs.
+    precision_at_k: float | None
+    recall_at_k: float | None
+    mrr: float | None
+    ndcg: float | None
+    # The golden pairs, scored apart (#260) - None when there are none.
+    golden_pair_count: int = 0
+    golden_precision_at_k: float | None = None
+    golden_recall_at_k: float | None = None
+    golden_mrr: float | None = None
+    golden_ndcg: float | None = None
     # Same four metrics, broken down by EvaluationResultIn.validated - None when that subset is
     # empty (see EvaluationRun's docstring).
     validated_pair_count: int

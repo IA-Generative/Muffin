@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models.collection import CollectionVisibility, ShareStatus, ShareSubjectType
 
@@ -41,12 +41,45 @@ class GroundednessStatsOut(BaseModel):
     recent_ungrounded: list[GroundednessRunOut]
 
 
+class RelevantDocumentOut(BaseModel):
+    id: uuid.UUID
+    name: str
+
+
 class QaPairOut(BaseModel):
     id: uuid.UUID
     question: str
     answer: str
     source: str | None = None
     origin: str
+    validated: bool
+    # A test question (#260): written by a person, kept out of the retriever, used only to measure.
+    golden: bool = False
+    # The documents that hold the answer (a golden pair only) - what retrieval is scored against.
+    relevant_documents: list[RelevantDocumentOut] = []
+
+
+class QaPairCreate(BaseModel):
+    """A question/answer pair written by hand. By default a reference pair: the assistant answers from
+    it before searching the documents. With `golden` it is a test question instead (#260): kept out of
+    the retriever, only used to measure it. `relevant_document_ids` are the documents that hold the
+    answer - what retrieval is scored against; without one the pair is kept but can't be scored
+    (retrieval is judged at document level), so the UI asks for at least one."""
+
+    question: str = Field(min_length=1, max_length=2000)
+    answer: str = Field(min_length=1, max_length=8000)
+    golden: bool = False
+    relevant_document_ids: list[uuid.UUID] = Field(default_factory=list, max_length=20)
+
+    @field_validator("question", "answer")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("must not be blank")
+        return value.strip()
+
+
+class QaPairValidationUpdate(BaseModel):
     validated: bool
 
 

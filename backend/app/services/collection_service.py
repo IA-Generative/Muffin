@@ -32,6 +32,7 @@ from app.schemas.collection import (
     GroundednessStatsOut,
     QaPairOut,
     RelationOut,
+    RelevantDocumentOut,
     ShareCreate,
     ShareOut,
 )
@@ -221,6 +222,8 @@ class CollectionService:
     ) -> list[QaPairOut]:
         await self._get_accessible(collection_id, user)
         pairs = await self.qa_pairs.list_by_collection(collection_id, document_id)
+        relevant_ids = {uuid.UUID(i) for pair in pairs for i in (pair.relevant_document_ids or [])}
+        names = await self.qa_pairs.document_names(collection_id, list(relevant_ids))
         return [
             QaPairOut(
                 id=pair.id,
@@ -229,6 +232,12 @@ class CollectionService:
                 source=pair.document.name if pair.document else None,
                 origin=pair.origin,
                 validated=pair.validated,
+                golden=pair.golden,
+                relevant_documents=[
+                    RelevantDocumentOut(id=uuid.UUID(i), name=names[i])
+                    for i in (pair.relevant_document_ids or [])
+                    if i in names
+                ],
             )
             for pair in pairs
         ]

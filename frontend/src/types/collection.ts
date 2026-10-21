@@ -21,6 +21,11 @@ export interface QaPair {
   source?: string
   origin: 'generated' | 'manual'
   validated: boolean
+  // A test question (#260): written by a person, kept out of the retriever (the assistant never
+  // answers from it), only used to measure the retrieval. Always validated.
+  golden: boolean
+  // The documents that hold the answer (a golden pair) - what retrieval is scored against.
+  relevantDocuments: { id: string; name: string }[]
 }
 
 export type EntityType = 'personne' | 'organisation' | 'lieu' | 'date' | 'autre'
@@ -96,6 +101,11 @@ export interface EvaluationMetrics {
   ndcg: number
 }
 
+// The golden pairs' scores, apart from the others': the numbers to follow over time.
+export interface GoldenMetrics extends EvaluationMetrics {
+  pairCount: number
+}
+
 export interface EvaluationResult {
   qaPairId: string
   question: string
@@ -106,6 +116,7 @@ export interface EvaluationResult {
   recallAtK: number
   reciprocalRank: number
   ndcg: number
+  golden: boolean
 }
 
 export interface ChunkingSnapshot extends ChunkingSettings {
@@ -119,7 +130,11 @@ export interface EvaluationRun {
   pairCount: number
   llmModel: string
   chunkingSnapshot: ChunkingSnapshot
-  metrics: EvaluationMetrics
+  // Over the pairs that aren't golden (generated or reference, validated or not) - null when the run
+  // only had golden pairs.
+  metrics: EvaluationMetrics | null
+  // Over the golden pairs only - null when the collection has none.
+  goldenMetrics: GoldenMetrics | null
   results: EvaluationResult[]
 }
 

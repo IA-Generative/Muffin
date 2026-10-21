@@ -118,8 +118,8 @@ def _evaluation_hash(
     validated_only: bool = False,
 ) -> str:
     """SHA-256 of everything that affects an evaluation run's result: the QA pairs (id, question,
-    answer, document_id, validated), the chunking/embedding config, k, the LLM model, and the
-    validated_only scope. If none of these changed since the last run with the same model, the
+    answer, document_id, relevant documents, validated, golden), the chunking/embedding config, k,
+    the LLM model, and the validated_only scope. If none of these changed since the last run with the same model, the
     result would be identical and there's no reason to re-run (same dedup strategy as
     _transcript_hash for DiscussionScore).
     """
@@ -130,6 +130,8 @@ def _evaluation_hash(
             "answer": p["answer"],
             "document_id": str(p["document_id"]) if p.get("document_id") else None,
             "validated": p["validated"],
+            "golden": bool(p.get("golden")),
+            "relevant_document_ids": sorted(str(i) for i in (p.get("relevant_document_ids") or [])),
         }
         for p in sorted(qa_pairs, key=lambda p: p["id"])
     ]
@@ -146,8 +148,18 @@ def _evaluation_hash(
     return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
+def _relevant_documents(pair: dict[str, Any]) -> list[str]:
+    """Every document that holds the pair's answer: a golden pair can name several, any other pair has
+    its one source document. Empty when there is none, which means nothing to score against."""
+    listed = [str(document_id) for document_id in (pair.get("relevant_document_ids") or [])]
+    if listed:
+        return list(dict.fromkeys(listed))
+    return [str(pair["document_id"])] if pair.get("document_id") else []
+
+
 def _score_pair(pair: dict[str, Any], search_results: list[dict[str, Any]], total_relevant: int) -> dict[str, float]:
-    relevances = [result["document_id"] == pair["document_id"] for result in search_results]
+    relevant = set(_relevant_documents(pair))
+    relevances = [str(result["document_id"]) in relevant for result in search_results]
     return {
         "precision_at_k": metrics.precision_at_k(relevances),
         "recall_at_k": metrics.recall_at_k(relevances, total_relevant),
@@ -156,9 +168,13 @@ def _score_pair(pair: dict[str, Any], search_results: list[dict[str, Any]], tota
     }
 
 
-def _average(results: list[dict[str, Any]]) -> dict[str, float]:
-    """The global aggregate - every evaluated pair, validated and not."""
+def _average(results: list[dict[str, Any]]) -> dict[str, float | None]:
+    """The global aggregate - every evaluated pair that isn't golden, validated and not (the golden
+    ones are scored apart, see _golden_average). None when there is no such pair, so a run made only
+    of test questions never reports a misleading 0.0."""
     count = len(results)
+    if count == 0:
+        return {"precision_at_k": None, "recall_at_k": None, "mrr": None, "ndcg": None}
     return {
         "precision_at_k": sum(r["precision_at_k"] for r in results) / count,
         "recall_at_k": sum(r["recall_at_k"] for r in results) / count,
@@ -172,7 +188,7 @@ def _subset_average(results: list[dict[str, Any]], validated: bool) -> dict[str,
     subset - None when that subset is empty, so an absent subset never gets reported as a
     misleading 0.0 (see EvaluationRun's docstring on the backend)."""
     prefix = "validated" if validated else "unvalidated"
-    subset = [r for r in results if r["validated"] is validated]
+    subset = [r for r in results if r["validated"] is validated and not r["golden"]]
     if not subset:
         return {
             f"{prefix}_pair_count": 0,
@@ -197,8 +213,11 @@ def run_evaluation(self, collection_id: str, k: int | None = None, validated_onl
     - see app/metrics.py), generates an answer from what was retrieved, then posts one
     fully-computed EvaluationRun back to the backend (see #11 - the model has no in-progress
     state, so nothing is created until everything is scored). The run's aggregates are reported
-    three ways - global, validated-only, unvalidated-only - so a low score can be told apart from
-    "these questions were never reviewed" rather than looking like a retrieval problem. When
+    four ways - global, validated-only, unvalidated-only (all three over the pairs that aren't
+    golden), and the golden test questions apart (#260) - so a low score can be told apart from
+    "these questions were never reviewed" rather than looking like a retrieval problem, and the
+    human-written test set is never blended with generated questions. A golden pair can name several
+    relevant documents; any other pair has its one source document. When
     validated_only is True, only validated QA pairs are evaluated; when False (default), all QA
     pairs with a source document are evaluated regardless of validation status. No self.request.id
     Task registration here, unlike worker/document_process's spawned tasks: this is a single task
@@ -219,7 +238,7 @@ def run_evaluation(self, collection_id: str, k: int | None = None, validated_onl
         # Relevance can only be judged at document granularity (see app/metrics.py's module
         # docstring) - a pair with no source document has nothing to score retrieval against,
         # regardless of whether it's validated.
-        evaluable_pairs = [pair for pair in qa_pairs if pair.get("document_id")]
+        evaluable_pairs = [pair for pair in qa_pairs if _relevant_documents(pair)]
         # When validated_only is True, restrict to validated pairs only; when False (default),
         # evaluate all pairs with a source document - the run's validated/unvalidated breakdown
         # still separates them in the results.
@@ -249,12 +268,14 @@ def run_evaluation(self, collection_id: str, k: int | None = None, validated_onl
         chunk_counts: dict[str, int] = {}
         results = []
         for pair in evaluable_pairs:
-            document_id = pair["document_id"]
             search_results = backend_client.search([collection_id], pair["question"], k)
-            if document_id not in chunk_counts:
-                chunk_counts[document_id] = backend_client.get_document_chunk_count(document_id)
+            # Recall's denominator is every chunk of every document that holds the answer.
+            for document_id in _relevant_documents(pair):
+                if document_id not in chunk_counts:
+                    chunk_counts[document_id] = backend_client.get_document_chunk_count(document_id)
+            total_relevant = sum(chunk_counts[document_id] for document_id in _relevant_documents(pair))
 
-            scores = _score_pair(pair, search_results, chunk_counts[document_id])
+            scores = _score_pair(pair, search_results, total_relevant)
             generated_answer = _build_answer(model, pair["question"], search_results)
 
             results.append(
@@ -264,6 +285,7 @@ def run_evaluation(self, collection_id: str, k: int | None = None, validated_onl
                     "expected_answer": pair["answer"],
                     "generated_answer": generated_answer,
                     "validated": pair["validated"],
+                    "golden": bool(pair.get("golden")),
                     "retrieved_sources": [f"{r['document_name']}#{r['chunk_id']}" for r in search_results],
                     **scores,
                 }
@@ -277,7 +299,10 @@ def run_evaluation(self, collection_id: str, k: int | None = None, validated_onl
             "snapshot_chunk_size": collection_settings["chunk_size"],
             "snapshot_chunk_overlap": collection_settings["chunk_overlap"],
             "snapshot_embedding_model": collection_settings["embedding_model"],
-            **_average(results),
+            # The golden pairs are scored apart from every other aggregate below: they are the
+            # human-written test set, and a generated question's score must never be blended with one.
+            **_average([r for r in results if not r["golden"]]),
+            **_golden_average(results),
             **_subset_average(results, validated=True),
             **_subset_average(results, validated=False),
             "content_hash": content_hash,
@@ -340,3 +365,24 @@ def score_discussion(self, conversation_id: str, model: str | None = None) -> No
         }
         score_id = backend_client.create_discussion_score(conversation_id, payload)
         logger.info(f"Discussion score {score_id} created for conversation {conversation_id}")
+
+
+def _golden_average(results: list[dict[str, Any]]) -> dict[str, Any]:
+    """The same four metrics over the golden pairs only (#260): human-written questions that are in
+    no index, so the scores to follow over time. None when there are none."""
+    subset = [r for r in results if r["golden"]]
+    if not subset:
+        return {
+            "golden_pair_count": 0,
+            "golden_precision_at_k": None,
+            "golden_recall_at_k": None,
+            "golden_mrr": None,
+            "golden_ndcg": None,
+        }
+    return {
+        "golden_pair_count": len(subset),
+        "golden_precision_at_k": sum(r["precision_at_k"] for r in subset) / len(subset),
+        "golden_recall_at_k": sum(r["recall_at_k"] for r in subset) / len(subset),
+        "golden_mrr": sum(r["reciprocal_rank"] for r in subset) / len(subset),
+        "golden_ndcg": sum(r["ndcg"] for r in subset) / len(subset),
+    }
