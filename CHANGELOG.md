@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.18.0](https://github.com/IA-Generative/Muffin/compare/v0.17.0...v0.18.0) (2026-10-21)
+
+
+### Features
+
+* **agent:** answer questions about using the application from a user guide ([77db4e6](https://github.com/IA-Generative/Muffin/commit/77db4e6187496230020ccad0fe9a5a100f81d6a4)), closes [#251](https://github.com/IA-Generative/Muffin/issues/251)
+* **agent:** tell the agent it can edit documents, and let it create Markdown ones ([bcaf39e](https://github.com/IA-Generative/Muffin/commit/bcaf39e733bfec3b4f0415547727c74adaf3e63f))
+* **documents:** compare a replacement with the current version before validating it ([00319e0](https://github.com/IA-Generative/Muffin/commit/00319e0e77daa11b90bee1147d229674d8ff4d69))
+
+
+### Bug Fixes
+
+* **security:** clear the Trivy alerts and make the CI fail on fixable critical ones ([2d3bc45](https://github.com/IA-Generative/Muffin/commit/2d3bc459a6624efbd11807ce2c0be45e7b78aae9))
+
 ## [0.18.0-rc.1](https://github.com/IA-Generative/Muffin/compare/v0.18.0-rc...v0.18.0-rc.1) (2026-10-21)
 
 
