@@ -12,6 +12,7 @@ import tempfile
 import uuid
 import zipfile
 
+from celery.exceptions import SoftTimeLimitExceeded
 from loguru import logger
 
 from app.celery_app import celery_app
@@ -81,10 +82,11 @@ def _run_import(import_id: str, root_collection_id: str, archive: zipfile.ZipFil
         summary["documents_created"] += 1
 
 
-@celery_app.task(name="app.tasks.import_zip", bind=True)
+@celery_app.task(name="app.tasks.import_zip", bind=True, soft_time_limit=settings.IMPORT_SOFT_TIME_LIMIT_SECONDS)
 def import_zip(self, import_id: str) -> None:
     """Never leaves the import pending: whatever happens, the backend is told how it ended. What
-    was created before a failure is kept, and the summary says so."""
+    was created before a failure is kept, and the summary says so. A large archive may take a while
+    and is not killed for it: only past IMPORT_SOFT_TIME_LIMIT_SECONDS does it stop, as failed."""
     with capture_task_logs(self.request.id):
         collection_import = _shared.backend_client.begin_collection_import(import_id)
         summary: dict = {"collections_created": 0, "documents_created": 0, "skipped": []}
@@ -102,6 +104,17 @@ def import_zip(self, import_id: str) -> None:
             logger.warning(f"ZIP import {import_id} refused: {error}")
             _shared.backend_client.finish_collection_import(import_id, "failed", summary, str(error))
             return
+        except SoftTimeLimitExceeded:
+            hours = settings.IMPORT_SOFT_TIME_LIMIT_SECONDS / 3600
+            logger.warning(f"ZIP import {import_id} stopped after {hours:g} h")
+            _shared.backend_client.finish_collection_import(
+                import_id,
+                "failed",
+                summary,
+                f"L'import a dépassé le délai de {hours:g} h et a été interrompu : "
+                f"{summary['documents_created']} document(s) déjà importé(s) ont été conservés.",
+            )
+            raise
         except zipfile.BadZipFile as error:
             logger.warning(f"ZIP import {import_id}: unreadable archive ({error})")
             _shared.backend_client.finish_collection_import(

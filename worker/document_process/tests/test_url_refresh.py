@@ -46,7 +46,7 @@ def test_indexing_a_url_records_the_hash_of_what_was_indexed(backend, monkeypatc
 def _served(monkeypatch, content_type, body, markdown="# Page"):
     page = MagicMock(headers={"Content-Type": content_type} if content_type else {}, body=body)
     page.markdown.return_value = markdown
-    monkeypatch.setattr(scraping.Fetcher, "get", lambda url: page)
+    monkeypatch.setattr(scraping.Fetcher, "get", lambda url, **options: page)
 
 
 def test_an_html_page_is_rendered_to_markdown(monkeypatch):

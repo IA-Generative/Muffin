@@ -48,10 +48,16 @@ celery_app.conf.update(
         "app.tasks.import_zip": {"queue": settings.IMPORT_QUEUE_NAME},
         "app.tasks.rebuild_index": {"queue": settings.REBUILD_QUEUE_NAME},
     },
-    # Rogue documents (corrupt PDFs, hung OCR) get killed instead of stalling
-    # the queue - SIGKILL, not a graceful ask, since parsing isn't interruptible.
-    task_time_limit=300,
+    # No hard limit: a big document or archive is not killed for being big (#294). What can hang is
+    # bounded where it happens - the parser's own timeout (app/parsing.py), HTTP and S3 timeouts - and
+    # every task gets a soft limit as a safety net: an exception raised in it, so that it fails and
+    # reports instead of being killed halfway. Only the prefork pods honour it (a pool of threads
+    # cannot interrupt a task), where the tasks that can run long.
+    task_soft_time_limit=settings.TASK_SOFT_TIME_LIMIT_SECONDS,
     task_acks_late=True,
+    # Above the longest soft limit (see config.py), or a task still running would be handed to
+    # another worker. Redis' own default is 1 hour.
+    broker_transport_options={"visibility_timeout": settings.BROKER_VISIBILITY_TIMEOUT_SECONDS},
     worker_prefetch_multiplier=1,
     # This worker is the one that actually stores the result, so it's this
     # setting (not the backend producer's) that sets the real Redis TTL -

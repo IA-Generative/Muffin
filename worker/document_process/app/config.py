@@ -32,6 +32,28 @@ class WorkerSettings(BaseSettings):
     # override per-deployment if most documents are in another language.
     OCR_LANGUAGE: str = "fra"
 
+    # What bounds a task (#294): no task is killed for being big, only an operation that does not
+    # come back is. A hung parse is killed after OCR_PARSE_TIMEOUT_SECONDS (the parser's own worker
+    # process, so the task itself carries on and fails cleanly). Every task also has a soft limit as a
+    # safety net - an exception raised in the task, never a kill - and the long ones their own below.
+    OCR_PARSE_TIMEOUT_SECONDS: int = 60 * 60
+    TASK_SOFT_TIME_LIMIT_SECONDS: int = 2 * 60 * 60
+    # A ZIP import over this ends as failed, with a summary of what was created (never left running).
+    IMPORT_SOFT_TIME_LIMIT_SECONDS: int = 2 * 60 * 60
+    # An index rebuild is resumable, so it runs in slices: when one ends, the next task carries on
+    # from what the database says is left. Over REBUILD_MAX_SLICES slices (24 h by default), it fails.
+    REBUILD_SLICE_SECONDS: int = 3 * 60 * 60
+    REBUILD_MAX_SLICES: int = 8
+    # How long Redis waits for a task to be acknowledged before handing it to another worker (tasks
+    # acknowledge when they end, `acks_late`). Above every limit here, or a long task would run twice
+    # at once; it is also how long a task whose worker died waits to be run again.
+    BROKER_VISIBILITY_TIMEOUT_SECONDS: int = 4 * 60 * 60
+    # Fetching a URL: the whole request, a file served by it included.
+    URL_FETCH_TIMEOUT_SECONDS: int = 120
+    # RustFS/S3: connecting, and waiting for the next bytes of a transfer.
+    STORAGE_CONNECT_TIMEOUT_SECONDS: int = 10
+    STORAGE_READ_TIMEOUT_SECONDS: int = 60
+
     # ZIP import (#223): what an archive may expand to. Over ZIP_IMPORT_MAX_FILES files or
     # ZIP_IMPORT_MAX_TOTAL_BYTES once decompressed, the whole archive is refused; a single file
     # over ZIP_IMPORT_MAX_FILE_BYTES, compressed more than ZIP_IMPORT_MAX_RATIO times, or more
