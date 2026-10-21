@@ -1,0 +1,27 @@
+{{- if .Values.enabled }}
+{{- if .Values.index_rebuild.networkPolicy.create }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "helper.componentFullname" (dict "root" . "componentName" "index_rebuild") }}
+  labels: {{- (include "helper.labels" (dict "root" . "componentName" "index_rebuild")) | nindent 4 }}
+  {{- if .Values.index_rebuild.networkPolicy.labels }}
+    {{- toYaml .Values.index_rebuild.networkPolicy.labels | nindent 4 }}
+  {{- end }}
+  {{- if .Values.index_rebuild.networkPolicy.annotations }}
+  annotations: {{- toYaml .Values.index_rebuild.networkPolicy.annotations | nindent 4 }}
+  {{- end }}
+spec:
+  {{- /* Required: an omitted podSelector defaults to `{}`, which would apply these rules to EVERY
+  pod in the release namespace instead of just this component's pods. */}}
+  podSelector:
+    matchLabels: {{- include "helper.selectorLabels" (dict "root" . "componentName" "index_rebuild") | nindent 6 }}
+  policyTypes: {{- toYaml .Values.index_rebuild.networkPolicy.policyTypes | nindent 2 }}
+  {{- with .Values.index_rebuild.networkPolicy.ingress }}
+  ingress: {{- toYaml . | nindent 2 }}
+  {{- end }}
+  {{- with .Values.index_rebuild.networkPolicy.egress }}
+  egress: {{- toYaml . | nindent 2 }}
+  {{- end }}
+{{- end }}
+{{- end }}

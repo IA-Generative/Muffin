@@ -95,14 +95,22 @@ class DocumentUploadService:
         return DocumentOut.model_validate(document)
 
     async def register_stored_file(
-        self, collection_id: uuid.UUID, name: str, storage_key: str, owner_id: str, owner_display: str
+        self,
+        collection_id: uuid.UUID,
+        name: str,
+        storage_key: str,
+        owner_id: str,
+        owner_display: str,
+        *,
+        bulk: bool = False,
     ) -> Document:
         """Records a file already stored in RustFS as a document and queues it for processing -
-        shared by a plain upload and a ZIP import (#223), whose worker stores each file itself.
-        No ownership check here: callers have done it already."""
+        shared by a plain upload and a ZIP import (#223), whose worker stores each file itself, and
+        whose documents are `bulk`: processed after any other waiting (#291). No ownership check
+        here: callers have done it already."""
         document = await self.documents.create_file(collection_id, name, storage_key, owner_id, owner_display)
         await self.db.commit()
-        celery_task_id = enqueue_process_document(str(document.id))
+        celery_task_id = enqueue_process_document(str(document.id), bulk=bulk)
         await self.tasks.create(
             celery_task_id,
             PROCESS_DOCUMENT_TASK,

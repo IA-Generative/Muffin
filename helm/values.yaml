@@ -5470,6 +5470,1706 @@ worker_document_edit:
           # @section -- Worker_document_edit
           tlsConfig: {}
 
+document_enrichment:
+  # -- Workload kind to deploy the app as. One of "Deployment", "StatefulSet" or "DaemonSet"
+  # (validated at render time - an unknown value fails instead of producing a release with no
+  # workload). Use the top-level `jobs` / `cronjobs` maps for one-off or scheduled workloads.
+  # Some values only apply to certain kinds: `replicaCount`/`autoscaling` and `strategy` are
+  # Deployment-only (`autoscaling` also works on a StatefulSet), `volumeClaims`/`extraVolumeClaims`
+  # are StatefulSet-only, and `updateStrategy` covers StatefulSet and DaemonSet.
+  # @section -- Document_enrichment
+  deploymentType: "Deployment"
+  # -- The number of application controller pods to run. Ignored when `deploymentType` is
+  # "DaemonSet" (one pod per node) or when `autoscaling.enabled` is true.
+  # @section -- Document_enrichment
+  replicaCount: 1
+  image:
+    # -- Registry to use for the app.
+    # @section -- Document_enrichment
+    registry: "ghcr.io"
+    # -- Repository to use for the app.
+    # @section -- Document_enrichment
+    repository: "ia-generative/muffin/worker-document-process"
+    # -- Image pull policy for the app.
+    # @section -- Document_enrichment
+    pullPolicy: "IfNotPresent"
+    # -- Tag to use for the app.
+    # @section -- Document_enrichment
+    # Overrides the image tag whose default is the chart appVersion.
+    tag: ""
+    # -- Image digest (`sha256:...`). When set it takes precedence over `tag`, pinning the exact
+    # image content so the same release can never resolve to a different build - preferred over a
+    # mutable tag for anything you deploy to production.
+    # @section -- Document_enrichment
+    digest: ""
+  ingress:
+    # -- Whether or not ingress should be enabled.
+    # @section -- Document_enrichment
+    enabled: false
+    # -- Defines which ingress controller will implement the resource.
+    # @section -- Document_enrichment
+    className: ""
+    # -- Additional ingress annotations.
+    # @section -- Document_enrichment
+    annotations: {}
+    # -- Additional ingress labels.
+    # @section -- Document_enrichment
+    labels: {}
+    hosts:
+      -  # -- Name of the host record.
+        # @section -- Document_enrichment
+        name: "domain.local"
+        # -- Paths of the host record to manage routing (avoids repeating the same host for
+        # multiple paths/backends).
+        # @section -- Document_enrichment
+        paths:
+          -  # -- Path of the host record to manage routing.
+            # @section -- Document_enrichment
+            path: "/"
+            # -- Path type of the host record.
+            # @section -- Document_enrichment
+            pathType: "Prefix"
+            backend:
+              # -- Name of the backend service linked to the path (leave empty to use the app service).
+              # @section -- Document_enrichment
+              serviceName: ""
+              # -- Port used by the backend service linked to the path (leave null to use the app service port).
+              # @section -- Document_enrichment
+              portNumber: null
+    # -- Enable TLS configuration.
+    # @section -- Document_enrichment
+    tls: []
+    # - secretName: domain.local-tls
+    #   hosts:
+    #   - domain.local
+  ## Gateway API HTTPRoute configuration (alternative to Ingress)
+  ## Ref: https://gateway-api.sigs.k8s.io/api-types/httproute/
+  httpRoute:
+    # -- Enable an HTTPRoute resource for this service.
+    # @section -- Document_enrichment
+    enabled: false
+    # -- Additional HTTPRoute annotations.
+    # @section -- Document_enrichment
+    annotations: {}
+    # -- Additional HTTPRoute labels.
+    # @section -- Document_enrichment
+    labels: {}
+    # -- Parent references (Gateways) to attach the HTTPRoute to.
+    # @section -- Document_enrichment
+    parentRefs: []
+    # - name: my-gateway
+    #   namespace: gateway-namespace  # optional
+    #   sectionName: https            # optional, specific listener name
+    # -- Hostnames for the HTTPRoute to match.
+    # @section -- Document_enrichment
+    hostnames: []
+    # - "example.com"
+    # - "api.example.com"
+    # -- Routing rules for the HTTPRoute.
+    # @section -- Document_enrichment
+    rules: []
+    # - matches:
+    #   - path:
+    #       type: PathPrefix     # PathPrefix, Exact, or RegularExpression
+    #       value: "/"
+    #     headers:
+    #     - type: Exact
+    #       name: "x-version"
+    #       value: "v1"
+    #     method: GET
+    #   filters:
+    #   - type: RequestHeaderModifier
+    #     requestHeaderModifier:
+    #       add:
+    #       - name: "x-custom-header"
+    #         value: "my-value"
+    #   backendRefs:
+    #   - name: my-service       # defaults to chart service if not set
+    #     port: 80               # defaults to service port if not set
+    #     weight: 100            # for traffic splitting
+  ## Gateway API GRPCRoute configuration (for gRPC services)
+  ## Ref: https://gateway-api.sigs.k8s.io/api-types/grpcroute/
+  grpcRoute:
+    # -- Enable a GRPCRoute resource for this service.
+    # @section -- Document_enrichment
+    enabled: false
+    # -- Additional GRPCRoute annotations.
+    # @section -- Document_enrichment
+    annotations: {}
+    # -- Additional GRPCRoute labels.
+    # @section -- Document_enrichment
+    labels: {}
+    # -- Parent references (Gateways) to attach the GRPCRoute to.
+    # @section -- Document_enrichment
+    parentRefs: []
+    # - name: my-gateway
+    #   namespace: gateway-namespace
+    #   sectionName: grpc
+    # -- Hostnames for the GRPCRoute to match.
+    # @section -- Document_enrichment
+    hostnames: []
+    # - "grpc.example.com"
+    # -- Routing rules for the GRPCRoute.
+    # @section -- Document_enrichment
+    rules: []
+    # - matches:
+    #   - method:
+    #       type: Exact          # Exact or RegularExpression
+    #       service: "mypackage.MyService"
+    #       method: "MyMethod"
+    #     headers:
+    #     - type: Exact
+    #       name: "x-version"
+    #       value: "v1"
+    #   backendRefs:
+    #   - name: my-grpc-service
+    #     port: 50051
+    #     weight: 100
+  # -- Mount the ServiceAccount token into the app pods. Defaults to false so a compromised
+  # container holds no API credentials; the API server does not need the token unless the app
+  # actually talks to the Kubernetes API. Applied at pod level so it holds even when
+  # `serviceAccount.name` points at an SA that automounts.
+  # @section -- Document_enrichment
+  automountServiceAccountToken: false
+  # -- Inject the legacy `{SVC}_SERVICE_HOST`/`_PORT` environment variables for every Service in the
+  # namespace. Defaults to false: the variables are rarely used, leak the namespace's topology into
+  # every container, and can collide with the app's own configuration. Set to true only for an app
+  # that genuinely reads them.
+  # @section -- Document_enrichment
+  enableServiceLinks: false
+  # -- Annotations for the app deployed pods.
+  # @section -- Document_enrichment
+  podAnnotations: {}
+  # -- Labels for the app deployed pods.
+  # @section -- Document_enrichment
+  podLabels: {}
+  # -- Pod-level security context. Defaults to a hardened baseline that satisfies the `restricted`
+  # Pod Security Standard. Rendered via `toYaml`, so any `PodSecurityContext` field is accepted.
+  # Adjust the UID/GID to whatever your image actually ships with - `runAsNonRoot` makes the
+  # kubelet refuse to start a container that would run as root, which is the intended failure mode
+  # rather than something to switch off. Set to `null` to omit the block entirely.
+  # @section -- Document_enrichment
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    # Owns mounted volumes so a non-root container can still write to them.
+    fsGroup: 1000
+    # Only chown volume contents when the top-level dir doesn't already match, which avoids
+    # re-chowning large volumes on every start.
+    fsGroupChangePolicy: "OnRootMismatch"
+    seccompProfile:
+      type: "RuntimeDefault"
+  # -- Init containers to add to the app pod.
+  # @section -- Document_enrichment
+  initContainers: []
+  # - name: wait-for-keycloak
+  #   image: docker.io/curlimages/curl:latest
+  #   command:
+  #   - "/bin/sh"
+  #   - "-c"
+  #   args:
+  #   - "while [ $(curl -sw '%{http_code}' http://webapp.svc.cluster.local -o /dev/null) -ne 200 ]; do sleep 5; echo 'Waiting for the webapp...'; done"
+  #   volumeMounts:
+  #   - mountPath: /custom-volume
+  #     name: custom-volume
+  # -- Extra containers to add to the app pod as sidecars.
+  # @section -- Document_enrichment
+  extraContainers: []
+  # - name: fluentd
+  #   image: "fluentd"
+  #   volumeMounts:
+  #     - mountPath: /my-volume/config
+  #       name: config
+  # -- Document_enrichment container port number. Set to `null`/`0` (and disable `service`/probes) for
+  # components that don't listen on any port (e.g. a queue consumer).
+  # @section -- Document_enrichment
+  containerPort: &document_enrichmentContainerPort null
+  # -- Document_enrichment container port name.
+  # @section -- Document_enrichment
+  containerPortName: "http"
+  # -- Document_enrichment extra container ports.
+  # @section -- Document_enrichment
+  extraPorts: []
+  # - containerPort: 9090
+  #   protocol: "TCP"
+  # -- Document_enrichment container command.
+  # @section -- Document_enrichment
+  command: []
+  # -- Document_enrichment container command args.
+  # @section -- Document_enrichment
+  args: []
+  # -- Container-level security context. Defaults to a hardened baseline that satisfies the
+  # `restricted` Pod Security Standard: no privilege escalation, no capabilities, immutable root
+  # filesystem. Rendered via `toYaml`, so any `SecurityContext` field is accepted. Note
+  # `readOnlyRootFilesystem` requires the app to write only to mounted volumes - the default
+  # `volumes`/`volumeMounts` below provide an `emptyDir` on /tmp for that reason. Set to `null` to
+  # omit the block entirely.
+  # @section -- Document_enrichment
+  securityContext:
+    allowPrivilegeEscalation: false
+    privileged: false
+    readOnlyRootFilesystem: true
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    capabilities:
+      drop:
+        - "ALL"
+  # -- Document_enrichment container env variables loaded from configmap or secret reference. List or map
+  # (merged with `global.envFrom` above, global entries first); see `global.envFrom` for both forms.
+  # @section -- Document_enrichment
+  envFrom: []
+  # - configMapRef:
+  #     name: my-config
+  # - secretRef:
+  #     name: my-secret
+  # -- Map or array of environment variables to inject into the app container (`valueFrom` supported).
+  # @section -- Document_enrichment
+  env: {}
+  # A: "A"
+  # B:
+  #   valueFrom:
+  #     configMapKeyRef:
+  #       name: "my-config"
+  #       key: "B"
+  # C:
+  #   valueFrom:
+  #     secretKeyRef:
+  #       name: "my-secret"
+  #       key: "C"
+  #
+  # - name: "A"
+  #   value: "A"
+  # - name: "B"
+  #   valueFrom:
+  #     configMapKeyRef:
+  #       name: "my-config"
+  #       key: "B"
+  # - name: "C"
+  #   valueFrom:
+  #     secretKeyRef:
+  #       name: "my-secret"
+  #       key: "C"
+  # -- Map of environment variables to inject into a configmap loaded by the app container (`valueFrom` not supported).
+  # @section -- Document_enrichment
+  envCm: {}
+  # D: "D"
+  # -- Map of environment variables to inject into a secret loaded by the app container (`valueFrom`
+  # not supported). Values placed here are stored in plain text in the values file AND in the Helm
+  # release secret, so use it for non-sensitive-but-secret-shaped config only. For real credentials
+  # prefer referencing a Secret you manage elsewhere via `envFrom`, or have an operator materialise
+  # it (see the `VaultStaticSecret` example under `extraObjects`).
+  # @section -- Document_enrichment
+  envSecret: {}
+  # E: "E"
+  ## Each probe is rendered verbatim via `toYaml`, so any `Probe` field (`exec`, `tcpSocket`,
+  ## `grpc`...) is accepted, not just the `httpGet` shown here. To DISABLE a probe, set it to
+  ## `null` - `{}` does not work, because Helm deep-merges values files and would merge these
+  ## defaults straight back in.
+  probes:
+    startupProbe:
+      # -- Document_enrichment container healthcheck (startupProbe is defined using `toYaml` so it is possible to override it completely).
+      # Uses `celery inspect ping` since Celery workers don't expose an HTTP endpoint.
+      # @section -- Document_enrichment
+      exec:
+        command:
+          - celery
+          - -A
+          - app.celery_app
+          - inspect
+          - ping
+          - -d
+          - celery@$(HOSTNAME)
+      # -- Number of seconds after the container has started before probe is initiated.
+      # @section -- Document_enrichment
+      initialDelaySeconds: 0
+      # -- Minimum consecutive successes for the probe to be considered successful after having failed.
+      # @section -- Document_enrichment
+      successThreshold: 1
+      # -- Minimum consecutive failures for the probe to be considered failed after having succeeded.
+      # @section -- Document_enrichment
+      failureThreshold: 10
+      # -- How often (in seconds) to perform the probe.
+      # @section -- Document_enrichment
+      periodSeconds: 10
+      # -- Number of seconds after which the probe times out.
+      # @section -- Document_enrichment
+      timeoutSeconds: 5
+    readinessProbe:
+      # -- Document_enrichment container healthcheck (readinessProbe is defined using `toYaml` so it is possible to override it completely).
+      # Uses `celery inspect ping` since Celery workers don't expose an HTTP endpoint.
+      # @section -- Document_enrichment
+      exec:
+        command:
+          - celery
+          - -A
+          - app.celery_app
+          - inspect
+          - ping
+          - -d
+          - celery@$(HOSTNAME)
+      # -- Number of seconds after the container has started before probe is initiated.
+      # @section -- Document_enrichment
+      initialDelaySeconds: 10
+      # -- Minimum consecutive successes for the probe to be considered successful after having failed.
+      # @section -- Document_enrichment
+      successThreshold: 2
+      # -- Minimum consecutive failures for the probe to be considered failed after having succeeded.
+      # @section -- Document_enrichment
+      failureThreshold: 2
+      # -- How often (in seconds) to perform the probe.
+      # @section -- Document_enrichment
+      periodSeconds: 10
+      # -- Number of seconds after which the probe times out.
+      # @section -- Document_enrichment
+      timeoutSeconds: 5
+    livenessProbe:
+      # -- Document_enrichment container healthcheck (livenessProbe is defined using `toYaml` so it is possible to override it completely).
+      # Uses `celery inspect ping` since Celery workers don't expose an HTTP endpoint.
+      # @section -- Document_enrichment
+      exec:
+        command:
+          - celery
+          - -A
+          - app.celery_app
+          - inspect
+          - ping
+          - -d
+          - celery@$(HOSTNAME)
+      # -- Number of seconds after the container has started before probe is initiated.
+      # @section -- Document_enrichment
+      initialDelaySeconds: 30
+      # -- Minimum consecutive successes for the probe to be considered successful after having failed.
+      # @section -- Document_enrichment
+      successThreshold: 1
+      # -- Minimum consecutive failures for the probe to be considered failed after having succeeded.
+      # @section -- Document_enrichment
+      failureThreshold: 3
+      # -- How often (in seconds) to perform the probe.
+      # @section -- Document_enrichment
+      periodSeconds: 30
+      # -- Number of seconds after which the probe times out.
+      # @section -- Document_enrichment
+      timeoutSeconds: 5
+  ## Deployment-only. StatefulSet and DaemonSet use `updateStrategy` below - their update
+  ## strategies are a different API shape (no `Recreate`, and different `rollingUpdate` fields),
+  ## so they are kept as separate values rather than one block that means three different things.
+  strategy:
+    # -- Strategy type used to replace old Pods by new ones, can be `Recreate` or `RollingUpdate`.
+    # Only applied when `deploymentType` is "Deployment".
+    # @section -- Document_enrichment
+    type: "RollingUpdate"
+    rollingUpdate:
+      # -- The maximum number of pods that can be unavailable during the update process.
+      # @section -- Document_enrichment
+      maxUnavailable: 1
+      # -- The maximum number of pods that can be scheduled above the desired number of pods.
+      # @section -- Document_enrichment
+      maxSurge: 1
+  # -- Update strategy applied when `deploymentType` is "StatefulSet" or "DaemonSet" (ignored for
+  # a Deployment, which uses `strategy` above). Rendered verbatim via `toYaml`, so it takes the
+  # native `StatefulSetUpdateStrategy`/`DaemonSetUpdateStrategy` shape of the selected kind; left
+  # empty, Kubernetes applies its own default (`RollingUpdate` for both).
+  # @section -- Document_enrichment
+  updateStrategy: {}
+  # StatefulSet:
+  #   type: "RollingUpdate"        # RollingUpdate or OnDelete
+  #   rollingUpdate:
+  #     partition: 0
+  #     maxUnavailable: 1
+  # DaemonSet:
+  #   type: "RollingUpdate"        # RollingUpdate or OnDelete
+  #   rollingUpdate:
+  #     maxUnavailable: 1
+  #     maxSurge: 0
+  # -- Image credentials configuration.
+  # @section -- Document_enrichment
+  imagePullSecrets: []
+  # - name: "pullsecret-name-1"
+  #   create: false
+  # - name: "pullsecret-name-2"
+  #   create: true
+  #   registry: ""
+  #   username: ""
+  #   password: ""
+  #   email: ""
+  ## Node-level pod settings. Mostly relevant when `deploymentType` is "DaemonSet" (node agents,
+  ## log/metric collectors), but valid for every kind.
+  # -- Share the host network namespace. Container ports then bind directly on the node, so they
+  # must not collide with anything else running there.
+  # @section -- Document_enrichment
+  hostNetwork: false
+  # -- Share the host PID namespace (lets the container see and signal host processes).
+  # @section -- Document_enrichment
+  hostPID: false
+  # -- Pod DNS policy. Left empty, it defaults to `ClusterFirstWithHostNet` when `hostNetwork` is
+  # true (otherwise a hostNetwork pod silently stops resolving cluster DNS) and to the Kubernetes
+  # default `ClusterFirst` when it isn't.
+  # @section -- Document_enrichment
+  # @default -- `""` (`ClusterFirstWithHostNet` when `hostNetwork` is true)
+  dnsPolicy: ""
+  # -- Pod DNS configuration, merged with `dnsPolicy` by the kubelet.
+  # @section -- Document_enrichment
+  dnsConfig: {}
+  # nameservers:
+  # - "1.1.1.1"
+  # options:
+  # - name: "ndots"
+  #   value: "2"
+  # searches:
+  # - "my.dns.search.suffix"
+  # -- PriorityClass to schedule the pods with (e.g. `system-node-critical` for a node agent that
+  # must not be evicted under pressure).
+  # @section -- Document_enrichment
+  priorityClassName: ""
+  # -- (int) Grace period, in seconds, given to the pod to shut down cleanly before it is killed.
+  # @section -- Document_enrichment
+  # @default -- `null` (Kubernetes default of 30)
+  terminationGracePeriodSeconds: null
+  # -- Topology spread constraints used to spread the pods across failure domains.
+  # @section -- Document_enrichment
+  topologySpreadConstraints: []
+  # - maxSkew: 1
+  #   topologyKey: "topology.kubernetes.io/zone"
+  #   whenUnsatisfiable: "ScheduleAnyway"
+  #   labelSelector:
+  #     matchLabels:
+  #       app.kubernetes.io/name: "helm-document_enrichment"
+  # -- Host aliases that will be injected at pod-level into /etc/hosts.
+  # @section -- Document_enrichment
+  hostAliases: []
+  # - ip: "127.0.0.1"
+  #   hostnames:
+  #   - "foo.local"
+  #   - "bar.local"
+  # - ip: "10.1.2.3"
+  #   hostnames:
+  #   - "foo.remote"
+  #   - "bar.remote"
+  # -- List of volumes to add. Prefer this for volumes the chart itself always needs (e.g.
+  # security-hardening `emptyDir`s); use `extraVolumes` below for anything you add on top, so
+  # overriding one doesn't require repeating the other. Defaults to a `/tmp` `emptyDir`, which is
+  # what makes the default `securityContext.readOnlyRootFilesystem: true` usable - drop it only if
+  # you also relax that. Helm replaces lists wholesale rather than merging them, so overriding this
+  # key means restating the entries you want to keep.
+  # @section -- Document_enrichment
+  volumes:
+    - name: "tmp"
+      emptyDir: {}
+  # - name: config-volume
+  #   configMap:
+  #     name: log-config
+  #     items:
+  #       - key: log_level
+  #         path: log_level.conf
+  # - name: cache-volume
+  #   emptyDir:
+  #     sizeLimit: 500Mi
+  # - name: image-volume
+  #   image:
+  #     reference: quay.io/crio/artifact:v2
+  #     pullPolicy: IfNotPresent
+  # -- Additional volumes to add, concatenated with `volumes` above at render time (e.g. to
+  # mount a cert or config from a values override without repeating the chart's own volumes).
+  # @section -- Document_enrichment
+  extraVolumes: []
+  # - name: certs
+  #   secret:
+  #     secretName: my-tls-cert
+  # -- List of volumeClaims to add, rendered as the StatefulSet's `volumeClaimTemplates`. Requires
+  # `deploymentType: "StatefulSet"` - setting it on a Deployment or DaemonSet fails at render time
+  # rather than being silently dropped (use `volumes`/`extraVolumes` there instead).
+  # @section -- Document_enrichment
+  volumeClaims: []
+  # - metadata:
+  #     name: app-volume
+  #   spec:
+  #     accessModes: [ "ReadWriteOnce" ]
+  #     storageClassName: "my-storage-class"
+  #     resources:
+  #       requests:
+  #         storage: 1Gi
+  # -- Additional volumeClaims to add, concatenated with `volumeClaims` above at render time.
+  # @section -- Document_enrichment
+  extraVolumeClaims: []
+  # -- List of mounts to add (normally used with `volumes` or `volumeClaims`). Prefer this for
+  # mounts the chart itself always needs; use `extraVolumeMounts` below for anything you add
+  # on top, so overriding one doesn't require repeating the other. Defaults to the `/tmp` mount
+  # backing the hardened `readOnlyRootFilesystem` default (see `volumes` above).
+  # @section -- Document_enrichment
+  volumeMounts:
+    - name: "tmp"
+      mountPath: "/tmp"
+  # - name: config-volume
+  #   mountPath: /app/config
+  #   subPath: config
+  #   readOnly: true
+  #   mountPropagation: None
+  #   recursiveReadOnly: Enabled
+  # - name: cache-volume
+  #   mountPath: /app/cache
+  # - name: image-volume
+  #   mountPath: /app/content
+  # - name: storage-volume
+  #   mountPath: /app/storage
+  # -- Additional volumeMounts to add, concatenated with `volumeMounts` above at render time.
+  # @section -- Document_enrichment
+  extraVolumeMounts: []
+  # - name: certs
+  #   mountPath: /etc/certs
+  #   readOnly: true
+  service:
+    # -- Whether or not to create a Service for the app. Set to `false` for components that
+    # don't accept traffic (e.g. a queue consumer with no `containerPort`).
+    # @section -- Document_enrichment
+    enabled: true
+    # -- Type of service to create for the app.
+    # @section -- Document_enrichment
+    type: "ClusterIP"
+    # -- Port used by the service.
+    # @section -- Document_enrichment
+    port: 80
+    # -- (int) Port used when type is `NodePort` to expose the service on the given node port. Left
+    # empty, Kubernetes allocates one from the configured node-port range, which avoids two
+    # releases of this chart colliding on the same hardcoded port.
+    # @section -- Document_enrichment
+    # @default -- `null` (allocated by Kubernetes)
+    nodePort: null
+    # -- Port name used by the service.
+    # @section -- Document_enrichment
+    portName: "http"
+    # -- Protocol used by the service.
+    # @section -- Document_enrichment
+    protocol: "TCP"
+    # -- Extra service ports.
+    # @section -- Document_enrichment
+    extraPorts: []
+    # - port: 9090
+    #   targetPort: 9090
+    #   protocol: "TCP"
+    #   name: "metrics"
+  resources:
+    requests:
+      # -- Memory request for the app.
+      # @section -- Document_enrichment
+      memory: "256Mi"
+      # -- CPU request for the app.
+      # @section -- Document_enrichment
+      cpu: "100m"
+      # Other stuff like GPU, etc could be added here.
+      # nvidia.com/gpu: "1"
+      # ephemeral-storage: "100Mi"
+    limits:
+      # -- Memory limit for the app.
+      # @section -- Document_enrichment
+      memory: "2Gi"
+      # -- CPU limit for the app.
+      # @section -- Document_enrichment
+      cpu: "500m"
+      # Other stuff like GPU, etc could be added here.
+      # nvidia.com/gpu: "1"
+      # ephemeral-storage: "500Mi"
+  autoscaling:
+    # -- Enable Horizontal Pod Autoscaler for the app.
+    # @section -- Document_enrichment
+    enabled: false
+    # -- Minimum number of replicas for the app.
+    # @section -- Document_enrichment
+    minReplicas: 1
+    # -- Maximum number of replicas for the app.
+    # @section -- Document_enrichment
+    maxReplicas: 3
+    # -- Average CPU utilization percentage for the app.
+    # @section -- Document_enrichment
+    targetCPUUtilizationPercentage: 80
+    # -- Average memory utilization percentage for the app.
+    # @section -- Document_enrichment
+    targetMemoryUtilizationPercentage: 80
+  # -- Revision history limit for the app.
+  # @section -- Document_enrichment
+  revisionHistoryLimit: 10
+  # -- Default node selector for app.
+  # @section -- Document_enrichment
+  nodeSelector: {}
+  # kubernetes.io/os: "linux"
+  # kubernetes.io/arch: "amd64"
+  # kubernetes.io/hostname: "node1"
+  # -- Default tolerations for app.
+  # @section -- Document_enrichment
+  tolerations: []
+  # - key: "key1"
+  #   operator: "Equal"
+  #   value: "value1"
+  #   effect: "NoSchedule"
+  #   tolerationSeconds: 3600
+  # - key: "key2"
+  #   operator: "Equal"
+  #   value: "value2"
+  #   effect: "NoExecute"
+  #   tolerationSeconds: 3600
+  # - key: "key3"
+  #   operator: "Exists"
+  #   effect: "PreferNoSchedule"
+  #   tolerationSeconds: 3600
+  # -- Affinity used for app pod.
+  # @section -- Document_enrichment
+  affinity: {}
+  # podAntiAffinity:
+  #   requiredDuringSchedulingIgnoredDuringExecution:
+  #   - labelSelector:
+  #       matchExpressions:
+  #       - key: "app.kubernetes.io/name"
+  #         operator: "In"
+  #         values:
+  #         - "helm-document_enrichment"
+  #     topologyKey: "kubernetes.io/hostname"
+  serviceAccount:
+    # -- Enable the service account.
+    # @section -- Document_enrichment
+    enabled: false
+    # -- Create a service account.
+    # @section -- Document_enrichment
+    create: false
+    # -- Annotations applied to created service account.
+    # @section -- Document_enrichment
+    annotations: {}
+    # -- Service account name.
+    # @section -- Document_enrichment
+    name: ""
+    # -- Should the service account access token be automount in the pod.
+    # @section -- Document_enrichment
+    automountServiceAccountToken: false
+    role:
+      # -- Should the role be created.
+      # @section -- Document_enrichment
+      create: false
+      # -- Role rules associated with the service account.
+      # @section -- Document_enrichment
+      rules: []
+      # - apiGroups:
+      #   - argoproj.io
+      #   resources:
+      #   - applications
+      #   - applicationsets
+      #   - appprojects
+      #   verbs:
+      #   - create
+      #   - get
+      #   - list
+      #   - watch
+      #   - update
+      #   - delete
+      #   - patch
+    clusterRole:
+      # -- Should the clusterRole be created.
+      # @section -- Document_enrichment
+      create: false
+      # -- ClusterRole rules associated with the service account.
+      # @section -- Document_enrichment
+      rules: []
+      # - apiGroups:
+      #   - argoproj.io
+      #   resources:
+      #   - applications
+      #   - applicationsets
+      #   - appprojects
+      #   verbs:
+      #   - create
+      #   - get
+      #   - list
+      #   - watch
+      #   - update
+      #   - delete
+      #   - patch
+  ## Ref: https://kubernetes.io/docs/tasks/run-application/configure-pdb/
+  pdb:
+    # -- Deploy a PodDisruptionBudget for the app
+    # @section -- Document_enrichment
+    enabled: false
+    # -- Labels to be added to app pdb.
+    # @section -- Document_enrichment
+    labels: {}
+    # -- Annotations to be added to app pdb.
+    # @section -- Document_enrichment
+    annotations: {}
+    # -- Number of pods that are available after eviction as number or percentage (eg.: 50%). One
+    # of `minAvailable` / `maxUnavailable` must be set when `pdb.enabled` is true - a budget of 0
+    # is the same as having no budget at all, so leaving both empty fails at render time.
+    # @section -- Document_enrichment
+    minAvailable: ""
+    # -- Number of pods that are unavailable after eviction as number or percentage (eg.: 50%). Has higher precedence over `document_enrichment.pdb.minAvailable`.
+    # @section -- Document_enrichment
+    maxUnavailable: ""
+  networkPolicy:
+    # -- Create NetworkPolicy object for the app. The policy always selects this component's pods
+    # only (via its selector labels), never the whole namespace.
+    # @section -- Document_enrichment
+    create: false
+    # -- Labels to be added to the app NetworkPolicy.
+    # @section -- Document_enrichment
+    labels: {}
+    # -- Annotations to be added to the app NetworkPolicy.
+    # @section -- Document_enrichment
+    annotations: {}
+    # -- Policy types used in the NetworkPolicy object.
+    # @section -- Document_enrichment
+    policyTypes:
+      - Ingress
+    # -- Ingress rules for the NetworkPolicy object.
+    # @section -- Document_enrichment
+    ingress: []
+    # - from:
+    #   - ipBlock:
+    #       cidr: 172.17.0.0/16
+    #       except:
+    #       - 172.17.1.0/24
+    #   - namespaceSelector:
+    #       matchLabels:
+    #         project: myproject
+    #   - podSelector:
+    #       matchLabels:
+    #         role: frontend
+    #   ports:
+    #   - protocol: TCP
+    #     port: 6379
+    # -- Egress rules for the NetworkPolicy object.
+    # @section -- Document_enrichment
+    egress: []
+    # - to:
+    #   - ipBlock:
+    #       cidr: 10.0.0.0/24
+    #   ports:
+    #   - protocol: TCP
+    #     port: 32000
+    #     endPort: 32768
+  metrics:
+    # -- Deploy metrics service.
+    # @section -- Document_enrichment
+    enabled: false
+    service:
+      # -- Type of metrics service to create.
+      # @section -- Document_enrichment
+      type: "ClusterIP"
+      # -- Metrics service annotations.
+      # @section -- Document_enrichment
+      annotations: {}
+      # -- Metrics service labels.
+      # @section -- Document_enrichment
+      labels: {}
+      # -- Metrics service port name.
+      # @section -- Document_enrichment
+      portName: "metrics"
+      # -- Metrics service port.
+      # @section -- Document_enrichment
+      port: 9000
+      # -- Metrics service target port.
+      # @section -- Document_enrichment
+      targetPort: 9000
+    serviceMonitor:
+      # -- Enable a prometheus ServiceMonitor.
+      # @section -- Document_enrichment
+      enabled: false
+      # -- Prometheus ServiceMonitor labels.
+      # @section -- Document_enrichment
+      labels: {}
+      # -- Prometheus ServiceMonitor annotations.
+      # @section -- Document_enrichment
+      annotations: {}
+      endpoints:
+        - basicAuth:
+            # -- The secret in the service monitor namespace that contains the username for authentication.
+            # @section -- Document_enrichment
+            username: ""
+            # -- The secret in the service monitor namespace that contains the password for authentication.
+            # @section -- Document_enrichment
+            password: ""
+          bearerTokenSecret:
+            # -- Secret name to mount to read bearer token for scraping targets. The secret needs to be in the same namespace as the service monitor and accessible by the Prometheus Operator.
+            # @section -- Document_enrichment
+            name: ""
+            # -- Secret key to mount to read bearer token for scraping targets. The secret needs to be in the same namespace as the service monitor and accessible by the Prometheus Operator.
+            # @section -- Document_enrichment
+            key: ""
+          # -- Prometheus ServiceMonitor interval.
+          # @section -- Document_enrichment
+          interval: "30s"
+          # -- Prometheus ServiceMonitor scrapeTimeout. If empty, Prometheus uses the global scrape timeout unless it is less than the target's scrape interval value in which the latter is used.
+          # @section -- Document_enrichment
+          scrapeTimeout: "10s"
+          # -- Path used by the Prometheus ServiceMonitor to scrape metrics.
+          # @section -- Document_enrichment
+          path: "/metrics"
+          # -- When true, honorLabels preserves the metric’s labels when they collide with the target’s labels.
+          # @section -- Document_enrichment
+          honorLabels: false
+          # -- Prometheus RelabelConfigs to apply to samples before scraping.
+          # @section -- Document_enrichment
+          relabelings: []
+          # -- Prometheus MetricRelabelConfigs to apply to samples before ingestion.
+          # @section -- Document_enrichment
+          metricRelabelings: []
+          # -- Prometheus ServiceMonitor selector.
+          # @section -- Document_enrichment
+          selector: {}
+          # prometheus: kube-prometheus
+          # -- Prometheus ServiceMonitor scheme.
+          # @section -- Document_enrichment
+          scheme: ""
+          # -- Prometheus ServiceMonitor tlsConfig.
+          # @section -- Document_enrichment
+          tlsConfig: {}
+
+index_rebuild:
+  # -- Workload kind to deploy the app as. One of "Deployment", "StatefulSet" or "DaemonSet"
+  # (validated at render time - an unknown value fails instead of producing a release with no
+  # workload). Use the top-level `jobs` / `cronjobs` maps for one-off or scheduled workloads.
+  # Some values only apply to certain kinds: `replicaCount`/`autoscaling` and `strategy` are
+  # Deployment-only (`autoscaling` also works on a StatefulSet), `volumeClaims`/`extraVolumeClaims`
+  # are StatefulSet-only, and `updateStrategy` covers StatefulSet and DaemonSet.
+  # @section -- Index_rebuild
+  deploymentType: "Deployment"
+  # -- The number of application controller pods to run. Ignored when `deploymentType` is
+  # "DaemonSet" (one pod per node) or when `autoscaling.enabled` is true.
+  # @section -- Index_rebuild
+  replicaCount: 1
+  image:
+    # -- Registry to use for the app.
+    # @section -- Index_rebuild
+    registry: "ghcr.io"
+    # -- Repository to use for the app.
+    # @section -- Index_rebuild
+    repository: "ia-generative/muffin/worker-document-process"
+    # -- Image pull policy for the app.
+    # @section -- Index_rebuild
+    pullPolicy: "IfNotPresent"
+    # -- Tag to use for the app.
+    # @section -- Index_rebuild
+    # Overrides the image tag whose default is the chart appVersion.
+    tag: ""
+    # -- Image digest (`sha256:...`). When set it takes precedence over `tag`, pinning the exact
+    # image content so the same release can never resolve to a different build - preferred over a
+    # mutable tag for anything you deploy to production.
+    # @section -- Index_rebuild
+    digest: ""
+  ingress:
+    # -- Whether or not ingress should be enabled.
+    # @section -- Index_rebuild
+    enabled: false
+    # -- Defines which ingress controller will implement the resource.
+    # @section -- Index_rebuild
+    className: ""
+    # -- Additional ingress annotations.
+    # @section -- Index_rebuild
+    annotations: {}
+    # -- Additional ingress labels.
+    # @section -- Index_rebuild
+    labels: {}
+    hosts:
+      -  # -- Name of the host record.
+        # @section -- Index_rebuild
+        name: "domain.local"
+        # -- Paths of the host record to manage routing (avoids repeating the same host for
+        # multiple paths/backends).
+        # @section -- Index_rebuild
+        paths:
+          -  # -- Path of the host record to manage routing.
+            # @section -- Index_rebuild
+            path: "/"
+            # -- Path type of the host record.
+            # @section -- Index_rebuild
+            pathType: "Prefix"
+            backend:
+              # -- Name of the backend service linked to the path (leave empty to use the app service).
+              # @section -- Index_rebuild
+              serviceName: ""
+              # -- Port used by the backend service linked to the path (leave null to use the app service port).
+              # @section -- Index_rebuild
+              portNumber: null
+    # -- Enable TLS configuration.
+    # @section -- Index_rebuild
+    tls: []
+    # - secretName: domain.local-tls
+    #   hosts:
+    #   - domain.local
+  ## Gateway API HTTPRoute configuration (alternative to Ingress)
+  ## Ref: https://gateway-api.sigs.k8s.io/api-types/httproute/
+  httpRoute:
+    # -- Enable an HTTPRoute resource for this service.
+    # @section -- Index_rebuild
+    enabled: false
+    # -- Additional HTTPRoute annotations.
+    # @section -- Index_rebuild
+    annotations: {}
+    # -- Additional HTTPRoute labels.
+    # @section -- Index_rebuild
+    labels: {}
+    # -- Parent references (Gateways) to attach the HTTPRoute to.
+    # @section -- Index_rebuild
+    parentRefs: []
+    # - name: my-gateway
+    #   namespace: gateway-namespace  # optional
+    #   sectionName: https            # optional, specific listener name
+    # -- Hostnames for the HTTPRoute to match.
+    # @section -- Index_rebuild
+    hostnames: []
+    # - "example.com"
+    # - "api.example.com"
+    # -- Routing rules for the HTTPRoute.
+    # @section -- Index_rebuild
+    rules: []
+    # - matches:
+    #   - path:
+    #       type: PathPrefix     # PathPrefix, Exact, or RegularExpression
+    #       value: "/"
+    #     headers:
+    #     - type: Exact
+    #       name: "x-version"
+    #       value: "v1"
+    #     method: GET
+    #   filters:
+    #   - type: RequestHeaderModifier
+    #     requestHeaderModifier:
+    #       add:
+    #       - name: "x-custom-header"
+    #         value: "my-value"
+    #   backendRefs:
+    #   - name: my-service       # defaults to chart service if not set
+    #     port: 80               # defaults to service port if not set
+    #     weight: 100            # for traffic splitting
+  ## Gateway API GRPCRoute configuration (for gRPC services)
+  ## Ref: https://gateway-api.sigs.k8s.io/api-types/grpcroute/
+  grpcRoute:
+    # -- Enable a GRPCRoute resource for this service.
+    # @section -- Index_rebuild
+    enabled: false
+    # -- Additional GRPCRoute annotations.
+    # @section -- Index_rebuild
+    annotations: {}
+    # -- Additional GRPCRoute labels.
+    # @section -- Index_rebuild
+    labels: {}
+    # -- Parent references (Gateways) to attach the GRPCRoute to.
+    # @section -- Index_rebuild
+    parentRefs: []
+    # - name: my-gateway
+    #   namespace: gateway-namespace
+    #   sectionName: grpc
+    # -- Hostnames for the GRPCRoute to match.
+    # @section -- Index_rebuild
+    hostnames: []
+    # - "grpc.example.com"
+    # -- Routing rules for the GRPCRoute.
+    # @section -- Index_rebuild
+    rules: []
+    # - matches:
+    #   - method:
+    #       type: Exact          # Exact or RegularExpression
+    #       service: "mypackage.MyService"
+    #       method: "MyMethod"
+    #     headers:
+    #     - type: Exact
+    #       name: "x-version"
+    #       value: "v1"
+    #   backendRefs:
+    #   - name: my-grpc-service
+    #     port: 50051
+    #     weight: 100
+  # -- Mount the ServiceAccount token into the app pods. Defaults to false so a compromised
+  # container holds no API credentials; the API server does not need the token unless the app
+  # actually talks to the Kubernetes API. Applied at pod level so it holds even when
+  # `serviceAccount.name` points at an SA that automounts.
+  # @section -- Index_rebuild
+  automountServiceAccountToken: false
+  # -- Inject the legacy `{SVC}_SERVICE_HOST`/`_PORT` environment variables for every Service in the
+  # namespace. Defaults to false: the variables are rarely used, leak the namespace's topology into
+  # every container, and can collide with the app's own configuration. Set to true only for an app
+  # that genuinely reads them.
+  # @section -- Index_rebuild
+  enableServiceLinks: false
+  # -- Annotations for the app deployed pods.
+  # @section -- Index_rebuild
+  podAnnotations: {}
+  # -- Labels for the app deployed pods.
+  # @section -- Index_rebuild
+  podLabels: {}
+  # -- Pod-level security context. Defaults to a hardened baseline that satisfies the `restricted`
+  # Pod Security Standard. Rendered via `toYaml`, so any `PodSecurityContext` field is accepted.
+  # Adjust the UID/GID to whatever your image actually ships with - `runAsNonRoot` makes the
+  # kubelet refuse to start a container that would run as root, which is the intended failure mode
+  # rather than something to switch off. Set to `null` to omit the block entirely.
+  # @section -- Index_rebuild
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    # Owns mounted volumes so a non-root container can still write to them.
+    fsGroup: 1000
+    # Only chown volume contents when the top-level dir doesn't already match, which avoids
+    # re-chowning large volumes on every start.
+    fsGroupChangePolicy: "OnRootMismatch"
+    seccompProfile:
+      type: "RuntimeDefault"
+  # -- Init containers to add to the app pod.
+  # @section -- Index_rebuild
+  initContainers: []
+  # - name: wait-for-keycloak
+  #   image: docker.io/curlimages/curl:latest
+  #   command:
+  #   - "/bin/sh"
+  #   - "-c"
+  #   args:
+  #   - "while [ $(curl -sw '%{http_code}' http://webapp.svc.cluster.local -o /dev/null) -ne 200 ]; do sleep 5; echo 'Waiting for the webapp...'; done"
+  #   volumeMounts:
+  #   - mountPath: /custom-volume
+  #     name: custom-volume
+  # -- Extra containers to add to the app pod as sidecars.
+  # @section -- Index_rebuild
+  extraContainers: []
+  # - name: fluentd
+  #   image: "fluentd"
+  #   volumeMounts:
+  #     - mountPath: /my-volume/config
+  #       name: config
+  # -- Index_rebuild container port number. Set to `null`/`0` (and disable `service`/probes) for
+  # components that don't listen on any port (e.g. a queue consumer).
+  # @section -- Index_rebuild
+  containerPort: &index_rebuildContainerPort null
+  # -- Index_rebuild container port name.
+  # @section -- Index_rebuild
+  containerPortName: "http"
+  # -- Index_rebuild extra container ports.
+  # @section -- Index_rebuild
+  extraPorts: []
+  # - containerPort: 9090
+  #   protocol: "TCP"
+  # -- Index_rebuild container command.
+  # @section -- Index_rebuild
+  command: []
+  # -- Index_rebuild container command args.
+  # @section -- Index_rebuild
+  args: []
+  # -- Container-level security context. Defaults to a hardened baseline that satisfies the
+  # `restricted` Pod Security Standard: no privilege escalation, no capabilities, immutable root
+  # filesystem. Rendered via `toYaml`, so any `SecurityContext` field is accepted. Note
+  # `readOnlyRootFilesystem` requires the app to write only to mounted volumes - the default
+  # `volumes`/`volumeMounts` below provide an `emptyDir` on /tmp for that reason. Set to `null` to
+  # omit the block entirely.
+  # @section -- Index_rebuild
+  securityContext:
+    allowPrivilegeEscalation: false
+    privileged: false
+    readOnlyRootFilesystem: true
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    capabilities:
+      drop:
+        - "ALL"
+  # -- Index_rebuild container env variables loaded from configmap or secret reference. List or map
+  # (merged with `global.envFrom` above, global entries first); see `global.envFrom` for both forms.
+  # @section -- Index_rebuild
+  envFrom: []
+  # - configMapRef:
+  #     name: my-config
+  # - secretRef:
+  #     name: my-secret
+  # -- Map or array of environment variables to inject into the app container (`valueFrom` supported).
+  # @section -- Index_rebuild
+  env: {}
+  # A: "A"
+  # B:
+  #   valueFrom:
+  #     configMapKeyRef:
+  #       name: "my-config"
+  #       key: "B"
+  # C:
+  #   valueFrom:
+  #     secretKeyRef:
+  #       name: "my-secret"
+  #       key: "C"
+  #
+  # - name: "A"
+  #   value: "A"
+  # - name: "B"
+  #   valueFrom:
+  #     configMapKeyRef:
+  #       name: "my-config"
+  #       key: "B"
+  # - name: "C"
+  #   valueFrom:
+  #     secretKeyRef:
+  #       name: "my-secret"
+  #       key: "C"
+  # -- Map of environment variables to inject into a configmap loaded by the app container (`valueFrom` not supported).
+  # @section -- Index_rebuild
+  envCm: {}
+  # D: "D"
+  # -- Map of environment variables to inject into a secret loaded by the app container (`valueFrom`
+  # not supported). Values placed here are stored in plain text in the values file AND in the Helm
+  # release secret, so use it for non-sensitive-but-secret-shaped config only. For real credentials
+  # prefer referencing a Secret you manage elsewhere via `envFrom`, or have an operator materialise
+  # it (see the `VaultStaticSecret` example under `extraObjects`).
+  # @section -- Index_rebuild
+  envSecret: {}
+  # E: "E"
+  ## Each probe is rendered verbatim via `toYaml`, so any `Probe` field (`exec`, `tcpSocket`,
+  ## `grpc`...) is accepted, not just the `httpGet` shown here. To DISABLE a probe, set it to
+  ## `null` - `{}` does not work, because Helm deep-merges values files and would merge these
+  ## defaults straight back in.
+  probes:
+    startupProbe:
+      # -- Index_rebuild container healthcheck (startupProbe is defined using `toYaml` so it is possible to override it completely).
+      # Uses `celery inspect ping` since Celery workers don't expose an HTTP endpoint.
+      # @section -- Index_rebuild
+      exec:
+        command:
+          - celery
+          - -A
+          - app.celery_app
+          - inspect
+          - ping
+          - -d
+          - celery@$(HOSTNAME)
+      # -- Number of seconds after the container has started before probe is initiated.
+      # @section -- Index_rebuild
+      initialDelaySeconds: 0
+      # -- Minimum consecutive successes for the probe to be considered successful after having failed.
+      # @section -- Index_rebuild
+      successThreshold: 1
+      # -- Minimum consecutive failures for the probe to be considered failed after having succeeded.
+      # @section -- Index_rebuild
+      failureThreshold: 10
+      # -- How often (in seconds) to perform the probe.
+      # @section -- Index_rebuild
+      periodSeconds: 10
+      # -- Number of seconds after which the probe times out.
+      # @section -- Index_rebuild
+      timeoutSeconds: 5
+    readinessProbe:
+      # -- Index_rebuild container healthcheck (readinessProbe is defined using `toYaml` so it is possible to override it completely).
+      # Uses `celery inspect ping` since Celery workers don't expose an HTTP endpoint.
+      # @section -- Index_rebuild
+      exec:
+        command:
+          - celery
+          - -A
+          - app.celery_app
+          - inspect
+          - ping
+          - -d
+          - celery@$(HOSTNAME)
+      # -- Number of seconds after the container has started before probe is initiated.
+      # @section -- Index_rebuild
+      initialDelaySeconds: 10
+      # -- Minimum consecutive successes for the probe to be considered successful after having failed.
+      # @section -- Index_rebuild
+      successThreshold: 2
+      # -- Minimum consecutive failures for the probe to be considered failed after having succeeded.
+      # @section -- Index_rebuild
+      failureThreshold: 2
+      # -- How often (in seconds) to perform the probe.
+      # @section -- Index_rebuild
+      periodSeconds: 10
+      # -- Number of seconds after which the probe times out.
+      # @section -- Index_rebuild
+      timeoutSeconds: 5
+    livenessProbe:
+      # -- Index_rebuild container healthcheck (livenessProbe is defined using `toYaml` so it is possible to override it completely).
+      # Uses `celery inspect ping` since Celery workers don't expose an HTTP endpoint.
+      # @section -- Index_rebuild
+      exec:
+        command:
+          - celery
+          - -A
+          - app.celery_app
+          - inspect
+          - ping
+          - -d
+          - celery@$(HOSTNAME)
+      # -- Number of seconds after the container has started before probe is initiated.
+      # @section -- Index_rebuild
+      initialDelaySeconds: 30
+      # -- Minimum consecutive successes for the probe to be considered successful after having failed.
+      # @section -- Index_rebuild
+      successThreshold: 1
+      # -- Minimum consecutive failures for the probe to be considered failed after having succeeded.
+      # @section -- Index_rebuild
+      failureThreshold: 3
+      # -- How often (in seconds) to perform the probe.
+      # @section -- Index_rebuild
+      periodSeconds: 30
+      # -- Number of seconds after which the probe times out.
+      # @section -- Index_rebuild
+      timeoutSeconds: 5
+  ## Deployment-only. StatefulSet and DaemonSet use `updateStrategy` below - their update
+  ## strategies are a different API shape (no `Recreate`, and different `rollingUpdate` fields),
+  ## so they are kept as separate values rather than one block that means three different things.
+  strategy:
+    # -- Strategy type used to replace old Pods by new ones, can be `Recreate` or `RollingUpdate`.
+    # Only applied when `deploymentType` is "Deployment".
+    # @section -- Index_rebuild
+    type: "RollingUpdate"
+    rollingUpdate:
+      # -- The maximum number of pods that can be unavailable during the update process.
+      # @section -- Index_rebuild
+      maxUnavailable: 1
+      # -- The maximum number of pods that can be scheduled above the desired number of pods.
+      # @section -- Index_rebuild
+      maxSurge: 1
+  # -- Update strategy applied when `deploymentType` is "StatefulSet" or "DaemonSet" (ignored for
+  # a Deployment, which uses `strategy` above). Rendered verbatim via `toYaml`, so it takes the
+  # native `StatefulSetUpdateStrategy`/`DaemonSetUpdateStrategy` shape of the selected kind; left
+  # empty, Kubernetes applies its own default (`RollingUpdate` for both).
+  # @section -- Index_rebuild
+  updateStrategy: {}
+  # StatefulSet:
+  #   type: "RollingUpdate"        # RollingUpdate or OnDelete
+  #   rollingUpdate:
+  #     partition: 0
+  #     maxUnavailable: 1
+  # DaemonSet:
+  #   type: "RollingUpdate"        # RollingUpdate or OnDelete
+  #   rollingUpdate:
+  #     maxUnavailable: 1
+  #     maxSurge: 0
+  # -- Image credentials configuration.
+  # @section -- Index_rebuild
+  imagePullSecrets: []
+  # - name: "pullsecret-name-1"
+  #   create: false
+  # - name: "pullsecret-name-2"
+  #   create: true
+  #   registry: ""
+  #   username: ""
+  #   password: ""
+  #   email: ""
+  ## Node-level pod settings. Mostly relevant when `deploymentType` is "DaemonSet" (node agents,
+  ## log/metric collectors), but valid for every kind.
+  # -- Share the host network namespace. Container ports then bind directly on the node, so they
+  # must not collide with anything else running there.
+  # @section -- Index_rebuild
+  hostNetwork: false
+  # -- Share the host PID namespace (lets the container see and signal host processes).
+  # @section -- Index_rebuild
+  hostPID: false
+  # -- Pod DNS policy. Left empty, it defaults to `ClusterFirstWithHostNet` when `hostNetwork` is
+  # true (otherwise a hostNetwork pod silently stops resolving cluster DNS) and to the Kubernetes
+  # default `ClusterFirst` when it isn't.
+  # @section -- Index_rebuild
+  # @default -- `""` (`ClusterFirstWithHostNet` when `hostNetwork` is true)
+  dnsPolicy: ""
+  # -- Pod DNS configuration, merged with `dnsPolicy` by the kubelet.
+  # @section -- Index_rebuild
+  dnsConfig: {}
+  # nameservers:
+  # - "1.1.1.1"
+  # options:
+  # - name: "ndots"
+  #   value: "2"
+  # searches:
+  # - "my.dns.search.suffix"
+  # -- PriorityClass to schedule the pods with (e.g. `system-node-critical` for a node agent that
+  # must not be evicted under pressure).
+  # @section -- Index_rebuild
+  priorityClassName: ""
+  # -- (int) Grace period, in seconds, given to the pod to shut down cleanly before it is killed.
+  # @section -- Index_rebuild
+  # @default -- `null` (Kubernetes default of 30)
+  terminationGracePeriodSeconds: null
+  # -- Topology spread constraints used to spread the pods across failure domains.
+  # @section -- Index_rebuild
+  topologySpreadConstraints: []
+  # - maxSkew: 1
+  #   topologyKey: "topology.kubernetes.io/zone"
+  #   whenUnsatisfiable: "ScheduleAnyway"
+  #   labelSelector:
+  #     matchLabels:
+  #       app.kubernetes.io/name: "helm-index_rebuild"
+  # -- Host aliases that will be injected at pod-level into /etc/hosts.
+  # @section -- Index_rebuild
+  hostAliases: []
+  # - ip: "127.0.0.1"
+  #   hostnames:
+  #   - "foo.local"
+  #   - "bar.local"
+  # - ip: "10.1.2.3"
+  #   hostnames:
+  #   - "foo.remote"
+  #   - "bar.remote"
+  # -- List of volumes to add. Prefer this for volumes the chart itself always needs (e.g.
+  # security-hardening `emptyDir`s); use `extraVolumes` below for anything you add on top, so
+  # overriding one doesn't require repeating the other. Defaults to a `/tmp` `emptyDir`, which is
+  # what makes the default `securityContext.readOnlyRootFilesystem: true` usable - drop it only if
+  # you also relax that. Helm replaces lists wholesale rather than merging them, so overriding this
+  # key means restating the entries you want to keep.
+  # @section -- Index_rebuild
+  volumes:
+    - name: "tmp"
+      emptyDir: {}
+  # - name: config-volume
+  #   configMap:
+  #     name: log-config
+  #     items:
+  #       - key: log_level
+  #         path: log_level.conf
+  # - name: cache-volume
+  #   emptyDir:
+  #     sizeLimit: 500Mi
+  # - name: image-volume
+  #   image:
+  #     reference: quay.io/crio/artifact:v2
+  #     pullPolicy: IfNotPresent
+  # -- Additional volumes to add, concatenated with `volumes` above at render time (e.g. to
+  # mount a cert or config from a values override without repeating the chart's own volumes).
+  # @section -- Index_rebuild
+  extraVolumes: []
+  # - name: certs
+  #   secret:
+  #     secretName: my-tls-cert
+  # -- List of volumeClaims to add, rendered as the StatefulSet's `volumeClaimTemplates`. Requires
+  # `deploymentType: "StatefulSet"` - setting it on a Deployment or DaemonSet fails at render time
+  # rather than being silently dropped (use `volumes`/`extraVolumes` there instead).
+  # @section -- Index_rebuild
+  volumeClaims: []
+  # - metadata:
+  #     name: app-volume
+  #   spec:
+  #     accessModes: [ "ReadWriteOnce" ]
+  #     storageClassName: "my-storage-class"
+  #     resources:
+  #       requests:
+  #         storage: 1Gi
+  # -- Additional volumeClaims to add, concatenated with `volumeClaims` above at render time.
+  # @section -- Index_rebuild
+  extraVolumeClaims: []
+  # -- List of mounts to add (normally used with `volumes` or `volumeClaims`). Prefer this for
+  # mounts the chart itself always needs; use `extraVolumeMounts` below for anything you add
+  # on top, so overriding one doesn't require repeating the other. Defaults to the `/tmp` mount
+  # backing the hardened `readOnlyRootFilesystem` default (see `volumes` above).
+  # @section -- Index_rebuild
+  volumeMounts:
+    - name: "tmp"
+      mountPath: "/tmp"
+  # - name: config-volume
+  #   mountPath: /app/config
+  #   subPath: config
+  #   readOnly: true
+  #   mountPropagation: None
+  #   recursiveReadOnly: Enabled
+  # - name: cache-volume
+  #   mountPath: /app/cache
+  # - name: image-volume
+  #   mountPath: /app/content
+  # - name: storage-volume
+  #   mountPath: /app/storage
+  # -- Additional volumeMounts to add, concatenated with `volumeMounts` above at render time.
+  # @section -- Index_rebuild
+  extraVolumeMounts: []
+  # - name: certs
+  #   mountPath: /etc/certs
+  #   readOnly: true
+  service:
+    # -- Whether or not to create a Service for the app. Set to `false` for components that
+    # don't accept traffic (e.g. a queue consumer with no `containerPort`).
+    # @section -- Index_rebuild
+    enabled: true
+    # -- Type of service to create for the app.
+    # @section -- Index_rebuild
+    type: "ClusterIP"
+    # -- Port used by the service.
+    # @section -- Index_rebuild
+    port: 80
+    # -- (int) Port used when type is `NodePort` to expose the service on the given node port. Left
+    # empty, Kubernetes allocates one from the configured node-port range, which avoids two
+    # releases of this chart colliding on the same hardcoded port.
+    # @section -- Index_rebuild
+    # @default -- `null` (allocated by Kubernetes)
+    nodePort: null
+    # -- Port name used by the service.
+    # @section -- Index_rebuild
+    portName: "http"
+    # -- Protocol used by the service.
+    # @section -- Index_rebuild
+    protocol: "TCP"
+    # -- Extra service ports.
+    # @section -- Index_rebuild
+    extraPorts: []
+    # - port: 9090
+    #   targetPort: 9090
+    #   protocol: "TCP"
+    #   name: "metrics"
+  resources:
+    requests:
+      # -- Memory request for the app.
+      # @section -- Index_rebuild
+      memory: "256Mi"
+      # -- CPU request for the app.
+      # @section -- Index_rebuild
+      cpu: "100m"
+      # Other stuff like GPU, etc could be added here.
+      # nvidia.com/gpu: "1"
+      # ephemeral-storage: "100Mi"
+    limits:
+      # -- Memory limit for the app.
+      # @section -- Index_rebuild
+      memory: "2Gi"
+      # -- CPU limit for the app.
+      # @section -- Index_rebuild
+      cpu: "500m"
+      # Other stuff like GPU, etc could be added here.
+      # nvidia.com/gpu: "1"
+      # ephemeral-storage: "500Mi"
+  autoscaling:
+    # -- Enable Horizontal Pod Autoscaler for the app.
+    # @section -- Index_rebuild
+    enabled: false
+    # -- Minimum number of replicas for the app.
+    # @section -- Index_rebuild
+    minReplicas: 1
+    # -- Maximum number of replicas for the app.
+    # @section -- Index_rebuild
+    maxReplicas: 3
+    # -- Average CPU utilization percentage for the app.
+    # @section -- Index_rebuild
+    targetCPUUtilizationPercentage: 80
+    # -- Average memory utilization percentage for the app.
+    # @section -- Index_rebuild
+    targetMemoryUtilizationPercentage: 80
+  # -- Revision history limit for the app.
+  # @section -- Index_rebuild
+  revisionHistoryLimit: 10
+  # -- Default node selector for app.
+  # @section -- Index_rebuild
+  nodeSelector: {}
+  # kubernetes.io/os: "linux"
+  # kubernetes.io/arch: "amd64"
+  # kubernetes.io/hostname: "node1"
+  # -- Default tolerations for app.
+  # @section -- Index_rebuild
+  tolerations: []
+  # - key: "key1"
+  #   operator: "Equal"
+  #   value: "value1"
+  #   effect: "NoSchedule"
+  #   tolerationSeconds: 3600
+  # - key: "key2"
+  #   operator: "Equal"
+  #   value: "value2"
+  #   effect: "NoExecute"
+  #   tolerationSeconds: 3600
+  # - key: "key3"
+  #   operator: "Exists"
+  #   effect: "PreferNoSchedule"
+  #   tolerationSeconds: 3600
+  # -- Affinity used for app pod.
+  # @section -- Index_rebuild
+  affinity: {}
+  # podAntiAffinity:
+  #   requiredDuringSchedulingIgnoredDuringExecution:
+  #   - labelSelector:
+  #       matchExpressions:
+  #       - key: "app.kubernetes.io/name"
+  #         operator: "In"
+  #         values:
+  #         - "helm-index_rebuild"
+  #     topologyKey: "kubernetes.io/hostname"
+  serviceAccount:
+    # -- Enable the service account.
+    # @section -- Index_rebuild
+    enabled: false
+    # -- Create a service account.
+    # @section -- Index_rebuild
+    create: false
+    # -- Annotations applied to created service account.
+    # @section -- Index_rebuild
+    annotations: {}
+    # -- Service account name.
+    # @section -- Index_rebuild
+    name: ""
+    # -- Should the service account access token be automount in the pod.
+    # @section -- Index_rebuild
+    automountServiceAccountToken: false
+    role:
+      # -- Should the role be created.
+      # @section -- Index_rebuild
+      create: false
+      # -- Role rules associated with the service account.
+      # @section -- Index_rebuild
+      rules: []
+      # - apiGroups:
+      #   - argoproj.io
+      #   resources:
+      #   - applications
+      #   - applicationsets
+      #   - appprojects
+      #   verbs:
+      #   - create
+      #   - get
+      #   - list
+      #   - watch
+      #   - update
+      #   - delete
+      #   - patch
+    clusterRole:
+      # -- Should the clusterRole be created.
+      # @section -- Index_rebuild
+      create: false
+      # -- ClusterRole rules associated with the service account.
+      # @section -- Index_rebuild
+      rules: []
+      # - apiGroups:
+      #   - argoproj.io
+      #   resources:
+      #   - applications
+      #   - applicationsets
+      #   - appprojects
+      #   verbs:
+      #   - create
+      #   - get
+      #   - list
+      #   - watch
+      #   - update
+      #   - delete
+      #   - patch
+  ## Ref: https://kubernetes.io/docs/tasks/run-application/configure-pdb/
+  pdb:
+    # -- Deploy a PodDisruptionBudget for the app
+    # @section -- Index_rebuild
+    enabled: false
+    # -- Labels to be added to app pdb.
+    # @section -- Index_rebuild
+    labels: {}
+    # -- Annotations to be added to app pdb.
+    # @section -- Index_rebuild
+    annotations: {}
+    # -- Number of pods that are available after eviction as number or percentage (eg.: 50%). One
+    # of `minAvailable` / `maxUnavailable` must be set when `pdb.enabled` is true - a budget of 0
+    # is the same as having no budget at all, so leaving both empty fails at render time.
+    # @section -- Index_rebuild
+    minAvailable: ""
+    # -- Number of pods that are unavailable after eviction as number or percentage (eg.: 50%). Has higher precedence over `index_rebuild.pdb.minAvailable`.
+    # @section -- Index_rebuild
+    maxUnavailable: ""
+  networkPolicy:
+    # -- Create NetworkPolicy object for the app. The policy always selects this component's pods
+    # only (via its selector labels), never the whole namespace.
+    # @section -- Index_rebuild
+    create: false
+    # -- Labels to be added to the app NetworkPolicy.
+    # @section -- Index_rebuild
+    labels: {}
+    # -- Annotations to be added to the app NetworkPolicy.
+    # @section -- Index_rebuild
+    annotations: {}
+    # -- Policy types used in the NetworkPolicy object.
+    # @section -- Index_rebuild
+    policyTypes:
+      - Ingress
+    # -- Ingress rules for the NetworkPolicy object.
+    # @section -- Index_rebuild
+    ingress: []
+    # - from:
+    #   - ipBlock:
+    #       cidr: 172.17.0.0/16
+    #       except:
+    #       - 172.17.1.0/24
+    #   - namespaceSelector:
+    #       matchLabels:
+    #         project: myproject
+    #   - podSelector:
+    #       matchLabels:
+    #         role: frontend
+    #   ports:
+    #   - protocol: TCP
+    #     port: 6379
+    # -- Egress rules for the NetworkPolicy object.
+    # @section -- Index_rebuild
+    egress: []
+    # - to:
+    #   - ipBlock:
+    #       cidr: 10.0.0.0/24
+    #   ports:
+    #   - protocol: TCP
+    #     port: 32000
+    #     endPort: 32768
+  metrics:
+    # -- Deploy metrics service.
+    # @section -- Index_rebuild
+    enabled: false
+    service:
+      # -- Type of metrics service to create.
+      # @section -- Index_rebuild
+      type: "ClusterIP"
+      # -- Metrics service annotations.
+      # @section -- Index_rebuild
+      annotations: {}
+      # -- Metrics service labels.
+      # @section -- Index_rebuild
+      labels: {}
+      # -- Metrics service port name.
+      # @section -- Index_rebuild
+      portName: "metrics"
+      # -- Metrics service port.
+      # @section -- Index_rebuild
+      port: 9000
+      # -- Metrics service target port.
+      # @section -- Index_rebuild
+      targetPort: 9000
+    serviceMonitor:
+      # -- Enable a prometheus ServiceMonitor.
+      # @section -- Index_rebuild
+      enabled: false
+      # -- Prometheus ServiceMonitor labels.
+      # @section -- Index_rebuild
+      labels: {}
+      # -- Prometheus ServiceMonitor annotations.
+      # @section -- Index_rebuild
+      annotations: {}
+      endpoints:
+        - basicAuth:
+            # -- The secret in the service monitor namespace that contains the username for authentication.
+            # @section -- Index_rebuild
+            username: ""
+            # -- The secret in the service monitor namespace that contains the password for authentication.
+            # @section -- Index_rebuild
+            password: ""
+          bearerTokenSecret:
+            # -- Secret name to mount to read bearer token for scraping targets. The secret needs to be in the same namespace as the service monitor and accessible by the Prometheus Operator.
+            # @section -- Index_rebuild
+            name: ""
+            # -- Secret key to mount to read bearer token for scraping targets. The secret needs to be in the same namespace as the service monitor and accessible by the Prometheus Operator.
+            # @section -- Index_rebuild
+            key: ""
+          # -- Prometheus ServiceMonitor interval.
+          # @section -- Index_rebuild
+          interval: "30s"
+          # -- Prometheus ServiceMonitor scrapeTimeout. If empty, Prometheus uses the global scrape timeout unless it is less than the target's scrape interval value in which the latter is used.
+          # @section -- Index_rebuild
+          scrapeTimeout: "10s"
+          # -- Path used by the Prometheus ServiceMonitor to scrape metrics.
+          # @section -- Index_rebuild
+          path: "/metrics"
+          # -- When true, honorLabels preserves the metric’s labels when they collide with the target’s labels.
+          # @section -- Index_rebuild
+          honorLabels: false
+          # -- Prometheus RelabelConfigs to apply to samples before scraping.
+          # @section -- Index_rebuild
+          relabelings: []
+          # -- Prometheus MetricRelabelConfigs to apply to samples before ingestion.
+          # @section -- Index_rebuild
+          metricRelabelings: []
+          # -- Prometheus ServiceMonitor selector.
+          # @section -- Index_rebuild
+          selector: {}
+          # prometheus: kube-prometheus
+          # -- Prometheus ServiceMonitor scheme.
+          # @section -- Index_rebuild
+          scheme: ""
+          # -- Prometheus ServiceMonitor tlsConfig.
+          # @section -- Index_rebuild
+          tlsConfig: {}
+
 ## ---------------------------------------------------------------------------
 ## SearXNG subchart configuration.
 ## ---------------------------------------------------------------------------

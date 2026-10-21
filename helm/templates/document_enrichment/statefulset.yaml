@@ -1,0 +1,25 @@
+{{- if .Values.enabled }}
+{{- if eq .Values.document_enrichment.deploymentType "StatefulSet" }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "helper.componentFullname" (dict "root" . "componentName" "document_enrichment") }}
+  labels: {{- include "helper.labels" (dict "root" . "componentName" "document_enrichment") | nindent 4 }}
+spec:
+  {{- if not .Values.document_enrichment.autoscaling.enabled }}
+  replicas: {{ .Values.document_enrichment.replicaCount }}
+  {{- end }}
+  revisionHistoryLimit: {{ .Values.document_enrichment.revisionHistoryLimit | default 10 }}
+  selector:
+    matchLabels: {{- include "helper.selectorLabels" (dict "root" . "componentName" "document_enrichment") | nindent 6 }}
+  serviceName: {{ include "helper.componentFullname" (dict "root" . "componentName" "document_enrichment") }}
+  {{- with .Values.document_enrichment.updateStrategy }}
+  updateStrategy: {{- toYaml . | nindent 4 }}
+  {{- end }}
+  template:
+    {{- include "helper.component.podTemplate" (dict "root" . "name" "document_enrichment" "component" .Values.document_enrichment) | nindent 4 }}
+  {{- if or .Values.document_enrichment.volumeClaims .Values.document_enrichment.extraVolumeClaims }}
+  volumeClaimTemplates: {{- toYaml (concat (default (list) .Values.document_enrichment.volumeClaims) (default (list) .Values.document_enrichment.extraVolumeClaims)) | nindent 2 }}
+  {{- end }}
+{{- end }}
+{{- end }}

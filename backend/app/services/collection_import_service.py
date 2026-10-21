@@ -239,7 +239,12 @@ class CollectionImportService:
         if not storage_key.startswith(f"documents/{collection_id}/"):
             raise ImportTargetError(storage_key)
         document = await self.documents.register_stored_file(
-            collection_id, name, storage_key, collection_import.owner_id, collection_import.owner_display
+            collection_id,
+            name,
+            storage_key,
+            collection_import.owner_id,
+            collection_import.owner_display,
+            bulk=True,
         )
         return document.id
 

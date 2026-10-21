@@ -54,8 +54,28 @@ uv run pytest -q               # tests
 uv run ruff check . && uv run ruff format --check .
 ```
 
-Le worker tourne dans `docker-compose.yaml` sous le service `worker-document-process`, sur la
-queue Celery `document_processing`.
+## Pods et queues (#291)
+
+Une seule image, trois pods, chacun sur ses queues (routage par nom de tâche dans
+`app/celery_app.py`) :
+
+| Pod (compose / Helm) | Queues | Pool | Tâches |
+|---|---|---|---|
+| `worker-document-process` / `document_process` | `document_extraction` (+ `document_processing`, l'ancienne queue, pendant une release) | prefork | `process_document`, `process_tabular_document`, `refresh_url_document`, `scan_url_refresh` - et le beat (`-B`) |
+| `worker-document-enrichment` / `document_enrichment` | `document_enrichment` | threads (`-c 16`) | `chunk_document` (embeddings), `summarize_document`, `generate_qa_window`, `extract_entities_window`, `tag_document`, `update_collection_*`, `rollup_collection_description`, `generate_collection_qa` |
+| `worker-index-rebuild` / `index_rebuild` | `index_rebuild`, `document_import` | prefork (`-c 2`) | `rebuild_index`, `import_zip` |
+
+- L'extraction (OCR) est limitée par le CPU ; l'enrichissement attend surtout l'API d'embeddings/LLM,
+  d'où un pool de threads ; un import ZIP ou une reconstruction d'index sont de longues
+  entrées/sorties qui ne doivent bloquer ni l'un ni l'autre.
+- Les documents créés par un import ZIP sont envoyés dans `document_extraction` avec la priorité la
+  plus basse (`BULK_PRIORITY` côté backend) : Redis les garde dans une liste à part, que le worker ne
+  lit qu'une fois la liste normale vide. Un fichier déposé à la main passe donc avant les 2 000
+  documents d'une archive.
+- La commande par défaut de l'image (`Dockerfile`) est celle du pod d'extraction ; les deux autres la
+  remplacent.
+- Les logs d'une tâche (`capture_task_logs`) ne prennent que les lignes de son propre thread : sans
+  ça, en pool de threads, chaque tâche récupérerait aussi celles des autres.
 
 ## Reconstruction blue/green de l'index (#12)
 
@@ -65,6 +85,5 @@ ne garde aucun état : à chaque tour elle demande au backend ce qu'il manque au
 PostgreSQL, source de vérité), calcule les vecteurs par lots, les renvoie, puis demande la bascule
 atomique quand il ne manque plus rien. Un job tué ou redélivré reprend donc là où en est la base.
 
-Elle tourne sur sa propre queue, `index_rebuild` (`REBUILD_QUEUE_NAME`), servie par le service
-`worker-index-rebuild` de `docker-compose.yaml` (même image, `-Q index_rebuild`) : une grosse
-reconstruction ne retarde pas l'ingestion. Sans `-Q`, un worker consomme les deux queues.
+Elle tourne sur sa propre queue, `index_rebuild` (`REBUILD_QUEUE_NAME`), servie par le pod
+`index_rebuild` (voir plus haut) : une grosse reconstruction ne retarde pas l'ingestion.

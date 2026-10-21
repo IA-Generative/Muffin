@@ -59,7 +59,7 @@ async def test_create_file_document_uploads_and_queues_processing(client):
     key, data = mock_put.call_args.args[:2]
     assert key.endswith("-report.pdf")
     assert data == b"%PDF-1.4 fake"
-    mock_enqueue.assert_called_once_with(body["id"])
+    mock_enqueue.assert_called_once_with(body["id"], bulk=False)
 
 
 async def test_create_url_document_queues_processing(client):
