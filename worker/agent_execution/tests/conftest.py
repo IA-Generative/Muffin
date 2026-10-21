@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 
 import app.backend_client as backend_client_module
+import app.graph.nodes.answer_help as answer_help_module
 import app.graph.nodes.answer_identity as answer_identity_module
 import app.graph.nodes.build_research_plan as build_research_plan_module
 import app.graph.nodes.create_document as create_document_module
@@ -239,6 +240,7 @@ _PATCHED_MODULES = (
     build_research_plan_module,
     generate_answer_module,
     answer_identity_module,
+    answer_help_module,
     prompts_module,
     vdb_router_module,
 )

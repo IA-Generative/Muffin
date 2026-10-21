@@ -27,7 +27,9 @@ _AUTHORING_CAPABILITIES = (
     "- Create a new document in one of the user's own collections - Markdown (.md) only, never Word, "
     "ODT, PDF or Excel. It is written from the request and the conversation, without searching the "
     "collections, and shown as a proposal to create or refuse.\n"
-    "Both are only possible in collections the user owns."
+    "Both are only possible in collections the user owns.\n"
+    "Explaining how to use the Muffin application itself (collections, adding documents, sharing, "
+    'living documents, settings...) when asked "how do I...?".'
 )
 
 
