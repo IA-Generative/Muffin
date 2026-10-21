@@ -2,6 +2,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from app import task_logging, tasks
+from app.scraping import FetchedUrl
 
 
 def _fake_block(text: str, kind: str = "paragraph", bbox=(1.0, 2.0, 100.0, 20.0)):
@@ -21,7 +22,7 @@ def test_process_document_for_a_url_creates_one_page_and_one_chunk(monkeypatch):
     monkeypatch.setattr(tasks._shared, "backend_client", MagicMock())
     monkeypatch.setattr(task_logging, "backend_client", MagicMock())
     monkeypatch.setattr(tasks._shared, "_spawn", MagicMock())
-    monkeypatch.setattr(tasks._shared, "fetch_url_markdown", lambda url: "# Hello\n\nSome content")
+    monkeypatch.setattr(tasks._shared, "fetch_url", lambda url: FetchedUrl(markdown="# Hello\n\nSome content"))
     tasks._shared.backend_client.get_document.return_value = {
         "id": "doc-1",
         "type": "url",

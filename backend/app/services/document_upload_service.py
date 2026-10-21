@@ -20,6 +20,7 @@ from app.schemas.document import (
     DocumentOut,
     DocumentPageOut,
     FilingCandidateOut,
+    RefreshSchedule,
     TabularProfileOut,
 )
 from app.schemas.pagination import Page, PaginationParams
@@ -166,9 +167,20 @@ class DocumentUploadService:
             raise DocumentNotFoundError(str(document_id))
         await self.delete_document(collection.id, user, document_id)
 
-    async def create_url_document(self, collection_id: uuid.UUID, user: RequestContext, url: str) -> DocumentOut:
+    async def create_url_document(
+        self,
+        collection_id: uuid.UUID,
+        user: RequestContext,
+        url: str,
+        refresh_schedule: RefreshSchedule | None = None,
+    ) -> DocumentOut:
         await self._get_owned_collection(collection_id, user)
         document = await self.documents.create_url(collection_id, url)
+        if refresh_schedule is not None:
+            # Imported here: that service reprocesses a changed page through this one.
+            from .document_refresh_service import DocumentRefreshService
+
+            await DocumentRefreshService(self.db).apply(document.id, refresh_schedule)
         await self.db.commit()
         celery_task_id = enqueue_process_document(str(document.id))
         await self.tasks.create(

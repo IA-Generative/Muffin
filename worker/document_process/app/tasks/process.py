@@ -19,11 +19,22 @@ from app.tasks.chunk import chunk_document  # noqa: E402,F401
 from app.tasks.tabular import process_tabular_document  # noqa: E402,F401
 
 
-def _process_url(document_id: str, url: str) -> None:
-    markdown = _shared.fetch_url_markdown(url)
-    _shared.backend_client.add_page(document_id, page_number=1, content=markdown)
-    # What a scheduled refresh (#19) compares the page against next time.
-    _shared.backend_client.set_content_hash(document_id, _shared.content_hash(markdown))
+def _process_url(document: dict) -> dict | None:
+    """An HTML page is written as one page. A URL serving a file (PDF, Office, image, text, tabular)
+    has it downloaded and stored like an upload: returns the document as the usual file branch reads
+    it - its storage_key, and a name whose extension says its format."""
+    document_id = document["id"]
+    fetched = _shared.fetch_url(document["name"])
+    if fetched.data is None:
+        _shared.backend_client.add_page(document_id, page_number=1, content=fetched.markdown)
+        # What a scheduled refresh (#19) compares the page against next time.
+        _shared.backend_client.set_content_hash(document_id, fetched.content_hash)
+        return None
+    # One key per document, overwritten when a refresh fetches a new version of the file.
+    storage_key = f"documents/{document['collection_id']}/{document_id}-{fetched.filename}"
+    _shared.storage.put_object(storage_key, fetched.data, content_type=fetched.content_type)
+    _shared.backend_client.set_content_hash(document_id, fetched.content_hash, storage_key=storage_key)
+    return {**document, "name": fetched.filename, "storage_key": storage_key}
 
 
 # Already text - one page, no liteparse, no screenshot. liteparse only handles PDF/Office/image
@@ -59,6 +70,16 @@ def _process_file(document_id: str, storage_key: str, data: bytes | None = None,
         )
 
 
+def _spawn_chunking(document: dict, parent_task_id: str) -> None:
+    _shared._spawn(
+        chunk_document,
+        [document["id"], document["collection_id"]],
+        "app.tasks.chunk_document",
+        document["id"],
+        parent_task_id,
+    )
+
+
 @celery_app.task(name="app.tasks.process_document", bind=True)
 def process_document(self, document_id: str) -> None:
     """Entry point: extract raw content (scraping for URLs, liteparse for
@@ -72,44 +93,34 @@ def process_document(self, document_id: str) -> None:
             _shared.backend_client.update_status(document_id, status="indexing", progress=0)
 
             if document["type"] == "url":
-                _process_url(document_id, document["name"])
-                _shared.backend_client.update_status(document_id, status="indexing", progress=50)
+                stored = _process_url(document)
+                if stored is None:
+                    _shared.backend_client.update_status(document_id, status="indexing", progress=50)
+                    _spawn_chunking(document, self.request.id)
+                    return
+                document = stored
+            if not document["storage_key"]:
+                raise ValueError(f"Document {document_id} has no storage_key to fetch from RustFS")
+            # Détection tabulaire par extension + HEAD S3 (Content-Type)
+            # avant tout GET : si le fichier est tabulaire, on spawn
+            # process_tabular_document sans télécharger le contenu ici -
+            # c'est cette tâche qui fera son propre GET pour le chargement
+            # DuckDB. Le sniff du contenu (detect_by_content) n'est pas
+            # déclenché ici (pas de data), c'est un fallback coûteux.
+            tabular_format = detect_tabular(document["name"], storage_key=document["storage_key"])
+            if tabular_format is not None:
                 _shared._spawn(
-                    chunk_document,
-                    [document_id, document["collection_id"]],
-                    "app.tasks.chunk_document",
+                    process_tabular_document,
+                    [document_id, document["collection_id"], tabular_format.value],
+                    "app.tasks.process_tabular_document",
                     document_id,
                     self.request.id,
                 )
             else:
-                if not document["storage_key"]:
-                    raise ValueError(f"Document {document_id} has no storage_key to fetch from RustFS")
-                # Détection tabulaire par extension + HEAD S3 (Content-Type)
-                # avant tout GET : si le fichier est tabulaire, on spawn
-                # process_tabular_document sans télécharger le contenu ici -
-                # c'est cette tâche qui fera son propre GET pour le chargement
-                # DuckDB. Le sniff du contenu (detect_by_content) n'est pas
-                # déclenché ici (pas de data), c'est un fallback coûteux.
-                tabular_format = detect_tabular(document["name"], storage_key=document["storage_key"])
-                if tabular_format is not None:
-                    _shared._spawn(
-                        process_tabular_document,
-                        [document_id, document["collection_id"], tabular_format.value],
-                        "app.tasks.process_tabular_document",
-                        document_id,
-                        self.request.id,
-                    )
-                else:
-                    data = _shared.storage.get_object(document["storage_key"])
-                    _process_file(document_id, document["storage_key"], data, document["name"])
-                    _shared.backend_client.update_status(document_id, status="indexing", progress=50)
-                    _shared._spawn(
-                        chunk_document,
-                        [document_id, document["collection_id"]],
-                        "app.tasks.chunk_document",
-                        document_id,
-                        self.request.id,
-                    )
+                data = _shared.storage.get_object(document["storage_key"])
+                _process_file(document_id, document["storage_key"], data, document["name"])
+                _shared.backend_client.update_status(document_id, status="indexing", progress=50)
+                _spawn_chunking(document, self.request.id)
         except Exception as error:
             _shared.backend_client.update_status(document_id, status="error")
             _shared._fail(document_id, "extract content", error)

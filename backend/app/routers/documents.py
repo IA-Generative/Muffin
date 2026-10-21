@@ -174,7 +174,8 @@ async def create_file_document(
 
 @router.post(
     "/collections/{collection_id}/documents/url",
-    summary="Register a URL to scrape and queue it for processing",
+    summary="Register a URL to scrape (an HTML page, or a file it serves) and queue it for processing, "
+    "with when it is fetched again, if ever",
     status_code=status.HTTP_201_CREATED,
     response_model=DocumentOut,
 )
@@ -185,7 +186,7 @@ async def create_url_document(
     service: ServiceDep,
 ) -> DocumentOut:
     try:
-        return await service.create_url_document(collection_id, user, body.url)
+        return await service.create_url_document(collection_id, user, body.url, body.refresh_schedule)
     except CollectionNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
 

@@ -126,3 +126,6 @@ async def test_the_help_guide_describes_the_automatic_refresh_of_urls(client):
 
     assert "« Mise à jour automatique »" in guide
     assert "elle n'est pas rafraîchie automatiquement" not in guide
+    # Since: asked when the URL is added, once / daily / weekly / every N minutes, and a URL may serve a file.
+    assert "« Une fois »" in guide and "« Certains jours de la semaine »" in guide
+    assert "traité comme un fichier déposé" in guide
