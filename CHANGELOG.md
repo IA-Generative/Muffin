@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.18.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.17.1-rc...v0.18.0-rc) (2026-10-21)
+
+
+### Features
+
+* **agent:** tell the agent it can edit documents, and let it create Markdown ones ([b7ff2a0](https://github.com/IA-Generative/Muffin/commit/b7ff2a001d21ef88fe57cc4674cb09e3c5fe4884))
+* **documents:** compare a replacement with the current version before validating it ([1597718](https://github.com/IA-Generative/Muffin/commit/1597718c8c75ba0366465c1a78131c2cc40e72e4))
+
 ## [0.17.1-rc](https://github.com/IA-Generative/Muffin/compare/v0.17.0...v0.17.1-rc) (2026-10-21)
 
 
