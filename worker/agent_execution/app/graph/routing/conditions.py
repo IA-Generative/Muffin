@@ -19,7 +19,13 @@ def route_or_cancel(next_node: str):
 def after_detect_edit(state: AgentState) -> str:
     if state.get("cancelled") or is_cancelled(state["run_id"]):
         return "cancelled"
-    return "delegate_edit" if state.get("edit_target") else "analyze_query"
+    return "delegate_edit" if state.get("edit_target") else "detect_create"
+
+
+def after_detect_create(state: AgentState) -> str:
+    if state.get("cancelled") or is_cancelled(state["run_id"]):
+        return "cancelled"
+    return "delegate_create" if state.get("create_target") else "analyze_query"
 
 
 def after_analyze_query(state: AgentState) -> str:

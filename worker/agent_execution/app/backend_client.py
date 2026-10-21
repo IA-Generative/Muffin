@@ -132,6 +132,13 @@ class BackendClient:
         response.raise_for_status()
         return response.json()
 
+    def list_editable_collections(self, run_id: str) -> list[dict[str, Any]]:
+        """The collections the run's user may add a document to - computed backend-side from the run's
+        own snapshot, like list_editable_documents."""
+        response = self._client.get(f"/api/internal/runs/{run_id}/editable-collections")
+        response.raise_for_status()
+        return response.json()
+
     def create_edit_request(self, run_id: str, document_id: str, prompt: str) -> dict[str, Any]:
         """Delegates an edit to the editing agent: the backend creates the draft (and the document
         lock) and sends the job. Returns the draft's state; raises EditRequestRefused when it

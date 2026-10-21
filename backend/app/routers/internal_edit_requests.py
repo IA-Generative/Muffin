@@ -13,7 +13,7 @@ from app.repositories.document_repository import DocumentRepository
 from app.repositories.run_repository import RunRepository
 from app.routers.document_drafts import _HANDLED, http_error
 from app.schemas.document_draft import DraftOut
-from app.schemas.internal_edit_request import EditableDocumentOut, EditRequestCreate
+from app.schemas.internal_edit_request import EditableCollectionOut, EditableDocumentOut, EditRequestCreate
 from app.services.document_draft_service import DocumentDraftService
 from app.services.document_upload_service import DocumentNotFoundError
 from app.services.editing_rights import can_edit
@@ -29,6 +29,7 @@ router = APIRouter(prefix="/internal", tags=["Internal"], dependencies=[Depends(
 # pathological collection can't blow up its prompt.
 _MAX_EDITABLE_DOCUMENTS = 200
 _SUMMARY_CHARS = 300
+_MAX_EDITABLE_COLLECTIONS = 100
 
 
 def _identity(run: Run) -> RequestContext:
@@ -71,6 +72,28 @@ async def list_editable_documents(
             summary=(document.summary or "")[:_SUMMARY_CHARS] or None,
         )
         for document in documents[:_MAX_EDITABLE_DOCUMENTS]
+    ]
+
+
+@router.get(
+    "/runs/{run_id}/editable-collections",
+    summary="The collections the run's user may add a document to",
+    response_model=list[EditableCollectionOut],
+)
+async def list_editable_collections(
+    run_id: uuid.UUID, db: Annotated[AsyncSession, Depends(get_db)]
+) -> list[EditableCollectionOut]:
+    run = await _run(db, run_id)
+    user = _identity(run)
+    collections = await CollectionRepository(db).list_all_accessible(user.user_id, user.groups)
+    editable = [c for c in collections if can_edit(user, c) and not c.is_temporary]
+    return [
+        EditableCollectionOut(
+            collection_id=collection.id,
+            name=collection.name,
+            description=(collection.description or "")[:_SUMMARY_CHARS] or None,
+        )
+        for collection in editable[:_MAX_EDITABLE_COLLECTIONS]
     ]
 
 

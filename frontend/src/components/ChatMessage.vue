@@ -8,6 +8,7 @@ import { useCollections } from '../composables/useCollections'
 import { collectionPathLabel } from '../utils/collectionPath'
 import { useVoiceOutput } from '../composables/useVoiceOutput'
 import { toPlainText } from '../utils/plainText'
+import ChatCreateProposal from './ChatCreateProposal.vue'
 import ChatEditProposal from './ChatEditProposal.vue'
 import FeedbackModal from './FeedbackModal.vue'
 
@@ -393,6 +394,12 @@ onBeforeUnmount(() => {
     <ChatEditProposal
       v-if="message.role === 'assistant' && message.editProposal && !message.pending"
       :proposal="message.editProposal"
+    />
+
+    <ChatCreateProposal
+      v-if="message.role === 'assistant' && message.creationProposal && message.runId && !message.pending"
+      :proposal="message.creationProposal"
+      :run-id="message.runId"
     />
 
     <FeedbackModal

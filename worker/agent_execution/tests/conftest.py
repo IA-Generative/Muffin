@@ -7,6 +7,7 @@ import pytest
 import app.backend_client as backend_client_module
 import app.graph.nodes.answer_identity as answer_identity_module
 import app.graph.nodes.build_research_plan as build_research_plan_module
+import app.graph.nodes.create_document as create_document_module
 import app.graph.nodes.delegate_edit as delegate_edit_module
 import app.graph.nodes.detect_edit as detect_edit_module
 import app.graph.nodes.generate_answer as generate_answer_module
@@ -66,12 +67,19 @@ class FakeBackend:
         self.edit_states: list[dict[str, Any]] = []
         self.edit_creates: list[tuple[str, str, str]] = []
         self.edit_polls = 0
+        # Creating a Markdown document on request: the collections the user may add one to.
+        self.editable_collections: list[dict[str, Any]] = []
+        self.editable_collections_calls: list[str] = []
         self.edit_refusal: Exception | None = None
         self.edit_gone: Exception | None = None
 
     def list_editable_documents(self, run_id: str) -> list[dict[str, Any]]:
         self.editable_calls.append(run_id)
         return self.editable_documents
+
+    def list_editable_collections(self, run_id: str) -> list[dict[str, Any]]:
+        self.editable_collections_calls.append(run_id)
+        return self.editable_collections
 
     def create_edit_request(self, run_id: str, document_id: str, prompt: str) -> dict[str, Any]:
         self.edit_creates.append((run_id, document_id, prompt))
@@ -224,6 +232,7 @@ _PATCHED_MODULES = (
     llm_module,
     load_accessible_vdbs_module,
     detect_edit_module,
+    create_document_module,
     delegate_edit_module,
     research_task_module,
     targeted_research_module,
@@ -289,6 +298,7 @@ def initial_state(
         "accessible_vdbs": [],
         "edit_target": None,
         "edit_proposal": None,
+        "create_target": None,
         "query_analysis": {},
         "research_plan": {},
         "research_tasks": [],

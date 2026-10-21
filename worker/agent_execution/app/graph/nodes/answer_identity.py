@@ -15,6 +15,21 @@ _SYSTEM_PROMPT = (
     "and respond in the same language as the user's query."
 )
 
+# What the agent can do besides searching, described for a user who asks "what can you do?" or "can
+# you edit/create a file?". Kept here rather than in the planner's tool guide: these aren't tools the
+# research planner picks from, they are separate paths (detect_edit / detect_create) of the graph.
+_AUTHORING_CAPABILITIES = (
+    "Writing in the user's collections (the user always reviews and validates first - nothing is "
+    "written to a collection without their approval):\n"
+    "- Modify an existing living document (an ODT or Markdown document in one of the user's own "
+    "collections): add, rewrite, remove or correct content. The change is shown as a proposal to "
+    "compare with the current version, then validate, adjust or refuse.\n"
+    "- Create a new document in one of the user's own collections - Markdown (.md) only, never Word, "
+    "ODT, PDF or Excel. It is written from the request and the conversation, without searching the "
+    "collections, and shown as a proposal to create or refuse.\n"
+    "Both are only possible in collections the user owns."
+)
+
 
 def answer_identity(state: AgentState) -> dict[str, Any]:
     """Answers a question about the agent itself (§ issue #99) - short-circuits straight to a
@@ -32,7 +47,12 @@ def answer_identity(state: AgentState) -> dict[str, Any]:
     # stay in sync with what the agent can actually do without listing them by hand twice, and
     # web_search is only ever mentioned when this run actually opted into it (§ security, same
     # reasoning as decompose_query._WEB_SEARCH_TOOL_GUIDE).
-    capabilities = _BASE_TOOL_GUIDE + (_WEB_SEARCH_TOOL_GUIDE if state["web_search_enabled"] else "")
+    capabilities = (
+        _BASE_TOOL_GUIDE
+        + (_WEB_SEARCH_TOOL_GUIDE if state["web_search_enabled"] else "")
+        + "\n"
+        + _AUTHORING_CAPABILITIES
+    )
 
     if model is None:
         answer = "I'm Muffin, an internal document search assistant."

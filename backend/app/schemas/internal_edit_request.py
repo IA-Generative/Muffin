@@ -13,6 +13,15 @@ class EditableDocumentOut(BaseModel):
     summary: str | None
 
 
+class EditableCollectionOut(BaseModel):
+    """A collection the run's user may add documents to - what the research agent picks the place of
+    a new document from."""
+
+    collection_id: uuid.UUID
+    name: str
+    description: str | None
+
+
 class EditRequestCreate(BaseModel):
     document_id: uuid.UUID
     prompt: str = Field(min_length=1, max_length=4000)
