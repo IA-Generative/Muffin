@@ -215,3 +215,24 @@ class LlmEmbedBatchResponse(BaseModel):
 
 class LlmEmbedResponse(BaseModel):
     embedding: list[float]
+
+
+class StageBegin(BaseModel):
+    """A stage of the pipeline about to run for a document (#300)."""
+
+    # Opaque to the backend: the worker's hash of the file and of the settings the stage depends on.
+    fingerprint: str = Field(min_length=8, max_length=64)
+    # The pieces of a stage run in pieces - the windows of pages of the QA, of the entities - which
+    # complete it when all are done. Empty for a stage that is a single piece.
+    expected: list[str] = Field(default_factory=list, max_length=5000)
+    # The file's hash, when the worker is the one that knows it: a file hashed as it is read, a URL.
+    content_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
+
+class StageBeginOut(BaseModel):
+    # True: the stage was copied from another document of the same file, nothing is left to compute.
+    reused: bool
+
+
+class StageDone(BaseModel):
+    key: str = Field(default="_", min_length=1, max_length=200)
