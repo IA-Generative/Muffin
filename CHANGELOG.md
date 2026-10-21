@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.1-rc](https://github.com/IA-Generative/Muffin/compare/v0.19.0...v0.19.1-rc) (2026-10-21)
+
+
+### Bug Fixes
+
+* **documents:** ask when a URL is fetched again as it is added, and process the files URLs serve ([8f092f6](https://github.com/IA-Generative/Muffin/commit/8f092f60ba17bb4b7bd5838bf7089d5f8b375ed8)), closes [#19](https://github.com/IA-Generative/Muffin/issues/19)
+
 ## [0.19.0](https://github.com/IA-Generative/Muffin/compare/v0.18.0...v0.19.0) (2026-10-21)
 
 
