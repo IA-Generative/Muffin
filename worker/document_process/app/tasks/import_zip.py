@@ -22,6 +22,7 @@ from app.zip_import import (
     ArchiveRejectedError,
     MemberSkippedError,
     ZipLimits,
+    count_entries,
     extract_member,
     plan_import,
 )
@@ -29,6 +30,10 @@ from app.zip_import import (
 # A member is copied into memory up to this size, then into an anonymous temporary file: small
 # documents never touch the disk, a large one never fills the memory.
 _SPOOL_IN_MEMORY_BYTES = 8 * 1024 * 1024
+# Entries (files and folders) an archive may announce before its directory is even read. Generous:
+# plan_import's own file limit is what applies to a real archive; this only stops one claiming
+# millions of entries from being loaded into memory to be counted.
+_MAX_ENTRIES_PER_FILE_ALLOWED = 10
 
 
 def _limits() -> ZipLimits:
@@ -86,7 +91,11 @@ def import_zip(self, import_id: str) -> None:
         try:
             with tempfile.TemporaryFile() as archive_file:
                 _shared.storage.download_fileobj(collection_import["archive_key"], archive_file)
-                archive_file.seek(0)
+                entries = count_entries(archive_file)
+                if entries is not None and entries > settings.ZIP_IMPORT_MAX_FILES * _MAX_ENTRIES_PER_FILE_ALLOWED:
+                    raise ArchiveRejectedError(
+                        f"L'archive annonce {entries} entrées, bien au-delà de ce qui est accepté."
+                    )
                 with zipfile.ZipFile(archive_file) as archive:
                     _run_import(import_id, collection_import["root_collection_id"], archive, summary)
         except ArchiveRejectedError as error:
