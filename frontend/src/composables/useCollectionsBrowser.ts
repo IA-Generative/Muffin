@@ -33,7 +33,7 @@ export function useCollectionsBrowser(source: Ref<Collection[]>, options: { root
       case 'name':
         return list.sort((a, b) => a.name.localeCompare(b.name))
       case 'documentCount':
-        return list.sort((a, b) => b.documents.length - a.documents.length)
+        return list.sort((a, b) => b.documentCount - a.documentCount)
       default:
         return list.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
     }

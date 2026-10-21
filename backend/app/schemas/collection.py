@@ -137,6 +137,9 @@ class CollectionOut(BaseModel):
     parent_id: uuid.UUID | None
     path: list[CollectionPathItem]
     children_count: int
+    # Counted server-side: `documents` below isn't embedded, so a card can't count it itself.
+    document_count: int
+    indexed_document_count: int
     # Read access is inherited down the tree (#216): a private collection under a public one is
     # readable by everyone all the same. The nearest public ancestor, so the UI can say so -
     # None when the collection is public itself or no ancestor is.
@@ -176,6 +179,7 @@ class CollectionOut(BaseModel):
         *,
         path: list[CollectionPathItem] | None = None,
         children_count: int = 0,
+        document_counts: tuple[int, int] = (0, 0),
         inherited_public_from: CollectionPathItem | None = None,
     ) -> "CollectionOut":
         settings = collection.settings
@@ -186,6 +190,8 @@ class CollectionOut(BaseModel):
             parent_id=path[-1].id if path else None,
             path=path,
             children_count=children_count,
+            document_count=document_counts[0],
+            indexed_document_count=document_counts[1],
             inherited_public_from=inherited_public_from,
             description=collection.description,
             description_meta=(

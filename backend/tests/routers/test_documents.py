@@ -5,12 +5,14 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, select
 
+from app.core.security.factory import get_current_user
 from app.db import async_session_factory
 from app.main import app
 from app.models.chunk import Chunk
 from app.models.collection import Collection
-from app.models.document import Document, DocumentPage, DocumentTag
+from app.models.document import Document, DocumentPage, DocumentStatus, DocumentTag
 from app.models.task import Task
+from tests.routers.test_collections import _as_user
 
 
 @pytest.fixture
@@ -371,3 +373,60 @@ async def test_document_entities_and_relations_are_scoped_to_their_own_document(
     assert len(report_relations) == 1
     assert report_relations[0]["type"] == "works_at"
     assert memo_relations == []
+
+
+async def _add_url_document(client, collection_id: str) -> str:
+    with patch("app.services.document_upload_service.enqueue_process_document", return_value=str(uuid.uuid4())):
+        response = await client.post(
+            f"/api/collections/{collection_id}/documents/url", json={"url": "https://example.com"}
+        )
+    return response.json()["id"]
+
+
+async def test_documents_are_readable_but_not_writable_by_a_non_owner_of_a_public_collection(client):
+    app.dependency_overrides[get_current_user] = _as_user("owner", "owner@example.com")
+    collection_id = await _create_collection(client)
+    document_id = await _add_url_document(client, collection_id)
+    await client.patch(f"/api/collections/{collection_id}/visibility", json={"visibility": "public"})
+
+    try:
+        app.dependency_overrides[get_current_user] = _as_user("viewer", "viewer@example.com")
+        listed = await client.get(f"/api/collections/{collection_id}/documents")
+        assert listed.status_code == 200
+        assert [document["id"] for document in listed.json()] == [document_id]
+        assert (await client.get(f"/api/collections/{collection_id}/documents/{document_id}")).status_code == 200
+        assert (
+            await client.post(f"/api/collections/{collection_id}/documents/url", json={"url": "https://example.com"})
+        ).status_code == 404
+        assert (await client.delete(f"/api/collections/{collection_id}/documents/{document_id}")).status_code == 404
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+async def test_documents_of_a_private_collection_are_hidden_from_a_stranger(client):
+    app.dependency_overrides[get_current_user] = _as_user("owner", "owner@example.com")
+    collection_id = await _create_collection(client)
+
+    try:
+        app.dependency_overrides[get_current_user] = _as_user("stranger", "stranger@example.com")
+        assert (await client.get(f"/api/collections/{collection_id}/documents")).status_code == 404
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+async def test_collection_reports_its_document_counts(client):
+    collection_id = await _create_collection(client)
+    indexed_id = await _add_url_document(client, collection_id)
+    await _add_url_document(client, collection_id)
+    async with async_session_factory() as session:
+        document = await session.get(Document, uuid.UUID(indexed_id))
+        document.status = DocumentStatus.INDEXED
+        await session.commit()
+
+    items = (await client.get("/api/collections")).json()["items"]
+    listed = next(item for item in items if item["id"] == collection_id)
+    detail = (await client.get(f"/api/collections/{collection_id}")).json()
+
+    for body in (listed, detail):
+        assert body["document_count"] == 2
+        assert body["indexed_document_count"] == 1

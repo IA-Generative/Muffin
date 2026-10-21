@@ -31,10 +31,6 @@ const dateFormatter = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium' })
 function formatDate(iso: string) {
   return dateFormatter.format(new Date(iso))
 }
-
-function indexedCount(documents: { status: string }[]) {
-  return documents.filter((document) => document.status === 'indexed').length
-}
 </script>
 
 <template>
@@ -116,7 +112,7 @@ function indexedCount(documents: { status: string }[]) {
         </div>
 
         <div class="collection-card__meta">
-          <span>{{ indexedCount(collection.documents) }}/{{ collection.documents.length }} documents indexés</span>
+          <span>{{ collection.indexedDocumentCount }}/{{ collection.documentCount }} documents indexés</span>
           <span v-if="collection.childrenCount">
             {{ collection.childrenCount }} sous-collection{{ collection.childrenCount > 1 ? 's' : '' }}
           </span>
