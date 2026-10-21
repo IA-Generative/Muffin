@@ -231,8 +231,16 @@ class CollectionImportService:
         await self.db.commit()
         return collection.id
 
+    async def has_document(self, import_id: uuid.UUID, collection_id: uuid.UUID, content_hash: str) -> bool:
+        """Whether the collection already holds a file of this hash (#300): the worker asks before it
+        stores a file of the archive, so that a duplicate is neither stored nor processed. One already
+        imported from the same archive counts, being registered by then."""
+        collection_import = await self._get_by_id(import_id)
+        await self._get_target(collection_import, collection_id)
+        return await self.documents.documents.find_by_hash(collection_id, content_hash) is not None
+
     async def add_document(
-        self, import_id: uuid.UUID, collection_id: uuid.UUID, name: str, storage_key: str
+        self, import_id: uuid.UUID, collection_id: uuid.UUID, name: str, storage_key: str, content_hash: str
     ) -> uuid.UUID:
         collection_import = await self._get_by_id(import_id)
         await self._get_target(collection_import, collection_id)
@@ -245,6 +253,7 @@ class CollectionImportService:
             collection_import.owner_id,
             collection_import.owner_display,
             bulk=True,
+            content_hash=content_hash,
         )
         return document.id
 

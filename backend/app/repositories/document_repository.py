@@ -156,6 +156,7 @@ class DocumentRepository:
         added_by_user_id: str | None = None,
         added_by_display: str | None = None,
         kind: DocumentKind = DocumentKind.STANDARD,
+        content_hash: str | None = None,
     ) -> Document:
         document = Document(
             collection_id=collection_id,
@@ -163,12 +164,33 @@ class DocumentRepository:
             type=DocumentType.FILE,
             kind=kind,
             storage_key=storage_key,
+            content_hash=content_hash,
             added_by_user_id=added_by_user_id,
             added_by_display=added_by_display,
         )
         self.db.add(document)
         await self.db.flush()
         return document
+
+    async def find_by_hash(self, collection_id: uuid.UUID, content_hash: str) -> Document | None:
+        """The document of this collection with this file hash (#300) - the oldest, if several."""
+        result = await self.db.execute(
+            select(Document)
+            .where(Document.collection_id == collection_id, Document.content_hash == content_hash)
+            .order_by(Document.created_at)
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    async def find_url(self, collection_id: uuid.UUID, url: str) -> Document | None:
+        """The document of this collection added from this very URL (#300)."""
+        result = await self.db.execute(
+            select(Document)
+            .where(Document.collection_id == collection_id, Document.type == DocumentType.URL, Document.name == url)
+            .order_by(Document.created_at)
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
 
     async def create_url(self, collection_id: uuid.UUID, url: str) -> Document:
         document = Document(collection_id=collection_id, name=url, type=DocumentType.URL)
@@ -288,6 +310,9 @@ class DocumentRepository:
         the caller clears its pages/chunks/embeddings and re-enqueues processing, same division
         of labour as move_to_collection."""
         document.storage_key = storage_key
+        # The file changed: its hash is no longer the document's. The worker hashes the new file when it
+        # processes it (#300), before looking for results to reuse.
+        document.content_hash = None
         document.status = DocumentStatus.PENDING
         document.progress = 0
         document.summary = None

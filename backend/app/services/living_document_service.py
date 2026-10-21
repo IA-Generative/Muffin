@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import DocumentSettings
 from app.core import storage
+from app.core.file_hash import sha256_hex
 from app.core.security.factory import RequestContext
 from app.core.tasks import PROCESS_DOCUMENT_TASK, enqueue_process_document
 from app.models.document import Document, DocumentKind
@@ -105,7 +106,13 @@ class LivingDocumentService:
         storage_key = self._put_file(collection_id, safe_name, content, content_type)
 
         document = await self.documents.create_file(
-            collection_id, safe_name, storage_key, user.user_id, _uploader_display(user), kind=DocumentKind.LIVING
+            collection_id,
+            safe_name,
+            storage_key,
+            user.user_id,
+            _uploader_display(user),
+            kind=DocumentKind.LIVING,
+            content_hash=sha256_hex(content),
         )
         await self.revisions.create(
             document.id,

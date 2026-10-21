@@ -19,6 +19,7 @@ from app.services.collection_service import CollectionNotFoundError
 from app.services.document_upload_service import (
     DocumentNotFoundError,
     DocumentUploadService,
+    DuplicateDocumentError,
 )
 
 router = APIRouter(tags=["Documents"])
@@ -150,14 +151,28 @@ async def list_document_relations(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found") from error
 
 
+def _duplicate(error: DuplicateDocumentError) -> HTTPException:
+    """The collection already holds it (#300): the existing document is named so that the user can decide
+    to add it anyway - which they can do, so this is a 409 to confirm and not a refusal."""
+    return HTTPException(
+        status.HTTP_409_CONFLICT,
+        {
+            "code": "duplicate_document",
+            "message": "Ce document est déjà dans la collection.",
+            "document": {"id": str(error.existing.id), "name": error.existing.name},
+        },
+    )
+
+
 @router.post(
     "/collections/{collection_id}/documents/file",
-    summary="Upload a file, storing it in RustFS and queuing it for processing",
+    summary="Upload a file, storing it in RustFS and queuing it for processing - a 409 duplicate_document "
+    "when the collection already has this file, unless allow_duplicate is set",
     status_code=status.HTTP_201_CREATED,
     response_model=DocumentOut,
 )
 async def create_file_document(
-    collection_id: uuid.UUID, user: UserDep, service: ServiceDep, file: UploadFile
+    collection_id: uuid.UUID, user: UserDep, service: ServiceDep, file: UploadFile, allow_duplicate: bool = False
 ) -> DocumentOut:
     try:
         content = await file.read()
@@ -167,15 +182,19 @@ async def create_file_document(
             file.filename or "document",
             content,
             file.content_type or "application/octet-stream",
+            allow_duplicate=allow_duplicate,
         )
     except CollectionNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
+    except DuplicateDocumentError as error:
+        raise _duplicate(error) from error
 
 
 @router.post(
     "/collections/{collection_id}/documents/url",
     summary="Register a URL to scrape (an HTML page, or a file it serves) and queue it for processing, "
-    "with when it is fetched again, if ever",
+    "with when it is fetched again, if ever - a 409 duplicate_document when the collection already has this "
+    "URL, unless allow_duplicate is set",
     status_code=status.HTTP_201_CREATED,
     response_model=DocumentOut,
 )
@@ -186,9 +205,13 @@ async def create_url_document(
     service: ServiceDep,
 ) -> DocumentOut:
     try:
-        return await service.create_url_document(collection_id, user, body.url, body.refresh_schedule)
+        return await service.create_url_document(
+            collection_id, user, body.url, body.refresh_schedule, allow_duplicate=body.allow_duplicate
+        )
     except CollectionNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
+    except DuplicateDocumentError as error:
+        raise _duplicate(error) from error
 
 
 @router.delete(

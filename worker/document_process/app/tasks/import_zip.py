@@ -7,6 +7,7 @@ Chaque document suit ensuite le pipeline habituel (``process_document``), mis en
 backend à son enregistrement.
 """
 
+import hashlib
 import mimetypes
 import tempfile
 import uuid
@@ -35,6 +36,19 @@ _SPOOL_IN_MEMORY_BYTES = 8 * 1024 * 1024
 # plan_import's own file limit is what applies to a real archive; this only stops one claiming
 # millions of entries from being loaded into memory to be counted.
 _MAX_ENTRIES_PER_FILE_ALLOWED = 10
+
+
+class _HashingSink:
+    """Writes to a file and hashes what it writes: the hash of a member (#300) is known as soon as it
+    has been read, without reading it again."""
+
+    def __init__(self, sink) -> None:
+        self._sink = sink
+        self.hasher = hashlib.sha256()
+
+    def write(self, data: bytes) -> None:
+        self.hasher.update(data)
+        self._sink.write(data)
 
 
 def _limits() -> ZipLimits:
@@ -69,16 +83,23 @@ def _run_import(import_id: str, root_collection_id: str, archive: zipfile.ZipFil
         storage_key = f"documents/{collection_id}/{uuid.uuid4()}-{planned.name}"
         content_type = mimetypes.guess_type(planned.name)[0] or "application/octet-stream"
         with tempfile.SpooledTemporaryFile(max_size=_SPOOL_IN_MEMORY_BYTES) as spool:
+            sink = _HashingSink(spool)
             try:
-                size = extract_member(archive, planned.info, min(limits.max_file_bytes, budget), spool)
+                size = extract_member(archive, planned.info, min(limits.max_file_bytes, budget), sink)
             except MemberSkippedError as error:
                 # Nothing stored yet: a member is only uploaded once it has been read whole, within its cap.
                 summary["skipped"].append({"path": path, "reason": str(error)})
                 continue
             budget -= size
+            content_hash = sink.hasher.hexdigest()
+            # Already in the collection, from an earlier import or earlier in this archive (#300): it is
+            # neither stored nor processed again.
+            if _shared.backend_client.is_imported_duplicate(import_id, collection_id, content_hash):
+                summary["skipped"].append({"path": path, "reason": "déjà présent dans la collection (doublon)"})
+                continue
             spool.seek(0)
             _shared.storage.upload_fileobj(storage_key, spool, content_type=content_type)
-        _shared.backend_client.add_imported_document(import_id, collection_id, planned.name, storage_key)
+        _shared.backend_client.add_imported_document(import_id, collection_id, planned.name, storage_key, content_hash)
         summary["documents_created"] += 1
 
 
