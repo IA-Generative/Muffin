@@ -198,13 +198,29 @@ def plan_import(infos: list[zipfile.ZipInfo], limits: ZipLimits) -> ImportPlan:
     return plan
 
 
+def count_entries(fileobj: BinaryIO) -> int | None:
+    """How many entries the archive's end-of-central-directory record announces - read without
+    parsing the central directory itself, which zipfile loads whole into memory: an archive claiming
+    millions of entries is refused before that, not after. None when the record can't be found
+    (then zipfile itself will say the archive is unreadable)."""
+    fileobj.seek(0)
+    record = zipfile._EndRecData(fileobj)  # noqa: SLF001 - the only reader of that record zipfile has
+    fileobj.seek(0)
+    return None if record is None else record[zipfile._ECD_ENTRIES_TOTAL]  # noqa: SLF001
+
+
 def extract_member(
-    archive: zipfile.ZipFile, info: zipfile.ZipInfo, cap: int, sink: BinaryIO, chunk_size: int = 1024 * 1024
+    archive: zipfile.ZipFile,
+    info: zipfile.ZipInfo,
+    cap: int,
+    sink: BinaryIO,
+    chunk_size: int = 1024 * 1024,
 ) -> int:
     """Copies a member's content into `sink`, chunk by chunk and never past `cap` bytes, whatever
-    its header claims; returns how many bytes were written. A corrupted member (bad CRC, truncated
-    data) is skipped, not the whole archive - what was already written to `sink` is then the
-    caller's to discard."""
+    its header claims; returns how many bytes were written. (zipfile itself never expands a member
+    past the size its header declares: a header lying about it fails the CRC check and is skipped as
+    corrupted - see the tests.) A corrupted member (bad CRC, truncated data) is skipped, not the whole
+    archive - what was already written to `sink` is then the caller's to discard."""
     written = 0
     try:
         with archive.open(info) as member:
