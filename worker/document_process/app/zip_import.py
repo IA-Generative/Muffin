@@ -2,11 +2,14 @@
 
 Pure functions over ``zipfile`` - no backend or storage call - so every rule here is testable
 with an archive built in memory. ``plan_import`` decides, from the archive's directory alone,
-which files to import into which folder and why the others are skipped; ``read_member`` then
-reads one of them with a hard cap, never trusting the sizes the archive declares.
+which files to import into which folder and why the others are skipped; ``extract_member`` then
+copies one of them, chunk by chunk, into a file-like object, with a hard cap, never trusting the
+sizes the archive declares.
 
-Nothing in an archive is ever written to the local filesystem, under its own path or otherwise:
-every member is read into memory and stored in RustFS under a key the importer builds.
+Nothing in an archive is ever written to the local filesystem under its own path: the importer
+copies each member into an anonymous temporary spool (memory, then a temporary file past a few MB)
+and stores it in RustFS under a key it builds. Neither the archive nor a large member is ever held
+whole in memory.
 """
 
 import re
@@ -14,6 +17,7 @@ import unicodedata
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
+from typing import BinaryIO
 
 from app.tabular.detect import _EXTENSION_MAP as _TABULAR_EXTENSIONS
 
@@ -194,16 +198,21 @@ def plan_import(infos: list[zipfile.ZipInfo], limits: ZipLimits) -> ImportPlan:
     return plan
 
 
-def read_member(archive: zipfile.ZipFile, info: zipfile.ZipInfo, cap: int, chunk_size: int = 1024 * 1024) -> bytes:
-    """A member's content, read in chunks and never past `cap` bytes, whatever its header claims.
-    A corrupted member (bad CRC, truncated data) is skipped, not the whole archive."""
-    data = bytearray()
+def extract_member(
+    archive: zipfile.ZipFile, info: zipfile.ZipInfo, cap: int, sink: BinaryIO, chunk_size: int = 1024 * 1024
+) -> int:
+    """Copies a member's content into `sink`, chunk by chunk and never past `cap` bytes, whatever
+    its header claims; returns how many bytes were written. A corrupted member (bad CRC, truncated
+    data) is skipped, not the whole archive - what was already written to `sink` is then the
+    caller's to discard."""
+    written = 0
     try:
         with archive.open(info) as member:
             while chunk := member.read(chunk_size):
-                data.extend(chunk)
-                if len(data) > cap:
+                written += len(chunk)
+                if written > cap:
                     raise MemberSkippedError("contenu plus volumineux qu'annoncé")
+                sink.write(chunk)
     except RuntimeError as error:
         # zipfile's way of saying the member is password-protected.
         raise MemberSkippedError("fichier chiffré") from error
@@ -211,4 +220,4 @@ def read_member(archive: zipfile.ZipFile, info: zipfile.ZipInfo, cap: int, chunk
         raise MemberSkippedError("méthode de compression non prise en charge") from error
     except (zipfile.BadZipFile, EOFError, OSError) as error:
         raise MemberSkippedError("fichier corrompu") from error
-    return bytes(data)
+    return written

@@ -22,9 +22,13 @@ from app.zip_import import (
     ArchiveRejectedError,
     MemberSkippedError,
     ZipLimits,
+    extract_member,
     plan_import,
-    read_member,
 )
+
+# A member is copied into memory up to this size, then into an anonymous temporary file: small
+# documents never touch the disk, a large one never fills the memory.
+_SPOOL_IN_MEMORY_BYTES = 8 * 1024 * 1024
 
 
 def _limits() -> ZipLimits:
@@ -54,18 +58,20 @@ def _run_import(import_id: str, root_collection_id: str, archive: zipfile.ZipFil
     budget = limits.max_total_bytes
     for planned in plan.files:
         path = "/".join((*planned.folder, planned.name))
-        try:
-            data = read_member(archive, planned.info, min(limits.max_file_bytes, budget))
-        except MemberSkippedError as error:
-            summary["skipped"].append({"path": path, "reason": str(error)})
-            continue
-        budget -= len(data)
-
         collection_id = collection_ids[planned.folder]
         # Same layout as a plain upload (backend's document_storage_key) - checked backend-side.
         storage_key = f"documents/{collection_id}/{uuid.uuid4()}-{planned.name}"
         content_type = mimetypes.guess_type(planned.name)[0] or "application/octet-stream"
-        _shared.storage.put_object(storage_key, data, content_type=content_type)
+        with tempfile.SpooledTemporaryFile(max_size=_SPOOL_IN_MEMORY_BYTES) as spool:
+            try:
+                size = extract_member(archive, planned.info, min(limits.max_file_bytes, budget), spool)
+            except MemberSkippedError as error:
+                # Nothing stored yet: a member is only uploaded once it has been read whole, within its cap.
+                summary["skipped"].append({"path": path, "reason": str(error)})
+                continue
+            budget -= size
+            spool.seek(0)
+            _shared.storage.upload_fileobj(storage_key, spool, content_type=content_type)
         _shared.backend_client.add_imported_document(import_id, collection_id, planned.name, storage_key)
         summary["documents_created"] += 1
 

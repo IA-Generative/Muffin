@@ -14,6 +14,13 @@ global:
     annotations:
       monitor: enabled
       nginx.ingress.kubernetes.io/whitelist-source-range: '{{ .Values.whitelist | join "," | default "0.0.0.0/0" }}'
+      # No size limit on a request body (nginx-ingress defaults to 1 MB, which refused any ZIP import
+      # past that with a 413): Muffin bounds what an archive expands to itself, worker-side. Streamed
+      # to the backend rather than buffered whole by the proxy, with time for a large upload.
+      nginx.ingress.kubernetes.io/proxy-body-size: "0"
+      nginx.ingress.kubernetes.io/proxy-request-buffering: "off"
+      nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+      nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
       k8s.apisix.apache.org/allowlist-source-range: '{{ .Values.whitelist | join "," | default "0.0.0.0/0" }}'
     hosts:
     - name: "muffin.example.org"
