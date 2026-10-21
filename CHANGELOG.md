@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.1-rc](https://github.com/IA-Generative/Muffin/compare/v0.15.0...v0.15.1-rc) (2026-10-21)
+
+
+### Bug Fixes
+
+* **frontend:** give collection cards a fixed size and truncate their text ([4e80b43](https://github.com/IA-Generative/Muffin/commit/4e80b439acffcd62e92490044648df0e10c34f97))
+
 ## [0.15.0](https://github.com/IA-Generative/Muffin/compare/v0.14.4...v0.15.0) (2026-10-20)
 
 
