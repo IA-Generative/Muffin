@@ -429,6 +429,7 @@ class CollectionService:
         related_ids = {ancestor.id for chain in chains.values() for ancestor in chain}
         related_ids |= {child_id for child_ids in children.values() for child_id in child_ids}
         readable = await self.repository.filter_accessible_ids(list(related_ids), user.user_id, user.groups)
+        document_counts = await self.repository.document_counts(ids)
 
         presented = []
         for collection in collections:
@@ -456,6 +457,7 @@ class CollectionService:
                     user.user_id,
                     path=path,
                     children_count=children_count,
+                    document_counts=document_counts.get(collection.id, (0, 0)),
                     inherited_public_from=inherited_public_from,
                 )
             )

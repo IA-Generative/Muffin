@@ -165,6 +165,9 @@ export interface Collection {
   parentId: string | null
   path: CollectionPathItem[]
   childrenCount: number
+  // Counted server-side, so a card shows them without the documents being loaded.
+  documentCount: number
+  indexedDocumentCount: number
   // Read access is inherited down the tree (#216): a private collection under a public one is
   // readable by everyone all the same - the nearest public ancestor, or null.
   inheritedPublicFrom: CollectionPathItem | null

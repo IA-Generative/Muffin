@@ -15,7 +15,7 @@ from app.models.collection import (
     ShareStatus,
     ShareSubjectType,
 )
-from app.models.document import Document, DocumentPage
+from app.models.document import Document, DocumentPage, DocumentStatus
 
 
 class CollectionRepository:
@@ -142,6 +142,22 @@ class CollectionRepository:
             select(Collection.id).where(self._accessible_among_where(collection_ids, user_id, group_ids))
         )
         return set(result.all())
+
+    async def document_counts(self, collection_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, tuple[int, int]]:
+        """(documents, indexed documents) per collection, in one query for a whole page - so a
+        collection card can show its counts without loading the documents themselves."""
+        if not collection_ids:
+            return {}
+        result = await self.db.execute(
+            select(
+                Document.collection_id,
+                func.count(),
+                func.count().filter(Document.status == DocumentStatus.INDEXED),
+            )
+            .where(Document.collection_id.in_(collection_ids))
+            .group_by(Document.collection_id)
+        )
+        return {collection_id: (total, indexed) for collection_id, total, indexed in result.all()}
 
     async def sibling_names(self, owner_id: str, parent_id: uuid.UUID | None) -> set[str]:
         """Names of this owner's collections at one level of the tree (top level for None) - to

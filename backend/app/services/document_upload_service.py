@@ -72,7 +72,7 @@ class DocumentUploadService:
         self.tasks = TaskRepository(db)
 
     async def list_documents(self, collection_id: uuid.UUID, user: RequestContext) -> list[DocumentOut]:
-        await self._get_owned_collection(collection_id, user)
+        await self._get_readable_collection(collection_id, user)
         documents = await self.documents.list_by_collection(collection_id)
         return [_document_out(document) for document in documents]
 
@@ -212,7 +212,7 @@ class DocumentUploadService:
     async def get_document(
         self, collection_id: uuid.UUID, user: RequestContext, document_id: uuid.UUID
     ) -> DocumentDetailOut:
-        await self._get_owned_collection(collection_id, user)
+        await self._get_readable_collection(collection_id, user)
         document = await self.documents.get_in_collection_with_tags(collection_id, document_id)
         if document is None:
             raise DocumentNotFoundError(str(document_id))
@@ -235,7 +235,7 @@ class DocumentUploadService:
     async def get_tabular_profile(
         self, collection_id: uuid.UUID, user: RequestContext, document_id: uuid.UUID
     ) -> TabularProfileOut | None:
-        await self._get_owned_collection(collection_id, user)
+        await self._get_readable_collection(collection_id, user)
         await self._get_owned_document(collection_id, document_id)
         profile = await self.documents.get_tabular_profile(document_id)
         if profile is None:
@@ -249,7 +249,7 @@ class DocumentUploadService:
         document_id: uuid.UUID,
         pagination: PaginationParams,
     ) -> Page[DocumentPageOut]:
-        await self._get_owned_collection(collection_id, user)
+        await self._get_readable_collection(collection_id, user)
         await self._get_owned_document(collection_id, document_id)
         pages, total = await self.documents.list_pages_page(
             document_id, limit=pagination.limit, offset=pagination.offset
@@ -279,7 +279,7 @@ class DocumentUploadService:
         document_id: uuid.UUID,
         page_number: int,
     ) -> tuple[bytes, str]:
-        await self._get_owned_collection(collection_id, user)
+        await self._get_readable_collection(collection_id, user)
         await self._get_owned_document(collection_id, document_id)
         page = await self.documents.get_page(document_id, page_number)
         if page is None or page.screenshot is None:
@@ -289,7 +289,7 @@ class DocumentUploadService:
     async def list_entities(
         self, collection_id: uuid.UUID, user: RequestContext, document_id: uuid.UUID
     ) -> list[EntityOut]:
-        await self._get_owned_collection(collection_id, user)
+        await self._get_readable_collection(collection_id, user)
         await self._get_owned_document(collection_id, document_id)
         entities = await self.entities.list_by_document(document_id)
         return [
@@ -305,7 +305,7 @@ class DocumentUploadService:
     async def list_relations(
         self, collection_id: uuid.UUID, user: RequestContext, document_id: uuid.UUID
     ) -> list[RelationOut]:
-        await self._get_owned_collection(collection_id, user)
+        await self._get_readable_collection(collection_id, user)
         await self._get_owned_document(collection_id, document_id)
         relations = await self.entities.list_relations_by_document(document_id)
         return [
@@ -422,6 +422,13 @@ class DocumentUploadService:
 
     async def _get_owned_collection(self, collection_id: uuid.UUID, user: RequestContext) -> None:
         collection = await self.collections.get(collection_id, user.user_id)
+        if collection is None:
+            raise CollectionNotFoundError(str(collection_id))
+
+    async def _get_readable_collection(self, collection_id: uuid.UUID, user: RequestContext) -> None:
+        # Reads follow the collection's own read access (owner, public - inherited or not - or
+        # shared), not ownership: otherwise anyone but the owner opens it to an empty list.
+        collection = await self.collections.get_accessible(collection_id, user.user_id, user.groups)
         if collection is None:
             raise CollectionNotFoundError(str(collection_id))
 
