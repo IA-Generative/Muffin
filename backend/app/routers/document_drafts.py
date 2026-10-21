@@ -1,7 +1,7 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security.factory import RequestContext, get_current_user
@@ -25,9 +25,11 @@ from app.services.document_draft_service import (
 from app.services.document_upload_service import DocumentNotFoundError
 from app.services.living_document_service import (
     DocumentLockedError,
+    FormatMismatchError,
     LockLostError,
     NotLivingDocumentError,
     RevisionConflictError,
+    UnsupportedFormatError,
 )
 
 router = APIRouter(tags=["Living document drafts"])
@@ -57,6 +59,8 @@ _HANDLED = (
     UnsupportedImageError,
     ImagesNeedOdtError,
     NoUploadedImageError,
+    UnsupportedFormatError,
+    FormatMismatchError,
 )
 
 _CONFLICTS = {
@@ -100,6 +104,34 @@ async def create_draft(
         raise http_error(error) from error
 
 
+@router.post(
+    "/collections/{collection_id}/documents/{document_id}/draft/upload",
+    summary="Hold a file picked to replace the document as a draft, to compare with the current version "
+    "and validate (it is not indexed until then)",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=DraftOut,
+)
+async def create_draft_from_upload(
+    collection_id: uuid.UUID,
+    document_id: uuid.UUID,
+    file: UploadFile,
+    base_revision: int,
+    user: UserDep,
+    service: ServiceDep,
+) -> DraftOut:
+    try:
+        return await service.create_from_upload(
+            collection_id,
+            user,
+            document_id,
+            file.filename or "document",
+            await file.read(),
+            base_revision=base_revision,
+        )
+    except _HANDLED as error:
+        raise http_error(error) from error
+
+
 @router.get(
     "/collections/{collection_id}/documents/{document_id}/draft",
     summary="The document's draft and where its job stands - polling it keeps the draft alive",
@@ -114,13 +146,18 @@ async def get_draft(collection_id: uuid.UUID, document_id: uuid.UUID, user: User
 
 @router.get(
     "/collections/{collection_id}/documents/{document_id}/draft/preview",
-    summary="The draft's preview: a PDF for an ODT, the text for a Markdown (streamed, never a storage URL)",
+    summary="The draft's preview: a PDF for an ODT, the text for a Markdown (streamed, never a storage URL). "
+    "version=base is the document as it is now, to compare it with",
 )
 async def get_draft_preview(
-    collection_id: uuid.UUID, document_id: uuid.UUID, user: UserDep, service: ServiceDep
+    collection_id: uuid.UUID,
+    document_id: uuid.UUID,
+    user: UserDep,
+    service: ServiceDep,
+    version: Annotated[str, Query(pattern="^(draft|base)$")] = "draft",
 ) -> Response:
     try:
-        content, media_type = await service.preview(collection_id, user, document_id)
+        content, media_type = await service.preview(collection_id, user, document_id, version)
     except _HANDLED as error:
         raise http_error(error) from error
     return Response(content=content, media_type=media_type, headers={"Cache-Control": "no-store"})

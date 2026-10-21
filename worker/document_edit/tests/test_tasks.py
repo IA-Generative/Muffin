@@ -282,3 +282,105 @@ def test_insert_images_fails_clearly_on_an_unsupported_image_and_reports_it(fake
     assert outcome.failed()
     assert "PNG, JPEG et GIF" in backend.report_draft_failure.call_args.args[1]
     storage.put_object.assert_not_called()
+
+
+def test_the_first_edit_job_also_renders_the_current_document_for_comparison(fake_io):
+    storage, backend = fake_io
+
+    result = tasks.edit_document.apply(args=[_payload(render_base=True)], task_id="job-30").get()
+
+    assert result["base_preview_pdf_key"] == "drafts/doc-1/job-30-base.pdf"
+    assert ("drafts/doc-1/job-30-base.pdf", b"%PDF-fake") in [c.args for c in storage.put_object.call_args_list]
+    assert backend.report_draft_result.call_args.args[1]["base_preview_pdf_key"] == "drafts/doc-1/job-30-base.pdf"
+
+
+def test_an_adjustment_does_not_render_the_current_document_again(fake_io):
+    result = tasks.edit_document.apply(args=[_payload()], task_id="job-31").get()
+
+    assert result["base_preview_pdf_key"] is None
+
+
+def test_a_current_document_that_cannot_be_rendered_does_not_fail_the_edit(fake_io, monkeypatch):
+    calls = []
+
+    def convert(data):
+        calls.append(data)
+        if len(calls) == 2:  # the draft renders first, then the current document
+            raise PreviewError("LibreOffice a planté")
+        return b"%PDF-fake"
+
+    monkeypatch.setattr(tasks, "convert_to_pdf", convert)
+
+    result = tasks.edit_document.apply(args=[_payload(render_base=True)], task_id="job-32").get()
+
+    assert result["preview_pdf_key"] == "drafts/doc-1/job-32.pdf"
+    assert result["base_preview_pdf_key"] is None
+
+
+def _upload_payload(**overrides):
+    payload = {
+        "draft_storage_key": "drafts/doc-1/upload-new.odt",
+        "source_storage_key": "documents/col-1/abc-procedure.odt",
+        "document_id": "doc-1",
+        "user_id": "user-1",
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_render_upload_renders_the_picked_file_and_the_current_document(fake_io):
+    storage, backend = fake_io
+
+    result = tasks.render_upload.apply(args=[_upload_payload()], task_id="job-40").get()
+
+    # The picked file is already stored: it is not written again, the result points back at it.
+    assert result == {
+        "draft_storage_key": "drafts/doc-1/upload-new.odt",
+        "preview_pdf_key": "drafts/doc-1/job-40-draft.pdf",
+        "base_preview_pdf_key": "drafts/doc-1/job-40-base.pdf",
+        "operations_summary": "",
+        "pending_images": [],
+        "edited": True,
+    }
+    assert [c.args[0] for c in storage.put_object.call_args_list] == [
+        "drafts/doc-1/job-40-draft.pdf",
+        "drafts/doc-1/job-40-base.pdf",
+    ]
+    job_id, reported = backend.report_draft_result.call_args.args
+    assert job_id == "job-40"
+    assert reported["kind"] == "upload"
+    assert reported["draft_storage_key"] == "drafts/doc-1/upload-new.odt"
+
+
+def test_render_upload_fails_clearly_when_the_picked_file_cannot_be_rendered(fake_io, monkeypatch):
+    storage, backend = fake_io
+
+    def broken(data):
+        raise PreviewError("fichier illisible")
+
+    monkeypatch.setattr(tasks, "convert_to_pdf", broken)
+
+    outcome = tasks.render_upload.apply(args=[_upload_payload()], task_id="job-41")
+
+    assert outcome.failed()
+    assert "fichier illisible" in backend.report_draft_failure.call_args.args[1]
+    storage.put_object.assert_not_called()
+    backend.report_draft_result.assert_not_called()
+
+
+def test_render_upload_still_reports_the_picked_file_when_only_the_current_one_fails(fake_io, monkeypatch):
+    storage, backend = fake_io
+    calls = []
+
+    def convert(data):
+        calls.append(data)
+        if len(calls) == 2:
+            raise PreviewError("plantage")
+        return b"%PDF-fake"
+
+    monkeypatch.setattr(tasks, "convert_to_pdf", convert)
+
+    result = tasks.render_upload.apply(args=[_upload_payload()], task_id="job-42").get()
+
+    assert result["preview_pdf_key"] == "drafts/doc-1/job-42-draft.pdf"
+    assert result["base_preview_pdf_key"] is None

@@ -6,7 +6,7 @@ from app.agent import EditFailedError, run_edit_agent
 from app.backend_client import backend_client
 from app.celery_app import celery_app
 from app.config import settings
-from app.contract import EditJobInput, EditJobResult, InsertImagesInput
+from app.contract import EditJobInput, EditJobResult, InsertImagesInput, RenderUploadInput
 from app.edit_types import OperationError
 from app.odt_editor import ImageData, insert_images
 from app.preview import PreviewError, convert_to_pdf
@@ -49,6 +49,28 @@ def _store_draft(document_id: str, job_id: str, format_: str, data: bytes, *, pr
     pdf_key = draft_key(document_id, job_id, "pdf")
     storage.put_object(pdf_key, pdf, content_type="application/pdf")
     return key, pdf_key
+
+
+def _render_pdf(document_id: str, job_id: str, name: str, odt: bytes) -> str:
+    """Renders an ODT to a PDF in RustFS and returns its key. `name` keeps the draft's and the
+    current document's PDFs apart under the same job."""
+    try:
+        pdf = convert_to_pdf(odt)
+    except PreviewError as error:
+        raise EditFailedError(f"L'aperçu n'a pas pu être généré : {error}.") from error
+    key = draft_key(document_id, f"{job_id}-{name}", "pdf")
+    storage.put_object(key, pdf, content_type="application/pdf")
+    return key
+
+
+def _render_base(document_id: str, job_id: str, source_key: str) -> str | None:
+    """The current document's PDF, for the side-by-side. Best-effort: the draft is worth showing
+    even when this one can't be rendered - the comparison pane then says it is unavailable."""
+    try:
+        return _render_pdf(document_id, job_id, "base", storage.get_object(source_key))
+    except Exception:
+        logger.exception(f"Could not render the current version of document {document_id} for comparison")
+        return None
 
 
 def _report_failure(job_id: str, message: str) -> None:
@@ -106,15 +128,43 @@ def edit_document(self, payload: dict[str, Any]) -> dict[str, Any]:
             logger.info(f"Wrote draft {key} ({len(outcome.data)} bytes), edited={outcome.edited}, preview={pdf_key}")
 
             summary = "\n".join(f"- {line}" for line in outcome.summary) if outcome.edited else outcome.message
+            base_pdf_key = (
+                _render_base(job.document_id, self.request.id, job.source_storage_key)
+                if job.render_base and job.format == "odt" and outcome.edited
+                else None
+            )
             return EditJobResult(
                 draft_storage_key=key,
                 preview_pdf_key=pdf_key,
+                base_preview_pdf_key=base_pdf_key,
                 operations_summary=summary,
                 pending_images=outcome.pending_images,
                 edited=outcome.edited,
             )
 
         return _run(self.request.id, "edit", work)
+
+
+@celery_app.task(name="app.tasks.render_upload", bind=True)
+def render_upload(self, payload: dict[str, Any]) -> dict[str, Any]:
+    """Renders the two PDFs of a replacement the user is about to look at: the file they picked and
+    the document it would replace. The picked file is already stored and stays as it is; the result
+    points back at it. If the new file can't be rendered the task fails and the user is told why -
+    nothing to compare, nothing to validate; the current document's PDF is best-effort."""
+    with capture_task_logs(self.request.id):
+
+        def work() -> EditJobResult:
+            job = RenderUploadInput.model_validate(payload)
+            logger.info(f"Rendering the previews of a replacement of document {job.document_id}")
+            pdf_key = _render_pdf(job.document_id, self.request.id, "draft", storage.get_object(job.draft_storage_key))
+            return EditJobResult(
+                draft_storage_key=job.draft_storage_key,
+                preview_pdf_key=pdf_key,
+                base_preview_pdf_key=_render_base(job.document_id, self.request.id, job.source_storage_key),
+                edited=True,
+            )
+
+        return _run(self.request.id, "upload", work)
 
 
 @celery_app.task(name="app.tasks.insert_images", bind=True)

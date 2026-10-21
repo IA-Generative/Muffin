@@ -46,8 +46,20 @@ class DocumentDraft(UUIDMixin, TimestampMixin, Base):
     # client never needs it: every action on the draft goes through here.
     lock_token: Mapped[str] = mapped_column(String, nullable=False)
 
+    # Where the draft comes from: "chat" (the agent edited it) or "upload" (the user picked a file to
+    # replace the document with and is looking at it before it becomes a revision). An adjustment
+    # asked of the agent turns an upload draft into a "chat" one.
+    origin: Mapped[str] = mapped_column(String, nullable=False, default="chat", server_default="chat")
+    # The uploaded file's name, which the revision keeps when the draft is validated (None: the
+    # document keeps its current file name, as it does for an agent edit).
+    filename: Mapped[str | None] = mapped_column(String, nullable=True)
+
     draft_storage_key: Mapped[str | None] = mapped_column(String, nullable=True)
     preview_pdf_key: Mapped[str | None] = mapped_column(String, nullable=True)
+    # The PDF of the revision the draft starts from (ODT only), rendered once by the first job so the
+    # user can look at the current and the proposed document side by side. A Markdown document needs
+    # none: the current revision's text is served as it is.
+    base_preview_pdf_key: Mapped[str | None] = mapped_column(String, nullable=True)
     operations_summary: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     # False when the agent found nothing to change (or declined): operations_summary is then its
     # explanation, and there is nothing to validate.

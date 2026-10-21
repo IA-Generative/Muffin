@@ -1,3 +1,4 @@
+import os
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -6,7 +7,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import storage
 from app.core.security.factory import RequestContext
-from app.core.tasks import EDIT_DOCUMENT_TASK, INSERT_IMAGES_TASK, enqueue_edit_document, enqueue_insert_images
+from app.core.tasks import (
+    EDIT_DOCUMENT_TASK,
+    INSERT_IMAGES_TASK,
+    RENDER_UPLOAD_TASK,
+    enqueue_edit_document,
+    enqueue_insert_images,
+    enqueue_render_upload,
+)
 from app.models.document import Document
 from app.models.document_draft import DocumentDraft, DraftStatus
 from app.models.document_revision import RevisionOrigin
@@ -20,8 +28,11 @@ from app.schemas.document_draft import DraftOut, DraftResultIn
 from app.services.living_document_service import (
     FORMAT_MEDIA_TYPES,
     DocumentLockedError,
+    FormatMismatchError,
     LivingDocumentService,
     NotLivingDocumentError,
+    RevisionConflictError,
+    _detect_format,
     _document_settings,
 )
 
@@ -95,22 +106,7 @@ class DocumentDraftService:
             raise DraftExistsError(str(document_id))
 
         current = (await self.revisions.list_by_document(document.id))[0]
-        now = datetime.now(UTC)
-        token = uuid.uuid4().hex
-        acquired = await self.documents.try_acquire_lock(
-            document.id,
-            user_id=user.user_id,
-            display=_uploader_display(user),
-            token=token,
-            now=now,
-            expires_at=now + self._ttl(),
-        )
-        if not acquired:
-            await self.db.commit()
-            await self.db.refresh(document)
-            lock = DocumentLockOut.from_document(document, user.user_id, now)
-            # (No live lock means it lapsed between the two statements: just ask again.)
-            raise DocumentLockedError(lock) if lock else DraftBusyError(str(document_id))
+        token = await self._acquire_lock(document, user)
 
         task_id = str(uuid.uuid4())
         draft = await self.drafts.create(
@@ -133,8 +129,73 @@ class DocumentDraftService:
             "format": current.format,
             "user_id": user.user_id,
             "previous_draft_key": None,
+            # The first job also renders the current ODT, to look at next to the proposal.
+            "render_base": current.format == "odt",
         }
         await self._enqueue(draft, document, lambda: enqueue_edit_document(payload, task_id=task_id))
+        return await self._out(draft, document)
+
+    async def create_from_upload(
+        self,
+        collection_id: uuid.UUID,
+        user: RequestContext,
+        document_id: uuid.UUID,
+        filename: str,
+        content: bytes,
+        *,
+        base_revision: int,
+    ) -> DraftOut:
+        """A file the user picked to replace the document with, held as a draft instead of becoming a
+        revision at once: they look at it next to the current document, then validate or refuse. It
+        goes through the same draft - lock, preview, validate, refuse - as an agent's edit, and
+        nothing is indexed until it is validated. An ODT needs a worker to render its PDF
+        previews; a Markdown file is ready to look at immediately."""
+        document = await self._get_living_document(collection_id, user, document_id)
+        await self._drop_if_lapsed(document)
+        if await self.drafts.get_by_document(document.id) is not None:
+            raise DraftExistsError(str(document_id))
+
+        current = (await self.revisions.list_by_document(document.id))[0]
+        safe_name = os.path.basename(filename) or "document"
+        format_ = _detect_format(safe_name)
+        if format_ != current.format:
+            raise FormatMismatchError(f"{current.format} -> {format_}")
+        if base_revision != current.number:
+            raise RevisionConflictError(current.number)
+        token = await self._acquire_lock(document, user)
+
+        key = f"drafts/{document.id}/{uuid.uuid4().hex}-{safe_name}"
+        storage.put_object(key, content, content_type=FORMAT_MEDIA_TYPES[format_])
+        needs_render = format_ == "odt"
+        task_id = str(uuid.uuid4()) if needs_render else None
+        draft = await self.drafts.create(
+            document.id,
+            base_revision=current.number,
+            format_=format_,
+            prompt=f"Remplacer par « {safe_name} »",
+            user_id=user.user_id,
+            user_display=_uploader_display(user),
+            celery_task_id=task_id,
+            lock_token=token,
+            origin="upload",
+            filename=safe_name,
+            draft_storage_key=key,
+            status=DraftStatus.PENDING if needs_render else DraftStatus.READY,
+            job_kind="upload",
+            edited=True,
+            operations_summary=f"- Le fichier « {safe_name} » remplace la version actuelle.",
+        )
+        if needs_render:
+            await self._record_task(task_id, RENDER_UPLOAD_TASK, user, document)
+        await self.db.commit()
+        if needs_render:
+            payload = {
+                "draft_storage_key": key,
+                "source_storage_key": document.storage_key,
+                "document_id": str(document.id),
+                "user_id": user.user_id,
+            }
+            await self._enqueue(draft, document, lambda: enqueue_render_upload(payload, task_id=task_id))
         return await self._out(draft, document)
 
     async def get_current(self, collection_id: uuid.UUID, user: RequestContext, document_id: uuid.UUID) -> DraftOut:
@@ -145,13 +206,22 @@ class DocumentDraftService:
         return await self._out(draft, document)
 
     async def preview(
-        self, collection_id: uuid.UUID, user: RequestContext, document_id: uuid.UUID
+        self, collection_id: uuid.UUID, user: RequestContext, document_id: uuid.UUID, version: str = "draft"
     ) -> tuple[bytes, str]:
         """(content, media type): the PDF of an edited ODT, the text of an edited Markdown -
-        streamed through the backend, never a storage URL."""
+        streamed through the backend, never a storage URL. `version="base"` is the document as it is
+        now (the revision the draft started from), to compare the draft with."""
         document, draft = await self._live_draft(collection_id, user, document_id)
         await self._touch(document, draft)
         out = DraftOut.from_model(draft, None)
+        if version == "base":
+            if out.base_preview == "pdf":
+                return storage.get_object(draft.base_preview_pdf_key)[0], "application/pdf"
+            if out.base_preview == "markdown":
+                revision = await self.revisions.get_by_number(document.id, draft.base_revision)
+                if revision is not None:
+                    return storage.get_object(revision.storage_key)[0], FORMAT_MEDIA_TYPES["md"]
+            raise DraftNotReadyError("no base preview")
         if out.preview == "pdf":
             return storage.get_object(draft.preview_pdf_key)[0], "application/pdf"
         if out.preview == "markdown":
@@ -174,6 +244,8 @@ class DocumentDraftService:
         previous = draft.draft_storage_key if draft.edited else None
         draft.status = DraftStatus.PENDING
         draft.job_kind = "edit"
+        # Whatever the user started from, the file is now what the agent made of it.
+        draft.origin = "chat"
         draft.prompt = prompt
         draft.error = None
         draft.celery_task_id = task_id
@@ -187,6 +259,8 @@ class DocumentDraftService:
             "format": current.format,
             "user_id": user.user_id,
             "previous_draft_key": previous,
+            # The current ODT's preview was rendered by the first job, unless that one failed.
+            "render_base": current.format == "odt" and draft.base_preview_pdf_key is None,
         }
         await self._enqueue(draft, document, lambda: enqueue_edit_document(payload, task_id=task_id))
         return await self._out(draft, document)
@@ -282,12 +356,12 @@ class DocumentDraftService:
             collection_id,
             user,
             document_id,
-            current.filename,
+            draft.filename or current.filename,
             content,
             FORMAT_MEDIA_TYPES[draft.format],
             base_revision=draft.base_revision,
             lock_token=draft.lock_token,
-            origin=RevisionOrigin.CHAT,
+            origin=RevisionOrigin.UPLOAD if draft.origin == "upload" else RevisionOrigin.CHAT,
         )
         await self._drop(draft, release_lock=False)  # replace() already released it
         return result
@@ -309,9 +383,15 @@ class DocumentDraftService:
         stale = [k for k in stale if k not in (result.draft_storage_key, result.preview_pdf_key)]
         draft.draft_storage_key = result.draft_storage_key
         draft.preview_pdf_key = result.preview_pdf_key
+        if result.base_preview_pdf_key and result.base_preview_pdf_key != draft.base_preview_pdf_key:
+            if draft.base_preview_pdf_key:
+                stale.append(draft.base_preview_pdf_key)
+            draft.base_preview_pdf_key = result.base_preview_pdf_key
         draft.status = DraftStatus.READY
         draft.error = None
-        if result.kind == "edit":
+        if result.kind == "upload":
+            pass  # The file and its summary were set when the upload came in: only the previews are new.
+        elif result.kind == "edit":
             draft.edited = result.edited
             draft.operations_summary = result.operations_summary
             old_images = [i.get("storage_key") for i in draft.pending_images if i.get("storage_key")]
@@ -377,6 +457,27 @@ class DocumentDraftService:
         draft = await self.drafts.get_by_document(document.id)
         if draft is not None and not self._holds_lock(document, draft, datetime.now(UTC)):
             await self._drop(draft, release_lock=False)
+
+    async def _acquire_lock(self, document: Document, user: RequestContext) -> str:
+        """The edit lock a draft holds for the user; returns its token. Refused (with who holds it)
+        when somebody else - or another session of the same account - is editing the document."""
+        now = datetime.now(UTC)
+        token = uuid.uuid4().hex
+        acquired = await self.documents.try_acquire_lock(
+            document.id,
+            user_id=user.user_id,
+            display=_uploader_display(user),
+            token=token,
+            now=now,
+            expires_at=now + self._ttl(),
+        )
+        if not acquired:
+            await self.db.commit()
+            await self.db.refresh(document)
+            lock = DocumentLockOut.from_document(document, user.user_id, now)
+            # (No live lock means it lapsed between the two statements: just ask again.)
+            raise DocumentLockedError(lock) if lock else DraftBusyError(str(document.id))
+        return token
 
     async def _touch(self, document: Document, draft: DocumentDraft) -> None:
         now = datetime.now(UTC)

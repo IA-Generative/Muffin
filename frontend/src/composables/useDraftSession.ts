@@ -86,6 +86,14 @@ export function useDraftSession(collectionId: Ref<string>, documentId: Ref<strin
       return created
     })
 
+  // A file picked to replace the document: it is held as a draft, shown next to the current version.
+  const replaceWithFile = (file: File, baseRevision: number) =>
+    run(async () => {
+      const created = await api.uploadDraft(collectionId.value, documentId.value, file, baseRevision)
+      reviewing.value = true
+      return created
+    })
+
   const adjust = (prompt: string) => run(() => api.adjustDraft(collectionId.value, documentId.value, prompt))
   const upload = (imageId: string, file: File) =>
     run(() => api.uploadImage(collectionId.value, documentId.value, imageId, file))
@@ -107,5 +115,19 @@ export function useDraftSession(collectionId: Ref<string>, documentId: Ref<strin
       options.onValidated?.()
     })
 
-  return { draft, loaded, busy, error, reviewing, validated, request, adjust, upload, insertImages, refuse, validate }
+  return {
+    draft,
+    loaded,
+    busy,
+    error,
+    reviewing,
+    validated,
+    request,
+    replaceWithFile,
+    adjust,
+    upload,
+    insertImages,
+    refuse,
+    validate,
+  }
 }
