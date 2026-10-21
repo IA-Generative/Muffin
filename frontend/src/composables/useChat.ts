@@ -1,6 +1,7 @@
 import { computed, ref } from 'vue'
 import { router } from '../router'
 import { useCollectionImports } from './useCollectionImports'
+import type { QaSuggestion } from './useQaSuggestions'
 import type {
   ChatMessage,
   Conversation,
@@ -1075,6 +1076,39 @@ function sendMessage(
   })
 }
 
+// A starter question of the empty chat (#126): the backend puts the pair's stored answer and source
+// into the conversation - no agent run, so nothing to wait for or poll - and it is then shown like
+// any other completed answer.
+async function askSuggestion(suggestion: QaSuggestion) {
+  const conversationId = activeId.value
+  const messageId = crypto.randomUUID()
+  messagesByConversation.value[conversationId].push(
+    { id: crypto.randomUUID(), role: 'user', content: suggestion.question },
+    { id: messageId, role: 'assistant', content: 'Recherche en cours', pending: true },
+  )
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/qa-suggestions/${suggestion.id}/answer`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        conversation_id: confirmedConversationIds.has(conversationId) ? conversationId : undefined,
+      }),
+    })
+    if (!response.ok) throw new Error(`${response.status}`)
+    const answer: { conversation_id: string; run_id: string } = await response.json()
+    const resolvedId = migrateConversationId(conversationId, answer.conversation_id)
+    trackRun(resolvedId, messageId, await fetchRun(answer.run_id))
+  } catch {
+    replaceMessage(conversationId, messageId, {
+      id: messageId,
+      role: 'assistant',
+      content: 'Impossible de répondre à cette question. Veuillez réessayer.',
+      error: true,
+    })
+  }
+}
+
 // "Go further" on the latest answer (#219): a new message resuming the exploration where that
 // answer stopped - the backend hands the agent that answer's unexplored collections. The text is
 // what the user sees in the thread; the agent reads it against the conversation's history.
@@ -1325,6 +1359,7 @@ export function useChat() {
     renameConversation,
     deleteConversation,
     sendMessage,
+    askSuggestion,
     goFurther,
     regenerateMessage,
     sendFeedback,

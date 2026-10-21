@@ -207,6 +207,8 @@ class BackendClient:
         question: str,
         answer: str,
         embedding: list[float] | None = None,
+        source_page: int | None = None,
+        source_excerpt: str | None = None,
     ) -> None:
         response = self._client.post(
             f"/api/internal/collections/{collection_id}/qa-pairs",
@@ -216,6 +218,8 @@ class BackendClient:
                 "answer": answer,
                 "embedding": embedding,
                 "embedding_model": _model_of(embedding),
+                "source_page": source_page,
+                "source_excerpt": source_excerpt,
             },
         )
         response.raise_for_status()
