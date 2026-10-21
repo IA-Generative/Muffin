@@ -18,7 +18,7 @@ from app.services.collection_service import CollectionNotFoundError
 from app.services.document_refresh_service import DocumentRefreshService, NotUrlDocumentError
 from app.services.document_upload_service import DocumentNotFoundError
 
-# The scheduled refresh of a URL document (#19): the owner sets how often its page is fetched again
+# The scheduled refresh of a URL document (#19): the owner sets when its page is fetched again
 # (`router`), the periodic scan in worker/document_process claims what is due and reports what it
 # fetched (`internal_router`).
 router = APIRouter(tags=["Documents"])
@@ -41,7 +41,7 @@ def _not_found(error: Exception) -> HTTPException:
 
 @router.get(
     "/collections/{collection_id}/documents/{document_id}/refresh-schedule",
-    summary="How often a URL document's page is fetched again, and when it last was",
+    summary="When a URL document's page is fetched again, and when it last was",
     response_model=RefreshScheduleOut,
 )
 async def get_refresh_schedule(
@@ -56,7 +56,8 @@ async def get_refresh_schedule(
 @router.put(
     "/collections/{collection_id}/documents/{document_id}/refresh-schedule",
     summary="Set (or, with null, stop) the automatic refresh of a URL document: its page is fetched "
-    "again at that interval and the document reprocessed when the page changed",
+    "again once, every day, on some days of the week or every N minutes, and the document reprocessed "
+    "when the page changed",
     response_model=RefreshScheduleOut,
 )
 async def set_refresh_schedule(
@@ -67,7 +68,7 @@ async def set_refresh_schedule(
     service: ServiceDep,
 ) -> RefreshScheduleOut:
     try:
-        return await service.set_schedule(collection_id, user, document_id, body.interval_minutes)
+        return await service.set_schedule(collection_id, user, document_id, body.schedule)
     except (CollectionNotFoundError, DocumentNotFoundError) as error:
         raise _not_found(error) from error
     except NotUrlDocumentError as error:
@@ -101,11 +102,14 @@ async def report_url_fetch(document_id: uuid.UUID, body: ContentHashIn, service:
 
 @internal_router.put(
     "/documents/{document_id}/content-hash",
-    summary="Record the hash of the page a URL document was just indexed from",
+    summary="Record the hash of the page a URL document was just indexed from (and where the file it "
+    "served is stored, if any)",
 )
 async def set_content_hash(document_id: uuid.UUID, body: ContentHashIn, service: ServiceDep) -> dict[str, str]:
     try:
-        await service.set_content_hash(document_id, body.content_hash)
+        await service.set_content_hash(document_id, body.content_hash, body.storage_key)
     except DocumentNotFoundError as error:
         raise _not_found(error) from error
+    except ValueError as error:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(error)) from error
     return {"status": "ok"}

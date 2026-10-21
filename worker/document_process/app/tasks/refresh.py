@@ -1,9 +1,10 @@
 """Scheduled refresh of URL documents (#19).
 
-Every 30 minutes the beat sends ``scan_url_refresh``: it asks the backend which URL documents are
-due (each one is claimed once, its next run moved forward) and sends one ``refresh_url_document``
-per document. That task fetches the page again and reports the hash of its text: when it differs
-from what is indexed, the backend reprocesses the document from scratch - this worker's usual
+On the hour and at half past, the beat sends ``scan_url_refresh``: it asks the backend which URL
+documents are due (each one is claimed once, its next run moved forward) and sends one
+``refresh_url_document`` per document. That task fetches the page again and reports its hash - of
+its text for an HTML page, of the file itself for a URL serving one: when it differs from what is
+indexed, the backend reprocesses the document from scratch - this worker's usual
 ``process_document`` pipeline, which replaces summary, chunks, embeddings, QA, entities and tags.
 An unchanged page costs one fetch and nothing else.
 """
@@ -32,10 +33,10 @@ def refresh_url_document(document_id: str) -> bool:
     if document["type"] != "url":
         return False
     try:
-        markdown = _shared.fetch_url_markdown(document["name"])
+        fetched = _shared.fetch_url(document["name"])
     except Exception:
         logger.exception(f"URL refresh: could not fetch {document['name']} for document {document_id}")
         return False
-    changed = _shared.backend_client.report_url_fetch(document_id, _shared.content_hash(markdown))
+    changed = _shared.backend_client.report_url_fetch(document_id, fetched.content_hash)
     logger.info(f"URL refresh of document {document_id}: {'changed, reprocessing' if changed else 'unchanged'}")
     return changed

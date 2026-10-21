@@ -5,6 +5,8 @@ import { isImportFinished, isZip, useCollectionImports } from '../composables/us
 import { useCollections } from '../composables/useCollections'
 import { usePagination } from '../composables/usePagination'
 import type { Collection } from '../types/collection'
+import type { RefreshSchedule } from '../utils/refreshSchedule'
+import AddUrlModal from './AddUrlModal.vue'
 import CollectionImportStatus from './CollectionImportStatus.vue'
 import DocumentDetailModal from './DocumentDetailModal.vue'
 import NewMarkdownDocumentModal from './NewMarkdownDocumentModal.vue'
@@ -62,9 +64,18 @@ function closeDocumentModal() {
   router.push(`/collections/${props.collection.id}`)
 }
 
+// The URL waiting for the modal that asks when it is fetched again (#19).
+const pendingUrl = ref<string | null>(null)
+
 function submitUrl() {
   if (!urlDraft.value.trim()) return
-  addUrl(props.collection.id, urlDraft.value)
+  pendingUrl.value = urlDraft.value.trim()
+}
+
+function confirmUrl(schedule: RefreshSchedule | null) {
+  if (pendingUrl.value === null) return
+  addUrl(props.collection.id, pendingUrl.value, schedule)
+  pendingUrl.value = null
   urlDraft.value = ''
 }
 
@@ -139,6 +150,7 @@ const STATUS_LABEL = {
       />
       <button type="submit" class="fr-btn fr-btn--secondary" :disabled="!urlDraft.trim()">Ajouter</button>
     </form>
+    <AddUrlModal v-if="pendingUrl !== null" :url="pendingUrl" @add="confirmUrl" @cancel="pendingUrl = null" />
 
     <div v-if="collection.isOwner" class="documents-tab__living">
       <label class="fr-btn fr-btn--secondary fr-btn--sm documents-tab__living-button">

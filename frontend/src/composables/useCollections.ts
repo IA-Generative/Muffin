@@ -20,6 +20,7 @@ import type {
   Share,
   ShareSubjectType,
 } from '../types/collection'
+import type { RefreshSchedule } from '../utils/refreshSchedule'
 
 // Backend response is snake_case; the rest of the app uses camelCase.
 interface CollectionOut {
@@ -805,7 +806,7 @@ async function reloadDocuments(collectionId: string) {
   pollDocumentsWhileProcessing(collectionId)
 }
 
-async function addUrl(collectionId: string, url: string) {
+async function addUrl(collectionId: string, url: string, refreshSchedule: RefreshSchedule | null = null) {
   if (!url.trim()) return
   documentError.value = null
   try {
@@ -813,7 +814,7 @@ async function addUrl(collectionId: string, url: string) {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: url.trim() }),
+      body: JSON.stringify({ url: url.trim(), refresh_schedule: refreshSchedule }),
     })
     if (!response.ok) documentError.value = `Échec de l'ajout de l'URL (${response.status}).`
   } catch {
