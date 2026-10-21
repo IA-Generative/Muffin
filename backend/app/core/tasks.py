@@ -51,6 +51,8 @@ DOCUMENT_EDIT_QUEUE = "document_edit"
 EDIT_DOCUMENT_TASK = "app.tasks.edit_document"
 # Same worker and queue: putting a user's uploaded images into an ODT draft (#169).
 INSERT_IMAGES_TASK = "app.tasks.insert_images"
+# Same worker and queue: rendering the PDF previews of a file the user picked to replace a document.
+RENDER_UPLOAD_TASK = "app.tasks.render_upload"
 
 
 def enqueue_process_document(document_id: str) -> str:
@@ -137,6 +139,13 @@ def enqueue_insert_images(payload: dict, task_id: str | None = None) -> str:
     beforehand when the worker reports back by it: it avoids the race where the worker finishes
     before the caller has recorded the id Celery would have generated."""
     result = _celery_app.send_task(INSERT_IMAGES_TASK, args=[payload], queue=DOCUMENT_EDIT_QUEUE, task_id=task_id)
+    return result.id
+
+
+def enqueue_render_upload(payload: dict, task_id: str | None = None) -> str:
+    """`payload` is worker/document_edit's RenderUploadInput. Same `task_id` convention as
+    enqueue_insert_images."""
+    result = _celery_app.send_task(RENDER_UPLOAD_TASK, args=[payload], queue=DOCUMENT_EDIT_QUEUE, task_id=task_id)
     return result.id
 
 

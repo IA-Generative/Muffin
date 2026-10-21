@@ -19,13 +19,17 @@ const emit = defineEmits<{
   hasDraft: [value: boolean]
 }>()
 
-const { draft, loaded, busy, error, reviewing, request, adjust, upload, insertImages, refuse, validate } =
+const { draft, loaded, busy, error, reviewing, request, replaceWithFile, adjust, upload, insertImages, refuse, validate } =
   useDraftSession(toRef(props, 'collectionId'), toRef(props, 'documentId'), { onValidated: () => emit('changed') })
 
 const prompt = ref('')
 const isPending = computed(() => draft.value?.status === 'pending')
 
 watch(draft, (now) => emit('hasDraft', now !== null))
+
+// The revisions panel's "replace" button hands the picked file here: it becomes a draft, compared
+// with the current version in the review window, instead of a revision at once.
+defineExpose({ replaceWithFile })
 
 async function submit() {
   const text = prompt.value.trim()
@@ -43,7 +47,7 @@ const STATUS_LABEL: Record<DocumentDraft['status'], string> = {
 
 <template>
   <section v-if="editable && loaded" class="edit">
-    <h3 class="edit__title">Modifier avec l’agent</h3>
+    <h3 class="edit__title">{{ draft?.origin === 'upload' ? 'Remplacement en attente' : 'Modifier avec l’agent' }}</h3>
 
     <form v-if="!draft" class="edit__form" @submit.prevent="submit">
       <label for="edit-prompt" class="edit__hint">

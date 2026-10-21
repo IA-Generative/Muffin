@@ -34,8 +34,13 @@ class DraftImageOut(BaseModel):
 class DraftOut(BaseModel):
     id: uuid.UUID
     status: str
-    # "edit" or "images": which job is running, or ran last.
+    # "edit", "images" or "upload": which job is running, or ran last.
     job_kind: str
+    # "chat": the agent produced it. "upload": the user picked a file to replace the document with
+    # and is looking at it before it becomes a revision.
+    origin: Literal["chat", "upload"]
+    # The uploaded file's name (origin "upload").
+    filename: str | None
     prompt: str
     base_revision: int
     format: str
@@ -45,6 +50,9 @@ class DraftOut(BaseModel):
     error: str | None
     # What GET .../draft/preview serves: the PDF of an edited ODT, the text of an edited Markdown.
     preview: Literal["pdf", "markdown"] | None
+    # What GET .../draft/preview?version=base serves: the PDF of the current ODT, or the text of the
+    # current Markdown - the document as it is now, to compare with the proposal.
+    base_preview: Literal["pdf", "markdown"] | None
     pending_images: list[DraftImageOut]
     # When the draft (and the document lock it holds) lapses unless it is used again.
     expires_at: datetime | None
@@ -58,10 +66,18 @@ class DraftOut(BaseModel):
             preview = "markdown"
         else:
             preview = None
+        if draft.base_preview_pdf_key:
+            base_preview = "pdf"
+        elif draft.format == "md":
+            base_preview = "markdown"
+        else:
+            base_preview = None
         return cls(
             id=draft.id,
             status=draft.status,
             job_kind=draft.job_kind,
+            origin=draft.origin,
+            filename=draft.filename,
             prompt=draft.prompt,
             base_revision=draft.base_revision,
             format=draft.format,
@@ -69,6 +85,7 @@ class DraftOut(BaseModel):
             operations_summary=draft.operations_summary,
             error=draft.error,
             preview=preview,
+            base_preview=base_preview,
             pending_images=[
                 DraftImageOut(
                     id=image["id"],
@@ -98,9 +115,11 @@ class PendingImageIn(BaseModel):
 class DraftResultIn(BaseModel):
     """worker/document_edit's EditJobResult plus which job produced it."""
 
-    kind: Literal["edit", "images"]
+    kind: Literal["edit", "images", "upload"]
     draft_storage_key: str
     preview_pdf_key: str | None = None
+    # The PDF of the revision the draft starts from; absent from the jobs that don't render it.
+    base_preview_pdf_key: str | None = None
     operations_summary: str = ""
     pending_images: list[PendingImageIn] = []
     edited: bool = False
