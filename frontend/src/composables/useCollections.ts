@@ -729,24 +729,66 @@ function pollDocumentsWhileProcessing(collectionId: string) {
   )
 }
 
+// What the backend refused as already in the collection (#300), waiting for the user to say whether to add
+// it anyway: the file or the URL, and the name of the document that is already there.
+export type PendingDuplicate =
+  | { kind: 'file'; collectionId: string; file: File; existingName: string }
+  | { kind: 'url'; collectionId: string; url: string; schedule: RefreshSchedule | null; existingName: string }
+
+const pendingDuplicates = ref<PendingDuplicate[]>([])
+
+// The name of the document a 409 `duplicate_document` says is already there, or null for any other answer.
+async function existingNameOf(response: Response): Promise<string | null> {
+  if (response.status !== 409) return null
+  try {
+    const detail = (await response.json())?.detail
+    return detail?.code === 'duplicate_document' ? String(detail.document?.name ?? '') : null
+  } catch {
+    return null
+  }
+}
+
+async function uploadFile(collectionId: string, file: File, allowDuplicate: boolean) {
+  const formData = new FormData()
+  formData.append('file', file)
+  try {
+    const response = await fetch(
+      `${API_BASE_URL}/api/collections/${collectionId}/documents/file${allowDuplicate ? '?allow_duplicate=true' : ''}`,
+      { method: 'POST', credentials: 'include', body: formData },
+    )
+    const existingName = await existingNameOf(response)
+    if (existingName !== null) {
+      pendingDuplicates.value = [...pendingDuplicates.value, { kind: 'file', collectionId, file, existingName }]
+    } else if (!response.ok) {
+      documentError.value = `Échec de l'envoi de « ${file.name} » (${response.status}).`
+    }
+  } catch {
+    documentError.value = `Échec de l'envoi de « ${file.name} » : le serveur est inaccessible.`
+  }
+}
+
 async function addDocuments(collectionId: string, files: File[]) {
   documentError.value = null
-  for (const file of files) {
-    const formData = new FormData()
-    formData.append('file', file)
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/collections/${collectionId}/documents/file`, {
-        method: 'POST',
-        credentials: 'include',
-        body: formData,
-      })
-      if (!response.ok) documentError.value = `Échec de l'envoi de « ${file.name} » (${response.status}).`
-    } catch {
-      documentError.value = `Échec de l'envoi de « ${file.name} » : le serveur est inaccessible.`
-    }
+  for (const file of files) await uploadFile(collectionId, file, false)
+  await refreshDocuments(collectionId)
+  pollDocumentsWhileProcessing(collectionId)
+}
+
+// The user confirmed: what was refused as a duplicate of this collection is added anyway.
+async function confirmDuplicates(collectionId: string) {
+  const mine = pendingDuplicates.value.filter((duplicate) => duplicate.collectionId === collectionId)
+  pendingDuplicates.value = pendingDuplicates.value.filter((duplicate) => duplicate.collectionId !== collectionId)
+  documentError.value = null
+  for (const duplicate of mine) {
+    if (duplicate.kind === 'file') await uploadFile(collectionId, duplicate.file, true)
+    else await postUrl(collectionId, duplicate.url, duplicate.schedule, true)
   }
   await refreshDocuments(collectionId)
   pollDocumentsWhileProcessing(collectionId)
+}
+
+function dismissDuplicates(collectionId: string) {
+  pendingDuplicates.value = pendingDuplicates.value.filter((duplicate) => duplicate.collectionId !== collectionId)
 }
 
 // Same flow as addDocuments, against the living-document endpoint (ODT/Markdown only, the
@@ -806,20 +848,37 @@ async function reloadDocuments(collectionId: string) {
   pollDocumentsWhileProcessing(collectionId)
 }
 
-async function addUrl(collectionId: string, url: string, refreshSchedule: RefreshSchedule | null = null) {
-  if (!url.trim()) return
-  documentError.value = null
+async function postUrl(
+  collectionId: string,
+  url: string,
+  refreshSchedule: RefreshSchedule | null,
+  allowDuplicate: boolean,
+) {
   try {
     const response = await fetch(`${API_BASE_URL}/api/collections/${collectionId}/documents/url`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: url.trim(), refresh_schedule: refreshSchedule }),
+      body: JSON.stringify({ url: url.trim(), refresh_schedule: refreshSchedule, allow_duplicate: allowDuplicate }),
     })
-    if (!response.ok) documentError.value = `Échec de l'ajout de l'URL (${response.status}).`
+    const existingName = await existingNameOf(response)
+    if (existingName !== null) {
+      pendingDuplicates.value = [
+        ...pendingDuplicates.value,
+        { kind: 'url', collectionId, url: url.trim(), schedule: refreshSchedule, existingName },
+      ]
+    } else if (!response.ok) {
+      documentError.value = `Échec de l'ajout de l'URL (${response.status}).`
+    }
   } catch {
     documentError.value = "Échec de l'ajout de l'URL : le serveur est inaccessible."
   }
+}
+
+async function addUrl(collectionId: string, url: string, refreshSchedule: RefreshSchedule | null = null) {
+  if (!url.trim()) return
+  documentError.value = null
+  await postUrl(collectionId, url, refreshSchedule, false)
   await refreshDocuments(collectionId)
   pollDocumentsWhileProcessing(collectionId)
 }
@@ -1196,6 +1255,9 @@ export function useCollections() {
     createMarkdownDocument,
     reloadDocuments,
     addUrl,
+    pendingDuplicates,
+    confirmDuplicates,
+    dismissDuplicates,
     removeDocument,
     addQaPair,
     removeQaPair,
