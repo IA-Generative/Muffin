@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.19.0-rc.1](https://github.com/IA-Generative/Muffin/compare/v0.19.0-rc...v0.19.0-rc.1) (2026-10-21)
+
+
+### Features
+
+* **collections:** rebuild a collection's search index blue/green on an embedding model change ([deb7e3e](https://github.com/IA-Generative/Muffin/commit/deb7e3efceb54cebf6ab5c319e001aafb9b03335))
+
+
+### Bug Fixes
+
+* **frontend:** settings tab loader must resolve to void for the strict build ([d2385c7](https://github.com/IA-Generative/Muffin/commit/d2385c7e49b3148973531e7928289271135f3d84))
+
 ## [0.19.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.18.0...v0.19.0-rc) (2026-10-21)
 
 
