@@ -32,6 +32,7 @@ from app.tasks._shared import (  # noqa: F401
     _window_text,
     _windows,
     backend_client,
+    content_hash,
     fetch_url_markdown,
     parse_file,
     storage,
@@ -52,6 +53,7 @@ from app.tasks.process import (  # noqa: F401
     process_document,
 )
 from app.tasks.qa import generate_collection_qa, generate_qa_window  # noqa: F401
+from app.tasks.refresh import refresh_url_document, scan_url_refresh  # noqa: F401
 from app.tasks.summarize import summarize_document, tag_document  # noqa: F401
 from app.tasks.tabular import process_tabular_document  # noqa: F401
 
@@ -83,6 +85,8 @@ __all__ = [
     "rollup_collection_description",
     "import_zip",
     "generate_collection_qa",
+    "scan_url_refresh",
+    "refresh_url_document",
     # Internal helpers used by tests
     "_process_url",
     "_process_file",
@@ -91,5 +95,6 @@ __all__ = [
     "celery_app",
     "parse_file",
     "fetch_url_markdown",
+    "content_hash",
     "storage",
 ]

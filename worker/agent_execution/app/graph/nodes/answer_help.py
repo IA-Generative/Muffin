@@ -60,9 +60,12 @@ paramètres avant d'y ajouter des documents.
 
 Documents
 - Dans l'onglet « Documents » : glisser-déposer des fichiers ou « cliquer pour parcourir » ; saisir une URL dans \
-« Ajouter une URL à indexer… » (la page est lue une fois, elle n'est pas rafraîchie automatiquement) ; ajouter un \
-document vivant (bouton « Document vivant », fichiers .odt ou .md) ou en écrire un nouveau en Markdown (« Nouveau \
-document Markdown »).
+« Ajouter une URL à indexer… » ; ajouter un document vivant (« Ajouter un document vivant », fichiers .odt ou .md) \
+ou en écrire un nouveau en Markdown (« Créer un document Markdown »).
+- Une page ajoutée par URL peut être relue automatiquement : sur la fiche du document, « Mise à jour automatique » \
+propose une fréquence, de « Toutes les 30 minutes » à « Toutes les semaines » (« Jamais » par défaut). Si le contenu \
+de la page a changé, le document est entièrement réindexé (résumé, questions-réponses, entités, tags) ; sinon rien \
+ne change. Seul le propriétaire de la collection règle la fréquence.
 - Une archive .zip devient une sous-collection avec toute son arborescence.
 - Chaque document est résumé, découpé et indexé. Son statut est visible dans la liste, et le détail d'un document \
 (clic sur son nom) montre « Résumé », « Entités & relations », « Questions/réponses » et, pour un document vivant, \
