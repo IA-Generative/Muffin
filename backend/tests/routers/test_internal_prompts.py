@@ -106,3 +106,15 @@ async def test_record_run_prompt_usages(client):
         usages = list(result.scalars())
     assert len(usages) == 1
     assert usages[0].prompt_version_id == version_id
+
+
+async def test_the_app_help_guide_and_the_help_intent_are_seeded(client):
+    """What the migration for #251 leaves behind: the guide the help answers come from, and an
+    analyze_query that can route a "how do I use Muffin?" question to it."""
+    guide = (await client.get("/api/internal/prompts/app_help/active", headers=_headers())).json()
+    analyze = (await client.get("/api/internal/prompts/analyze_query/active", headers=_headers())).json()
+
+    assert "USER GUIDE" in guide["content"]
+    assert "« Nouveau chat »" in guide["content"] and "Markdown" in guide["content"]
+    assert '"meta", "identity", "help")' in analyze["content"]
+    assert 'Use "help" when the user asks how to USE the Muffin application' in analyze["content"]

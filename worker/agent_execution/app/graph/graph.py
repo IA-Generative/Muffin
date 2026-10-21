@@ -3,6 +3,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, StateGraph
 
 from app.graph.nodes.analyze_query import analyze_query
+from app.graph.nodes.answer_help import answer_help
 from app.graph.nodes.answer_identity import answer_identity
 from app.graph.nodes.build_answer_context import build_answer_context
 from app.graph.nodes.build_research_plan import build_research_plan
@@ -49,6 +50,7 @@ def build_graph(checkpointer: BaseCheckpointSaver | None = None):
     graph.add_node("delegate_edit", delegate_edit)
     graph.add_node("analyze_query", analyze_query)
     graph.add_node("answer_identity", answer_identity)
+    graph.add_node("answer_help", answer_help)
     graph.add_node("request_clarification", request_clarification)
     graph.add_node("decompose_query", decompose_query)
     graph.add_node("build_research_plan", build_research_plan)
@@ -91,6 +93,7 @@ def build_graph(checkpointer: BaseCheckpointSaver | None = None):
             "request_clarification": "request_clarification",
             "decompose_query": "decompose_query",
             "answer_identity": "answer_identity",
+            "answer_help": "answer_help",
             "cancelled": "cancelled",
         },
     )
@@ -98,6 +101,7 @@ def build_graph(checkpointer: BaseCheckpointSaver | None = None):
     # Terminal like generate_answer/validate_grounding, just without the grounding pass -
     # nothing here to fact-check against evidence, there's no evidence at all.
     _cancellable_edge(graph, "answer_identity", END)
+    _cancellable_edge(graph, "answer_help", END)
     _cancellable_edge(graph, "decompose_query", "build_research_plan")
     # Dynamic fan-out (§9/§10): however many tasks are ready becomes that many Send()s to
     # research_task, capped by the parallelism/total-task budgets (§28).
