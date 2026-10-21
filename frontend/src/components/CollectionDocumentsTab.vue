@@ -9,6 +9,7 @@ import type { RefreshSchedule } from '../utils/refreshSchedule'
 import AddUrlModal from './AddUrlModal.vue'
 import CollectionImportStatus from './CollectionImportStatus.vue'
 import DocumentDetailModal from './DocumentDetailModal.vue'
+import DuplicateDocumentsModal from './DuplicateDocumentsModal.vue'
 import NewMarkdownDocumentModal from './NewMarkdownDocumentModal.vue'
 import PaginationControls from './PaginationControls.vue'
 
@@ -24,6 +25,9 @@ const {
   createMarkdownDocument,
   reloadDocuments,
   addUrl,
+  pendingDuplicates,
+  confirmDuplicates,
+  dismissDuplicates,
   removeDocument,
   documentError,
   refreshChildren,
@@ -63,6 +67,11 @@ function openDocumentModal(documentId: string) {
 function closeDocumentModal() {
   router.push(`/collections/${props.collection.id}`)
 }
+
+// What this collection refused as already there (#300), waiting for the user to decide.
+const duplicates = computed(() =>
+  pendingDuplicates.value.filter((duplicate) => duplicate.collectionId === props.collection.id),
+)
 
 // The URL waiting for the modal that asks when it is fetched again (#19).
 const pendingUrl = ref<string | null>(null)
@@ -150,6 +159,12 @@ const STATUS_LABEL = {
       />
       <button type="submit" class="fr-btn fr-btn--secondary" :disabled="!urlDraft.trim()">Ajouter</button>
     </form>
+    <DuplicateDocumentsModal
+      v-if="duplicates.length"
+      :duplicates="duplicates"
+      @confirm="confirmDuplicates(collection.id)"
+      @cancel="dismissDuplicates(collection.id)"
+    />
     <AddUrlModal v-if="pendingUrl !== null" :url="pendingUrl" @add="confirmUrl" @cancel="pendingUrl = null" />
 
     <div v-if="collection.isOwner" class="documents-tab__living">
