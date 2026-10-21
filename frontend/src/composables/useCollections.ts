@@ -290,7 +290,9 @@ const TAB_LOADERS: Record<string, (id: string) => void | Promise<void>> = {
   chunks: refreshChunks,
   relations: refreshEntitiesAndRelations,
   evaluation: refreshEvaluation,
-  settings: (id) => Promise.all([refreshShares(id), refreshIndexRebuild(id)]),
+  settings: async (id) => {
+    await Promise.all([refreshShares(id), refreshIndexRebuild(id)])
+  },
   subcollections: refreshChildren,
 }
 
