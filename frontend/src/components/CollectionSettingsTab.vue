@@ -189,16 +189,17 @@ const SHARE_STATUS_LABEL: Record<'pending' | 'active', string> = { pending: 'En 
 // Une section à la fois, en carrousel. « Obligatoire » = étape que le pipeline d'indexation
 // exécute toujours ; visibilité et partages ne concernent que l'accès à la collection.
 const STEPS = [
-  { key: 'summary', label: 'Résumé', required: true },
-  { key: 'chunking', label: 'Découpage', required: true },
-  { key: 'embedding', label: "Modèle d'embedding", required: true },
-  { key: 'qa', label: 'Questions-réponses', required: true },
-  { key: 'extraction', label: 'Extraction', required: true },
-  { key: 'tagging', label: 'Tags automatiques', required: true },
-  { key: 'visibility', label: 'Visibilité', required: false },
-  { key: 'shares', label: 'Partages', required: false },
+  { key: 'summary', label: 'Résumé', required: true, hint: 'Comment chaque document est résumé à son indexation.' },
+  { key: 'chunking', label: 'Découpage', required: true, hint: 'Comment les documents sont découpés en morceaux (chunks) pour la recherche.' },
+  { key: 'embedding', label: "Modèle d'embedding", required: true, hint: 'Le modèle qui transforme les chunks en vecteurs pour la recherche sémantique.' },
+  { key: 'qa', label: 'Questions-réponses', required: true, hint: 'La génération de questions-réponses à partir des documents.' },
+  { key: 'extraction', label: 'Extraction', required: true, hint: "L'extraction des entités et de leurs relations dans les documents." },
+  { key: 'tagging', label: 'Tags automatiques', required: true, hint: 'Les tags ajoutés automatiquement à chaque document.' },
+  { key: 'visibility', label: 'Visibilité', required: false, hint: 'Rendre la collection publique pour tous les utilisateurs connectés.' },
+  { key: 'shares', label: 'Partages', required: false, hint: 'Inviter des personnes ou des groupes à consulter la collection.' },
 ] as const
-type StepKey = (typeof STEPS)[number]['key']
+type Step = (typeof STEPS)[number]
+type StepKey = Step['key']
 
 const stepIndex = ref(0)
 const currentStep = computed<StepKey>(() => STEPS[stepIndex.value].key)
@@ -214,6 +215,19 @@ watch(
 
 function requirementLabel(required: boolean) {
   return required ? 'Obligatoire' : 'Facultatif'
+}
+
+const REQUIREMENT_HINT = {
+  required: "Obligatoire : étape toujours exécutée par le pipeline d'indexation.",
+  optional: "Facultatif : ne concerne que l'accès à la collection, pas son indexation.",
+}
+
+function requirementHint(required: boolean) {
+  return required ? REQUIREMENT_HINT.required : REQUIREMENT_HINT.optional
+}
+
+function stepTooltipTitle(step: Step) {
+  return `${step.label} · ${requirementLabel(step.required)}`
 }
 </script>
 
@@ -231,11 +245,23 @@ function requirementLabel(required: boolean) {
       >
         <span class="settings-tab__step-number">{{ index + 1 }}</span>
         <span class="settings-tab__step-label">{{ step.label }}</span>
-        <span class="settings-tab__requirement" :class="`settings-tab__requirement--${step.required ? 'required' : 'optional'}`">
-          {{ requirementLabel(step.required) }}
+        <span
+          class="settings-tab__dot"
+          :class="`settings-tab__dot--${step.required ? 'required' : 'optional'}`"
+          :aria-label="requirementLabel(step.required)"
+        />
+        <span class="settings-tab__tooltip settings-tab__tooltip--below" role="tooltip">
+          <strong>{{ stepTooltipTitle(step) }}</strong>
+          {{ step.hint }}
         </span>
       </button>
     </nav>
+    <p class="settings-tab__legend">
+      <span class="settings-tab__dot settings-tab__dot--required" aria-hidden="true" />
+      Obligatoire : étape du pipeline d'indexation
+      <span class="settings-tab__dot settings-tab__dot--optional" aria-hidden="true" />
+      Facultatif : accès à la collection
+    </p>
 
     <form v-show="currentStep === 'summary'" class="settings-tab__section" @submit.prevent="saveSummary">
       <div class="settings-tab__header">
@@ -252,6 +278,7 @@ function requirementLabel(required: boolean) {
         <span
           class="settings-tab__requirement"
           :class="`settings-tab__requirement--${STEPS[stepIndex].required ? 'required' : 'optional'}`"
+          :title="requirementHint(STEPS[stepIndex].required)"
         >
           {{ requirementLabel(STEPS[stepIndex].required) }}
         </span>
@@ -311,6 +338,7 @@ function requirementLabel(required: boolean) {
         <span
           class="settings-tab__requirement"
           :class="`settings-tab__requirement--${STEPS[stepIndex].required ? 'required' : 'optional'}`"
+          :title="requirementHint(STEPS[stepIndex].required)"
         >
           {{ requirementLabel(STEPS[stepIndex].required) }}
         </span>
@@ -410,6 +438,7 @@ function requirementLabel(required: boolean) {
         <span
           class="settings-tab__requirement"
           :class="`settings-tab__requirement--${STEPS[stepIndex].required ? 'required' : 'optional'}`"
+          :title="requirementHint(STEPS[stepIndex].required)"
         >
           {{ requirementLabel(STEPS[stepIndex].required) }}
         </span>
@@ -466,6 +495,7 @@ function requirementLabel(required: boolean) {
         <span
           class="settings-tab__requirement"
           :class="`settings-tab__requirement--${STEPS[stepIndex].required ? 'required' : 'optional'}`"
+          :title="requirementHint(STEPS[stepIndex].required)"
         >
           {{ requirementLabel(STEPS[stepIndex].required) }}
         </span>
@@ -544,6 +574,7 @@ function requirementLabel(required: boolean) {
         <span
           class="settings-tab__requirement"
           :class="`settings-tab__requirement--${STEPS[stepIndex].required ? 'required' : 'optional'}`"
+          :title="requirementHint(STEPS[stepIndex].required)"
         >
           {{ requirementLabel(STEPS[stepIndex].required) }}
         </span>
@@ -615,6 +646,7 @@ function requirementLabel(required: boolean) {
         <span
           class="settings-tab__requirement"
           :class="`settings-tab__requirement--${STEPS[stepIndex].required ? 'required' : 'optional'}`"
+          :title="requirementHint(STEPS[stepIndex].required)"
         >
           {{ requirementLabel(STEPS[stepIndex].required) }}
         </span>
@@ -661,6 +693,7 @@ function requirementLabel(required: boolean) {
         <span
           class="settings-tab__requirement"
           :class="`settings-tab__requirement--${STEPS[stepIndex].required ? 'required' : 'optional'}`"
+          :title="requirementHint(STEPS[stepIndex].required)"
         >
           {{ requirementLabel(STEPS[stepIndex].required) }}
         </span>
@@ -704,6 +737,7 @@ function requirementLabel(required: boolean) {
         <span
           class="settings-tab__requirement"
           :class="`settings-tab__requirement--${STEPS[stepIndex].required ? 'required' : 'optional'}`"
+          :title="requirementHint(STEPS[stepIndex].required)"
         >
           {{ requirementLabel(STEPS[stepIndex].required) }}
         </span>
@@ -774,10 +808,16 @@ function requirementLabel(required: boolean) {
         class="settings-tab__pager-button"
         @click="stepIndex--"
       >
-        <span class="settings-tab__pager-direction">← Précédent</span>
+        <span aria-hidden="true">←</span>
         <span class="settings-tab__pager-label">{{ previousStep.label }}</span>
-        <span class="settings-tab__requirement" :class="`settings-tab__requirement--${previousStep.required ? 'required' : 'optional'}`">
-          {{ requirementLabel(previousStep.required) }}
+        <span
+          class="settings-tab__dot"
+          :class="`settings-tab__dot--${previousStep.required ? 'required' : 'optional'}`"
+          :aria-label="requirementLabel(previousStep.required)"
+        />
+        <span class="settings-tab__tooltip" role="tooltip">
+          <strong>Section précédente : {{ stepTooltipTitle(previousStep) }}</strong>
+          {{ previousStep.hint }}
         </span>
       </button>
       <span class="settings-tab__pager-position">{{ stepIndex + 1 }} / {{ STEPS.length }}</span>
@@ -787,10 +827,16 @@ function requirementLabel(required: boolean) {
         class="settings-tab__pager-button settings-tab__pager-button--next"
         @click="stepIndex++"
       >
-        <span class="settings-tab__pager-direction">Suivant →</span>
+        <span
+          class="settings-tab__dot"
+          :class="`settings-tab__dot--${nextStep.required ? 'required' : 'optional'}`"
+          :aria-label="requirementLabel(nextStep.required)"
+        />
         <span class="settings-tab__pager-label">{{ nextStep.label }}</span>
-        <span class="settings-tab__requirement" :class="`settings-tab__requirement--${nextStep.required ? 'required' : 'optional'}`">
-          {{ requirementLabel(nextStep.required) }}
+        <span aria-hidden="true">→</span>
+        <span class="settings-tab__tooltip settings-tab__tooltip--end" role="tooltip">
+          <strong>Section suivante : {{ stepTooltipTitle(nextStep) }}</strong>
+          {{ nextStep.hint }}
         </span>
       </button>
     </div>
@@ -805,19 +851,20 @@ function requirementLabel(required: boolean) {
   max-width: 48rem;
 }
 
+/* Wraps instead of scrolling sideways: every step stays in view, lined up
+   with the card below, and their tooltips aren't clipped. */
 .settings-tab__steps {
   display: flex;
-  gap: 0.5rem;
-  overflow-x: auto;
-  padding-bottom: 0.25rem;
+  flex-wrap: wrap;
+  gap: 0.375rem;
 }
 
 .settings-tab__step {
-  flex-shrink: 0;
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 0.75rem;
+  gap: 0.375rem;
+  padding: 0.3125rem 0.625rem;
   border: 1px solid var(--border-default-grey);
   border-radius: 0.5rem;
   background: var(--background-default-grey);
@@ -841,11 +888,11 @@ function requirementLabel(required: boolean) {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 1.375rem;
-  height: 1.375rem;
+  width: 1.25rem;
+  height: 1.25rem;
   border-radius: 50%;
   background: var(--background-alt-grey);
-  font-size: 0.75rem;
+  font-size: 0.6875rem;
   font-weight: 700;
 }
 
@@ -872,6 +919,78 @@ function requirementLabel(required: boolean) {
   color: var(--text-mention-grey);
 }
 
+.settings-tab__dot {
+  flex-shrink: 0;
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+}
+
+.settings-tab__dot--required {
+  background: var(--background-action-high-orange-terre-battue, #e4794a);
+}
+
+.settings-tab__dot--optional {
+  border: 1px solid var(--border-plain-grey, #929292);
+}
+
+.settings-tab__legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem;
+  margin: -0.5rem 0 0;
+  font-size: 0.75rem;
+  color: var(--text-mention-grey);
+}
+
+.settings-tab__legend .settings-tab__dot--optional {
+  margin-left: 0.75rem;
+}
+
+/* Same look as the quality dashboard's tooltips, shown on hover or keyboard focus. */
+.settings-tab__tooltip {
+  position: absolute;
+  bottom: calc(100% + 0.5rem);
+  left: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  width: max-content;
+  max-width: 18rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--text-default-grey, #1e1e1e);
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 400;
+  line-height: 1.4;
+  text-align: left;
+  white-space: normal;
+  border-radius: 0.375rem;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.settings-tab__tooltip--below {
+  top: calc(100% + 0.5rem);
+  bottom: auto;
+}
+
+.settings-tab__tooltip--end {
+  left: auto;
+  right: 0;
+}
+
+.settings-tab__step:hover .settings-tab__tooltip,
+.settings-tab__step:focus-visible .settings-tab__tooltip,
+.settings-tab__pager-button:hover .settings-tab__tooltip,
+.settings-tab__pager-button:focus-visible .settings-tab__tooltip {
+  opacity: 1;
+}
+
 .settings-tab__pager {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
@@ -880,39 +999,35 @@ function requirementLabel(required: boolean) {
 }
 
 .settings-tab__pager-button {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.25rem;
+  position: relative;
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  max-width: 100%;
   min-width: 0;
-  padding: 0.625rem 0.875rem;
+  padding: 0.3125rem 0.75rem;
   border: 1px solid var(--border-default-grey);
-  border-radius: 0.75rem;
+  border-radius: 0.5rem;
   background: var(--background-default-grey);
-  color: var(--text-default-grey);
+  color: var(--text-action-high-blue-france);
   font: inherit;
-  text-align: left;
+  font-size: 0.8125rem;
   cursor: pointer;
 }
 
 .settings-tab__pager-button:hover {
   border-color: var(--border-action-high-blue-france);
+  background: var(--background-alt-blue-france);
 }
 
 .settings-tab__pager-button--next {
   grid-column: 3;
-  align-items: flex-end;
-  text-align: right;
-}
-
-.settings-tab__pager-direction {
-  font-size: 0.75rem;
-  color: var(--text-action-high-blue-france);
+  justify-self: end;
 }
 
 .settings-tab__pager-label {
-  max-width: 100%;
-  font-size: 0.875rem;
+  min-width: 0;
   font-weight: 700;
   overflow: hidden;
   text-overflow: ellipsis;
