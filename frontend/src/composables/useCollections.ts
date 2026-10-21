@@ -20,21 +20,6 @@ import type {
   ShareSubjectType,
 } from '../types/collection'
 
-function qa(
-  question: string,
-  answer: string,
-  opts: { source?: string; origin?: QaPair['origin']; validated?: boolean } = {},
-): QaPair {
-  return {
-    id: crypto.randomUUID(),
-    question,
-    answer,
-    source: opts.source,
-    origin: opts.origin ?? 'generated',
-    validated: opts.validated ?? false,
-  }
-}
-
 // Backend response is snake_case; the rest of the app uses camelCase.
 interface CollectionOut {
   id: string
@@ -560,16 +545,39 @@ async function refreshDocuments(collectionId: string) {
   }
 }
 
+interface QaPairOut {
+  id: string
+  question: string
+  answer: string
+  source?: string
+  origin: QaPair['origin']
+  validated: boolean
+  golden: boolean
+  relevant_documents: { id: string; name: string }[]
+}
+
+function toQaPair(raw: QaPairOut): QaPair {
+  return {
+    id: raw.id,
+    question: raw.question,
+    answer: raw.answer,
+    source: raw.source ?? undefined,
+    origin: raw.origin,
+    validated: raw.validated,
+    golden: raw.golden,
+    relevantDocuments: raw.relevant_documents ?? [],
+  }
+}
+
 async function refreshQaPairs(collectionId: string) {
   try {
     const response = await fetch(`${API_BASE_URL}/api/collections/${collectionId}/qa-pairs`, {
       credentials: 'include',
     })
     if (!response.ok) return
-    // Field names already match QaPair (id/question/answer/source/origin/validated) - no mapping needed.
-    const raw: QaPair[] = await response.json()
+    const raw: QaPairOut[] = await response.json()
     const collection = collections.value.find((item) => item.id === collectionId)
-    if (collection) collection.qaPairs = raw
+    if (collection) collection.qaPairs = raw.map(toQaPair)
   } catch {
     // Ignored: the tab just keeps whatever it last had; a manual reopen retries.
   }
@@ -626,12 +634,18 @@ interface EvaluationRunOut {
   snapshot_chunk_size: number
   snapshot_chunk_overlap: number
   snapshot_embedding_model: string
-  precision_at_k: number
-  recall_at_k: number
-  mrr: number
-  ndcg: number
+  precision_at_k: number | null
+  recall_at_k: number | null
+  mrr: number | null
+  ndcg: number | null
+  golden_pair_count: number
+  golden_precision_at_k: number | null
+  golden_recall_at_k: number | null
+  golden_mrr: number | null
+  golden_ndcg: number | null
   results: {
     qa_pair_id: string | null
+    golden: boolean
     question: string
     expected_answer: string
     generated_answer: string
@@ -665,12 +679,24 @@ async function refreshEvaluation(collectionId: string) {
         chunkOverlap: run.snapshot_chunk_overlap,
         embeddingModel: run.snapshot_embedding_model,
       },
-      metrics: {
-        precisionAtK: run.precision_at_k,
-        recallAtK: run.recall_at_k,
-        mrr: run.mrr,
-        ndcg: run.ndcg,
-      },
+      metrics:
+        run.precision_at_k === null || run.recall_at_k === null || run.mrr === null || run.ndcg === null
+          ? null
+          : { precisionAtK: run.precision_at_k, recallAtK: run.recall_at_k, mrr: run.mrr, ndcg: run.ndcg },
+      goldenMetrics:
+        run.golden_pair_count > 0 &&
+        run.golden_precision_at_k !== null &&
+        run.golden_recall_at_k !== null &&
+        run.golden_mrr !== null &&
+        run.golden_ndcg !== null
+          ? {
+              pairCount: run.golden_pair_count,
+              precisionAtK: run.golden_precision_at_k,
+              recallAtK: run.golden_recall_at_k,
+              mrr: run.golden_mrr,
+              ndcg: run.golden_ndcg,
+            }
+          : null,
       results: run.results.map((result) => ({
         qaPairId: result.qa_pair_id ?? '',
         question: result.question,
@@ -681,6 +707,7 @@ async function refreshEvaluation(collectionId: string) {
         recallAtK: result.recall_at_k,
         reciprocalRank: result.reciprocal_rank,
         ndcg: result.ndcg,
+        golden: result.golden,
       })),
     }))
   } catch {
@@ -801,25 +828,85 @@ async function removeDocument(collectionId: string, documentId: string) {
   if (collection) setDocuments(collection, collection.documents.filter((item) => item.id !== documentId))
 }
 
-function addQaPair(collectionId: string, question: string, answer: string) {
-  const collection = collections.value.find((item) => item.id === collectionId)
-  if (!collection || !question.trim() || !answer.trim()) return
-  // Écrite à la main dans l'UI : considérée validée d'office, pas de source document.
-  collection.qaPairs.push(qa(question.trim(), answer.trim(), { origin: 'manual', validated: true }))
-  collection.updatedAt = new Date().toISOString()
+const qaError = ref<string | null>(null)
+
+function qaUrl(collectionId: string, suffix = ''): string {
+  return `${API_BASE_URL}/api/collections/${collectionId}/qa-pairs${suffix}`
 }
 
-function removeQaPair(collectionId: string, qaPairId: string) {
+// A pair written by hand, saved on the backend: a reference the assistant answers from, or - `golden` -
+// a test question that is never in the retriever and only measures it (#260). Resolves to whether it
+// was saved, so the form keeps what was typed on a failure (qaError says why).
+async function addQaPair(
+  collectionId: string,
+  question: string,
+  answer: string,
+  options: { golden?: boolean; relevantDocumentIds?: string[] } = {},
+): Promise<boolean> {
+  const collection = collections.value.find((item) => item.id === collectionId)
+  if (!collection || !question.trim() || !answer.trim()) return false
+  qaError.value = null
+  try {
+    const response = await fetch(qaUrl(collectionId), {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        question: question.trim(),
+        answer: answer.trim(),
+        golden: options.golden ?? false,
+        relevant_document_ids: options.relevantDocumentIds ?? [],
+      }),
+    })
+    if (!response.ok) {
+      qaError.value = `La question n'a pas pu être enregistrée (${response.status}).`
+      return false
+    }
+    collection.qaPairs.unshift(toQaPair(await response.json()))
+    collection.updatedAt = new Date().toISOString()
+    return true
+  } catch {
+    qaError.value = 'La question n’a pas pu être enregistrée : le serveur est inaccessible.'
+    return false
+  }
+}
+
+async function removeQaPair(collectionId: string, qaPairId: string) {
   const collection = collections.value.find((item) => item.id === collectionId)
   if (!collection) return
-  collection.qaPairs = collection.qaPairs.filter((item) => item.id !== qaPairId)
+  qaError.value = null
+  try {
+    const response = await fetch(qaUrl(collectionId, `/${qaPairId}`), { method: 'DELETE', credentials: 'include' })
+    if (!response.ok && response.status !== 404) {
+      qaError.value = `La question n'a pas pu être retirée (${response.status}).`
+      return
+    }
+    collection.qaPairs = collection.qaPairs.filter((item) => item.id !== qaPairId)
+  } catch {
+    qaError.value = 'La question n’a pas pu être retirée : le serveur est inaccessible.'
+  }
 }
 
-function toggleQaValidation(collectionId: string, qaPairId: string) {
+async function toggleQaValidation(collectionId: string, qaPairId: string) {
   const collection = collections.value.find((item) => item.id === collectionId)
   const pair = collection?.qaPairs.find((item) => item.id === qaPairId)
-  if (!pair) return
-  pair.validated = !pair.validated
+  if (!pair || pair.golden) return
+  qaError.value = null
+  try {
+    const response = await fetch(qaUrl(collectionId, `/${qaPairId}`), {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ validated: !pair.validated }),
+    })
+    if (!response.ok) {
+      qaError.value = `La validation n'a pas pu être enregistrée (${response.status}).`
+      return
+    }
+    pair.validated = !pair.validated
+  } catch {
+    qaError.value = 'La validation n’a pas pu être enregistrée : le serveur est inaccessible.'
+  }
 }
 
 async function patchSettings(id: string, body: Record<string, unknown>) {
@@ -1016,6 +1103,7 @@ export function useCollections() {
     addQaPair,
     removeQaPair,
     toggleQaValidation,
+    qaError,
     refreshQaPairs,
     refreshChunks,
     refreshEntitiesAndRelations,

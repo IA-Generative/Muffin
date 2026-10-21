@@ -32,6 +32,7 @@ class EvaluationResultOut(BaseModel):
     reciprocal_rank: float
     ndcg: float
     validated: bool
+    golden: bool = False
     retrieved_sources: list[str]
 
 
@@ -46,11 +47,17 @@ class EvaluationRunOut(BaseModel):
     snapshot_chunk_size: int
     snapshot_chunk_overlap: int
     snapshot_embedding_model: str
-    # Global aggregate - every evaluated pair, validated and not.
-    precision_at_k: float
-    recall_at_k: float
-    mrr: float
-    ndcg: float
+    # Global aggregate over the pairs that aren't golden - None when the run only had golden pairs.
+    precision_at_k: float | None
+    recall_at_k: float | None
+    mrr: float | None
+    ndcg: float | None
+    # The golden (test) pairs, scored apart - the numbers to follow over time. None when there are none.
+    golden_pair_count: int = 0
+    golden_precision_at_k: float | None = None
+    golden_recall_at_k: float | None = None
+    golden_mrr: float | None = None
+    golden_ndcg: float | None = None
     # Same four metrics, broken down by whether the QA pair was validated at evaluation time -
     # None when that subset is empty (see EvaluationRun's own docstring).
     validated_pair_count: int

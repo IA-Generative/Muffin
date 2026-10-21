@@ -84,6 +84,11 @@ class EvaluationService:
             recall_at_k=run.recall_at_k,
             mrr=run.mrr,
             ndcg=run.ndcg,
+            golden_pair_count=run.golden_pair_count,
+            golden_precision_at_k=run.golden_precision_at_k,
+            golden_recall_at_k=run.golden_recall_at_k,
+            golden_mrr=run.golden_mrr,
+            golden_ndcg=run.golden_ndcg,
             validated_pair_count=run.validated_pair_count,
             validated_precision_at_k=run.validated_precision_at_k,
             validated_recall_at_k=run.validated_recall_at_k,
@@ -107,6 +112,7 @@ class EvaluationService:
                     reciprocal_rank=result.reciprocal_rank,
                     ndcg=result.ndcg,
                     validated=result.validated,
+                    golden=result.golden,
                     retrieved_sources=[source.source for source in result.retrieved_sources],
                 )
                 for result in run.results
