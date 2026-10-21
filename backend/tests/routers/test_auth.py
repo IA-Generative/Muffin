@@ -142,3 +142,5 @@ async def test_me_returns_the_dev_identity_under_full_access_mode(client):
 
     assert response.status_code == 200
     assert response.json()["user_id"] == "dev-user"
+    # The frontend offers these when sharing a collection with a group.
+    assert isinstance(response.json()["groups"], list)

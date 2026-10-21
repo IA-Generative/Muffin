@@ -13,11 +13,12 @@ interface AuthMe {
   last_name: string
   roles: string[]
   is_admin: boolean
+  groups?: string[]
 }
 
 function toUser(me: AuthMe): User {
   const name = [me.first_name, me.last_name].filter(Boolean).join(' ')
-  return { name: name || me.email || me.user_id, email: me.email, isAdmin: me.is_admin }
+  return { name: name || me.email || me.user_id, email: me.email, isAdmin: me.is_admin, groups: me.groups ?? [] }
 }
 
 // Module-level singleton: the whole app shares one auth state.
