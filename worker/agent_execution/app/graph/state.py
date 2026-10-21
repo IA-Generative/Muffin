@@ -135,8 +135,16 @@ class AgentState(TypedDict):
     # can't be acted on as is, {"clarification": "..."} with what to tell the user instead.
     edit_target: dict[str, Any] | None
     # What delegate_edit hands back with the answer so the chat can show the proposal next to it:
-    # {"collection_id", "document_id", "document_name"}.
+    # {"collection_id", "document_id", "document_name"} for a change to a document - or, for a new
+    # Markdown document the agent wrote (delegate_create), {"kind": "create", "status", "collection_id",
+    # "collection_name", "name", "content"}: created only once the user validates it.
     edit_proposal: dict[str, Any] | None
+
+    # --- a new Markdown document, written on request ---
+    # Set by detect_create when the message asks to create a document: {"collection_id",
+    # "collection_name", "title", "instruction"} - or {"clarification": "..."} with what to tell the
+    # user instead (which collection? only Markdown is possible).
+    create_target: dict[str, Any] | None
 
     # --- understanding (§5/§6) ---
     query_analysis: dict[str, Any]

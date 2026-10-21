@@ -120,10 +120,17 @@ class LivingDocumentService:
         return DocumentOut.model_validate(document)
 
     async def create_markdown(
-        self, collection_id: uuid.UUID, user: RequestContext, name: str, content: str
+        self,
+        collection_id: uuid.UUID,
+        user: RequestContext,
+        name: str,
+        content: str,
+        *,
+        origin: RevisionOrigin = RevisionOrigin.UI,
     ) -> DocumentOut:
-        """A Markdown living document written from scratch in the UI, rather than uploaded: the
-        same Document + revision 1 as an upload, just with origin=ui."""
+        """A Markdown living document written from scratch (in the UI, or by the agent and validated
+        by the user), rather than uploaded: the same Document + revision 1 as an upload, with the
+        origin that says who wrote it."""
         base = os.path.basename(name.strip()) or "document"
         filename = base if base.lower().endswith(".md") else f"{base}.md"
         return await self.create(
@@ -132,7 +139,7 @@ class LivingDocumentService:
             filename,
             content.encode("utf-8"),
             FORMAT_MEDIA_TYPES["md"],
-            origin=RevisionOrigin.UI,
+            origin=origin,
         )
 
     async def download(

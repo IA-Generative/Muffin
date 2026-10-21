@@ -103,6 +103,7 @@ class AgentService:
                 "accessible_vdbs": [],
                 "edit_target": None,
                 "edit_proposal": None,
+                "create_target": None,
                 "query_analysis": {},
                 "research_plan": {},
                 "research_tasks": [],

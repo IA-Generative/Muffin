@@ -7,6 +7,7 @@ import type {
   ConversationFile,
   DiscussionFeedback,
   DiscussionScore,
+  CreationProposal,
   EditProposal,
   ExecutionEvent,
   FeedbackDetails,
@@ -60,21 +61,51 @@ interface MessageOut {
   created_at: string
   run_id: string | null
   citations: Citation[] | null
-  edit_proposal: EditProposalOut | null
+  edit_proposal: ProposalOut | null
   unexplored_collection_ids?: string[] | null
   feedback: 'up' | 'down' | null
 }
 
-// Backend shape (snake_case) of Run.edit_proposal - see backend/app/models/run.py.
+// Backend shape (snake_case) of Run.edit_proposal - see backend/app/models/run.py. Two kinds share
+// the column: a change to an existing document (no `kind`), and a new Markdown document to create.
 interface EditProposalOut {
   collection_id: string
   document_id: string
   document_name: string
 }
 
-function toEditProposal(raw: EditProposalOut | null | undefined): EditProposal | undefined {
-  return raw
+interface CreationProposalOut {
+  kind: 'create'
+  status: CreationProposal['status']
+  collection_id: string
+  collection_name: string
+  name: string
+  content: string
+  document_id?: string
+}
+
+type ProposalOut = EditProposalOut | CreationProposalOut
+
+function isCreation(raw: ProposalOut | null | undefined): raw is CreationProposalOut {
+  return !!raw && 'kind' in raw && raw.kind === 'create'
+}
+
+function toEditProposal(raw: ProposalOut | null | undefined): EditProposal | undefined {
+  return raw && !isCreation(raw)
     ? { collectionId: raw.collection_id, documentId: raw.document_id, documentName: raw.document_name }
+    : undefined
+}
+
+function toCreationProposal(raw: ProposalOut | null | undefined): CreationProposal | undefined {
+  return isCreation(raw)
+    ? {
+        status: raw.status,
+        collectionId: raw.collection_id,
+        collectionName: raw.collection_name,
+        name: raw.name,
+        content: raw.content,
+        documentId: raw.document_id,
+      }
     : undefined
 }
 
@@ -95,7 +126,7 @@ interface RunOut {
   pending_human_action: { question?: string } | null
   answer: string | null
   citations: Citation[] | null
-  edit_proposal: EditProposalOut | null
+  edit_proposal: ProposalOut | null
   unexplored_collection_ids?: string[] | null
   error: string | null
 }
@@ -313,6 +344,7 @@ async function ensureMessagesLoaded(conversationId: string) {
         runId: item.run_id ?? undefined,
         feedback: item.feedback ?? null,
         editProposal: toEditProposal(item.edit_proposal),
+        creationProposal: toCreationProposal(item.edit_proposal),
         unexploredCollectionIds: item.unexplored_collection_ids ?? undefined,
       }
     })
@@ -896,6 +928,7 @@ function assistantMessageFor(id: string, run: RunOut): ChatMessage {
       sources,
       runId: run.id,
       editProposal: toEditProposal(run.edit_proposal),
+      creationProposal: toCreationProposal(run.edit_proposal),
       unexploredCollectionIds: run.unexplored_collection_ids ?? undefined,
     }
   }
