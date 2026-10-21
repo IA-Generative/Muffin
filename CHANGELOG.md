@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.19.0](https://github.com/IA-Generative/Muffin/compare/v0.18.0...v0.19.0) (2026-10-21)
+
+
+### Features
+
+* **chat:** suggest starter questions on a new conversation, answered from the stored QA pair ([07a9425](https://github.com/IA-Generative/Muffin/commit/07a942595509bd9d9848a6bb43e127f146b1de00))
+* **collections:** rebuild a collection's search index blue/green on an embedding model change ([7b1a695](https://github.com/IA-Generative/Muffin/commit/7b1a6954c8606524e3cc6adf11b31f7715aa97d7))
+* **documents:** refresh URL documents on a schedule, reindexing only when the page changed ([01d9592](https://github.com/IA-Generative/Muffin/commit/01d959273d460552d9a44967471d9b75ae9f5769)), closes [#19](https://github.com/IA-Generative/Muffin/issues/19)
+* **evaluation:** add golden QA pairs, kept out of the retriever, to measure it fairly ([d612583](https://github.com/IA-Generative/Muffin/commit/d6125839a042ffc8eef7acce85de530585beee4a))
+
+
+### Bug Fixes
+
+* **collections:** import ZIPs of any size, streamed to storage and extracted member by member ([3ffb006](https://github.com/IA-Generative/Muffin/commit/3ffb00670c72211aa180110967b80f7bcf28688d))
+* **collections:** refuse a ZIP announcing too many entries before reading its directory ([06a8394](https://github.com/IA-Generative/Muffin/commit/06a83945bdb5fd10dd4fa91edc296786d3d9e657))
+* **frontend:** settings tab loader must resolve to void for the strict build ([3e61561](https://github.com/IA-Generative/Muffin/commit/3e6156155e6dec61bd3d1cee044a1bba05896502))
+
 ## [0.19.0-rc.2](https://github.com/IA-Generative/Muffin/compare/v0.19.0-rc.1...v0.19.0-rc.2) (2026-10-21)
 
 
