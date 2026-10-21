@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.1-rc](https://github.com/IA-Generative/Muffin/compare/v0.17.0...v0.17.1-rc) (2026-10-21)
+
+
+### Bug Fixes
+
+* **security:** clear the Trivy alerts and make the CI fail on fixable critical ones ([484734d](https://github.com/IA-Generative/Muffin/commit/484734d9dd2aa46ac73689cd5473e9c84f8109f2))
+
 ## [0.17.0](https://github.com/IA-Generative/Muffin/compare/v0.16.0...v0.17.0) (2026-10-21)
 
 
