@@ -10,6 +10,7 @@ from app.config import LlmSettings
 from app.connectors import redis_connector
 from app.core.security.worker_auth import require_worker_api_key
 from app.db import get_db
+from app.models.token_usage import TokenUsageKind
 from app.repositories.app_settings_repository import AppSettingsRepository
 from app.schemas.internal_pipeline import (
     LlmChatRequest,
@@ -17,6 +18,7 @@ from app.schemas.internal_pipeline import (
     LlmEmbedRequest,
     LlmEmbedResponse,
 )
+from app.services.usage_service import UsageService
 
 # Not user-facing: the worker's only path to the LLM hub, so it never needs
 # its own OPENAI_API_KEY. Authenticated with the shared worker API key.
@@ -102,7 +104,7 @@ async def _default_embedding_model(db: AsyncSession) -> str | None:
     summary="Run a chat completion on the worker's behalf",
     response_model=LlmChatResponse,
 )
-async def chat(request: LlmChatRequest) -> LlmChatResponse:
+async def chat(request: LlmChatRequest, db: Annotated[AsyncSession, Depends(get_db)]) -> LlmChatResponse:
     if _openai_client is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -114,6 +116,14 @@ async def chat(request: LlmChatRequest) -> LlmChatResponse:
         max_tokens=request.max_tokens,
     )
     usage = completion.usage
+    # Every worker LLM call goes through here - the one place consumption can't be missed.
+    await UsageService(db).record(
+        request.usage,
+        TokenUsageKind.CHAT,
+        request.model,
+        usage.prompt_tokens if usage else None,
+        usage.completion_tokens if usage else None,
+    )
     return LlmChatResponse(
         content=completion.choices[0].message.content or "",
         prompt_tokens=usage.prompt_tokens if usage else None,
@@ -134,13 +144,17 @@ async def default_chat_model() -> dict[str, str | None]:
     summary="Embed a piece of text on the worker's behalf",
     response_model=LlmEmbedResponse,
 )
-async def embed(request: LlmEmbedRequest) -> LlmEmbedResponse:
+async def embed(request: LlmEmbedRequest, db: Annotated[AsyncSession, Depends(get_db)]) -> LlmEmbedResponse:
     if _openai_client is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="LLM hub is not configured",
         )
     result = await _openai_client.embeddings.create(model=request.model, input=request.input)
+    usage = getattr(result, "usage", None)
+    await UsageService(db).record(
+        request.usage, TokenUsageKind.EMBEDDING, request.model, usage.prompt_tokens if usage else None, 0
+    )
     return LlmEmbedResponse(embedding=result.data[0].embedding)
 
 

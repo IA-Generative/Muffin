@@ -34,6 +34,7 @@ from app.routers.quality import router as quality_router
 from app.routers.reports import router as reports_router
 from app.routers.runs import router as runs_router
 from app.routers.tasks import router as tasks_router
+from app.routers.usage import router as usage_router
 
 _keycloak_settings = KeycloakSettings()
 
@@ -114,6 +115,7 @@ app.include_router(cgu_router, prefix="/api")
 app.include_router(admin_reports_router, prefix="/api")
 app.include_router(reports_router, prefix="/api")
 app.include_router(quality_router, prefix="/api")
+app.include_router(usage_router, prefix="/api")
 app.include_router(internal_documents_router, prefix="/api")
 app.include_router(internal_document_drafts_router, prefix="/api")
 app.include_router(internal_edit_requests_router, prefix="/api")

@@ -17,6 +17,7 @@ from app.core.security.session import PendingAuth
 from app.core.sharing import SharingNotConfiguredError, hash_identifier, normalize_email, normalize_group
 from app.db import get_db
 from app.repositories.collection_repository import CollectionRepository
+from app.services.usage_service import UsageService
 
 router = APIRouter(tags=["Auth"])
 
@@ -194,5 +195,10 @@ async def logout(request: Request, response: Response) -> dict:
 
 
 @router.get("/me", summary="Return the current user's profile")
-async def me(user: Annotated[RequestContext, Depends(get_current_user)]) -> RequestContext:
+async def me(
+    user: Annotated[RequestContext, Depends(get_current_user)], db: Annotated[AsyncSession, Depends(get_db)]
+) -> RequestContext:
+    # Asked on every app load: keeps the name the admin consumption view shows for this user
+    # current, without a users table of its own (see UserProfile).
+    await UsageService(db).save_profile(user)
     return user
