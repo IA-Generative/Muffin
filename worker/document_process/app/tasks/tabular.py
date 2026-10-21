@@ -9,7 +9,7 @@ vectorielle classique - voir issue #69, question ouverte 1).
 Le résumé et les QA sont générés à partir du profil tabulaire (prompt dédié,
 plus compact et pertinent qu'un dump CSV), mais utilisent le même mécanisme
 d'envoi LLM (``_shared._chat``) et la même sauvegarde
-(``set_document_summary``, ``create_qa_pair``) que les documents classiques.
+(``set_document_summary``, ``replace_generated_qa``) que les documents classiques.
 ``chunk_document`` est ensuite appelé avec ``skip_summary=True``,
     ``skip_qa=True``, ``skip_chunking=True`` et ``skip_extraction=True`` :
     le chunking texte d'un CSV n'est pas pertinent pour la recherche

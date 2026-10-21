@@ -40,7 +40,7 @@ def chunk_document(
     generates its own summary and QA from the tabular profile (more compact
     and relevant than a CSV dump) before calling chunk_document. The tabular
     pipeline still uses the same LLM calls (``_shared._chat``) and the same
-    persistence (``set_document_summary``, ``create_qa_pair``) as the classic
+    persistence (``set_document_summary``, ``replace_generated_qa``) as the classic
     tasks — only the prompt differs.
 
     ``skip_chunking`` is also used by the tabular pipeline: a CSV dump chunked
@@ -95,6 +95,9 @@ def chunk_document(
                         },
                         embedding=embedding,
                     )
+                # Chunks are written with an upsert on their position, so a task run twice leaves the
+                # same ones; what a previous run cut after the last one goes, with its vectors (#299).
+                _shared.backend_client.prune_chunks(document_id, keep=len(chunks))
             else:
                 logger.info(f"Skipping chunking for document {document_id} (tabular pipeline)")
 

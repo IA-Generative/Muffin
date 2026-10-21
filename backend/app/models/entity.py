@@ -42,6 +42,10 @@ class EntityDocument(Base):
 
     entity_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("entities.id", ondelete="CASCADE"), primary_key=True)
     document_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True)
+    # The window of pages the mentions were extracted from ("pages:3-6", #299), so that extracting
+    # that window again replaces its mentions instead of adding them a second time. "" for a row
+    # written before this existed, whose window is unknown.
+    window_key: Mapped[str] = mapped_column(String, primary_key=True, default="", server_default="")
     mentions: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
 
@@ -60,6 +64,9 @@ class Relation(UUIDMixin, Base):
     from_entity_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("entities.id", ondelete="CASCADE"), nullable=False)
     to_entity_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("entities.id", ondelete="CASCADE"), nullable=False)
     type: Mapped[str] = mapped_column(String, nullable=False)
+    # The window of pages it was extracted from (#299), replaced as a whole when that window is
+    # extracted again. None for a relation written before this existed.
+    window_key: Mapped[str | None] = mapped_column(String, nullable=True)
 
     collection: Mapped["Collection"] = relationship(back_populates="relations")  # noqa: F821
     from_entity: Mapped["Entity"] = relationship(foreign_keys=[from_entity_id])

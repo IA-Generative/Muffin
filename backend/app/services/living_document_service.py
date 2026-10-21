@@ -17,6 +17,7 @@ from app.repositories.document_revision_repository import DocumentRevisionReposi
 from app.repositories.task_repository import TaskRepository
 from app.schemas.document import DocumentLockGrantOut, DocumentLockOut, DocumentOut, DocumentRevisionOut
 from app.services import vector_store
+from app.services.document_derived_data import DocumentDerivedData
 
 from .document_upload_service import DocumentNotFoundError, _uploader_display
 from .editing_rights import require_editable_collection
@@ -376,6 +377,7 @@ class LivingDocumentService:
         chunk_ids = await self.documents.list_chunk_ids(document.id)
         vector_store.delete_document_embeddings(collection_id, document.id, chunk_ids)
         orphaned_screenshot_keys = await self.documents.clear_content(document.id)
+        await DocumentDerivedData(self.db).clear(document, keep_validated_qa=True)
         await self.documents.set_current_file(document, storage_key)
         # The write ends the editing session it was done under.
         await self.documents.clear_lock(document)

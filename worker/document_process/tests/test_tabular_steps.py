@@ -297,13 +297,12 @@ class TestGenerateQaPairs:
         assert args[0] == "gpt-4o"  # model
         assert "3" in args[1]  # k=3 in system prompt
         # Same persistence as classic generate_qa_window
-        mock_shared.backend_client.create_qa_pair.assert_called_once()
-        call = mock_shared.backend_client.create_qa_pair.call_args
-        assert call.args[0] == "col-1"
-        assert call.args[1] == "doc-1"
-        assert call.args[2] == "How many rows?"
-        assert call.args[3] == "5"
-        assert call.args[4] == [0.3, 0.4]  # embedding
+        # In place of what an earlier run recorded for this document (#299).
+        mock_shared.backend_client.replace_generated_qa.assert_called_once()
+        call = mock_shared.backend_client.replace_generated_qa.call_args
+        assert call.args[:3] == ("col-1", "doc-1", "tabular")
+        (pair,) = call.args[3]
+        assert (pair["question"], pair["answer"], pair["embedding"]) == ("How many rows?", "5", [0.3, 0.4])
 
     def test_tolerates_embedding_failure(self, mock_shared, fake_profile, fake_settings):
         mock_shared._chat.return_value = '[{"question": "Q?", "answer": "A"}]'
@@ -312,7 +311,9 @@ class TestGenerateQaPairs:
         result = steps.generate_qa_pairs(fake_profile, "doc-1", "col-1", fake_settings)
 
         assert len(result) == 1
-        mock_shared.backend_client.create_qa_pair.assert_called_once_with("col-1", "doc-1", "Q?", "A", None)
+        mock_shared.backend_client.replace_generated_qa.assert_called_once_with(
+            "col-1", "doc-1", "tabular", [{"question": "Q?", "answer": "A", "embedding": None}]
+        )
 
     def test_skips_when_no_model_configured(self, mock_shared, fake_profile, fake_settings):
         mock_shared._model_for.return_value = None
@@ -321,7 +322,7 @@ class TestGenerateQaPairs:
 
         assert result == []
         mock_shared._chat.assert_not_called()
-        mock_shared.backend_client.create_qa_pair.assert_not_called()
+        mock_shared.backend_client.replace_generated_qa.assert_not_called()
 
     def test_raises_on_invalid_json(self, mock_shared, fake_profile, fake_settings):
         mock_shared._chat.return_value = "not json at all"

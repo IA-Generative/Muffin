@@ -3,6 +3,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from app.models.entity import EntityType
+
 
 class CollectionSettingsInternalOut(BaseModel):
     """What the worker needs to run the post-chunking pipeline for a
@@ -51,8 +53,7 @@ class DocumentTagsUpdate(BaseModel):
     tags: list[str]
 
 
-class QaPairCreate(BaseModel):
-    document_id: uuid.UUID | None = None
+class GeneratedQaPair(BaseModel):
     question: str
     answer: str
     # Computed worker-side (same pattern as ChunkCreate.embedding) - a QA pair with none is just
@@ -66,18 +67,42 @@ class QaPairCreate(BaseModel):
     source_excerpt: str | None = Field(default=None, max_length=4000)
 
 
-class EntityCreate(BaseModel):
-    document_id: uuid.UUID
-    name: str
-    type: str
-    mentions_delta: int = 1
+class GeneratedQaReplace(BaseModel):
+    """What one run of the pipeline generated (#299): the pairs of a window of a document's pages
+    ("window:3-4"), of a tabular profile ("tabular"), of a collection's description ("collection:..").
+    They replace what the previous run of the same key had recorded, so a task run twice leaves the
+    same pairs as one run. `document_id` is None for the pairs about a whole collection."""
 
-
-class RelationCreate(BaseModel):
     document_id: uuid.UUID | None = None
-    from_entity_id: uuid.UUID
-    to_entity_id: uuid.UUID
+    key: str = Field(min_length=1, max_length=200)
+    pairs: list[GeneratedQaPair]
+
+
+class ExtractedEntity(BaseModel):
+    name: str
+    type: EntityType
+    mentions: int = Field(default=1, ge=1)
+
+
+class ExtractedRelation(BaseModel):
+    # Entities are named, not identified: they are created by the same call.
+    from_name: str
+    to_name: str
     type: str
+
+
+class EntityWindowReplace(BaseModel):
+    """What was extracted from one window of a document's pages (#299), in place of what the previous
+    extraction of that window recorded."""
+
+    entities: list[ExtractedEntity]
+    relations: list[ExtractedRelation] = Field(default_factory=list)
+
+
+class Prune(BaseModel):
+    # How many pages (the first ones), or chunks, of a document to keep: what a previous, longer run
+    # left after them goes (#299).
+    keep: int = Field(ge=0)
 
 
 class LlmChatMessage(BaseModel):
@@ -108,13 +133,6 @@ class LlmChatResponse(BaseModel):
     content: str
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
-
-
-class EntityOut(BaseModel):
-    id: uuid.UUID
-    name: str
-    type: str
-    mentions: int
 
 
 class SubCollectionDescriptionOut(BaseModel):

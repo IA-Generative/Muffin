@@ -25,6 +25,7 @@ from app.schemas.document import (
 )
 from app.schemas.pagination import Page, PaginationParams
 from app.services import embedding_model_lookup, vector_store
+from app.services.document_derived_data import DocumentDerivedData
 
 from .collection_service import FALLBACK_EMBEDDING_MODEL, CollectionNotFoundError
 
@@ -202,16 +203,17 @@ class DocumentUploadService:
         return DocumentOut.model_validate(document)
 
     async def reprocess(self, document: Document, user_id: str) -> None:
-        """Runs the whole pipeline again on one document, from scratch: its embeddings, pages,
-        chunks and summary go, then processing is queued, which replaces all of it (and the QA,
-        entities and tags the pipeline derives). Used by a URL refresh that found the page changed
-        (#19) and by a living document's replacement. The task is recorded for `user_id`."""
+        """Runs the whole pipeline again on one document, from scratch: its embeddings, pages, chunks,
+        summary and what the pipeline derived (QA pairs, entities, relations - #299) go, then
+        processing is queued, which regenerates all of it. Used by a URL refresh that found the page
+        changed (#19) and by a living document's replacement. The task is recorded for `user_id`."""
         # Same reasoning as delete_document: clear_content wipes the Postgres chunks/pages, so their
         # Meilisearch embeddings must be deleted first or they'd survive as stale vectors pointing
         # at chunk ids that no longer exist.
         chunk_ids = await self.documents.list_chunk_ids(document.id)
         vector_store.delete_document_embeddings(document.collection_id, document.id, chunk_ids)
         orphaned_screenshot_keys = await self.documents.clear_content(document.id)
+        await DocumentDerivedData(self.db).clear(document, keep_validated_qa=True)
         await self.documents.update_status(document, DocumentStatus.PENDING, progress=0, summary=None)
         await self.db.commit()
         storage.delete_objects(orphaned_screenshot_keys)
@@ -345,6 +347,8 @@ class DocumentUploadService:
         # results pointing at a document_id that no longer exists (FK violation at citation
         # materialization time, see SourceRepository.link_citations).
         vector_store.delete_document_embeddings(collection_id, document_id, chunk_ids)
+        # The pairs, entities and relations generated from it go with it (#299).
+        await DocumentDerivedData(self.db).clear(document, keep_validated_qa=False)
         await self.documents.delete(document)
         await self.db.commit()
         storage.delete_objects(rustfs_keys)
@@ -423,6 +427,8 @@ class DocumentUploadService:
         chunk_ids = await self.documents.list_chunk_ids(document.id)
         vector_store.delete_document_embeddings(old_collection_id, document.id, chunk_ids)
         orphaned_screenshot_keys = await self.documents.clear_content(document.id)
+        # Before it moves: they belong to the collection it leaves.
+        await DocumentDerivedData(self.db).clear(document, keep_validated_qa=True)
         await self.documents.move_to_collection(document, target_collection_id)
         await self.db.commit()
         storage.delete_objects(orphaned_screenshot_keys)
