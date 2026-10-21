@@ -45,10 +45,27 @@ class BackendClient:
         response.raise_for_status()
         return response.json()["id"]
 
-    def add_imported_document(self, import_id: str, collection_id: str, name: str, storage_key: str) -> str:
+    def is_imported_duplicate(self, import_id: str, collection_id: str, content_hash: str) -> bool:
+        """Whether the collection already holds a file of this hash (#300) - asked before a file of the
+        archive is stored, so that a duplicate is neither stored nor processed."""
+        response = self._client.post(
+            f"/api/internal/collection-imports/{import_id}/documents/check",
+            json={"collection_id": collection_id, "content_hash": content_hash},
+        )
+        response.raise_for_status()
+        return response.json()["duplicate"]
+
+    def add_imported_document(
+        self, import_id: str, collection_id: str, name: str, storage_key: str, content_hash: str
+    ) -> str:
         response = self._client.post(
             f"/api/internal/collection-imports/{import_id}/documents",
-            json={"collection_id": collection_id, "name": name, "storage_key": storage_key},
+            json={
+                "collection_id": collection_id,
+                "name": name,
+                "storage_key": storage_key,
+                "content_hash": content_hash,
+            },
         )
         response.raise_for_status()
         return response.json()["id"]

@@ -79,6 +79,8 @@ class DocumentUrlCreate(BaseModel):
     url: str
     # Asked when the URL is added (#19): when its page is fetched again. None: never.
     refresh_schedule: "RefreshSchedule | None" = None
+    # The collection already has this URL (#300): refused unless this is set, once the user confirmed.
+    allow_duplicate: bool = False
 
 
 class FilingCandidateOut(BaseModel):

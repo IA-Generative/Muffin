@@ -25,6 +25,7 @@ from app.models.document import (
 from app.models.document_draft import DocumentDraft, DraftStatus
 from app.models.document_refresh_schedule import DocumentRefreshSchedule
 from app.models.document_revision import DocumentRevision, RevisionOrigin
+from app.models.document_stage import DocumentStage, PipelineStage
 from app.models.document_tabular_profile import DocumentTabularProfile
 from app.models.entity import Entity, EntityType, Relation
 from app.models.evaluation import (
@@ -69,6 +70,7 @@ __all__ = [
     "Document",
     "DocumentDraft",
     "DocumentRefreshSchedule",
+    "DocumentStage",
     "DocumentKind",
     "DocumentPage",
     "DocumentRevision",
@@ -93,6 +95,7 @@ __all__ = [
     "Message",
     "MessageRole",
     "MessageSource",
+    "PipelineStage",
     "PromptVersion",
     "QaOrigin",
     "QaPair",

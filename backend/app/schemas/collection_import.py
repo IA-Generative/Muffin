@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.models.collection_import import CollectionImportStatus
 
@@ -101,6 +101,19 @@ class ImportedDocumentCreate(BaseModel):
     name: str
     # Already stored by the worker, under documents/<collection_id>/ - checked backend-side.
     storage_key: str
+    # SHA-256 of the file's bytes, computed by the worker as it read the member (#300).
+    content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class ImportedDocumentCheck(BaseModel):
+    """Whether a file of the archive is already in the collection it would go to (#300)."""
+
+    collection_id: uuid.UUID
+    content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class ImportedDocumentCheckOut(BaseModel):
+    duplicate: bool
 
 
 class CollectionImportResult(BaseModel):
