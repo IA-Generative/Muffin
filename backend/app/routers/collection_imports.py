@@ -18,7 +18,6 @@ from app.schemas.collection_import import (
 )
 from app.services.collection_hierarchy_service import HierarchyError
 from app.services.collection_import_service import (
-    ArchiveTooLargeError,
     CollectionImportNotFoundError,
     CollectionImportService,
     ConversationNotFoundError,
@@ -71,8 +70,6 @@ async def start_import(
         )
     except InvalidArchiveError as error:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Not a ZIP archive") from error
-    except ArchiveTooLargeError as error:
-        raise HTTPException(status_code=status.HTTP_413_CONTENT_TOO_LARGE, detail="The archive is too large") from error
     except ParentCollectionNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Parent collection not found") from error
     except ConversationNotFoundError as error:

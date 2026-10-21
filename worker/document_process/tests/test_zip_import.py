@@ -12,8 +12,8 @@ from app.zip_import import (
     ZipLimits,
     clean_part,
     decode_name,
+    extract_member,
     plan_import,
-    read_member,
     split_safe_path,
 )
 
@@ -136,17 +136,20 @@ class TestPlan:
             _plan(_info("a.pdf", size=60, compressed=60), _info("b.pdf", size=60, compressed=60), limits=limits)
 
 
-class TestReadMember:
+class TestExtractMember:
     def test_reads_a_member_within_its_cap(self):
         archive = zipfile.ZipFile(io.BytesIO(_zip({"doc.pdf": b"%PDF-1.4 hello"})))
 
-        assert read_member(archive, archive.getinfo("doc.pdf"), cap=1000) == b"%PDF-1.4 hello"
+        sink = io.BytesIO()
+
+        assert extract_member(archive, archive.getinfo("doc.pdf"), cap=1000, sink=sink) == 14
+        assert sink.getvalue() == b"%PDF-1.4 hello"
 
     def test_stops_past_the_cap_whatever_the_header_says(self):
         archive = zipfile.ZipFile(io.BytesIO(_zip({"doc.pdf": b"x" * 5000})))
 
         with pytest.raises(MemberSkippedError, match="plus volumineux"):
-            read_member(archive, archive.getinfo("doc.pdf"), cap=100, chunk_size=64)
+            extract_member(archive, archive.getinfo("doc.pdf"), cap=100, sink=io.BytesIO(), chunk_size=64)
 
     def test_a_corrupted_member_is_skipped(self):
         buffer = io.BytesIO()
@@ -160,7 +163,7 @@ class TestReadMember:
         archive = zipfile.ZipFile(io.BytesIO(bytes(raw)))
 
         with pytest.raises(MemberSkippedError, match="corrompu"):
-            read_member(archive, archive.getinfo("doc.pdf"), cap=10_000)
+            extract_member(archive, archive.getinfo("doc.pdf"), cap=10_000, sink=io.BytesIO())
 
 
 class TestImportTask:
@@ -207,3 +210,28 @@ class TestImportTask:
 
         assert backend.finish_collection_import.call_args.args[1] == "failed"
         backend.add_imported_document.assert_not_called()
+
+    def test_files_are_streamed_to_storage_and_never_stored_when_skipped(self, monkeypatch):
+        monkeypatch.setattr(settings, "ZIP_IMPORT_MAX_FILE_BYTES", 1000)
+        archive = _zip({"small.pdf": b"%PDF small", "big.pdf": b"%PDF" + b"x" * 5000})
+        uploaded = {}
+
+        backend = MagicMock()
+        backend.begin_collection_import.return_value = {"archive_key": "imports/i.zip", "root_collection_id": "root"}
+        storage = MagicMock()
+        storage.download_fileobj.side_effect = lambda key, fileobj: fileobj.write(archive)
+        storage.upload_fileobj.side_effect = lambda key, fileobj, content_type: uploaded.__setitem__(
+            key, fileobj.read()
+        )
+        monkeypatch.setattr(tasks._shared, "backend_client", backend)
+        monkeypatch.setattr(tasks._shared, "storage", storage)
+        monkeypatch.setattr(task_logging, "backend_client", MagicMock())
+
+        tasks.import_zip("import-1")
+
+        # Streamed with upload_fileobj, whole and from its start - never put_object with bytes in memory.
+        storage.put_object.assert_not_called()
+        assert list(uploaded.values()) == [b"%PDF small"]
+        summary = backend.finish_collection_import.call_args.args[2]
+        assert summary["documents_created"] == 1
+        assert summary["skipped"][0]["path"] == "big.pdf"

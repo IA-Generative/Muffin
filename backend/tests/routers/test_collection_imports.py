@@ -123,11 +123,6 @@ class TestStart:
         assert (await client.get("/api/collections")).json()["total"] == 0
         stored.upload_fileobj.assert_not_called()
 
-    async def test_an_archive_over_the_upload_limit_is_refused(self, client, monkeypatch):
-        monkeypatch.setattr(collection_import_service._document_settings, "ZIP_IMPORT_MAX_UPLOAD_BYTES", 10)
-
-        assert (await _import(client)).status_code == 413
-
     async def test_a_parent_the_user_does_not_own_is_a_404(self, client):
         app.dependency_overrides[get_current_user] = _as_user("someone-else", "else@example.com")
         theirs = await _collection(client, "Theirs")
