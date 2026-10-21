@@ -40,6 +40,7 @@ from app.models.feedback import (
     FeedbackSourceRole,
     FeedbackValue,
 )
+from app.models.index_rebuild import IndexRebuild, IndexRebuildStatus
 from app.models.message import Message, MessageRole
 from app.models.prompt import PromptVersion, RunPromptUsage
 from app.models.qa import QaOrigin, QaPair
@@ -82,6 +83,8 @@ __all__ = [
     "EvaluationResultSource",
     "EvaluationRun",
     "Feedback",
+    "IndexRebuild",
+    "IndexRebuildStatus",
     "FeedbackReason",
     "FeedbackReasonCode",
     "FeedbackSource",

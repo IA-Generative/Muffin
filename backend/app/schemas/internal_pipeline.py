@@ -1,7 +1,7 @@
 import uuid
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class CollectionSettingsInternalOut(BaseModel):
@@ -38,6 +38,9 @@ class DocumentSummaryUpdate(BaseModel):
     # relevant document summaries are found by vector search, not by reading every summary in
     # the collection, so it stays cheap regardless of how many documents the collection has.
     embedding: list[float] | None = None
+    # The model the worker made the vector with - redone with the index's own model when it differs
+    # (a vector computed just before the index was rebuilt with a new one, #12).
+    embedding_model: str | None = None
 
 
 class DocumentErrorUpdate(BaseModel):
@@ -55,6 +58,9 @@ class QaPairCreate(BaseModel):
     # Computed worker-side (same pattern as ChunkCreate.embedding) - a QA pair with none is just
     # never surfaced by the research agent's QA-first retrieval tier, it still exists otherwise.
     embedding: list[float] | None = None
+    # The model the worker made the vector with - redone with the index's own model when it differs
+    # (a vector computed just before the index was rebuilt with a new one, #12).
+    embedding_model: str | None = None
 
 
 class EntityCreate(BaseModel):
@@ -174,6 +180,16 @@ class LlmEmbedRequest(BaseModel):
     model: str
     input: str
     usage: LlmUsageContext | None = None
+
+
+class LlmEmbedBatchRequest(BaseModel):
+    model: str
+    inputs: list[str] = Field(min_length=1, max_length=256)
+    usage: LlmUsageContext | None = None
+
+
+class LlmEmbedBatchResponse(BaseModel):
+    embeddings: list[list[float]]
 
 
 class LlmEmbedResponse(BaseModel):

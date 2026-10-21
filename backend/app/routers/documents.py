@@ -190,18 +190,6 @@ async def create_url_document(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
 
 
-@router.post(
-    "/collections/{collection_id}/documents/reindex",
-    summary="Clear and re-queue every document in a collection (e.g. after an embedding model change)",
-    response_model=list[DocumentOut],
-)
-async def reindex_collection(collection_id: uuid.UUID, user: UserDep, service: ServiceDep) -> list[DocumentOut]:
-    try:
-        return await service.reindex_collection(collection_id, user)
-    except CollectionNotFoundError as error:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
-
-
 @router.delete(
     "/collections/{collection_id}/documents/{document_id}",
     summary="Delete a document and its RustFS objects (uploaded file, page screenshots)",

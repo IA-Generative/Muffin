@@ -193,7 +193,13 @@ class CollectionSettings(Base):
     )
     chunk_size: Mapped[int] = mapped_column(Integer, nullable=False, default=500)
     chunk_overlap: Mapped[int] = mapped_column(Integer, nullable=False, default=50)
+    # The model the user chose. The vectors in the collection's index may still be another one's
+    # until the index is rebuilt (#12): see index_embedding_model.
     embedding_model: Mapped[str] = mapped_column(String, nullable=False)
+    # The model the vectors of the active index were made with, when it differs from embedding_model
+    # (the user picked another model and the index hasn't been rebuilt yet) - None otherwise. Queries
+    # and new vectors use it, so search keeps working on the old index until the new one replaces it.
+    index_embedding_model: Mapped[str | None] = mapped_column(String, nullable=True)
     reindex_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     instructions_qa: Mapped[str] = mapped_column(Text, nullable=False, default="")
     instructions_extraction: Mapped[str] = mapped_column(Text, nullable=False, default="")

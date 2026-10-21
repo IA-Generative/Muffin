@@ -49,7 +49,8 @@ async def get_collection_settings(
         chunking_strategy=settings.chunking_strategy,
         chunk_size=settings.chunk_size,
         chunk_overlap=settings.chunk_overlap,
-        embedding_model=settings.embedding_model,
+        # The active index's model - every new vector must match what it holds (#12).
+        embedding_model=settings.index_embedding_model or settings.embedding_model,
         instructions={
             "qa": settings.instructions_qa,
             "extraction": settings.instructions_extraction,

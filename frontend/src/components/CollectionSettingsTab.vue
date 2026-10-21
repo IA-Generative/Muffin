@@ -22,6 +22,10 @@ const {
   updateGenerationModel,
   updatePipelineWindows,
   reindexCollection,
+  indexRebuilds,
+  indexRebuildError,
+  finalizeIndexRebuild,
+  rollbackIndexRebuild,
   updateInstructionField,
   markSettingsSaved,
   updateVisibility,
@@ -32,6 +36,8 @@ const {
 const { models: embeddingModels, isLoading: isLoadingEmbeddingModels, error: embeddingModelsError } =
   useEmbeddingModels()
 const { models: chatModels, isLoading: isLoadingChatModels, error: chatModelsError } = useModels()
+
+const indexRebuild = computed(() => indexRebuilds.value[props.collection.id] ?? null)
 
 const chunkingForm = reactive<ChunkingSettings>({ ...props.collection.chunkingSettings })
 const chunkingInstructions = ref(props.collection.instructions.chunking)
@@ -487,16 +493,53 @@ function stepTooltipTitle(step: Step) {
           </select>
           <p v-if="embeddingModelsError" class="settings-tab__hint">{{ embeddingModelsError }}</p>
           <p class="settings-tab__hint">
-            Changer de modèle rend les vecteurs déjà calculés incompatibles : les documents doivent être réindexés.
+            Changer de modèle rend les vecteurs déjà calculés incompatibles : l'index doit être reconstruit. La
+            recherche continue d'utiliser l'index actuel pendant la reconstruction, jusqu'à la bascule.
           </p>
         </div>
 
-        <div v-if="collection.reindexRequired" class="settings-tab__reindex">
-          <span>Le modèle d'embedding a changé : les documents ne sont plus à jour.</span>
+        <div v-if="indexRebuild?.status === 'building'" class="settings-tab__reindex" role="status">
+          <span>
+            Réindexation en cours avec « {{ indexRebuild.targetModel }} » ({{ indexRebuild.donePoints }} /
+            {{ indexRebuild.totalPoints }}). La recherche continue d'utiliser l'index actuel
+            (« {{ indexRebuild.previousModel }} ») jusqu'à la bascule.
+          </span>
+          <progress :max="indexRebuild.totalPoints || 1" :value="indexRebuild.donePoints"></progress>
+        </div>
+
+        <div v-else-if="indexRebuild?.status === 'swapped'" class="settings-tab__reindex" role="status">
+          <span>
+            Le nouvel index (« {{ indexRebuild.targetModel }} ») est actif. L'ancien est conservé : validez la
+            bascule pour le supprimer, ou revenez à l'ancien index.
+          </span>
+          <div class="settings-tab__reindex-actions">
+            <button type="button" class="fr-btn fr-btn--sm" @click="finalizeIndexRebuild(collection.id)">
+              Valider la bascule
+            </button>
+            <button
+              type="button"
+              class="fr-btn fr-btn--sm fr-btn--secondary"
+              @click="rollbackIndexRebuild(collection.id)"
+            >
+              Revenir à l'ancien index
+            </button>
+          </div>
+        </div>
+
+        <div v-if="collection.reindexRequired && indexRebuild?.status !== 'building'" class="settings-tab__reindex">
+          <span>
+            Le modèle d'embedding a changé : l'index contient encore les vecteurs de
+            « {{ collection.indexEmbeddingModel ?? collection.embeddingModel }} » et reste utilisé pour la recherche
+            tant qu'il n'est pas reconstruit avec « {{ collection.embeddingModel }} ».
+          </span>
+          <span v-if="indexRebuild?.status === 'failed'">
+            La dernière réindexation a échoué : {{ indexRebuild.error }}
+          </span>
           <button type="button" class="fr-btn fr-btn--sm fr-btn--secondary" @click="reindexCollection(collection.id)">
             Réindexer maintenant
           </button>
         </div>
+        <p v-if="indexRebuildError" class="settings-tab__hint" role="alert">{{ indexRebuildError }}</p>
       </div>
 
       <div class="settings-tab__footer">
@@ -1252,6 +1295,12 @@ function stepTooltipTitle(step: Step) {
 .settings-tab__share-status--active {
   background: var(--background-alt-green-emeraude, var(--background-alt-grey));
   color: var(--text-default-success, var(--text-default-grey));
+}
+
+.settings-tab__reindex-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
 }
 
 .settings-tab__reindex {

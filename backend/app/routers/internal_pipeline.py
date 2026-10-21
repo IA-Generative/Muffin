@@ -11,6 +11,7 @@ from app.repositories.entity_repository import EntityRepository
 from app.repositories.qa_pair_repository import QaPairRepository
 from app.schemas.internal_pipeline import EntityCreate, EntityOut, QaPairCreate, RelationCreate
 from app.services import vector_store
+from app.services.index_vectors import vector_for_active_index
 
 router = APIRouter(prefix="/internal", tags=["Internal"], dependencies=[Depends(require_worker_api_key)])
 
@@ -32,7 +33,11 @@ async def create_qa_pair(
     qa_pair = await QaPairRepository(db).create(collection_id, body.document_id, body.question, body.answer)
     await db.commit()
     if body.embedding is not None:
-        vector_store.upsert_qa_embedding(collection_id, qa_pair.id, body.embedding, body.question)
+        embedding, model = await vector_for_active_index(
+            db, collection_id, body.question, body.embedding, body.embedding_model
+        )
+        if embedding is not None:
+            vector_store.upsert_qa_embedding(collection_id, qa_pair.id, embedding, body.question, model)
     return {"status": "ok"}
 
 

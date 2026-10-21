@@ -297,7 +297,7 @@ class DocumentRepository:
         anything that already cited it, e.g. a run's citations, keeps resolving) rather than
         deleting and recreating it. Chunks/pages are cleared and its status reset to PENDING;
         the caller is responsible for actually re-enqueueing processing and cleaning up the old
-        collection's Meilisearch embeddings, same division of labour as reindex_collection."""
+        collection's Meilisearch embeddings, same division of labour as DocumentUploadService.reprocess."""
         document.collection_id = collection_id
         document.status = DocumentStatus.PENDING
         document.progress = 0
