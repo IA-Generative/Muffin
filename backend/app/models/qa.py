@@ -1,7 +1,7 @@
 import enum
 import uuid
 
-from sqlalchemy import Boolean, Enum, ForeignKey, Integer, Text
+from sqlalchemy import Boolean, Enum, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -37,6 +37,11 @@ class QaPair(UUIDMixin, TimestampMixin, Base):
     # the rest of the code reads; the evaluation counts a retrieved chunk as relevant when its
     # document is in this list.
     relevant_document_ids: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
+    # Which run of the pipeline wrote a generated pair (#299): "window:3-4" for the pairs of a window
+    # of pages, "tabular", "collection:<description hash>". The run is replaced as a whole when it
+    # runs again, so a task run twice leaves the same pairs instead of a second set. None for a manual
+    # pair, and for one generated before this existed.
+    generation_key: Mapped[str | None] = mapped_column(String, nullable=True)
     # Where in `document` the answer comes from (#126): the page, and the passage itself. Set when a
     # pair is generated; for an older one, found the first time it is shown as a suggestion. None
     # for a pair that has no document, or whose passage couldn't be pinned down.

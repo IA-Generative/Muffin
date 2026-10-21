@@ -12,7 +12,7 @@ des centaines de colonnes (le profil est compact par construction).
 Ces prompts sont utilisés par ``_tabular_steps.generate_summary`` et
 ``_tabular_steps.generate_qa_pairs``, qui envoient le prompt via
 ``_shared._chat`` (même mécanisme que les documents classiques) et sauvent
-le résultat via ``set_document_summary`` / ``create_qa_pair`` (même
+le résultat via ``set_document_summary`` / ``replace_generated_qa`` (même
 persistance que les documents classiques).
 """
 

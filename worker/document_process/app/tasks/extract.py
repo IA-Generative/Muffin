@@ -37,22 +37,26 @@ def extract_entities_window(self, document_id: str, collection_id: str, start_pa
             relations = result.get("relations", []) if isinstance(result, dict) else []
             logger.info(f"Extracted {len(entities)} entitie(s) and {len(relations)} relation(s)")
 
-            entity_ids: dict[str, str] = {}
+            # One call for the window, in place of what an earlier extraction of it recorded (#299): the
+            # task run twice leaves the entities, relations and mention counts of one run.
+            mentions: dict[tuple[str, str], int] = {}
             for entity in entities:
-                created = _shared.backend_client.upsert_entity(
-                    collection_id, document_id, str(entity["name"]), str(entity["type"])
-                )
-                entity_ids[str(entity["name"])] = created["id"]
-
+                key = (str(entity["name"]), str(entity["type"]))
+                mentions[key] = mentions.get(key, 0) + 1
+            names = {name for name, _ in mentions}
+            kept_relations = []
             for relation in relations:
-                from_id = entity_ids.get(str(relation.get("from")))
-                to_id = entity_ids.get(str(relation.get("to")))
-                if from_id is None or to_id is None:
+                from_name, to_name = str(relation.get("from")), str(relation.get("to"))
+                if from_name not in names or to_name not in names:
                     logger.warning(f"Skipping relation with unresolved entity: {relation!r}")
                     continue
-                _shared.backend_client.create_relation(
-                    collection_id, document_id, from_id, to_id, str(relation["type"])
-                )
+                kept_relations.append({"from_name": from_name, "to_name": to_name, "type": str(relation["type"])})
+            _shared.backend_client.replace_entity_window(
+                document_id,
+                f"pages:{start_page}-{end_page}",
+                [{"name": name, "type": type_, "mentions": count} for (name, type_), count in mentions.items()],
+                kept_relations,
+            )
         except Exception as error:
             _shared._fail(
                 document_id,

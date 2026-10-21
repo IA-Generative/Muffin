@@ -3,6 +3,7 @@ import uuid
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import storage
 from app.models.chunk import Chunk
 from app.models.document import Document, DocumentPage, DocumentStatus
 from app.models.document_tabular_profile import DocumentTabularProfile
@@ -64,6 +65,21 @@ class DocumentService:
             if embedding is not None:
                 vector_store.upsert_chunk_embedding(document.collection_id, created.id, embedding, chunk.text, model)
         return created
+
+    async def prune_pages(self, document_id: uuid.UUID, keep: int) -> None:
+        """After writing a document's pages: drops those past the last, which a previous extraction
+        that found more of them left (#299)."""
+        await self.get_document(document_id)
+        screenshot_keys = await self.repository.prune_pages(document_id, keep)
+        await self.db.commit()
+        storage.delete_objects(screenshot_keys)
+
+    async def prune_chunks(self, document_id: uuid.UUID, keep: int) -> None:
+        """After writing a document's chunks: drops those past the last, with their vectors (#299)."""
+        document = await self.get_document(document_id)
+        chunk_ids = await self.repository.prune_chunks(document_id, keep)
+        await self.db.commit()
+        vector_store.delete_chunk_embeddings(document.collection_id, chunk_ids)
 
     async def set_summary(
         self,

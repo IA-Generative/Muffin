@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -136,6 +136,9 @@ class DocumentPage(UUIDMixin, Base):
     """Raw textual content extracted from a single page of a document."""
 
     __tablename__ = "document_pages"
+    # One row per page: the worker writes a page with an upsert, so a task run twice (a redelivery after
+    # a crash, #299) leaves the same pages instead of a second copy of each.
+    __table_args__ = (UniqueConstraint("document_id", "page_number", name="uq_document_pages_document_page"),)
 
     document_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("documents.id", ondelete="CASCADE"), index=True, nullable=False

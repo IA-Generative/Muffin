@@ -97,6 +97,27 @@ Ce qui peut bloquer est borné là où ça se passe :
   à leur fin (`acks_late`) et, passé ce délai, Redis en donnerait une qui tourne encore à un second
   worker. C'est aussi le temps de reprise d'une tâche dont le worker est mort.
 
+## Rejeu d'une tâche (#299)
+
+Une tâche peut s'exécuter deux fois (Redis la rejoue après la mort d'un pod). Le pipeline écrit donc
+de façon à ce qu'un rejeu laisse le même état qu'une seule exécution :
+
+- **Pages et chunks** : upsert sur `(document, numéro de page)` et `(document, position)` (contraintes
+  d'unicité). Un chunk garde son id, donc son vecteur Meilisearch, d'une exécution à l'autre. Après
+  l'écriture, `prune_pages` / `prune_chunks` retirent ce qu'une exécution plus longue avait laissé
+  après le dernier.
+- **QA, entités, relations** : le modèle reformule à chaque exécution, il n'y a donc pas de clé
+  naturelle. Chaque *fenêtre de pages* (`window:3-4`, `pages:3-6`), le profil tabulaire (`tabular`) et
+  les paires d'une description de collection (`collection:<hash>`) forment une exécution qui **remplace**
+  la précédente de même clé, en un seul appel atomique (`replace_generated_qa`,
+  `replace_entity_window`). Les compteurs de mentions sont corrigés de la contribution précédente de la
+  fenêtre au lieu d'être incrémentés. Une paire validée par une personne n'est jamais remplacée.
+- Résumé et tags sont déjà écrits par remplacement.
+
+Ce qui a été dérivé d'un document disparaît avec lui, côté backend : à sa suppression (paires générées,
+même validées, entités qu'il était seul à mentionner, relations) et à un reprocess (sauf les paires
+validées).
+
 ## Reconstruction blue/green de l'index (#12)
 
 La tâche `app.tasks.rebuild_index` (`app/tasks/rebuild.py`) reconstruit l'index de recherche d'une

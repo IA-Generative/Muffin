@@ -360,10 +360,14 @@ async def test_document_entities_and_relations_are_scoped_to_their_own_document(
         entities = EntityRepository(session)
         # "Acme Corp" is mentioned in both documents - collection-wide it's one Entity with
         # mentions=2, but each document's own view must only ever show its own mention(s).
-        acme = await entities.upsert(collection_id, report_id, "Acme Corp", "organisation", 1)
-        await entities.upsert(collection_id, memo_id, "Acme Corp", "organisation", 1)
-        alice = await entities.upsert(collection_id, report_id, "Alice", "personne", 1)
-        await entities.create_relation(collection_id, report_id, alice.id, acme.id, "works_at")
+        await entities.replace_window(
+            collection_id,
+            report_id,
+            "pages:1-2",
+            [("Acme Corp", "organisation", 1), ("Alice", "personne", 1)],
+            [("Alice", "Acme Corp", "works_at")],
+        )
+        await entities.replace_window(collection_id, memo_id, "pages:1-2", [("Acme Corp", "organisation", 1)], [])
         await session.commit()
 
     report_entities = (await client.get(f"/api/collections/{collection_id}/documents/{report_id}/entities")).json()

@@ -1,7 +1,7 @@
 import uuid
 from collections.abc import Sequence
 
-from sqlalchemy import func, select, true
+from sqlalchemy import delete, func, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -21,6 +21,7 @@ class QaPairRepository:
         answer: str,
         source_page: int | None = None,
         source_excerpt: str | None = None,
+        generation_key: str | None = None,
     ) -> QaPair:
         qa_pair = QaPair(
             collection_id=collection_id,
@@ -28,12 +29,46 @@ class QaPairRepository:
             question=question,
             answer=answer,
             origin=QaOrigin.GENERATED,
+            generation_key=generation_key,
             source_page=source_page,
             source_excerpt=source_excerpt,
         )
         self.db.add(qa_pair)
         await self.db.flush()
         return qa_pair
+
+    async def delete_generated_run(
+        self, collection_id: uuid.UUID, document_id: uuid.UUID | None, generation_key: str
+    ) -> list[uuid.UUID]:
+        """Removes what a previous run of the pipeline generated under this key (#299), so that the run
+        replaces its pairs instead of adding a second set. A pair a person has validated stays: the
+        work of a person is not thrown away by a task running again. Returns the removed ids, whose
+        vectors are still to remove."""
+        result = await self.db.execute(
+            delete(QaPair)
+            .where(
+                QaPair.collection_id == collection_id,
+                QaPair.document_id.is_(None) if document_id is None else QaPair.document_id == document_id,
+                QaPair.generation_key == generation_key,
+                QaPair.origin == QaOrigin.GENERATED,
+                QaPair.validated.is_(False),
+            )
+            .returning(QaPair.id)
+        )
+        return list(result.scalars().all())
+
+    async def delete_generated_for_document(
+        self, document_id: uuid.UUID, *, keep_validated: bool
+    ) -> list[tuple[uuid.UUID, uuid.UUID]]:
+        """Removes every pair the pipeline generated from a document: they answer from its content and
+        go with it - when it is deleted, or reprocessed (which regenerates them). `keep_validated`
+        keeps the ones a person validated, for a reprocess; a deleted document keeps none, since what
+        they were grounded in is gone. Returns (collection id, pair id) of the removed ones."""
+        condition = [QaPair.document_id == document_id, QaPair.origin == QaOrigin.GENERATED]
+        if keep_validated:
+            condition.append(QaPair.validated.is_(False))
+        result = await self.db.execute(delete(QaPair).where(*condition).returning(QaPair.collection_id, QaPair.id))
+        return [(row.collection_id, row.id) for row in result.all()]
 
     async def create_manual(
         self,

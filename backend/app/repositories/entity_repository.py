@@ -1,7 +1,7 @@
 import uuid
 from collections.abc import Sequence
 
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -12,9 +12,70 @@ class EntityRepository:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
-    async def upsert(
-        self, collection_id: uuid.UUID, document_id: uuid.UUID, name: str, type_: str, mentions_delta: int
-    ) -> Entity:
+    async def replace_window(
+        self,
+        collection_id: uuid.UUID,
+        document_id: uuid.UUID,
+        window_key: str,
+        entities: Sequence[tuple[str, str, int]],
+        relations: Sequence[tuple[str, str, str]],
+    ) -> None:
+        """Records what was extracted from one window of a document's pages, replacing what an earlier
+        extraction of the same window had recorded (#299): a task run twice leaves the same entities,
+        relations and counts as one run. `entities` are (name, type, mentions) and `relations`
+        (from name, to name, type); a relation naming an entity that was not extracted is dropped."""
+        touched = await self._remove_contributions(document_id, window_key)
+        await self.db.execute(
+            delete(Relation).where(Relation.document_id == document_id, Relation.window_key == window_key)
+        )
+
+        # The same entity listed twice in a window is one entity mentioned twice.
+        mentions_by_entity: dict[tuple[str, str], int] = {}
+        for name, type_, mentions in entities:
+            mentions_by_entity[(name, type_)] = mentions_by_entity.get((name, type_), 0) + mentions
+
+        ids: dict[str, uuid.UUID] = {}
+        for (name, type_), mentions in mentions_by_entity.items():
+            entity = await self._get_or_create(collection_id, name, type_)
+            entity.mentions += mentions
+            link = await self.db.get(EntityDocument, (entity.id, document_id, window_key))
+            if link is None:
+                self.db.add(
+                    EntityDocument(
+                        entity_id=entity.id, document_id=document_id, window_key=window_key, mentions=mentions
+                    )
+                )
+            else:
+                link.mentions += mentions
+            ids[name] = entity.id
+            touched.discard(entity.id)
+        await self.db.flush()
+
+        for from_name, to_name, relation_type in relations:
+            if from_name in ids and to_name in ids:
+                self.db.add(
+                    Relation(
+                        collection_id=collection_id,
+                        document_id=document_id,
+                        window_key=window_key,
+                        from_entity_id=ids[from_name],
+                        to_entity_id=ids[to_name],
+                        type=relation_type,
+                    )
+                )
+        await self._delete_unmentioned(touched)
+        await self.db.flush()
+
+    async def remove_document(self, document_id: uuid.UUID) -> None:
+        """Takes a document's contribution out of the collection: its mentions leave the entities' counts
+        (an entity nothing mentions anymore goes), and its relations go (#299). For a document that is
+        deleted or about to be extracted again."""
+        touched = await self._remove_contributions(document_id, None)
+        await self.db.execute(delete(Relation).where(Relation.document_id == document_id))
+        await self._delete_unmentioned(touched)
+        await self.db.flush()
+
+    async def _get_or_create(self, collection_id: uuid.UUID, name: str, type_: str) -> Entity:
         result = await self.db.execute(
             select(Entity).where(
                 Entity.collection_id == collection_id, Entity.name == name, Entity.type == EntityType(type_)
@@ -22,46 +83,38 @@ class EntityRepository:
         )
         entity = result.scalar_one_or_none()
         if entity is None:
-            entity = Entity(collection_id=collection_id, name=name, type=EntityType(type_), mentions=mentions_delta)
+            entity = Entity(collection_id=collection_id, name=name, type=EntityType(type_), mentions=0)
             self.db.add(entity)
             await self.db.flush()
-        else:
-            entity.mentions += mentions_delta
-
-        # Per-document breakdown of that same running total (§ EntityDocument) - kept alongside
-        # the collection-wide merge above, never instead of it.
-        link = await self.db.execute(
-            select(EntityDocument).where(
-                EntityDocument.entity_id == entity.id, EntityDocument.document_id == document_id
-            )
-        )
-        entity_document = link.scalar_one_or_none()
-        if entity_document is None:
-            self.db.add(EntityDocument(entity_id=entity.id, document_id=document_id, mentions=mentions_delta))
-        else:
-            entity_document.mentions += mentions_delta
-
-        await self.db.flush()
         return entity
 
-    async def create_relation(
-        self,
-        collection_id: uuid.UUID,
-        document_id: uuid.UUID | None,
-        from_entity_id: uuid.UUID,
-        to_entity_id: uuid.UUID,
-        type_: str,
-    ) -> Relation:
-        relation = Relation(
-            collection_id=collection_id,
-            document_id=document_id,
-            from_entity_id=from_entity_id,
-            to_entity_id=to_entity_id,
-            type=type_,
-        )
-        self.db.add(relation)
+    async def _remove_contributions(self, document_id: uuid.UUID, window_key: str | None) -> set[uuid.UUID]:
+        """Subtracts a document's mentions - of one window, or of all - from the entities' counts and
+        forgets them. Returns the entities that were affected."""
+        condition = [EntityDocument.document_id == document_id]
+        if window_key is not None:
+            condition.append(EntityDocument.window_key == window_key)
+        links = (await self.db.execute(select(EntityDocument).where(*condition))).scalars().all()
+        touched: set[uuid.UUID] = set()
+        for link in links:
+            entity = await self.db.get(Entity, link.entity_id)
+            if entity is not None:
+                # Never below zero: a row written before the per-window breakdown existed may not add up.
+                entity.mentions = max(0, entity.mentions - link.mentions)
+                touched.add(entity.id)
+            await self.db.delete(link)
         await self.db.flush()
-        return relation
+        return touched
+
+    async def _delete_unmentioned(self, entity_ids: set[uuid.UUID]) -> None:
+        """An entity no document mentions anymore (its relations go with it)."""
+        for entity_id in entity_ids:
+            mentioned = await self.db.scalar(
+                select(func.count()).select_from(EntityDocument).where(EntityDocument.entity_id == entity_id)
+            )
+            entity = await self.db.get(Entity, entity_id)
+            if entity is not None and not mentioned and entity.mentions <= 0:
+                await self.db.delete(entity)
 
     async def list_by_collection(self, collection_id: uuid.UUID) -> Sequence[Entity]:
         result = await self.db.execute(
@@ -82,7 +135,8 @@ class EntityRepository:
             select(Entity)
             .join(EntityDocument, EntityDocument.entity_id == Entity.id)
             .where(EntityDocument.document_id == document_id)
-            .order_by(EntityDocument.mentions.desc())
+            .group_by(Entity.id)
+            .order_by(func.sum(EntityDocument.mentions).desc())
         )
         return result.scalars().all()
 

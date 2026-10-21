@@ -27,6 +27,7 @@ def _process_url(document: dict) -> dict | None:
     fetched = _shared.fetch_url(document["name"])
     if fetched.data is None:
         _shared.backend_client.add_page(document_id, page_number=1, content=fetched.markdown)
+        _shared.backend_client.prune_pages(document_id, keep=1)
         # What a scheduled refresh (#19) compares the page against next time.
         _shared.backend_client.set_content_hash(document_id, fetched.content_hash)
         return None
@@ -45,6 +46,7 @@ _TEXT_EXTENSIONS = (".md", ".txt")
 def _process_markdown(document_id: str, data: bytes) -> None:
     """A Markdown (living documents, #166) or plain text file."""
     _shared.backend_client.add_page(document_id, page_number=1, content=data.decode("utf-8", errors="replace"))
+    _shared.backend_client.prune_pages(document_id, keep=1)
 
 
 def _process_file(document_id: str, storage_key: str, data: bytes | None = None, name: str = "") -> None:
@@ -68,6 +70,9 @@ def _process_file(document_id: str, storage_key: str, data: bytes | None = None,
             content=page.text,
             screenshot=screenshot_key,
         )
+    # Pages are written with an upsert, so a task run twice leaves the same pages; what a previous
+    # run found after the last one (#299) is dropped.
+    _shared.backend_client.prune_pages(document_id, keep=max((page.page_num for page in result.pages), default=0))
 
 
 def _spawn_chunking(document: dict, parent_task_id: str) -> None:

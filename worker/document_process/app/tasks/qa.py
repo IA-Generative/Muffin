@@ -6,6 +6,8 @@
   ancrées dans la description de la collection plutôt que dans un document.
 """
 
+import hashlib
+
 from loguru import logger
 
 from app.celery_app import celery_app
@@ -59,6 +61,7 @@ def generate_qa_window(self, document_id: str, collection_id: str, start_page: i
 
             logger.info(f"Generated {len(pairs)} QA pair(s) for pages {start_page}-{end_page}")
             window_pages = [page for page in pages if start_page <= page.page_number <= end_page]
+            generated = []
             for pair in pairs:
                 question, answer = str(pair["question"]), str(pair["answer"])
                 # Best-effort, same fail-soft reasoning as a chunk's own embedding above: a QA
@@ -70,15 +73,20 @@ def generate_qa_window(self, document_id: str, collection_id: str, start_page: i
                 except Exception:
                     logger.exception(f"Failed to embed QA question for document {document_id}")
                 source = locate_evidence(window_pages, str(pair.get("evidence") or ""))
-                _shared.backend_client.create_qa_pair(
-                    collection_id,
-                    document_id,
-                    question,
-                    answer,
-                    embedding,
-                    source_page=source[0] if source else None,
-                    source_excerpt=source[1] if source else None,
+                generated.append(
+                    {
+                        "question": question,
+                        "answer": answer,
+                        "embedding": embedding,
+                        "source_page": source[0] if source else None,
+                        "source_excerpt": source[1] if source else None,
+                    }
                 )
+            # In one call, in place of what an earlier run of this window recorded (#299): the task run
+            # twice - a redelivery after a crash - leaves the pairs of one run, not two.
+            _shared.backend_client.replace_generated_qa(
+                collection_id, document_id, f"window:{start_page}-{end_page}", generated
+            )
         except Exception as error:
             _shared._fail(document_id, f"generate QA for pages {start_page}-{end_page}", error)
             raise
@@ -111,6 +119,7 @@ def generate_collection_qa(self, document_id: str, collection_id: str, descripti
             if not isinstance(pairs, list):
                 raise ValueError(f"Expected a JSON array of QA pairs, got: {pairs!r}")
 
+            generated = []
             for pair in pairs:
                 question, answer = str(pair["question"]), str(pair["answer"])
                 embedding = None
@@ -118,7 +127,11 @@ def generate_collection_qa(self, document_id: str, collection_id: str, descripti
                     embedding = _shared.backend_client.embed(settings["embedding_model"], question)
                 except Exception:
                     logger.exception(f"Failed to embed collection-level QA question for collection {collection_id}")
-                _shared.backend_client.create_qa_pair(collection_id, None, question, answer, embedding)
+                generated.append({"question": question, "answer": answer, "embedding": embedding})
+            # Keyed by the description they are about: a replay of this task replaces its own pairs,
+            # while those of an earlier description stay, as they always did (#299).
+            digest = hashlib.sha256(description.encode("utf-8")).hexdigest()[:16]
+            _shared.backend_client.replace_generated_qa(collection_id, None, f"collection:{digest}", generated)
             logger.info(f"Generated {len(pairs)} collection-level QA pair(s) for collection {collection_id}")
         except Exception as error:
             _shared._fail(document_id, "generate collection-level QA pairs", error)

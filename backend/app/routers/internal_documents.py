@@ -17,6 +17,7 @@ from app.schemas.internal_pipeline import (
     DocumentErrorUpdate,
     DocumentSummaryUpdate,
     DocumentTagsUpdate,
+    Prune,
     TabularProfileCreate,
 )
 from app.services.document_service import DocumentNotFoundError, DocumentService
@@ -73,7 +74,7 @@ async def update_document_status(
 
 @router.post(
     "/documents/{document_id}/pages",
-    summary="Record one page of extracted content",
+    summary="Record one page of extracted content (an upsert: a page written again replaces it)",
     status_code=status.HTTP_201_CREATED,
 )
 async def create_document_page(document_id: uuid.UUID, page: DocumentPageCreate, service: ServiceDep) -> dict[str, str]:
@@ -86,12 +87,36 @@ async def create_document_page(document_id: uuid.UUID, page: DocumentPageCreate,
 
 @router.post(
     "/documents/{document_id}/chunks",
-    summary="Record one chunk (with liteparse bbox/layout extras, if any)",
+    summary="Record one chunk (with liteparse bbox/layout extras, if any) - an upsert on its position",
     status_code=status.HTTP_201_CREATED,
 )
 async def create_document_chunk(document_id: uuid.UUID, chunk: ChunkCreate, service: ServiceDep) -> dict[str, str]:
     try:
         await service.add_chunk(document_id, chunk)
+    except DocumentNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found") from error
+    return {"status": "ok"}
+
+
+@router.post(
+    "/documents/{document_id}/pages/prune",
+    summary="Drop the pages after the first `keep`: what a previous, longer extraction left behind",
+)
+async def prune_document_pages(document_id: uuid.UUID, body: Prune, service: ServiceDep) -> dict[str, str]:
+    try:
+        await service.prune_pages(document_id, body.keep)
+    except DocumentNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found") from error
+    return {"status": "ok"}
+
+
+@router.post(
+    "/documents/{document_id}/chunks/prune",
+    summary="Drop the chunks after the first `keep`, with their vectors: what a previous run left behind",
+)
+async def prune_document_chunks(document_id: uuid.UUID, body: Prune, service: ServiceDep) -> dict[str, str]:
+    try:
+        await service.prune_chunks(document_id, body.keep)
     except DocumentNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found") from error
     return {"status": "ok"}
