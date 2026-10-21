@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.1-rc.2](https://github.com/IA-Generative/Muffin/compare/v0.15.1-rc.1...v0.15.1-rc.2) (2026-10-21)
+
+
+### Bug Fixes
+
+* **frontend:** show collection settings as a carousel with required and optional sections ([89157dd](https://github.com/IA-Generative/Muffin/commit/89157ddbb6a4e71bb5bd52937bdb5f026aa0452e))
+
 ## [0.15.1-rc.1](https://github.com/IA-Generative/Muffin/compare/v0.15.1-rc...v0.15.1-rc.1) (2026-10-21)
 
 
