@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.2-rc](https://github.com/IA-Generative/Muffin/compare/v0.15.1...v0.15.2-rc) (2026-10-21)
+
+
+### Bug Fixes
+
+* **frontend:** compact the settings carousel controls and explain them in tooltips ([b1fd330](https://github.com/IA-Generative/Muffin/commit/b1fd330936f2811722c2d945d8b54e0521086c31))
+
 ## [0.15.1](https://github.com/IA-Generative/Muffin/compare/v0.15.0...v0.15.1) (2026-10-21)
 
 
