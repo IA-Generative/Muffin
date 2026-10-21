@@ -1,6 +1,7 @@
 from typing import Any
 
 from app.backend_client import backend_client
+from app.usage_context import set_usage
 
 
 def emit(run_id: str, event_type: str, data: dict[str, Any] | None = None, task_id: str | None = None) -> None:
@@ -10,7 +11,11 @@ def emit(run_id: str, event_type: str, data: dict[str, Any] | None = None, task_
 def set_activity(run_id: str, node: str, activity: str) -> None:
     """Keeps Run.current_node/current_activity fresh for a client polling GET /api/runs/{id} -
     run_events (emit above) are the durable log, but a poller only ever sees this pair of fields
-    change, so every node calls this once at the top, not just the terminal statuses."""
+    change, so every node calls this once at the top, not just the terminal statuses.
+
+    Also names the node as the step of the LLM calls that follow (see app/usage_context.py) -
+    with the run id again, since a fanned-out node may run in a thread of its own."""
+    set_usage(run_id=run_id, step=node)
     backend_client.update_run_status(run_id, "running", node, activity)
 
 

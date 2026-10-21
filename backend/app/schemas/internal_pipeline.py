@@ -76,10 +76,23 @@ class LlmChatMessage(BaseModel):
     content: str
 
 
+class LlmUsageContext(BaseModel):
+    """What a worker's LLM call is for, so the proxy can record who it was consumed for (see
+    UsageService.record). Every field optional: a call with no context is still recorded, just
+    not attributed to anyone."""
+
+    step: str | None = None
+    user_id: str | None = None
+    run_id: uuid.UUID | None = None
+    document_id: uuid.UUID | None = None
+    collection_id: uuid.UUID | None = None
+
+
 class LlmChatRequest(BaseModel):
     model: str
     messages: list[LlmChatMessage]
     max_tokens: int | None = None
+    usage: LlmUsageContext | None = None
 
 
 class LlmChatResponse(BaseModel):
@@ -160,6 +173,7 @@ class TabularProfileCreate(BaseModel):
 class LlmEmbedRequest(BaseModel):
     model: str
     input: str
+    usage: LlmUsageContext | None = None
 
 
 class LlmEmbedResponse(BaseModel):

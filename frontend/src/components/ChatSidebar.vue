@@ -20,7 +20,7 @@ defineProps<{
   conversationsHasMore: boolean
   loadingMoreConversations: boolean
   activeId: string
-  activeView: 'chat' | 'collections' | 'tasks' | 'quality' | 'admin' | 'filing'
+  activeView: 'chat' | 'collections' | 'tasks' | 'quality' | 'usage' | 'admin' | 'filing'
   user: User | null
 }>()
 
@@ -33,6 +33,7 @@ const emit = defineEmits<{
   openCollections: []
   openTasks: []
   openQuality: []
+  openUsage: []
   openAdmin: []
   openSettings: []
   openFiling: []
@@ -126,6 +127,11 @@ function openFiling() {
 function openQuality() {
   showUserMenu.value = false
   emit('openQuality')
+}
+
+function openUsage() {
+  showUserMenu.value = false
+  emit('openUsage')
 }
 
 function openAdmin() {
@@ -302,6 +308,12 @@ function initials(name: string) {
             />
           </svg>
           Fichiers à ranger
+        </button>
+        <button type="button" class="user-menu__item" role="menuitem" @click="openUsage">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 3c3 4 6 7.5 6 11a6 6 0 0 1-12 0c0-3.5 3-7 6-11z" />
+          </svg>
+          Ma consommation
         </button>
         <button v-if="user?.isAdmin" type="button" class="user-menu__item" role="menuitem" @click="openQuality">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">

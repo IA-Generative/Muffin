@@ -31,6 +31,12 @@ const items: AdminItem[] = [
     description: 'Bugs, idées et questions envoyés par les utilisateurs.',
     path: '/admin/reports',
   },
+  {
+    key: 'usage',
+    label: 'Consommation',
+    description: 'Tokens et eau consommés par les appels aux modèles, pour tout le monde ou par user_id.',
+    path: '/admin/usage',
+  },
 ]
 </script>
 
