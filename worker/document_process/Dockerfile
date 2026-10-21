@@ -9,6 +9,9 @@ COPY app ./app
 RUN uv sync --no-dev
 
 FROM python:3.12-slim AS runtime
+# pip is a build tool: the runtime image never installs anything, and the pip bundled with the base
+# image carries known CVEs. Removed rather than upgraded, so there is nothing left to keep patched.
+RUN python -m pip uninstall -y pip
 # tesseract-ocr-fra: liteparse bundles its own OCR engine, but not language
 # data - this is what makes ocr_language="fra" actually work.
 # libreoffice: liteparse shells out to it to convert docx/xlsx/pptx/odt to a

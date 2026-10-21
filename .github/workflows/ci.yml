@@ -193,6 +193,27 @@ jobs:
       CATEGORY: trivy-config
       TRIVYIGNORES: .trivyignore.yaml
 
+  # The scans above report everything to the Security tab and never fail. These two gate the
+  # merge on what has to be fixed now, and report nothing else (a SEVERITY filter also narrows
+  # the SARIF, so it can't be set on the reporting scans without hiding the rest from the tab):
+  # configuration findings of high or critical severity, which are always fixable. To accept
+  # one, see docs/security-scans.md.
+  gate-trivy-conf:
+    uses: dnum-mi/fabnum-cicd/.github/workflows/scan-trivy.yml@v0
+    needs:
+      - expose-vars
+    permissions:
+      contents: read
+      security-events: write
+      pull-requests: write
+      packages: read
+    with:
+      PATH: ./
+      FORMAT: table
+      SEVERITY: CRITICAL,HIGH
+      FAIL_ON_ERROR: true
+      TRIVYIGNORES: .trivyignore.yaml
+
   build-docker:
     uses: dnum-mi/fabnum-cicd/.github/workflows/build-docker.yml@v0
     needs:
@@ -244,6 +265,33 @@ jobs:
       FORMAT: sarif
       GITHUB_SECURITY_TAB: true
       CATEGORY: trivy-image-${{ matrix.service.name }}
+      TRIVYIGNORES: .trivyignore.yaml
+
+  # Critical vulnerabilities that already have a fix (the image scan always ignores unfixed ones):
+  # whatever lands here can be solved by rebuilding on a newer base or bumping a dependency.
+  # See gate-trivy-conf above for why this is separate from scan-trivy-images.
+  gate-trivy-images:
+    uses: dnum-mi/fabnum-cicd/.github/workflows/scan-trivy.yml@v0
+    needs:
+      - path-filter
+      - expose-vars
+      - build-docker
+    if: ${{ needs.path-filter.outputs.services != '[]' }}
+    permissions:
+      contents: read
+      security-events: write
+      pull-requests: write
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJSON(needs.path-filter.outputs.services) }}
+    with:
+      IMAGE: ${{ needs.expose-vars.outputs.IMAGE_BASE }}/${{ matrix.service.name }}:${{ needs.expose-vars.outputs.IMAGE_TAG }}
+      FORMAT: table
+      SEVERITY: CRITICAL
+      FAIL_ON_ERROR: true
+      TRIVYIGNORES: .trivyignore.yaml
 
   lint-helm:
     uses: dnum-mi/fabnum-cicd/.github/workflows/lint-helm.yml@v0
@@ -274,8 +322,10 @@ jobs:
       - unit-tests
       - scan-gitleaks
       - scan-trivy-conf
+      - gate-trivy-conf
       - build-docker
       - scan-trivy-images
+      - gate-trivy-images
       - lint-helm
     steps:
       - name: Check status of all required jobs
