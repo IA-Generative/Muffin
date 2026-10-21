@@ -34,11 +34,7 @@ def _plan(status: str, points: list[dict], remaining: int | None = None) -> dict
 
 def test_the_rebuild_has_its_own_queue_apart_from_ingestion():
     assert celery_app.conf.task_routes["app.tasks.rebuild_index"] == {"queue": settings.REBUILD_QUEUE_NAME}
-    assert settings.REBUILD_QUEUE_NAME != settings.CELERY_QUEUE_NAME
-    assert {queue.name for queue in celery_app.conf.task_queues} == {
-        settings.CELERY_QUEUE_NAME,
-        settings.REBUILD_QUEUE_NAME,
-    }
+    assert settings.REBUILD_QUEUE_NAME not in (settings.EXTRACTION_QUEUE_NAME, settings.ENRICHMENT_QUEUE_NAME)
 
 
 def test_the_rebuild_is_not_killed_by_the_ingestion_time_limit():

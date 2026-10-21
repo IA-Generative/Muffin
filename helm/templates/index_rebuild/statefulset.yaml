@@ -1,0 +1,25 @@
+{{- if .Values.enabled }}
+{{- if eq .Values.index_rebuild.deploymentType "StatefulSet" }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "helper.componentFullname" (dict "root" . "componentName" "index_rebuild") }}
+  labels: {{- include "helper.labels" (dict "root" . "componentName" "index_rebuild") | nindent 4 }}
+spec:
+  {{- if not .Values.index_rebuild.autoscaling.enabled }}
+  replicas: {{ .Values.index_rebuild.replicaCount }}
+  {{- end }}
+  revisionHistoryLimit: {{ .Values.index_rebuild.revisionHistoryLimit | default 10 }}
+  selector:
+    matchLabels: {{- include "helper.selectorLabels" (dict "root" . "componentName" "index_rebuild") | nindent 6 }}
+  serviceName: {{ include "helper.componentFullname" (dict "root" . "componentName" "index_rebuild") }}
+  {{- with .Values.index_rebuild.updateStrategy }}
+  updateStrategy: {{- toYaml . | nindent 4 }}
+  {{- end }}
+  template:
+    {{- include "helper.component.podTemplate" (dict "root" . "name" "index_rebuild" "component" .Values.index_rebuild) | nindent 4 }}
+  {{- if or .Values.index_rebuild.volumeClaims .Values.index_rebuild.extraVolumeClaims }}
+  volumeClaimTemplates: {{- toYaml (concat (default (list) .Values.index_rebuild.volumeClaims) (default (list) .Values.index_rebuild.extraVolumeClaims)) | nindent 2 }}
+  {{- end }}
+{{- end }}
+{{- end }}

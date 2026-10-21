@@ -1,0 +1,53 @@
+{{- if .Values.enabled }}
+{{- if .Values.index_rebuild.ingress.enabled -}}
+{{- $fullNameApp := include "helper.componentFullname" (dict "root" . "componentName" "index_rebuild") -}}
+{{- $svcPortApp := .Values.index_rebuild.service.port -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "helper.componentFullname" (dict "root" . "componentName" "index_rebuild") }}
+  labels: {{- (include "helper.labels" (dict "root" . "componentName" "index_rebuild")) | nindent 4 }}
+  {{- if .Values.index_rebuild.ingress.labels }}
+    {{- toYaml .Values.index_rebuild.ingress.labels | nindent 4 }}
+  {{- end }}
+  {{- if .Values.index_rebuild.ingress.annotations }}
+  annotations:
+    {{- tpl (toYaml .Values.index_rebuild.ingress.annotations) . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.index_rebuild.ingress.className }}
+  ingressClassName: {{ .Values.index_rebuild.ingress.className }}
+  {{- end }}
+  {{- if gt (len .Values.index_rebuild.ingress.tls) 0 }}
+  tls:
+  {{- range .Values.index_rebuild.ingress.tls }}
+  - hosts:
+    {{- range .hosts }}
+    - {{ . | quote }}
+    {{- end }}
+    secretName: {{ .secretName | default (printf "%s-%s" $fullNameApp "tls") | quote }}
+  {{- end }}
+  {{- end }}
+  rules:
+  {{- range .Values.index_rebuild.ingress.hosts }}
+  - host: {{ .name | quote }}
+    http:
+      paths:
+      {{- range .paths }}
+      - path: {{ .path | default "/" }}
+        pathType: {{ .pathType | default "Prefix" }}
+        backend:
+          service:
+          {{- if .backend }}
+            name: {{ .backend.serviceName | default $fullNameApp }}
+            port:
+              number: {{ .backend.portNumber | default $svcPortApp }}
+          {{- else }}
+            name: {{ $fullNameApp }}
+            port:
+              number: 80
+          {{- end }}
+      {{- end }}
+  {{- end }}
+{{- end }}
+{{- end }}

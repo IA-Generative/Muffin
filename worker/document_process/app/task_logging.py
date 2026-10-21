@@ -1,4 +1,5 @@
 import io
+import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 
@@ -13,9 +14,13 @@ def capture_task_logs(celery_task_id: str) -> Iterator[None]:
     failure - the user wants the raw output available in all cases) and
     reports it back to the backend against this task's Task row, win or
     lose. Reporting happens even on exception, then the exception is
-    re-raised so Celery still marks the task FAILURE."""
+    re-raised so Celery still marks the task FAILURE.
+
+    Only this thread's lines: the enrichment worker runs its tasks in a pool of threads (#291), and a
+    loguru sink sees every thread's - without the filter, each task would collect the others' too."""
     buffer = io.StringIO()
-    sink_id = logger.add(buffer, level="DEBUG", enqueue=False)
+    thread_id = threading.get_ident()
+    sink_id = logger.add(buffer, level="DEBUG", enqueue=False, filter=lambda record: record["thread"].id == thread_id)
     try:
         yield
     finally:

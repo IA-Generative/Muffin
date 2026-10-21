@@ -384,6 +384,8 @@
     "agent_execution": { "$ref": "#/definitions/workloadComponent" },
     "worker_evaluation": { "$ref": "#/definitions/workloadComponent" },
     "worker_document_edit": { "$ref": "#/definitions/workloadComponent" },
+    "document_enrichment": { "$ref": "#/definitions/workloadComponent" },
+    "index_rebuild": { "$ref": "#/definitions/workloadComponent" },
     "jobs": {
       "type": ["object", "null"],
       "additionalProperties": { "$ref": "#/definitions/batchEntry" }

@@ -14,18 +14,27 @@ _celery_app = Celery(
 # task history would expect it to disappear.
 _celery_app.conf.result_expires = 60 * 60 * 24 * 7
 
-# Must match worker/document_process/app/celery_app.py's queue and task name
-# exactly - the backend only produces this task, it never imports the
-# worker's code (separate service, separate deploy).
-DOCUMENT_PROCESSING_QUEUE = "document_processing"
+# worker/document_process runs as three pods (#291), one per kind of work, each consuming its own
+# queues. Must match that worker's app/config.py and app/celery_app.py exactly - the backend only
+# produces these tasks, it never imports the worker's code (separate service, separate deploy).
+# Extraction: OCR, parsing, fetching a URL (CPU).
+DOCUMENT_EXTRACTION_QUEUE = "document_extraction"
 PROCESS_DOCUMENT_TASK = "app.tasks.process_document"
+# Celery's Redis priorities run from 0 (the highest, what a message without one gets) to 9. A
+# document a ZIP import created is sent with the lowest: Redis keeps it in a list of its own, which
+# the worker only reads once the normal one is empty - so a file someone just dropped never waits
+# behind the 2000 documents of an archive.
+BULK_PRIORITY = 9
 
-# Same worker and queue: recomputing a parent collection's description from its own documents and
-# its sub-collections' descriptions (#218). Always sent with a countdown, see
-# app/services/description_rollup_service.py.
+# Enrichment: embeddings and LLM calls (network), on a pool of threads. Recomputing a parent
+# collection's description from its own documents and its sub-collections' descriptions (#218).
+# Always sent with a countdown, see app/services/description_rollup_service.py.
+DOCUMENT_ENRICHMENT_QUEUE = "document_enrichment"
 ROLLUP_COLLECTION_DESCRIPTION_TASK = "app.tasks.rollup_collection_description"
 
-# Same worker and queue: turning an uploaded ZIP into a collection and its sub-collections (#223).
+# Long I/O, on the index rebuilds' pod: turning an uploaded ZIP into a collection and its
+# sub-collections (#223) - minutes for a large archive, which must hold up no extraction slot.
+DOCUMENT_IMPORT_QUEUE = "document_import"
 IMPORT_ZIP_TASK = "app.tasks.import_zip"
 
 # Same reasoning, for the separate worker/agent_execution service - a
@@ -37,7 +46,7 @@ RESUME_AGENT_TASK = "app.tasks.resume_agent"
 
 # Same reasoning again, for worker/evaluation (see #11) - a retrieval evaluation replays every
 # validated QA pair of a collection through search + generation, potentially long and LLM-heavy,
-# so it gets its own queue rather than competing with document_processing or agent_execution.
+# so it gets its own queue rather than competing with document ingestion or agent_execution.
 EVALUATION_QUEUE = "evaluation"
 RUN_EVALUATION_TASK = "app.tasks.run_evaluation"
 # A second task type on the same worker/evaluation service and queue (see #31) - one LLM judgment
@@ -48,8 +57,8 @@ SCORE_DISCUSSION_TASK = "app.tasks.score_discussion"
 # And again for worker/document_edit (#167) - an edit job runs an LLM and a LibreOffice
 # conversion, so it gets its own queue rather than competing with the others.
 DOCUMENT_EDIT_QUEUE = "document_edit"
-# Rebuilding a collection's search index with a new embedding model (#12): its own queue, consumed by
-# the document_process worker, so a large rebuild never holds up the ingestion of new documents.
+# Rebuilding a collection's search index with a new embedding model (#12): its own queue and pod
+# (with the ZIP imports), so a large rebuild never holds up the ingestion of new documents.
 INDEX_REBUILD_QUEUE = "index_rebuild"
 REBUILD_INDEX_TASK = "app.tasks.rebuild_index"
 EDIT_DOCUMENT_TASK = "app.tasks.edit_document"
@@ -59,10 +68,14 @@ INSERT_IMAGES_TASK = "app.tasks.insert_images"
 RENDER_UPLOAD_TASK = "app.tasks.render_upload"
 
 
-def enqueue_process_document(document_id: str) -> str:
+def enqueue_process_document(document_id: str, *, bulk: bool = False) -> str:
     """Returns the Celery task id, so the caller can record it (see
-    app/models/task.py) for later status lookups and revocation."""
-    result = _celery_app.send_task(PROCESS_DOCUMENT_TASK, args=[document_id], queue=DOCUMENT_PROCESSING_QUEUE)
+    app/models/task.py) for later status lookups and revocation. `bulk`: one of the many documents
+    of a ZIP import, processed after any other waiting."""
+    options = {"priority": BULK_PRIORITY} if bulk else {}
+    result = _celery_app.send_task(
+        PROCESS_DOCUMENT_TASK, args=[document_id], queue=DOCUMENT_EXTRACTION_QUEUE, **options
+    )
     return result.id
 
 
@@ -72,7 +85,7 @@ def enqueue_rollup_collection_description(collection_id: str, countdown: int) ->
     result = _celery_app.send_task(
         ROLLUP_COLLECTION_DESCRIPTION_TASK,
         args=[collection_id],
-        queue=DOCUMENT_PROCESSING_QUEUE,
+        queue=DOCUMENT_ENRICHMENT_QUEUE,
         countdown=countdown,
     )
     return result.id
@@ -80,7 +93,7 @@ def enqueue_rollup_collection_description(collection_id: str, countdown: int) ->
 
 def enqueue_import_zip(import_id: str) -> str:
     """Returns the Celery task id, recorded as a collection-scoped Task row."""
-    result = _celery_app.send_task(IMPORT_ZIP_TASK, args=[import_id], queue=DOCUMENT_PROCESSING_QUEUE)
+    result = _celery_app.send_task(IMPORT_ZIP_TASK, args=[import_id], queue=DOCUMENT_IMPORT_QUEUE)
     return result.id
 
 

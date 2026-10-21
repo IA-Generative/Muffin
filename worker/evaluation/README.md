@@ -13,7 +13,7 @@ même queue :
 Ne parle jamais directement à Postgres/Meilisearch : toute lecture/écriture passe par les endpoints
 internes du backend (`app/backend_client.py`), authentifiés par `WORKER_API_KEY`.
 
-Dans sa propre queue Celery (`evaluation`), séparée de `document_processing` et
+Dans sa propre queue Celery (`evaluation`), séparée de celles de worker/document_process et
 `agent_execution` : un run d'évaluation itère sur toutes les paires QA d'une collection, refait une
 recherche + une génération pour chacune - potentiellement long et gourmand en appels LLM, ça ne
 doit jamais faire attendre une vraie requête utilisateur ni retarder l'ingestion de documents.

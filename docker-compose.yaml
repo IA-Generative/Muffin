@@ -83,11 +83,15 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
 
+  # worker/document_process runs as three services from the same image (#291), one per kind of
+  # work - see app/celery_app.py there for which task goes where.
+  # Extraction: OCR, parsing, fetching a URL - CPU-bound, prefork. The image's default command
+  # (Dockerfile): its queue, the one before #291 drained for a release, and the beat.
   worker-document-process:
     build:
       context: ./worker/document_process
       dockerfile: Dockerfile
-    environment:
+    environment: &document-process-env
       REDIS_URL: redis://redis:6379/0
       BACKEND_API_URL: http://backend:8000
       WORKER_API_KEY: ${WORKER_API_KEY:-dev-only-worker-key-not-for-prod}
@@ -95,9 +99,7 @@ services:
       AWS_ACCESS_KEY_ID: rustfsadmin
       AWS_SECRET_ACCESS_KEY: rustfsadmin
       AWS_BUCKET: muffin-documents
-    # Ingestion only: the index rebuilds (#12) have their own worker below.
-    command: ["celery", "-A", "app.celery_app", "worker", "-B", "--schedule=/tmp/celerybeat-schedule", "--loglevel=info", "-Q", "document_processing"]
-    depends_on:
+    depends_on: &document-process-depends-on
       redis:
         condition: service_healthy
       backend:
@@ -106,23 +108,27 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  # Same image as worker-document-process, consuming the queue of the blue/green index rebuilds
-  # (#12) alone: a large rebuild never delays the ingestion of new documents. No beat (-B) here -
-  # the periodic scans run once, in worker-document-process.
+  # Enrichment: chunking with its embeddings, summary, QA, entities, tags - mostly waiting for the
+  # embeddings/LLM API, so a pool of threads runs many at once. No beat here.
+  worker-document-enrichment:
+    build:
+      context: ./worker/document_process
+      dockerfile: Dockerfile
+    environment: *document-process-env
+    command: ["celery", "-A", "app.celery_app", "worker", "--loglevel=info", "-Q", "document_enrichment", "-P", "threads", "-c", "16"]
+    depends_on: *document-process-depends-on
+    restart: unless-stopped
+
+  # Long I/O jobs: the blue/green index rebuilds (#12) and the ZIP imports (#223), so that neither
+  # holds up the ingestion of new documents. A ZIP import's documents then go through extraction
+  # like any other, after them. No beat here.
   worker-index-rebuild:
     build:
       context: ./worker/document_process
       dockerfile: Dockerfile
-    environment:
-      REDIS_URL: redis://redis:6379/0
-      BACKEND_API_URL: http://backend:8000
-      WORKER_API_KEY: ${WORKER_API_KEY:-dev-only-worker-key-not-for-prod}
-    command: ["celery", "-A", "app.celery_app", "worker", "--loglevel=info", "-Q", "index_rebuild"]
-    depends_on:
-      redis:
-        condition: service_healthy
-      backend:
-        condition: service_started
+    environment: *document-process-env
+    command: ["celery", "-A", "app.celery_app", "worker", "--loglevel=info", "-Q", "index_rebuild,document_import", "-c", "2"]
+    depends_on: *document-process-depends-on
     restart: unless-stopped
 
   worker-agent-execution:
