@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.20.0](https://github.com/IA-Generative/Muffin/compare/v0.19.1...v0.20.0) (2026-10-21)
+
+
+### Features
+
+* **documents:** hash every file, and tell when the same file or URL is added twice ([0a60930](https://github.com/IA-Generative/Muffin/commit/0a6093022231645b189c2b518c8a7a9ed47bdf7d))
+* **frontend:** ask before adding a file or a URL the collection already has ([f927c40](https://github.com/IA-Generative/Muffin/commit/f927c40d5424c84fda9ab0980cb7d7c5885f81b2))
+* **pipeline:** reuse what was computed for the same file, stage by stage ([52a7172](https://github.com/IA-Generative/Muffin/commit/52a7172ff4aa2548ffac127f62ca3bcbeecee8e3)), closes [#300](https://github.com/IA-Generative/Muffin/issues/300)
+
+
+### Bug Fixes
+
+* **pipeline:** make the pipeline's writes idempotent, and delete what it derives with the document ([09c2039](https://github.com/IA-Generative/Muffin/commit/09c20398462dbc3f304cff8ce90ca24307d6cccc)), closes [#299](https://github.com/IA-Generative/Muffin/issues/299)
+* **worker:** stop killing long tasks, bound what can hang where it happens ([f97aae9](https://github.com/IA-Generative/Muffin/commit/f97aae9d50476b35b4d1e848e678051725b75601)), closes [#294](https://github.com/IA-Generative/Muffin/issues/294)
+
+
+### Code Refactoring
+
+* **worker:** split document_process into extraction, enrichment and import/rebuild pods ([1815930](https://github.com/IA-Generative/Muffin/commit/1815930167e6d75ae1f7bcd11940effd15db5a61)), closes [#291](https://github.com/IA-Generative/Muffin/issues/291)
+
 ## [0.20.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.19.1...v0.20.0-rc) (2026-10-21)
 
 
