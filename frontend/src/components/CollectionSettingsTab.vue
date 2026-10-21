@@ -185,11 +185,59 @@ function submitShare() {
 }
 
 const SHARE_STATUS_LABEL: Record<'pending' | 'active', string> = { pending: 'En attente', active: 'Actif' }
+
+// Une section à la fois, en carrousel. « Obligatoire » = étape que le pipeline d'indexation
+// exécute toujours ; visibilité et partages ne concernent que l'accès à la collection.
+const STEPS = [
+  { key: 'summary', label: 'Résumé', required: true },
+  { key: 'chunking', label: 'Découpage', required: true },
+  { key: 'embedding', label: "Modèle d'embedding", required: true },
+  { key: 'qa', label: 'Questions-réponses', required: true },
+  { key: 'extraction', label: 'Extraction', required: true },
+  { key: 'tagging', label: 'Tags automatiques', required: true },
+  { key: 'visibility', label: 'Visibilité', required: false },
+  { key: 'shares', label: 'Partages', required: false },
+] as const
+type StepKey = (typeof STEPS)[number]['key']
+
+const stepIndex = ref(0)
+const currentStep = computed<StepKey>(() => STEPS[stepIndex.value].key)
+const previousStep = computed(() => STEPS[stepIndex.value - 1])
+const nextStep = computed(() => STEPS[stepIndex.value + 1])
+
+watch(
+  () => props.collection.id,
+  () => {
+    stepIndex.value = 0
+  },
+)
+
+function requirementLabel(required: boolean) {
+  return required ? 'Obligatoire' : 'Facultatif'
+}
 </script>
 
 <template>
   <div class="settings-tab">
-    <form class="settings-tab__section" @submit.prevent="saveSummary">
+    <nav class="settings-tab__steps" aria-label="Sections des paramètres">
+      <button
+        v-for="(step, index) in STEPS"
+        :key="step.key"
+        type="button"
+        class="settings-tab__step"
+        :class="{ 'settings-tab__step--active': index === stepIndex }"
+        :aria-current="index === stepIndex ? 'step' : undefined"
+        @click="stepIndex = index"
+      >
+        <span class="settings-tab__step-number">{{ index + 1 }}</span>
+        <span class="settings-tab__step-label">{{ step.label }}</span>
+        <span class="settings-tab__requirement" :class="`settings-tab__requirement--${step.required ? 'required' : 'optional'}`">
+          {{ requirementLabel(step.required) }}
+        </span>
+      </button>
+    </nav>
+
+    <form v-show="currentStep === 'summary'" class="settings-tab__section" @submit.prevent="saveSummary">
       <div class="settings-tab__header">
         <span class="settings-tab__icon" aria-hidden="true">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -201,6 +249,12 @@ const SHARE_STATUS_LABEL: Record<'pending' | 'active', string> = { pending: 'En 
           </svg>
         </span>
         <h3 class="settings-tab__title">Résumé</h3>
+        <span
+          class="settings-tab__requirement"
+          :class="`settings-tab__requirement--${STEPS[stepIndex].required ? 'required' : 'optional'}`"
+        >
+          {{ requirementLabel(STEPS[stepIndex].required) }}
+        </span>
       </div>
 
       <div class="settings-tab__body">
@@ -242,7 +296,7 @@ const SHARE_STATUS_LABEL: Record<'pending' | 'active', string> = { pending: 'En 
       </div>
     </form>
 
-    <form class="settings-tab__section" @submit.prevent="saveChunking">
+    <form v-show="currentStep === 'chunking'" class="settings-tab__section" @submit.prevent="saveChunking">
       <div class="settings-tab__header">
         <span class="settings-tab__icon" aria-hidden="true">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -254,6 +308,12 @@ const SHARE_STATUS_LABEL: Record<'pending' | 'active', string> = { pending: 'En 
           </svg>
         </span>
         <h3 class="settings-tab__title">Découpage (chunking)</h3>
+        <span
+          class="settings-tab__requirement"
+          :class="`settings-tab__requirement--${STEPS[stepIndex].required ? 'required' : 'optional'}`"
+        >
+          {{ requirementLabel(STEPS[stepIndex].required) }}
+        </span>
       </div>
 
       <div class="settings-tab__body">
@@ -335,7 +395,7 @@ const SHARE_STATUS_LABEL: Record<'pending' | 'active', string> = { pending: 'En 
       </div>
     </form>
 
-    <form class="settings-tab__section" @submit.prevent="saveEmbeddingModel">
+    <form v-show="currentStep === 'embedding'" class="settings-tab__section" @submit.prevent="saveEmbeddingModel">
       <div class="settings-tab__header">
         <span class="settings-tab__icon" aria-hidden="true">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -347,6 +407,12 @@ const SHARE_STATUS_LABEL: Record<'pending' | 'active', string> = { pending: 'En 
           </svg>
         </span>
         <h3 class="settings-tab__title">Modèle d'embedding</h3>
+        <span
+          class="settings-tab__requirement"
+          :class="`settings-tab__requirement--${STEPS[stepIndex].required ? 'required' : 'optional'}`"
+        >
+          {{ requirementLabel(STEPS[stepIndex].required) }}
+        </span>
       </div>
 
       <div class="settings-tab__body">
@@ -385,7 +451,7 @@ const SHARE_STATUS_LABEL: Record<'pending' | 'active', string> = { pending: 'En 
       </div>
     </form>
 
-    <form class="settings-tab__section" @submit.prevent="saveQa">
+    <form v-show="currentStep === 'qa'" class="settings-tab__section" @submit.prevent="saveQa">
       <div class="settings-tab__header">
         <span class="settings-tab__icon" aria-hidden="true">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -397,6 +463,12 @@ const SHARE_STATUS_LABEL: Record<'pending' | 'active', string> = { pending: 'En 
           </svg>
         </span>
         <h3 class="settings-tab__title">Questions-réponses</h3>
+        <span
+          class="settings-tab__requirement"
+          :class="`settings-tab__requirement--${STEPS[stepIndex].required ? 'required' : 'optional'}`"
+        >
+          {{ requirementLabel(STEPS[stepIndex].required) }}
+        </span>
       </div>
 
       <div class="settings-tab__body">
@@ -457,7 +529,7 @@ const SHARE_STATUS_LABEL: Record<'pending' | 'active', string> = { pending: 'En 
       </div>
     </form>
 
-    <form class="settings-tab__section" @submit.prevent="saveExtraction">
+    <form v-show="currentStep === 'extraction'" class="settings-tab__section" @submit.prevent="saveExtraction">
       <div class="settings-tab__header">
         <span class="settings-tab__icon" aria-hidden="true">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -469,6 +541,12 @@ const SHARE_STATUS_LABEL: Record<'pending' | 'active', string> = { pending: 'En 
           </svg>
         </span>
         <h3 class="settings-tab__title">Extraction d'entités et relations</h3>
+        <span
+          class="settings-tab__requirement"
+          :class="`settings-tab__requirement--${STEPS[stepIndex].required ? 'required' : 'optional'}`"
+        >
+          {{ requirementLabel(STEPS[stepIndex].required) }}
+        </span>
       </div>
 
       <div class="settings-tab__body">
@@ -521,7 +599,7 @@ const SHARE_STATUS_LABEL: Record<'pending' | 'active', string> = { pending: 'En 
       </div>
     </form>
 
-    <form class="settings-tab__section" @submit.prevent="saveTagging">
+    <form v-show="currentStep === 'tagging'" class="settings-tab__section" @submit.prevent="saveTagging">
       <div class="settings-tab__header">
         <span class="settings-tab__icon" aria-hidden="true">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -534,6 +612,12 @@ const SHARE_STATUS_LABEL: Record<'pending' | 'active', string> = { pending: 'En 
           </svg>
         </span>
         <h3 class="settings-tab__title">Tags automatiques</h3>
+        <span
+          class="settings-tab__requirement"
+          :class="`settings-tab__requirement--${STEPS[stepIndex].required ? 'required' : 'optional'}`"
+        >
+          {{ requirementLabel(STEPS[stepIndex].required) }}
+        </span>
       </div>
 
       <div class="settings-tab__body">
@@ -561,7 +645,7 @@ const SHARE_STATUS_LABEL: Record<'pending' | 'active', string> = { pending: 'En 
       </div>
     </form>
 
-    <form class="settings-tab__section" @submit.prevent="saveVisibility">
+    <form v-show="currentStep === 'visibility'" class="settings-tab__section" @submit.prevent="saveVisibility">
       <div class="settings-tab__header">
         <span class="settings-tab__icon" aria-hidden="true">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -574,6 +658,12 @@ const SHARE_STATUS_LABEL: Record<'pending' | 'active', string> = { pending: 'En 
           </svg>
         </span>
         <h3 class="settings-tab__title">Visibilité</h3>
+        <span
+          class="settings-tab__requirement"
+          :class="`settings-tab__requirement--${STEPS[stepIndex].required ? 'required' : 'optional'}`"
+        >
+          {{ requirementLabel(STEPS[stepIndex].required) }}
+        </span>
       </div>
 
       <div class="settings-tab__body">
@@ -599,7 +689,7 @@ const SHARE_STATUS_LABEL: Record<'pending' | 'active', string> = { pending: 'En 
       </div>
     </form>
 
-    <form class="settings-tab__section" @submit.prevent="submitShare">
+    <form v-show="currentStep === 'shares'" class="settings-tab__section" @submit.prevent="submitShare">
       <div class="settings-tab__header">
         <span class="settings-tab__icon" aria-hidden="true">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -611,6 +701,12 @@ const SHARE_STATUS_LABEL: Record<'pending' | 'active', string> = { pending: 'En 
           </svg>
         </span>
         <h3 class="settings-tab__title">Partages</h3>
+        <span
+          class="settings-tab__requirement"
+          :class="`settings-tab__requirement--${STEPS[stepIndex].required ? 'required' : 'optional'}`"
+        >
+          {{ requirementLabel(STEPS[stepIndex].required) }}
+        </span>
       </div>
 
       <div class="settings-tab__body">
@@ -670,35 +766,177 @@ const SHARE_STATUS_LABEL: Record<'pending' | 'active', string> = { pending: 'En 
         <p v-else class="settings-tab__hint">Aucun partage sur cette collection.</p>
       </div>
     </form>
+
+    <div class="settings-tab__pager">
+      <button
+        v-if="previousStep"
+        type="button"
+        class="settings-tab__pager-button"
+        @click="stepIndex--"
+      >
+        <span class="settings-tab__pager-direction">← Précédent</span>
+        <span class="settings-tab__pager-label">{{ previousStep.label }}</span>
+        <span class="settings-tab__requirement" :class="`settings-tab__requirement--${previousStep.required ? 'required' : 'optional'}`">
+          {{ requirementLabel(previousStep.required) }}
+        </span>
+      </button>
+      <span class="settings-tab__pager-position">{{ stepIndex + 1 }} / {{ STEPS.length }}</span>
+      <button
+        v-if="nextStep"
+        type="button"
+        class="settings-tab__pager-button settings-tab__pager-button--next"
+        @click="stepIndex++"
+      >
+        <span class="settings-tab__pager-direction">Suivant →</span>
+        <span class="settings-tab__pager-label">{{ nextStep.label }}</span>
+        <span class="settings-tab__requirement" :class="`settings-tab__requirement--${nextStep.required ? 'required' : 'optional'}`">
+          {{ requirementLabel(nextStep.required) }}
+        </span>
+      </button>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .settings-tab {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 1.25rem;
-  max-width: 72rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-width: 48rem;
 }
 
-/* Fixed height + internal scroll, not "grow with content": every card is
-   the same size regardless of how many fields it has, and the tab itself
-   stops growing tall - only a card's own body scrolls if it overflows. */
+.settings-tab__steps {
+  display: flex;
+  gap: 0.5rem;
+  overflow-x: auto;
+  padding-bottom: 0.25rem;
+}
+
+.settings-tab__step {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border-default-grey);
+  border-radius: 0.5rem;
+  background: var(--background-default-grey);
+  color: var(--text-default-grey);
+  font: inherit;
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+
+.settings-tab__step:hover {
+  border-color: var(--border-action-high-blue-france);
+}
+
+.settings-tab__step--active {
+  border-color: var(--border-action-high-blue-france);
+  background: var(--background-alt-blue-france);
+  font-weight: 700;
+}
+
+.settings-tab__step-number {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.375rem;
+  height: 1.375rem;
+  border-radius: 50%;
+  background: var(--background-alt-grey);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.settings-tab__step--active .settings-tab__step-number {
+  background: var(--background-action-high-blue-france);
+  color: var(--text-inverted-blue-france);
+}
+
+.settings-tab__requirement {
+  flex-shrink: 0;
+  padding: 0.0625rem 0.5rem;
+  border-radius: 1rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+}
+
+.settings-tab__requirement--required {
+  background: var(--background-alt-orange-terre-battue, var(--background-alt-grey));
+  color: var(--text-default-grey);
+}
+
+.settings-tab__requirement--optional {
+  background: var(--background-alt-grey);
+  color: var(--text-mention-grey);
+}
+
+.settings-tab__pager {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.settings-tab__pager-button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+  min-width: 0;
+  padding: 0.625rem 0.875rem;
+  border: 1px solid var(--border-default-grey);
+  border-radius: 0.75rem;
+  background: var(--background-default-grey);
+  color: var(--text-default-grey);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-tab__pager-button:hover {
+  border-color: var(--border-action-high-blue-france);
+}
+
+.settings-tab__pager-button--next {
+  grid-column: 3;
+  align-items: flex-end;
+  text-align: right;
+}
+
+.settings-tab__pager-direction {
+  font-size: 0.75rem;
+  color: var(--text-action-high-blue-france);
+}
+
+.settings-tab__pager-label {
+  max-width: 100%;
+  font-size: 0.875rem;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-tab__pager-position {
+  grid-column: 2;
+  font-size: 0.8125rem;
+  color: var(--text-mention-grey);
+}
+
+/* Fixed height + internal scroll: the pager below stays in place from one
+   section to the next, only a section's own body scrolls if it overflows. */
 .settings-tab__section {
   display: flex;
   flex-direction: column;
-  height: 26rem;
+  height: 30rem;
   border: 1px solid var(--border-default-grey);
   border-radius: 1rem;
   background: var(--background-default-grey);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
   transition: box-shadow 0.15s ease, border-color 0.15s ease;
   overflow: hidden;
-}
-
-.settings-tab__section:hover {
-  border-color: var(--border-action-high-blue-france);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
 
 .settings-tab__header {
@@ -709,6 +947,10 @@ const SHARE_STATUS_LABEL: Record<'pending' | 'active', string> = { pending: 'En 
   height: 3.75rem;
   padding: 0 1.25rem;
   border-bottom: 1px solid var(--border-default-grey);
+}
+
+.settings-tab__header .settings-tab__requirement {
+  margin-left: auto;
 }
 
 .settings-tab__icon {
