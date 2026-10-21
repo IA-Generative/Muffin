@@ -66,6 +66,31 @@ class EntityRepository:
         await self._delete_unmentioned(touched)
         await self.db.flush()
 
+    async def export_windows(
+        self, document_id: uuid.UUID
+    ) -> dict[str, tuple[list[tuple[str, str, int]], list[tuple[str, str, str]]]]:
+        """What was extracted from each window of a document's pages, by window: its entities (name,
+        type, mentions) and relations (from name, to name, type) - what another document of the same file
+        reuses (#300). A mention from before the windows were recorded has no window and is left out."""
+        windows: dict[str, tuple[list[tuple[str, str, int]], list[tuple[str, str, str]]]] = {}
+        links = await self.db.execute(
+            select(EntityDocument.window_key, Entity.name, Entity.type, EntityDocument.mentions)
+            .join(Entity, Entity.id == EntityDocument.entity_id)
+            .where(EntityDocument.document_id == document_id, EntityDocument.window_key != "")
+        )
+        for window_key, name, type_, mentions in links.all():
+            windows.setdefault(window_key, ([], []))[0].append((name, type_.value, mentions))
+        relations = await self.db.execute(
+            select(Relation)
+            .where(Relation.document_id == document_id, Relation.window_key.is_not(None))
+            .options(selectinload(Relation.from_entity), selectinload(Relation.to_entity))
+        )
+        for relation in relations.scalars().all():
+            windows.setdefault(relation.window_key, ([], []))[1].append(
+                (relation.from_entity.name, relation.to_entity.name, relation.type)
+            )
+        return windows
+
     async def remove_document(self, document_id: uuid.UUID) -> None:
         """Takes a document's contribution out of the collection: its mentions leave the entities' counts
         (an entity nothing mentions anymore goes), and its relations go (#299). For a document that is

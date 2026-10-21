@@ -143,6 +143,27 @@ class BackendClient:
         )
         response.raise_for_status()
 
+    def begin_stage(
+        self,
+        document_id: str,
+        stage: str,
+        fingerprint: str,
+        expected: list[str],
+        content_hash: str | None = None,
+    ) -> bool:
+        """A stage is about to run (#300): True if another document of the same file already completed
+        it under this fingerprint and the backend copied its results here - nothing is left to compute."""
+        body: dict[str, Any] = {"fingerprint": fingerprint, "expected": expected}
+        if content_hash:
+            body["content_hash"] = content_hash
+        response = self._client.post(f"/api/internal/documents/{document_id}/stages/{stage}/begin", json=body)
+        response.raise_for_status()
+        return response.json()["reused"]
+
+    def stage_done(self, document_id: str, stage: str, key: str = "_") -> None:
+        response = self._client.post(f"/api/internal/documents/{document_id}/stages/{stage}/done", json={"key": key})
+        response.raise_for_status()
+
     def prune_pages(self, document_id: str, keep: int) -> None:
         """After writing the pages: drops those after the first `keep` that an earlier, longer run left."""
         response = self._client.post(f"/api/internal/documents/{document_id}/pages/prune", json={"keep": keep})

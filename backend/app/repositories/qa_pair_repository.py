@@ -37,6 +37,20 @@ class QaPairRepository:
         await self.db.flush()
         return qa_pair
 
+    async def list_generated_windows(self, document_id: uuid.UUID) -> list[QaPair]:
+        """The pairs the pipeline generated from the windows of a document's pages and nobody touched:
+        what another document of the same file reuses (#300). Not the ones a person validated, which are
+        their work and belong to their collection."""
+        result = await self.db.execute(
+            select(QaPair).where(
+                QaPair.document_id == document_id,
+                QaPair.origin == QaOrigin.GENERATED,
+                QaPair.validated.is_(False),
+                QaPair.generation_key.like("window:%"),
+            )
+        )
+        return list(result.scalars().all())
+
     async def delete_generated_run(
         self, collection_id: uuid.UUID, document_id: uuid.UUID | None, generation_key: str
     ) -> list[uuid.UUID]:

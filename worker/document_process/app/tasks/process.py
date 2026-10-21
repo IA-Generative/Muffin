@@ -6,8 +6,11 @@ chunking ici — c'est ``chunk_document`` qui s'en charge. La branche
 tabulaire est dans ``app/tasks/tabular.py``.
 """
 
+import hashlib
+
 from loguru import logger
 
+from app import reuse
 from app.celery_app import celery_app
 from app.tabular.detect import detect_tabular
 from app.task_logging import capture_task_logs
@@ -26,16 +29,26 @@ def _process_url(document: dict) -> dict | None:
     document_id = document["id"]
     fetched = _shared.fetch_url(document["name"])
     if fetched.data is None:
-        _shared.backend_client.add_page(document_id, page_number=1, content=fetched.markdown)
-        _shared.backend_client.prune_pages(document_id, keep=1)
+        # The page's text is its "file" (#300): the same text in another document is the same pages.
+        content_hash = fetched.content_hash
+        extraction = reuse.extraction(content_hash)
+        if not reuse.begin(document_id, reuse.EXTRACTION, extraction, content_hash=content_hash):
+            _shared.backend_client.add_page(document_id, page_number=1, content=fetched.markdown)
+            _shared.backend_client.prune_pages(document_id, keep=1)
+            reuse.done(document_id, reuse.EXTRACTION)
         # What a scheduled refresh (#19) compares the page against next time.
-        _shared.backend_client.set_content_hash(document_id, fetched.content_hash)
+        _shared.backend_client.set_content_hash(document_id, content_hash)
         return None
     # One key per document, overwritten when a refresh fetches a new version of the file.
     storage_key = f"documents/{document['collection_id']}/{document_id}-{fetched.filename}"
     _shared.storage.put_object(storage_key, fetched.data, content_type=fetched.content_type)
     _shared.backend_client.set_content_hash(document_id, fetched.content_hash, storage_key=storage_key)
-    return {**document, "name": fetched.filename, "storage_key": storage_key}
+    return {
+        **document,
+        "name": fetched.filename,
+        "storage_key": storage_key,
+        "content_hash": fetched.content_hash,
+    }
 
 
 # Already text - one page, no liteparse, no screenshot. liteparse only handles PDF/Office/image
@@ -47,6 +60,25 @@ def _process_markdown(document_id: str, data: bytes) -> None:
     """A Markdown (living documents, #166) or plain text file."""
     _shared.backend_client.add_page(document_id, page_number=1, content=data.decode("utf-8", errors="replace"))
     _shared.backend_client.prune_pages(document_id, keep=1)
+
+
+def _extract_file(document: dict) -> None:
+    """The pages of a file - unless another document of the same file already has them (#300), in which
+    case the backend copies them and the OCR is not run."""
+    document_id, storage_key = document["id"], document["storage_key"]
+    content_hash = reuse.valid_hash(document.get("content_hash"))
+    data = None
+    if content_hash is None:
+        # A file added before its hash was kept, or whose file was replaced: hashed here, from the bytes
+        # that are about to be parsed anyway.
+        data = _shared.storage.get_object(storage_key)
+        content_hash = hashlib.sha256(data).hexdigest()
+    if reuse.begin(document_id, reuse.EXTRACTION, reuse.extraction(content_hash), content_hash=content_hash):
+        return
+    if data is None:
+        data = _shared.storage.get_object(storage_key)
+    _process_file(document_id, storage_key, data, document["name"])
+    reuse.done(document_id, reuse.EXTRACTION)
 
 
 def _process_file(document_id: str, storage_key: str, data: bytes | None = None, name: str = "") -> None:
@@ -122,8 +154,7 @@ def process_document(self, document_id: str) -> None:
                     self.request.id,
                 )
             else:
-                data = _shared.storage.get_object(document["storage_key"])
-                _process_file(document_id, document["storage_key"], data, document["name"])
+                _extract_file(document)
                 _shared.backend_client.update_status(document_id, status="indexing", progress=50)
                 _spawn_chunking(document, self.request.id)
         except Exception as error:
