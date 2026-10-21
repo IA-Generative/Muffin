@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.19.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.18.0...v0.19.0-rc) (2026-10-21)
+
+
+### Features
+
+* **documents:** refresh URL documents on a schedule, reindexing only when the page changed ([f1fd6d7](https://github.com/IA-Generative/Muffin/commit/f1fd6d7ce3c324e642b9875a9a77dcb6ef0555c8)), closes [#19](https://github.com/IA-Generative/Muffin/issues/19)
+* **evaluation:** add golden QA pairs, kept out of the retriever, to measure it fairly ([958bd6d](https://github.com/IA-Generative/Muffin/commit/958bd6d4323a97c3d089f344a365618c6a483ed5))
+
+
+### Bug Fixes
+
+* **collections:** import ZIPs of any size, streamed to storage and extracted member by member ([73463c5](https://github.com/IA-Generative/Muffin/commit/73463c5dac9a57338ee279897fd63a9c28fd7470))
+* **collections:** refuse a ZIP announcing too many entries before reading its directory ([a17ace0](https://github.com/IA-Generative/Muffin/commit/a17ace06bcbf93cf1061299711d40090fd276edf))
+
 ## [0.18.0](https://github.com/IA-Generative/Muffin/compare/v0.17.0...v0.18.0) (2026-10-21)
 
 
