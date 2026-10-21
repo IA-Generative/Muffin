@@ -20,6 +20,14 @@ celery_app.conf.update(
     # PENDING otherwise for a task's entire run, not just before a worker
     # picks it up - the backend's task list can't show "en cours" without this.
     task_track_started=True,
+    # Run by the beat embedded in each worker (`celery worker -B`, see the Dockerfile).
+    beat_schedule={
+        "scan-url-refresh": {
+            "task": "app.tasks.scan_url_refresh",
+            "schedule": settings.URL_REFRESH_SCAN_SECONDS,
+            "options": {"queue": settings.CELERY_QUEUE_NAME},
+        }
+    },
 )
 
 from app import tasks  # noqa: E402,F401

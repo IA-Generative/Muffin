@@ -148,3 +148,42 @@ class DocumentRevisionOut(BaseModel):
     restored_from_number: int | None
     created_at: datetime
     is_current: bool = False
+
+
+# -- scheduled refresh of a URL document (#19) --------------------------------------------------
+
+
+class RefreshScheduleOut(BaseModel):
+    # None: no automatic refresh.
+    interval_minutes: int | None
+    next_run_at: datetime | None
+    # When the page was last fetched - by its indexing or by a refresh check.
+    last_fetched_at: datetime | None
+
+
+class RefreshScheduleUpdate(BaseModel):
+    # One of REFRESH_INTERVALS_MINUTES, or None to stop refreshing.
+    interval_minutes: int | None
+
+    @field_validator("interval_minutes")
+    @classmethod
+    def _allowed(cls, value: int | None) -> int | None:
+        from app.models.document_refresh_schedule import REFRESH_INTERVALS_MINUTES
+
+        if value is not None and value not in REFRESH_INTERVALS_MINUTES:
+            raise ValueError(f"must be one of {list(REFRESH_INTERVALS_MINUTES)}")
+        return value
+
+
+class ContentHashIn(BaseModel):
+    # SHA-256 (hex) of the page as the worker extracted it.
+    content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class UrlRefreshClaimOut(BaseModel):
+    document_ids: list[uuid.UUID]
+
+
+class UrlFetchReportOut(BaseModel):
+    # The page differs from what is indexed: the document is being reprocessed.
+    changed: bool

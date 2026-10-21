@@ -23,6 +23,7 @@ from app.models.document import (
     DocumentType,
 )
 from app.models.document_draft import DocumentDraft, DraftStatus
+from app.models.document_refresh_schedule import DocumentRefreshSchedule
 from app.models.document_revision import DocumentRevision, RevisionOrigin
 from app.models.document_tabular_profile import DocumentTabularProfile
 from app.models.entity import Entity, EntityType, Relation
@@ -66,6 +67,7 @@ __all__ = [
     "DiscussionScore",
     "Document",
     "DocumentDraft",
+    "DocumentRefreshSchedule",
     "DocumentKind",
     "DocumentPage",
     "DocumentRevision",

@@ -13,7 +13,7 @@ from loguru import logger
 from app.backend_client import backend_client  # noqa: F401
 from app.chunking import PageText
 from app.parsing import parse_file  # noqa: F401
-from app.scraping import fetch_url_markdown  # noqa: F401
+from app.scraping import content_hash, fetch_url_markdown  # noqa: F401
 from app.storage import storage  # noqa: F401
 
 TOKENS_PER_CHAR = 0.25  # rough estimate, good enough until a real tokenizer is wired in
