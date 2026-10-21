@@ -1,6 +1,7 @@
 from unittest.mock import MagicMock
 
 import pytest
+from celery.exceptions import SoftTimeLimitExceeded
 
 from app import task_logging, tasks
 from app.celery_app import celery_app
@@ -37,8 +38,43 @@ def test_the_rebuild_has_its_own_queue_apart_from_ingestion():
     assert settings.REBUILD_QUEUE_NAME not in (settings.EXTRACTION_QUEUE_NAME, settings.ENRICHMENT_QUEUE_NAME)
 
 
-def test_the_rebuild_is_not_killed_by_the_ingestion_time_limit():
-    assert tasks.rebuild_index.time_limit > celery_app.conf.task_time_limit
+def test_a_rebuild_is_never_killed_for_being_long():
+    assert tasks.rebuild_index.time_limit is None and celery_app.conf.task_time_limit is None
+    assert tasks.rebuild_index.soft_time_limit == settings.REBUILD_SLICE_SECONDS
+
+
+def test_the_end_of_a_slice_carries_on_in_a_new_task_instead_of_failing(backend, monkeypatch):
+    backend.get_rebuild_plan.side_effect = SoftTimeLimitExceeded()
+    sent = MagicMock()
+    monkeypatch.setattr(tasks.rebuild_index, "apply_async", sent)
+
+    assert tasks.rebuild_index("rb-1") == "continued"
+
+    sent.assert_called_once_with(args=["rb-1", 2])
+    backend.fail_rebuild.assert_not_called()
+
+
+def test_a_rebuild_that_runs_out_of_slices_fails(backend, monkeypatch):
+    backend.get_rebuild_plan.side_effect = SoftTimeLimitExceeded()
+    sent = MagicMock()
+    monkeypatch.setattr(tasks.rebuild_index, "apply_async", sent)
+
+    with pytest.raises(RuntimeError, match="did not finish"):
+        tasks.rebuild_index("rb-1", settings.REBUILD_MAX_SLICES)
+
+    sent.assert_not_called()
+    assert "did not finish" in backend.fail_rebuild.call_args.args[1]
+
+
+def test_the_end_of_a_slice_is_not_retried_as_a_failed_batch(backend, monkeypatch):
+    """A soft limit caught by the batch's retry would be swallowed, and the slice go on unbounded."""
+    backend.get_rebuild_plan.return_value = _plan("building", [_point("a")])
+    backend.embed_batch.side_effect = SoftTimeLimitExceeded()
+    monkeypatch.setattr(tasks.rebuild_index, "apply_async", MagicMock())
+
+    assert tasks.rebuild_index("rb-1") == "continued"
+
+    backend.embed_batch.assert_called_once()
 
 
 def test_it_embeds_what_the_plan_lists_with_the_plans_model_then_swaps(backend):

@@ -1,6 +1,7 @@
 from typing import BinaryIO
 
 import boto3
+from botocore.config import Config
 
 from app.config import settings
 
@@ -15,6 +16,14 @@ class RustFsStorage:
             endpoint_url=settings.AWS_ENDPOINT_URL,
             aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
             aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+            # Explicit (#294): the read timeout bounds the wait for the next bytes, not a transfer,
+            # so a large file still goes through; an unreachable storage fails after a few retries
+            # instead of holding a slot.
+            config=Config(
+                connect_timeout=settings.STORAGE_CONNECT_TIMEOUT_SECONDS,
+                read_timeout=settings.STORAGE_READ_TIMEOUT_SECONDS,
+                retries={"max_attempts": 3, "mode": "standard"},
+            ),
         )
         self._bucket = settings.AWS_BUCKET
         self._bucket_ready = False

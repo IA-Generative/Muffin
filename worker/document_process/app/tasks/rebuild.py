@@ -11,9 +11,11 @@ ingestion of new documents.
 
 import time
 
+from celery.exceptions import SoftTimeLimitExceeded
 from loguru import logger
 
 from app.celery_app import celery_app
+from app.config import settings
 from app.tasks import _shared
 
 # Texts per embedding call: the hub accepts large batches, but a rebuild's vectors are stored per
@@ -40,6 +42,9 @@ def _embed_and_store(rebuild_id: str, model: str, batch: list[dict]) -> None:
                 ],
             )
             return
+        except SoftTimeLimitExceeded:
+            # The end of the slice, not a failure of the batch: not to be retried (see rebuild_index).
+            raise
         except Exception:
             if attempt == ATTEMPTS:
                 raise
@@ -47,10 +52,12 @@ def _embed_and_store(rebuild_id: str, model: str, batch: list[dict]) -> None:
             time.sleep(RETRY_DELAY_SECONDS * attempt)
 
 
-# The app-wide 5 minutes (a hung parser) would kill a long rebuild; the work is resumable anyway,
-# so this only bounds a task stuck for good.
-@celery_app.task(name="app.tasks.rebuild_index", time_limit=24 * 3600)
-def rebuild_index(rebuild_id: str) -> str:
+# A rebuild may take hours and is not killed for it. It is resumable, so it runs in slices of
+# REBUILD_SLICE_SECONDS: at the end of one, the next task carries on from what the database says is
+# left (a task is never longer than the broker's visibility timeout, which would hand it to a second
+# worker). Past REBUILD_MAX_SLICES slices, it gives up like any rebuild that cannot finish.
+@celery_app.task(name="app.tasks.rebuild_index", soft_time_limit=settings.REBUILD_SLICE_SECONDS)
+def rebuild_index(rebuild_id: str, slice_number: int = 1) -> str:
     backend = _shared.backend_client
     try:
         for _ in range(MAX_PASSES):
@@ -68,6 +75,16 @@ def rebuild_index(rebuild_id: str) -> str:
                 _embed_and_store(rebuild_id, plan["model"], points[start : start + EMBED_BATCH])
             logger.info(f"Index rebuild {rebuild_id}: {len(points)} vector(s) made, {plan['remaining']} to go")
         raise RuntimeError(f"The rebuild did not converge after {MAX_PASSES} passes")
+    except SoftTimeLimitExceeded:
+        if slice_number < settings.REBUILD_MAX_SLICES:
+            logger.info(f"Index rebuild {rebuild_id}: slice {slice_number} is over, carrying on in a new task")
+            rebuild_index.apply_async(args=[rebuild_id, slice_number + 1])
+            return "continued"
+        hours = slice_number * settings.REBUILD_SLICE_SECONDS / 3600
+        message = f"The rebuild did not finish in {hours:g} h"
+        logger.error(f"Index rebuild {rebuild_id}: {message}")
+        backend.fail_rebuild(rebuild_id, message)
+        raise RuntimeError(message) from None
     except Exception as error:
         logger.exception(f"Index rebuild {rebuild_id} failed")
         backend.fail_rebuild(rebuild_id, str(error))
