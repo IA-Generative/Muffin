@@ -7,11 +7,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.security.worker_auth import require_worker_api_key
 from app.db import get_db
 from app.repositories.collection_repository import CollectionRepository
-from app.repositories.entity_repository import EntityRepository
-from app.repositories.qa_pair_repository import QaPairRepository
-from app.schemas.internal_pipeline import EntityCreate, EntityOut, QaPairCreate, RelationCreate
-from app.services import vector_store
-from app.services.index_vectors import vector_for_active_index
+from app.repositories.document_repository import DocumentRepository
+from app.schemas.internal_pipeline import EntityWindowReplace, GeneratedQaReplace
+from app.services.document_derived_data import DocumentDerivedData
+from app.services.document_derived_data import GeneratedQaPair as GeneratedQaPairData
 
 router = APIRouter(prefix="/internal", tags=["Internal"], dependencies=[Depends(require_worker_api_key)])
 
@@ -21,55 +20,45 @@ async def _ensure_collection(db: AsyncSession, collection_id: uuid.UUID) -> None
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found")
 
 
-@router.post(
-    "/collections/{collection_id}/qa-pairs",
-    summary="Record a generated question/answer pair",
-    status_code=status.HTTP_201_CREATED,
+@router.put(
+    "/collections/{collection_id}/qa-pairs/generated",
+    summary="Record the question/answer pairs one run of the pipeline generated, replacing the previous "
+    "run's of the same key",
 )
-async def create_qa_pair(
-    collection_id: uuid.UUID, body: QaPairCreate, db: Annotated[AsyncSession, Depends(get_db)]
+async def replace_generated_qa(
+    collection_id: uuid.UUID, body: GeneratedQaReplace, db: Annotated[AsyncSession, Depends(get_db)]
 ) -> dict[str, str]:
     await _ensure_collection(db, collection_id)
-    qa_pair = await QaPairRepository(db).create(
-        collection_id, body.document_id, body.question, body.answer, body.source_page, body.source_excerpt
+    await DocumentDerivedData(db).replace_generated_qa(
+        collection_id,
+        body.document_id,
+        body.key,
+        [GeneratedQaPairData(**pair.model_dump()) for pair in body.pairs],
     )
     await db.commit()
-    if body.embedding is not None:
-        embedding, model = await vector_for_active_index(
-            db, collection_id, body.question, body.embedding, body.embedding_model
-        )
-        if embedding is not None:
-            vector_store.upsert_qa_embedding(collection_id, qa_pair.id, embedding, body.question, model)
     return {"status": "ok"}
 
 
-@router.post(
-    "/collections/{collection_id}/entities",
-    summary="Upsert an extracted entity (creates it, or bumps its mention count if it already exists)",
-    response_model=EntityOut,
+@router.put(
+    "/documents/{document_id}/entity-windows/{window_key}",
+    summary="Record the entities and relations extracted from one window of a document's pages, replacing "
+    "what the previous extraction of that window recorded",
 )
-async def upsert_entity(
-    collection_id: uuid.UUID, body: EntityCreate, db: Annotated[AsyncSession, Depends(get_db)]
-) -> EntityOut:
-    await _ensure_collection(db, collection_id)
-    entity = await EntityRepository(db).upsert(
-        collection_id, body.document_id, body.name, body.type, body.mentions_delta
-    )
-    await db.commit()
-    return EntityOut(id=entity.id, name=entity.name, type=entity.type, mentions=entity.mentions)
-
-
-@router.post(
-    "/collections/{collection_id}/relations",
-    summary="Record a relation between two previously-upserted entities",
-    status_code=status.HTTP_201_CREATED,
-)
-async def create_relation(
-    collection_id: uuid.UUID, body: RelationCreate, db: Annotated[AsyncSession, Depends(get_db)]
+async def replace_entity_window(
+    document_id: uuid.UUID,
+    window_key: str,
+    body: EntityWindowReplace,
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict[str, str]:
-    await _ensure_collection(db, collection_id)
-    await EntityRepository(db).create_relation(
-        collection_id, body.document_id, body.from_entity_id, body.to_entity_id, body.type
+    document = await DocumentRepository(db).get(document_id)
+    if document is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+    await DocumentDerivedData(db).replace_entity_window(
+        document.collection_id,
+        document_id,
+        window_key,
+        [(entity.name, entity.type.value, entity.mentions) for entity in body.entities],
+        [(relation.from_name, relation.to_name, relation.type) for relation in body.relations],
     )
     await db.commit()
     return {"status": "ok"}

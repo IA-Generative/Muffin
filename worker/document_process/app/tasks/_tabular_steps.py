@@ -14,7 +14,7 @@ Découpe ``process_tabular_document`` en sous-fonctions testables :
 Le résumé et les QA utilisent les prompts tabulaires (``app.tabular.summarize``)
 car le profil est plus compact et pertinent qu'un dump CSV, mais ils sont
 envoyés via ``_shared._chat`` et sauvés via ``set_document_summary`` /
-``create_qa_pair`` — exactement comme ``summarize_document`` et
+``replace_generated_qa`` — exactement comme ``summarize_document`` et
 ``generate_qa_window`` le font pour les documents classiques.
 
 Chaque fonction reçoit ses dépendances explicites (connection, client, etc.)
@@ -164,7 +164,7 @@ def generate_qa_pairs(
     Utilise le prompt tabulaire (``build_qa_prompt``) car les questions
     portent sur des comptages/agrégations déduits des stats, mais utilise le
     même mécanisme d'envoi LLM (``_shared._chat``) et la même sauvegarde
-    (``create_qa_pair`` avec embedding) que ``generate_qa_window`` pour les
+    (``replace_generated_qa`` avec embedding) que ``generate_qa_window`` pour les
     documents classiques.
 
     Returns: la liste des paires {"question": ..., "answer": ...} générées.
@@ -182,6 +182,7 @@ def generate_qa_pairs(
     pairs = parse_qa_response(raw)
     logger.info(f"Generated {len(pairs)} tabular QA pairs for document {document_id}")
 
+    generated = []
     for pair in pairs:
         question, answer = pair["question"], pair["answer"]
         # Best-effort embedding, same fail-soft as generate_qa_window.
@@ -190,6 +191,8 @@ def generate_qa_pairs(
             embedding = _shared.backend_client.embed(settings["embedding_model"], question)
         except Exception:
             logger.exception(f"Failed to embed tabular QA question for document {document_id}")
-        _shared.backend_client.create_qa_pair(collection_id, document_id, question, answer, embedding)
+        generated.append({"question": question, "answer": answer, "embedding": embedding})
+    # In place of what an earlier run recorded for this document (#299), like the windows of a classic one.
+    _shared.backend_client.replace_generated_qa(collection_id, document_id, "tabular", generated)
 
     return pairs

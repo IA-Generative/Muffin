@@ -1,4 +1,5 @@
 import uuid
+from collections.abc import Sequence
 
 from loguru import logger
 from meilisearch.errors import MeilisearchApiError
@@ -221,16 +222,32 @@ def delete_document_embeddings(collection_id: uuid.UUID, document_id: uuid.UUID,
             logger.exception(f"Failed to delete document {document_id} embeddings from index '{name}'")
 
 
-def delete_qa_embedding(collection_id: uuid.UUID, qa_pair_id: uuid.UUID) -> None:
-    """Best-effort, same reasoning as delete_document_embeddings: a failure only leaves an orphaned
-    vector, and search_qa resolves its ids against Postgres, which no longer has the pair."""
+def _delete_points(collection_id: uuid.UUID, ids: Sequence[uuid.UUID], what: str) -> None:
+    """Best-effort removal of points from both of a collection's indexes, same reasoning as
+    delete_document_embeddings: a failure only leaves orphaned vectors, which the search paths never
+    return since they resolve their ids against Postgres."""
+    if not ids:
+        return
+    point_ids = [str(point_id) for point_id in ids]
     for name in (_index_name(collection_id), _next_index_name(collection_id)):
         if not _index_exists(name):
             continue
         try:
-            _client.index(name).delete_documents([str(qa_pair_id)])
+            _client.index(name).delete_documents(point_ids)
         except Exception:
-            logger.exception(f"Failed to delete QA pair {qa_pair_id} embedding from index '{name}'")
+            logger.exception(f"Failed to delete {len(point_ids)} {what} embedding(s) from index '{name}'")
+
+
+def delete_qa_embeddings(collection_id: uuid.UUID, qa_pair_ids: Sequence[uuid.UUID]) -> None:
+    _delete_points(collection_id, qa_pair_ids, "QA pair")
+
+
+def delete_chunk_embeddings(collection_id: uuid.UUID, chunk_ids: Sequence[uuid.UUID]) -> None:
+    _delete_points(collection_id, chunk_ids, "chunk")
+
+
+def delete_qa_embedding(collection_id: uuid.UUID, qa_pair_id: uuid.UUID) -> None:
+    delete_qa_embeddings(collection_id, [qa_pair_id])
 
 
 def delete_collection(collection_id: uuid.UUID) -> None:

@@ -126,6 +126,16 @@ class BackendClient:
         )
         response.raise_for_status()
 
+    def prune_pages(self, document_id: str, keep: int) -> None:
+        """After writing the pages: drops those after the first `keep` that an earlier, longer run left."""
+        response = self._client.post(f"/api/internal/documents/{document_id}/pages/prune", json={"keep": keep})
+        response.raise_for_status()
+
+    def prune_chunks(self, document_id: str, keep: int) -> None:
+        """Same for the chunks, with their vectors."""
+        response = self._client.post(f"/api/internal/documents/{document_id}/chunks/prune", json={"keep": keep})
+        response.raise_for_status()
+
     def set_document_summary(self, document_id: str, summary: str, embedding: list[float] | None = None) -> None:
         response = self._client.patch(
             f"/api/internal/documents/{document_id}/summary",
@@ -201,66 +211,48 @@ class BackendClient:
         response.raise_for_status()
         return response.json()
 
-    def create_qa_pair(
+    def replace_generated_qa(
         self,
         collection_id: str,
         document_id: str | None,
-        question: str,
-        answer: str,
-        embedding: list[float] | None = None,
-        source_page: int | None = None,
-        source_excerpt: str | None = None,
+        key: str,
+        pairs: list[dict[str, Any]],
     ) -> None:
-        response = self._client.post(
-            f"/api/internal/collections/{collection_id}/qa-pairs",
+        """Records the pairs one run generated (a window "window:1-2", "tabular", "collection:<hash>"), in
+        place of what the previous run of the same key recorded: a task run twice leaves the same pairs.
+        Each is {"question", "answer", "embedding"?, "source_page"?, "source_excerpt"?}."""
+        response = self._client.put(
+            f"/api/internal/collections/{collection_id}/qa-pairs/generated",
             json={
                 "document_id": document_id,
-                "question": question,
-                "answer": answer,
-                "embedding": embedding,
-                "embedding_model": _model_of(embedding),
-                "source_page": source_page,
-                "source_excerpt": source_excerpt,
+                "key": key,
+                "pairs": [
+                    {
+                        "question": pair["question"],
+                        "answer": pair["answer"],
+                        "embedding": pair.get("embedding"),
+                        "embedding_model": _model_of(pair.get("embedding")),
+                        "source_page": pair.get("source_page"),
+                        "source_excerpt": pair.get("source_excerpt"),
+                    }
+                    for pair in pairs
+                ],
             },
         )
         response.raise_for_status()
 
-    def upsert_entity(
+    def replace_entity_window(
         self,
-        collection_id: str,
         document_id: str,
-        name: str,
-        type_: str,
-        mentions_delta: int = 1,
-    ) -> dict[str, Any]:
-        response = self._client.post(
-            f"/api/internal/collections/{collection_id}/entities",
-            json={
-                "document_id": document_id,
-                "name": name,
-                "type": type_,
-                "mentions_delta": mentions_delta,
-            },
-        )
-        response.raise_for_status()
-        return response.json()
-
-    def create_relation(
-        self,
-        collection_id: str,
-        document_id: str,
-        from_entity_id: str,
-        to_entity_id: str,
-        type_: str,
+        window_key: str,
+        entities: list[dict[str, Any]],
+        relations: list[dict[str, str]],
     ) -> None:
-        response = self._client.post(
-            f"/api/internal/collections/{collection_id}/relations",
-            json={
-                "document_id": document_id,
-                "from_entity_id": from_entity_id,
-                "to_entity_id": to_entity_id,
-                "type": type_,
-            },
+        """Records what was extracted from one window of pages - entities {"name", "type", "mentions"?}
+        and relations {"from_name", "to_name", "type"} - in place of the previous extraction of it."""
+        response = self._client.put(
+            f"/api/internal/documents/{document_id}/entity-windows/{window_key}",
+            json={"entities": entities, "relations": relations},
         )
         response.raise_for_status()
 

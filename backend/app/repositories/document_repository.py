@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import delete, func, or_, select, update
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -381,15 +382,29 @@ class DocumentRepository:
         content: str,
         screenshot: str | None,
     ) -> DocumentPage:
-        page = DocumentPage(
-            document_id=document_id,
-            page_number=page_number,
-            content=content,
-            screenshot=screenshot,
+        """An upsert on (document, page number): writing a page again - a task run twice (#299) -
+        replaces it instead of adding a second copy."""
+        statement = (
+            insert(DocumentPage)
+            .values(document_id=document_id, page_number=page_number, content=content, screenshot=screenshot)
+            .on_conflict_do_update(
+                constraint="uq_document_pages_document_page",
+                set_={"content": content, "screenshot": screenshot},
+            )
+            .returning(DocumentPage)
         )
-        self.db.add(page)
-        await self.db.flush()
-        return page
+        result = await self.db.execute(statement, execution_options={"populate_existing": True})
+        return result.scalar_one()
+
+    async def prune_pages(self, document_id: uuid.UUID, keep: int) -> list[str]:
+        """Drops the pages after the first `keep`: what a previous, longer extraction left behind.
+        Returns their screenshot keys, now orphaned in RustFS."""
+        result = await self.db.execute(
+            delete(DocumentPage)
+            .where(DocumentPage.document_id == document_id, DocumentPage.page_number > keep)
+            .returning(DocumentPage.screenshot)
+        )
+        return [key for key in result.scalars().all() if key]
 
     async def add_chunk(
         self,
@@ -399,13 +414,24 @@ class DocumentRepository:
         token_count: int,
         extras: dict[str, Any] | None,
     ) -> Chunk:
-        chunk = Chunk(
-            document_id=document_id,
-            index=index,
-            text=text,
-            token_count=token_count,
-            extras=extras,
+        """An upsert on (document, position), which keeps the chunk's id - the one its vector in
+        Meilisearch and the QA pairs that point at it carry - when the same chunking runs again (#299)."""
+        statement = (
+            insert(Chunk)
+            .values(document_id=document_id, index=index, text=text, token_count=token_count, extras=extras)
+            .on_conflict_do_update(
+                constraint="uq_chunks_document_index",
+                set_={"text": text, "token_count": token_count, "extras": extras},
+            )
+            .returning(Chunk)
         )
-        self.db.add(chunk)
-        await self.db.flush()
-        return chunk
+        result = await self.db.execute(statement, execution_options={"populate_existing": True})
+        return result.scalar_one()
+
+    async def prune_chunks(self, document_id: uuid.UUID, keep: int) -> list[uuid.UUID]:
+        """Drops the chunks after the first `keep`: what a previous run that cut the document into more
+        left behind. Returns their ids, whose vectors are still to remove."""
+        result = await self.db.execute(
+            delete(Chunk).where(Chunk.document_id == document_id, Chunk.index >= keep).returning(Chunk.id)
+        )
+        return list(result.scalars().all())
