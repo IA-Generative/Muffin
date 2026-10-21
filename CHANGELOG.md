@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.15.2-rc...v0.16.0-rc) (2026-10-21)
+
+
+### Features
+
+* **frontend:** offer the user's own groups when sharing a collection ([d4d6664](https://github.com/IA-Generative/Muffin/commit/d4d66643d3f83076640c3738482147111ce9bbf0))
+
 ## [0.15.2-rc](https://github.com/IA-Generative/Muffin/compare/v0.15.1...v0.15.2-rc) (2026-10-21)
 
 
