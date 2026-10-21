@@ -1,7 +1,7 @@
 import uuid
 from collections.abc import Sequence
 
-from sqlalchemy import select
+from sqlalchemy import func, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -14,7 +14,13 @@ class QaPairRepository:
         self.db = db
 
     async def create(
-        self, collection_id: uuid.UUID, document_id: uuid.UUID | None, question: str, answer: str
+        self,
+        collection_id: uuid.UUID,
+        document_id: uuid.UUID | None,
+        question: str,
+        answer: str,
+        source_page: int | None = None,
+        source_excerpt: str | None = None,
     ) -> QaPair:
         qa_pair = QaPair(
             collection_id=collection_id,
@@ -22,6 +28,8 @@ class QaPairRepository:
             question=question,
             answer=answer,
             origin=QaOrigin.GENERATED,
+            source_page=source_page,
+            source_excerpt=source_excerpt,
         )
         self.db.add(qa_pair)
         await self.db.flush()
@@ -93,3 +101,31 @@ class QaPairRepository:
         # if a stray vector pointed at it.
         result = await self.db.execute(select(QaPair).where(QaPair.id.in_(qa_pair_ids), QaPair.golden.is_(False)))
         return result.scalars().all()
+
+    async def random_with_source(
+        self, collection_ids: Sequence[uuid.UUID], *, validated: bool | None, limit: int, exclude: Sequence[uuid.UUID]
+    ) -> Sequence[QaPair]:
+        """Random generated or written pairs that have a document to cite (#126), never a golden one.
+        `validated` narrows to the reviewed ones (True) or the others (False); None takes any."""
+        if not collection_ids or limit <= 0:
+            return []
+        where = [
+            QaPair.collection_id.in_(collection_ids),
+            QaPair.golden.is_(False),
+            QaPair.document_id.is_not(None),
+            QaPair.id.not_in(exclude) if exclude else true(),
+        ]
+        if validated is not None:
+            where.append(QaPair.validated.is_(validated))
+        result = await self.db.execute(
+            select(QaPair).where(*where).options(selectinload(QaPair.document)).order_by(func.random()).limit(limit)
+        )
+        return result.scalars().all()
+
+    async def get_with_document(self, qa_pair_id: uuid.UUID) -> QaPair | None:
+        result = await self.db.execute(
+            select(QaPair)
+            .where(QaPair.id == qa_pair_id, QaPair.golden.is_(False))
+            .options(selectinload(QaPair.document))
+        )
+        return result.scalar_one_or_none()

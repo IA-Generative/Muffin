@@ -30,7 +30,9 @@ async def create_qa_pair(
     collection_id: uuid.UUID, body: QaPairCreate, db: Annotated[AsyncSession, Depends(get_db)]
 ) -> dict[str, str]:
     await _ensure_collection(db, collection_id)
-    qa_pair = await QaPairRepository(db).create(collection_id, body.document_id, body.question, body.answer)
+    qa_pair = await QaPairRepository(db).create(
+        collection_id, body.document_id, body.question, body.answer, body.source_page, body.source_excerpt
+    )
     await db.commit()
     if body.embedding is not None:
         embedding, model = await vector_for_active_index(

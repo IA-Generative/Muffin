@@ -88,6 +88,31 @@ async def test_create_qa_pair(client):
     assert pairs[0].origin == "generated"
 
 
+async def test_create_qa_pair_keeps_the_page_and_passage_it_comes_from(client):
+    collection_id, document_id = await _create_collection_and_document()
+
+    response = await client.post(
+        f"/api/internal/collections/{collection_id}/qa-pairs",
+        headers=_headers(),
+        json={
+            "document_id": str(document_id),
+            "question": "What is this?",
+            "answer": "A report.",
+            "source_page": 7,
+            "source_excerpt": "This document is a report.",
+        },
+    )
+
+    assert response.status_code == 201
+    async with async_session_factory() as session:
+        from sqlalchemy import select
+
+        from app.models.qa import QaPair
+
+        pair = (await session.execute(select(QaPair).where(QaPair.collection_id == collection_id))).scalar_one()
+    assert (pair.source_page, pair.source_excerpt) == (7, "This document is a report.")
+
+
 async def test_upsert_entity_creates_then_bumps_mentions(client):
     collection_id, document_id = await _create_collection_and_document()
 

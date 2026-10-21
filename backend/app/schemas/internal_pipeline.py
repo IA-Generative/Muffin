@@ -61,6 +61,9 @@ class QaPairCreate(BaseModel):
     # The model the worker made the vector with - redone with the index's own model when it differs
     # (a vector computed just before the index was rebuilt with a new one, #12).
     embedding_model: str | None = None
+    # Where in the document the answer comes from (#126), when the worker could tell.
+    source_page: int | None = Field(default=None, ge=1)
+    source_excerpt: str | None = Field(default=None, max_length=4000)
 
 
 class EntityCreate(BaseModel):

@@ -9,8 +9,26 @@
 from loguru import logger
 
 from app.celery_app import celery_app
+from app.chunking import PageText
 from app.task_logging import capture_task_logs
 from app.tasks import _shared
+
+
+def _squash(text: str) -> str:
+    return " ".join(text.split()).casefold()
+
+
+def locate_evidence(pages: list[PageText], quote: str) -> tuple[int, str] | None:
+    """The page a quote the LLM gave as evidence really is on, with the quote itself (#126). Only a
+    passage found word for word in the text counts - an invented or reworded one is dropped (the
+    backend then finds the passage on its own), so a source shown to the user is never made up."""
+    wanted = _squash(quote)
+    if len(wanted) < 15:
+        return None
+    for page in pages:
+        if wanted in _squash(page.content):
+            return page.page_number, " ".join(quote.split())
+    return None
 
 
 @celery_app.task(name="app.tasks.generate_qa_window", bind=True)
@@ -24,19 +42,23 @@ def generate_qa_window(self, document_id: str, collection_id: str, start_page: i
                 return
 
             instructions = settings["instructions"].get("qa", "")
-            text = _shared._window_text(_shared._get_pages(document_id), start_page, end_page)
+            pages = _shared._get_pages(document_id)
+            text = _shared._window_text(pages, start_page, end_page)
             logger.info(f"Generating {k} QA pair(s) for document {document_id}, pages {start_page}-{end_page}")
 
             pairs = _shared._chat_json(
                 model,
                 f"{instructions}\nGenerate exactly {k} question/answer pairs grounded strictly in the given text. "
-                'Respond only with a JSON array of {"question": ..., "answer": ...} objects.'.strip(),
+                'Respond only with a JSON array of {"question": ..., "answer": ..., "evidence": ...} objects, '
+                "where evidence is the exact passage of the text (copied word for word, one or two sentences) "
+                "that the answer comes from.".strip(),
                 text,
             )
             if not isinstance(pairs, list):
                 raise ValueError(f"Expected a JSON array of QA pairs, got: {pairs!r}")
 
             logger.info(f"Generated {len(pairs)} QA pair(s) for pages {start_page}-{end_page}")
+            window_pages = [page for page in pages if start_page <= page.page_number <= end_page]
             for pair in pairs:
                 question, answer = str(pair["question"]), str(pair["answer"])
                 # Best-effort, same fail-soft reasoning as a chunk's own embedding above: a QA
@@ -47,7 +69,16 @@ def generate_qa_window(self, document_id: str, collection_id: str, start_page: i
                     embedding = _shared.backend_client.embed(settings["embedding_model"], question)
                 except Exception:
                     logger.exception(f"Failed to embed QA question for document {document_id}")
-                _shared.backend_client.create_qa_pair(collection_id, document_id, question, answer, embedding)
+                source = locate_evidence(window_pages, str(pair.get("evidence") or ""))
+                _shared.backend_client.create_qa_pair(
+                    collection_id,
+                    document_id,
+                    question,
+                    answer,
+                    embedding,
+                    source_page=source[0] if source else None,
+                    source_excerpt=source[1] if source else None,
+                )
         except Exception as error:
             _shared._fail(document_id, f"generate QA for pages {start_page}-{end_page}", error)
             raise

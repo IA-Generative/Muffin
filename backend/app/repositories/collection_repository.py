@@ -124,6 +124,14 @@ class CollectionRepository:
         )
         return result.scalars().all(), total or 0
 
+    async def accessible_ids(self, user_id: str, group_ids: Sequence[str]) -> set[uuid.UUID]:
+        """Just the ids of the collections the user can read, never a conversation's temporary one -
+        for a query that only needs to filter by them, without loading every collection."""
+        result = await self.db.scalars(
+            select(Collection.id).where(self._accessible_where(user_id, group_ids), Collection.is_temporary.is_(False))
+        )
+        return set(result.all())
+
     async def list_all_accessible(self, user_id: str, group_ids: Sequence[str]) -> Sequence[Collection]:
         """Unpaginated - for server-side permission checks (e.g. the research
         agent's "which collections can this user's query even reach"), not
