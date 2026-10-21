@@ -1,3 +1,4 @@
+import importlib
 import io
 import zipfile
 from unittest.mock import MagicMock
@@ -11,6 +12,7 @@ from app.zip_import import (
     MemberSkippedError,
     ZipLimits,
     clean_part,
+    count_entries,
     decode_name,
     extract_member,
     plan_import,
@@ -235,3 +237,51 @@ class TestImportTask:
         summary = backend.finish_collection_import.call_args.args[2]
         assert summary["documents_created"] == 1
         assert summary["skipped"][0]["path"] == "big.pdf"
+
+    def test_an_archive_announcing_too_many_entries_is_refused_before_its_directory_is_read(self, monkeypatch):
+        monkeypatch.setattr(settings, "ZIP_IMPORT_MAX_FILES", 1)  # so at most 10 entries
+        archive = _zip({f"f{i}.pdf": b"%PDF" for i in range(11)})
+        read_directories = []
+        real_zipfile = zipfile.ZipFile
+        monkeypatch.setattr(
+            importlib.import_module("app.tasks.import_zip").zipfile,
+            "ZipFile",
+            lambda *args, **kwargs: read_directories.append(1) or real_zipfile(*args, **kwargs),
+        )
+
+        backend, _ = self._run(monkeypatch, archive)
+
+        status, _summary, error = backend.finish_collection_import.call_args.args[1:4]
+        assert status == "failed" and "11 entrées" in error
+        assert read_directories == []
+        backend.create_imported_collection.assert_not_called()
+
+
+class TestCountEntries:
+    def test_reads_the_announced_count_without_parsing_the_directory(self):
+        buffer = io.BytesIO(_zip({"a/b.pdf": b"x", "c.md": b"y", "d.txt": b"z"}))
+
+        assert count_entries(buffer) == 3
+        assert buffer.tell() == 0
+
+    def test_not_a_zip_has_no_count(self):
+        assert count_entries(io.BytesIO(b"not a zip")) is None
+
+
+class TestLyingHeaders:
+    def test_a_member_cannot_expand_past_the_size_its_header_declares(self):
+        # A highly compressible member whose header then claims a tiny expanded size: zipfile stops
+        # at the declared size and the CRC fails, so it is skipped as corrupted - it can never expand
+        # to more than it declares. That is why plan_import's checks on the declared sizes (per-file,
+        # total, compression ratio) hold even against a crafted archive.
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as writer:
+            writer.writestr("doc.pdf", b"\0" * 200_000)
+        archive = zipfile.ZipFile(io.BytesIO(buffer.getvalue()))
+        info = archive.getinfo("doc.pdf")
+        info.file_size = info.compress_size  # what a crafted header would claim
+        sink = io.BytesIO()
+
+        with pytest.raises(MemberSkippedError, match="corrompu"):
+            extract_member(archive, info, cap=10_000_000, sink=sink)
+        assert len(sink.getvalue()) <= info.compress_size
