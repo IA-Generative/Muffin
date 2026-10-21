@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useCollections } from '../composables/useCollections'
 import { usePagination } from '../composables/usePagination'
 import type { Collection } from '../types/collection'
@@ -9,7 +9,10 @@ const props = defineProps<{
   collection: Collection
 }>()
 
-const { runEvaluation, isEvaluating, deleteEvaluation } = useCollections()
+const { runEvaluation, isEvaluating, deleteEvaluation, loadTabData } = useCollections()
+
+// The counts below come from the QA pairs, which are otherwise only loaded by their own tab.
+onMounted(() => loadTabData(props.collection.id, 'qa'))
 
 const evaluationRuns = computed(() => props.collection.evaluationRuns)
 const { page, pageCount, paged: pagedRuns } = usePagination(evaluationRuns)
@@ -45,13 +48,22 @@ const STRATEGY_LABEL: Record<string, string> = {
 }
 
 const EVAL_K = 5
+
+// Below this many test questions a score moves a lot with a single question: shown next to it.
+const GOLDEN_RELIABLE_COUNT = 30
+const goldenCount = computed(() => props.collection.qaPairs.filter((pair) => pair.golden).length)
 </script>
 
 <template>
   <div>
     <p class="eval-tab__intro">
-      Mesure la qualité du retrieval en interrogeant le pipeline avec les questions de référence, puis en
-      comparant les chunks remontés à la source attendue de chaque Q/R.
+      Mesure la qualité du retrieval en interrogeant le pipeline avec les questions-réponses de la collection, puis
+      en comparant les chunks remontés aux documents attendus de chaque Q/R.
+    </p>
+    <p class="eval-tab__intro">
+      Les <strong>questions de test</strong> ({{ goldenCount }}) sont écrites par une personne et ne sont dans aucun
+      index : leurs scores sont présentés à part, et ce sont ceux à suivre dans le temps. Les questions générées
+      viennent du texte même des documents, leurs scores sont plus flatteurs.
     </p>
 
     <div class="eval-tab__launch">
@@ -118,16 +130,39 @@ const EVAL_K = 5
           </button>
         </div>
 
-        <div class="eval-tab__metrics">
-          <div v-for="metric in METRIC_LABELS" :key="metric.key" class="eval-tab__metric">
-            <span class="eval-tab__metric-value">{{ run.metrics[metric.key].toFixed(2) }}</span>
-            <span class="eval-tab__metric-label">{{ metric.label }}</span>
+        <div v-if="run.goldenMetrics" class="eval-tab__group eval-tab__group--golden">
+          <p class="eval-tab__group-title">
+            Questions de test
+            <span class="eval-tab__group-count">{{ run.goldenMetrics.pairCount }} question(s)</span>
+          </p>
+          <div class="eval-tab__metrics">
+            <div v-for="metric in METRIC_LABELS" :key="metric.key" class="eval-tab__metric">
+              <span class="eval-tab__metric-value">{{ run.goldenMetrics[metric.key].toFixed(2) }}</span>
+              <span class="eval-tab__metric-label">{{ metric.label }}</span>
+            </div>
+          </div>
+          <p v-if="run.goldenMetrics.pairCount < GOLDEN_RELIABLE_COUNT" class="eval-tab__group-note">
+            Seulement {{ run.goldenMetrics.pairCount }} question(s) : une variation de score d'un test à l'autre peut
+            n'être que du bruit.
+          </p>
+        </div>
+
+        <div v-if="run.metrics" class="eval-tab__group">
+          <p class="eval-tab__group-title">Questions générées et de référence</p>
+          <div class="eval-tab__metrics">
+            <div v-for="metric in METRIC_LABELS" :key="metric.key" class="eval-tab__metric">
+              <span class="eval-tab__metric-value">{{ run.metrics[metric.key].toFixed(2) }}</span>
+              <span class="eval-tab__metric-label">{{ metric.label }}</span>
+            </div>
           </div>
         </div>
 
         <div v-if="expandedRunId === run.id" class="eval-tab__results">
           <div v-for="result in run.results" :key="result.qaPairId" class="eval-tab__result">
-            <p class="eval-tab__result-question">{{ result.question }}</p>
+            <p class="eval-tab__result-question">
+              <span v-if="result.golden" class="eval-tab__badge">Test</span>
+              {{ result.question }}
+            </p>
 
             <div class="eval-tab__result-answers">
               <div>
@@ -250,10 +285,49 @@ const EVAL_K = 5
   color: var(--text-mention-grey);
 }
 
+.eval-tab__group {
+  margin-top: 0.75rem;
+}
+
+.eval-tab__group--golden {
+  padding: 0.625rem 0.875rem;
+  border-left: 3px solid var(--border-action-high-blue-france);
+  background: var(--background-alt-blue-france);
+  border-radius: 0.25rem;
+}
+
+.eval-tab__group-title {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+
+.eval-tab__group-count {
+  margin-left: 0.5rem;
+  font-weight: 400;
+  color: var(--text-mention-grey);
+}
+
+.eval-tab__group-note {
+  margin: 0.5rem 0 0;
+  font-size: 0.75rem;
+  color: var(--text-mention-grey);
+}
+
+.eval-tab__badge {
+  margin-right: 0.375rem;
+  padding: 0.0625rem 0.5rem;
+  border-radius: 0.75rem;
+  background: var(--background-alt-blue-france);
+  color: var(--text-action-high-blue-france);
+  font-size: 0.6875rem;
+  font-weight: 700;
+}
+
 .eval-tab__metrics {
   display: flex;
   gap: 1.5rem;
-  margin-top: 0.75rem;
+  margin-top: 0.375rem;
 }
 
 .eval-tab__metric {

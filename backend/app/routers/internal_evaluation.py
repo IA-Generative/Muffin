@@ -39,6 +39,8 @@ async def list_qa_pairs_for_evaluation(
             answer=pair.answer,
             document_id=pair.document_id,
             validated=pair.validated,
+            golden=pair.golden,
+            relevant_document_ids=[uuid.UUID(i) for i in (pair.relevant_document_ids or [])],
         )
         for pair in pairs
     ]

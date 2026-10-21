@@ -204,6 +204,18 @@ def delete_document_embeddings(collection_id: uuid.UUID, document_id: uuid.UUID,
         logger.exception(f"Failed to delete document {document_id} embeddings from index '{name}'")
 
 
+def delete_qa_embedding(collection_id: uuid.UUID, qa_pair_id: uuid.UUID) -> None:
+    """Best-effort, same reasoning as delete_document_embeddings: a failure only leaves an orphaned
+    vector, and search_qa resolves its ids against Postgres, which no longer has the pair."""
+    name = _index_name(collection_id)
+    if not _index_exists(name):
+        return
+    try:
+        _client.index(name).delete_documents([str(qa_pair_id)])
+    except Exception:
+        logger.exception(f"Failed to delete QA pair {qa_pair_id} embedding from index '{name}'")
+
+
 def delete_collection(collection_id: uuid.UUID) -> None:
     """Best-effort, same reasoning as app/core/storage.py's delete_objects: called after the
     Collection row is already gone, so a Meilisearch/network failure here must not roll that

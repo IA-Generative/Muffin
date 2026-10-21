@@ -44,11 +44,21 @@ class EvaluationRun(UUIDMixin, TimestampMixin, Base):
     snapshot_chunk_overlap: Mapped[int] = mapped_column(Integer, nullable=False)
     snapshot_embedding_model: Mapped[str] = mapped_column(String, nullable=False)
 
-    # Global aggregate - every evaluated pair, validated and not.
-    precision_at_k: Mapped[float] = mapped_column(Float, nullable=False)
-    recall_at_k: Mapped[float] = mapped_column(Float, nullable=False)
-    mrr: Mapped[float] = mapped_column(Float, nullable=False)
-    ndcg: Mapped[float] = mapped_column(Float, nullable=False)
+    # Global aggregate over the generated and manual pairs, validated and not - the golden ones are
+    # left out and reported apart (golden_* below), so a test set's scores are never blended with
+    # the generated questions'. None when the run only had golden pairs.
+    precision_at_k: Mapped[float | None] = mapped_column(Float, nullable=True)
+    recall_at_k: Mapped[float | None] = mapped_column(Float, nullable=True)
+    mrr: Mapped[float | None] = mapped_column(Float, nullable=True)
+    ndcg: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    # The golden pairs (#260), the scores worth following over time: human-written, never in the
+    # retriever. None when the collection has none.
+    golden_pair_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    golden_precision_at_k: Mapped[float | None] = mapped_column(Float, nullable=True)
+    golden_recall_at_k: Mapped[float | None] = mapped_column(Float, nullable=True)
+    golden_mrr: Mapped[float | None] = mapped_column(Float, nullable=True)
+    golden_ndcg: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     # Same four metrics, computed separately over just the validated subset and just the
     # not-yet-validated one - nullable, since a run can end up with one subset empty (e.g. a
@@ -104,6 +114,8 @@ class EvaluationResult(UUIDMixin, Base):
     # Snapshot of QaPair.validated at evaluation time - what the run's validated/unvalidated
     # aggregates above are grouped by, never re-derived from the (possibly since-changed) QaPair.
     validated: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    # Snapshot of QaPair.golden at evaluation time, for the same reason.
+    golden: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     precision_at_k: Mapped[float] = mapped_column(Float, nullable=False)
     recall_at_k: Mapped[float] = mapped_column(Float, nullable=False)
     reciprocal_rank: Mapped[float] = mapped_column(Float, nullable=False)
