@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.0](https://github.com/IA-Generative/Muffin/compare/v0.16.0...v0.17.0) (2026-10-21)
+
+
+### Features
+
+* **usage:** record every LLM call and show my consumption and everyone's to admins ([9be838a](https://github.com/IA-Generative/Muffin/commit/9be838a1fc03f7fd4142ed71657edd0974ea28b0))
+
 ## [0.17.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.16.0...v0.17.0-rc) (2026-10-21)
 
 
