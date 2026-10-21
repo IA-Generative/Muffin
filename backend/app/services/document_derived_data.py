@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.document import Document
+from app.repositories.document_stage_repository import DocumentStageRepository
 from app.repositories.entity_repository import EntityRepository
 from app.repositories.qa_pair_repository import QaPairRepository
 from app.services import vector_store
@@ -32,6 +33,7 @@ class DocumentDerivedData:
         self.db = db
         self.qa_pairs = QaPairRepository(db)
         self.entities = EntityRepository(db)
+        self.stages = DocumentStageRepository(db)
 
     async def replace_generated_qa(
         self,
@@ -86,3 +88,5 @@ class DocumentDerivedData:
                 collection_id, [pair for collection, pair in removed if collection == collection_id]
             )
         await self.entities.remove_document(document.id)
+        # And the record that it was done, which another document would trust to copy it (#300).
+        await self.stages.delete_for_document(document.id)

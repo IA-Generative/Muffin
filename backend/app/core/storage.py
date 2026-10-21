@@ -42,6 +42,18 @@ def upload_fileobj(key: str, fileobj: BinaryIO, content_type: str = "application
     _client.upload_fileobj(fileobj, _settings.AWS_BUCKET, key, ExtraArgs={"ContentType": content_type})
 
 
+def copy_object(source_key: str, target_key: str) -> None:
+    """Copies an object inside the bucket, server side: the bytes never come through the backend. A
+    document that reuses another's page screenshots gets copies of its own (#300) - deleting a document
+    deletes its objects, so one shared between two would vanish from the other."""
+    _ensure_bucket()
+    _client.copy_object(
+        Bucket=_settings.AWS_BUCKET,
+        Key=target_key,
+        CopySource={"Bucket": _settings.AWS_BUCKET, "Key": source_key},
+    )
+
+
 def get_presigned_url(key: str, expires_in: int = 3600) -> str:
     """A short-lived, unauthenticated link to a stored object (e.g. a page screenshot) - handed
     to the end user in a chat answer, who has no RustFS credentials of their own."""

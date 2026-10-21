@@ -118,6 +118,48 @@ Ce qui a été dérivé d'un document disparaît avec lui, côté backend : à s
 même validées, entités qu'il était seul à mentionner, relations) et à un reprocess (sauf les paires
 validées).
 
+## Réutilisation des résultats d'un même fichier (#300)
+
+Un même fichier, ajouté deux fois (dans la même collection, ou dans deux collections), n'est pas
+retraité en entier : ce que le pipeline a déjà calculé pour ces octets est repris, ce qui évite l'OCR,
+les embeddings et les appels LLM, la partie coûteuse.
+
+Chaque document a un `content_hash` : le SHA-256 de ses octets (pour une page HTML servie par une URL,
+celui de son texte normalisé, car ses octets changent à chaque lecture). Il est calculé par le backend à
+l'upload, par le worker pendant la lecture d'un membre de ZIP, et par `process_document` pour un fichier
+qui n'en a pas encore (fichier remplacé, ajouté avant cette fonctionnalité).
+
+Le pipeline compte six **étapes**, réutilisées chacune de son côté (`app/reuse.py`) : `extraction` (pages
+et captures), `chunks` (chunks et vecteurs), `summary`, `qa`, `entities`, `tags`. Avant de calculer une
+étape, le worker donne au backend son **empreinte** : le hash du fichier et ce dont l'étape dépend, rien
+de plus (la langue OCR et la version du parseur ; pour le résumé, le modèle réellement utilisé -
+`get_default_chat_model` quand aucun n'est configuré -, les instructions de l'étape et ses fenêtres ; les
+tags dépendent aussi du résumé). L'embedding du résumé, des QA et des entités n'en fait pas partie : leur
+texte est repris et le backend refait le vecteur si le modèle d'embedding diffère. Les chunks, eux,
+dépendent du modèle d'embedding.
+
+Si un autre document du même fichier, dans n'importe quelle collection, a **terminé** l'étape sous la
+même empreinte, le backend en copie les résultats (`result_reuse.py` : les captures sont copiées côté
+RustFS, les vecteurs relus dans l'index source et réécrits dans celui du document, avec de nouveaux ids)
+et le worker passe à la suite sans rien calculer. Sinon il calcule, puis déclare l'étape terminée, ce qui
+en fait une source pour le suivant. Une étape faite par fenêtres de pages (QA, entités) annonce ses
+fenêtres et est terminée quand chacune est écrite (le backend le note à chaque remplacement de fenêtre,
+#299).
+
+- Une copie est **indépendante** : supprimer le document source ne lui retire rien.
+- Seules les paires QA **générées et non validées** sont copiées : une validation, ou une paire écrite à la
+  main, est le travail d'une personne dans sa collection.
+- Aucune information sur la source n'est exposée par l'API : c'est interne au backend.
+- Un échec de la copie (Meilisearch, S3) laisse le document intact et l'étape est simplement calculée : la
+  réutilisation est une optimisation, jamais un point de défaillance.
+- Un document reprocessé, déplacé ou supprimé n'est plus une source (ses étapes sont effacées avec ce qu'il
+  avait dérivé).
+- Changer la façon dont une étape calcule son résultat (le découpage, un prompt) demande d'incrémenter
+  `FINGERPRINT_VERSION`, sinon les documents indexés avec l'ancien code seraient repris.
+
+Les fichiers tabulaires (CSV, XLSX...) ont un hash et la détection de doublon, mais pas encore la
+réutilisation : leur pipeline (profil DuckDB, résumé et QA tirés du profil) est à part.
+
 ## Reconstruction blue/green de l'index (#12)
 
 La tâche `app.tasks.rebuild_index` (`app/tasks/rebuild.py`) reconstruit l'index de recherche d'une

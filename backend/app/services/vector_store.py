@@ -1,5 +1,7 @@
+import time
 import uuid
 from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor
 
 from loguru import logger
 from meilisearch.errors import MeilisearchApiError
@@ -15,6 +17,8 @@ _KIND_FIELD = "kind"
 _KIND_CHUNK = "chunk"
 _KIND_QA = "qa"
 _KIND_SUMMARY = "summary"
+# The kinds of points, for what copies them from one document to another (#300).
+KIND_CHUNK, KIND_QA, KIND_SUMMARY = _KIND_CHUNK, _KIND_QA, _KIND_SUMMARY
 
 # Stable embedder name used everywhere search/indexing touch a vector - the embedding model's own
 # name/version is configured once, on the index's embedder settings at creation time (see
@@ -220,6 +224,51 @@ def delete_document_embeddings(collection_id: uuid.UUID, document_id: uuid.UUID,
             _client.index(name).delete_documents(ids)
         except Exception:
             logger.exception(f"Failed to delete document {document_id} embeddings from index '{name}'")
+
+
+# Points read back at once: Meilisearch has no fetch by id, one request each.
+_READ_WORKERS = 8
+# Meilisearch indexes asynchronously: how long a read waits for what was written just before it.
+_SETTLE_TIMEOUT_SECONDS = 30
+
+
+def _wait_until_settled(index_name: str) -> None:
+    """Waits until the index has nothing left to process. A write returns once Meilisearch has queued it,
+    not indexed it: a point read right after is not there yet, which for a copy would mean silently
+    copying without its vector."""
+    deadline = time.monotonic() + _SETTLE_TIMEOUT_SECONDS
+    while time.monotonic() < deadline:
+        pending = _client.get_tasks({"indexUids": [index_name], "statuses": ["enqueued", "processing"], "limit": 1})
+        if not pending.results:
+            return
+        time.sleep(0.2)
+    raise TimeoutError(f"Index {index_name} still has tasks to process after {_SETTLE_TIMEOUT_SECONDS}s")
+
+
+def read_vectors(
+    collection_id: uuid.UUID, point_ids: Sequence[uuid.UUID]
+) -> dict[uuid.UUID, tuple[list[float], str | None]]:
+    """The vectors of points of the collection's active index, with the model that made each - what a
+    document that reuses another's results copies instead of embedding the same texts again (#300). A
+    point that is not there (its embedding failed when it was made) is simply absent."""
+    name = _index_name(collection_id)
+    if not point_ids or not _index_exists(name):
+        return {}
+    _wait_until_settled(name)
+    index = _client.index(name)
+
+    def read(point_id: uuid.UUID) -> tuple[uuid.UUID, tuple[list[float], str | None]] | None:
+        try:
+            point = dict(index.get_document(str(point_id), {"retrieveVectors": "true"}))
+        except MeilisearchApiError as error:
+            if error.code == "document_not_found":
+                return None
+            raise
+        embeddings = (point.get("_vectors") or {}).get(_EMBEDDER, {}).get("embeddings") or []
+        return (point_id, (list(embeddings[0]), point.get("model"))) if embeddings else None
+
+    with ThreadPoolExecutor(max_workers=_READ_WORKERS) as pool:
+        return dict(found for found in pool.map(read, point_ids) if found is not None)
 
 
 def _delete_points(collection_id: uuid.UUID, ids: Sequence[uuid.UUID], what: str) -> None:

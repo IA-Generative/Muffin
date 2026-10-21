@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security.worker_auth import require_worker_api_key
 from app.db import get_db
+from app.models.document_stage import PipelineStage
 from app.schemas.internal_document import (
     ChunkCreate,
     DocumentPageCreate,
@@ -18,9 +19,13 @@ from app.schemas.internal_pipeline import (
     DocumentSummaryUpdate,
     DocumentTagsUpdate,
     Prune,
+    StageBegin,
+    StageBeginOut,
+    StageDone,
     TabularProfileCreate,
 )
 from app.services.document_service import DocumentNotFoundError, DocumentService
+from app.services.result_reuse import ResultReuse
 
 # Not user-facing: called by the document-processing worker, authenticated
 # with a shared API key instead of a Keycloak session.
@@ -58,6 +63,7 @@ async def get_document(document_id: uuid.UUID, service: ServiceDep) -> InternalD
         status=document.status,
         storage_key=document.storage_key,
         summary=document.summary,
+        content_hash=document.content_hash,
     )
 
 
@@ -199,4 +205,33 @@ async def set_tabular_profile(
         await service.set_tabular_profile(document_id, profile)
     except DocumentNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found") from error
+    return {"status": "ok"}
+
+
+@router.post(
+    "/documents/{document_id}/stages/{stage}/begin",
+    summary="A stage of the pipeline is about to run for the document: if another document of the same file "
+    "already completed it under the same fingerprint its results are copied here and reused is true, "
+    "otherwise the worker computes it",
+    response_model=StageBeginOut,
+)
+async def begin_stage(
+    document_id: uuid.UUID, stage: PipelineStage, body: StageBegin, db: Annotated[AsyncSession, Depends(get_db)]
+) -> StageBeginOut:
+    try:
+        reused = await ResultReuse(db).begin(document_id, stage, body.fingerprint, body.expected, body.content_hash)
+    except DocumentNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found") from error
+    return StageBeginOut(reused=reused)
+
+
+@router.post(
+    "/documents/{document_id}/stages/{stage}/done",
+    summary="The worker computed a stage (or a piece of it): once every piece is done the stage can be "
+    "reused by another document of the same file",
+)
+async def stage_done(
+    document_id: uuid.UUID, stage: PipelineStage, body: StageDone, db: Annotated[AsyncSession, Depends(get_db)]
+) -> dict[str, str]:
+    await ResultReuse(db).mark_done(document_id, stage, body.key)
     return {"status": "ok"}

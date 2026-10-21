@@ -8,6 +8,7 @@
 
 from loguru import logger
 
+from app import reuse
 from app.celery_app import celery_app
 from app.task_logging import capture_task_logs
 from app.tasks import _shared
@@ -15,6 +16,42 @@ from app.tasks.collection import (  # noqa: E402,F401
     update_collection_description,
     update_collection_tags,
 )
+
+
+def _summarize(document_id: str, settings: dict, model: str) -> None:
+    instructions = settings["instructions"].get("summary", "")
+    pages = _shared._get_pages(document_id)
+    pages_per_map = _shared._windows(settings)["summary_pages_per_map"]
+    logger.info(f"Summarizing document {document_id}: {len(pages)} page(s), {pages_per_map} page(s) per map")
+
+    partials = [
+        _shared._chat(
+            model,
+            f"{instructions}\nSummarize the following excerpt concisely.".strip(),
+            "\n\n".join(page.content for page in batch),
+        )
+        for batch in _shared._batches(pages, pages_per_map)
+    ]
+
+    if len(partials) == 1:
+        summary = partials[0]
+    else:
+        summary = _shared._chat(
+            model,
+            f"{instructions}\nCombine the following partial summaries into one coherent summary.".strip(),
+            "\n\n---\n\n".join(partials),
+        )
+
+    # Best-effort, same fail-soft reasoning as a chunk's own embedding: a summary with no
+    # embedding still exists and still works for everything except the research agent's
+    # tier-2 (summary) retrieval, which just never surfaces it.
+    summary_embedding = None
+    try:
+        summary_embedding = _shared.backend_client.embed(settings["embedding_model"], summary)
+    except Exception:
+        logger.exception(f"Failed to embed summary for document {document_id}")
+    _shared.backend_client.set_document_summary(document_id, summary, summary_embedding)
+    logger.info(f"Summary for document {document_id} saved ({len(summary)} chars)")
 
 
 @celery_app.task(name="app.tasks.summarize_document", bind=True)
@@ -33,39 +70,15 @@ def summarize_document(self, document_id: str, collection_id: str) -> None:
                 logger.warning(f"No summary model configured for collection {collection_id}, skipping")
                 return
 
-            instructions = settings["instructions"].get("summary", "")
-            pages = _shared._get_pages(document_id)
-            pages_per_map = _shared._windows(settings)["summary_pages_per_map"]
-            logger.info(f"Summarizing document {document_id}: {len(pages)} page(s), {pages_per_map} page(s) per map")
-
-            partials = [
-                _shared._chat(
-                    model,
-                    f"{instructions}\nSummarize the following excerpt concisely.".strip(),
-                    "\n\n".join(page.content for page in batch),
-                )
-                for batch in _shared._batches(pages, pages_per_map)
-            ]
-
-            if len(partials) == 1:
-                summary = partials[0]
+            content_hash = reuse.valid_hash(_shared.backend_client.get_document(document_id).get("content_hash"))
+            # The summary of another document of the same file, under the same model and instructions
+            # (#300): copied with its vector, nothing is summarized here.
+            fingerprint = reuse.summary(content_hash, settings, model) if content_hash else None
+            if reuse.begin(document_id, reuse.SUMMARY, fingerprint):
+                logger.info(f"Summary of document {document_id} reused")
             else:
-                summary = _shared._chat(
-                    model,
-                    f"{instructions}\nCombine the following partial summaries into one coherent summary.".strip(),
-                    "\n\n---\n\n".join(partials),
-                )
-
-            # Best-effort, same fail-soft reasoning as a chunk's own embedding: a summary with no
-            # embedding still exists and still works for everything except the research agent's
-            # tier-2 (summary) retrieval, which just never surfaces it.
-            summary_embedding = None
-            try:
-                summary_embedding = _shared.backend_client.embed(settings["embedding_model"], summary)
-            except Exception:
-                logger.exception(f"Failed to embed summary for document {document_id}")
-            _shared.backend_client.set_document_summary(document_id, summary, summary_embedding)
-            logger.info(f"Summary for document {document_id} saved ({len(summary)} chars)")
+                _summarize(document_id, settings, model)
+                reuse.done(document_id, reuse.SUMMARY)
 
             # Best-effort, fire-and-forget - a no-op unless this document sits in a conversation's
             # temporary collection (§122), and never worth failing the summary itself over.
@@ -115,6 +128,17 @@ def tag_document(self, document_id: str, collection_id: str) -> None:
                 return
 
             document = _shared.backend_client.get_document(document_id)
+            # The tags of another document of the same file whose summary and tagging settings were the
+            # same (#300): copied, nothing is asked of the model.
+            content_hash = reuse.valid_hash(document.get("content_hash"))
+            summary_model = _shared._model_for(settings, "summary")
+            fingerprint = (
+                reuse.tags(content_hash, settings, summary_model, model) if content_hash and summary_model else None
+            )
+            if reuse.begin(document_id, reuse.TAGS, fingerprint):
+                logger.info(f"Tags of document {document_id} reused")
+                return
+
             instructions = settings["instructions"].get("tagging", "")
             content = document.get("summary") or "\n\n".join(
                 page.content for page in _shared._get_pages(document_id)[:1]
@@ -126,6 +150,7 @@ def tag_document(self, document_id: str, collection_id: str) -> None:
                 raise ValueError(f"Expected a JSON array of tags, got: {tags!r}")
 
             _shared.backend_client.replace_document_tags(document_id, [str(tag) for tag in tags])
+            reuse.done(document_id, reuse.TAGS)
             logger.info(f"Saved {len(tags)} tag(s) for document {document_id}")
         except Exception as error:
             _shared._fail(document_id, "tag", error)

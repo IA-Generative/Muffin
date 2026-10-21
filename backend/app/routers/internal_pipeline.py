@@ -6,11 +6,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security.worker_auth import require_worker_api_key
 from app.db import get_db
+from app.models.document_stage import PipelineStage
 from app.repositories.collection_repository import CollectionRepository
 from app.repositories.document_repository import DocumentRepository
 from app.schemas.internal_pipeline import EntityWindowReplace, GeneratedQaReplace
 from app.services.document_derived_data import DocumentDerivedData
 from app.services.document_derived_data import GeneratedQaPair as GeneratedQaPairData
+from app.services.result_reuse import ResultReuse
 
 router = APIRouter(prefix="/internal", tags=["Internal"], dependencies=[Depends(require_worker_api_key)])
 
@@ -36,6 +38,9 @@ async def replace_generated_qa(
         [GeneratedQaPairData(**pair.model_dump()) for pair in body.pairs],
     )
     await db.commit()
+    # The window is one piece of the document's QA stage (#300).
+    if body.document_id is not None and body.key.startswith("window:"):
+        await ResultReuse(db).mark_done(body.document_id, PipelineStage.QA, body.key)
     return {"status": "ok"}
 
 
@@ -61,4 +66,5 @@ async def replace_entity_window(
         [(relation.from_name, relation.to_name, relation.type) for relation in body.relations],
     )
     await db.commit()
+    await ResultReuse(db).mark_done(document_id, PipelineStage.ENTITIES, window_key)
     return {"status": "ok"}

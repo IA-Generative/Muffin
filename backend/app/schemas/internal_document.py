@@ -12,6 +12,8 @@ class InternalDocumentOut(BaseModel):
     status: str
     storage_key: str | None
     summary: str | None = None
+    # SHA-256 of the file (#300) - None until known. What the worker fingerprints the pipeline stages with.
+    content_hash: str | None = None
 
 
 class DocumentStatusUpdate(BaseModel):

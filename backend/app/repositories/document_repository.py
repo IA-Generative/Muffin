@@ -104,6 +104,14 @@ class DocumentRepository:
         )
         return result.scalars().all(), total or 0
 
+    async def list_chunks(self, document_id: uuid.UUID) -> Sequence[Chunk]:
+        result = await self.db.execute(select(Chunk).where(Chunk.document_id == document_id).order_by(Chunk.index))
+        return result.scalars().all()
+
+    async def list_tags(self, document_id: uuid.UUID) -> list[str]:
+        result = await self.db.execute(select(DocumentTag.tag).where(DocumentTag.document_id == document_id))
+        return sorted(result.scalars().all())
+
     async def count_pages(self, document_id: uuid.UUID) -> int:
         return (
             await self.db.scalar(
