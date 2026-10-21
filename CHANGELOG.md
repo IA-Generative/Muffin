@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.15.1](https://github.com/IA-Generative/Muffin/compare/v0.15.0...v0.15.1) (2026-10-21)
+
+
+### Bug Fixes
+
+* **collections:** show documents to every reader and count them on the cards ([e75c24f](https://github.com/IA-Generative/Muffin/commit/e75c24f54c45b36f2f71e31b3281834b5b965b65))
+* **frontend:** give collection cards a fixed size and truncate their text ([a1709ff](https://github.com/IA-Generative/Muffin/commit/a1709ff6e5dbc183954a7a5d0d12a34c60b07613))
+* **frontend:** show collection settings as a carousel with required and optional sections ([17437f1](https://github.com/IA-Generative/Muffin/commit/17437f1e01efa63d9c62bc0cf324ed434c240b75))
+
 ## [0.15.1-rc.2](https://github.com/IA-Generative/Muffin/compare/v0.15.1-rc.1...v0.15.1-rc.2) (2026-10-21)
 
 
