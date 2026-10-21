@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import { useCollections } from '../composables/useCollections'
+import { useCurrentUser } from '../composables/useCurrentUser'
 import { useEmbeddingModels } from '../composables/useEmbeddingModels'
 import { useModels } from '../composables/useModels'
 import type {
@@ -179,8 +180,31 @@ function saveVisibility() {
 const shareSubjectType = ref<ShareSubjectType>('user')
 const shareIdentifier = ref('')
 
+// Les groupes de l'utilisateur sont proposés en liste ; « Autre groupe » garde la saisie libre
+// pour un groupe dont il n'est pas membre.
+const { user: currentUser } = useCurrentUser()
+const myGroups = computed(() => currentUser.value?.groups ?? [])
+const OTHER_GROUP = '__other__'
+const groupChoice = ref(OTHER_GROUP)
+const isFreeGroup = computed(() => myGroups.value.length === 0 || groupChoice.value === OTHER_GROUP)
+
+watch(
+  [shareSubjectType, myGroups],
+  () => {
+    if (shareSubjectType.value === 'group' && !myGroups.value.includes(groupChoice.value)) {
+      groupChoice.value = myGroups.value[0] ?? OTHER_GROUP
+    }
+  },
+  { immediate: true },
+)
+
+const shareTarget = computed(() =>
+  shareSubjectType.value === 'group' && !isFreeGroup.value ? groupChoice.value : shareIdentifier.value.trim(),
+)
+
 function submitShare() {
-  createShare(props.collection.id, shareSubjectType.value, shareIdentifier.value)
+  if (!shareTarget.value) return
+  createShare(props.collection.id, shareSubjectType.value, shareTarget.value)
   shareIdentifier.value = ''
 }
 
@@ -745,7 +769,7 @@ function stepTooltipTitle(step: Step) {
 
       <div class="settings-tab__body">
         <div class="settings-tab__field">
-          <label for="share-identifier">Inviter un utilisateur ou un groupe</label>
+          <label for="share-subject-type">Inviter un utilisateur ou un groupe</label>
           <div class="settings-tab__share-form">
             <select
               id="share-subject-type"
@@ -756,14 +780,27 @@ function stepTooltipTitle(step: Step) {
               <option value="user">Email</option>
               <option value="group">Groupe Keycloak</option>
             </select>
+            <select
+              v-if="shareSubjectType === 'group' && myGroups.length"
+              id="share-group"
+              v-model="groupChoice"
+              class="fr-select"
+              aria-label="Groupe"
+            >
+              <optgroup label="Vos groupes">
+                <option v-for="group in myGroups" :key="group" :value="group">{{ group }}</option>
+              </optgroup>
+              <option :value="OTHER_GROUP">Autre groupe (saisie libre)…</option>
+            </select>
             <div class="settings-tab__share-form-row">
               <input
+                v-if="shareSubjectType === 'user' || isFreeGroup"
                 id="share-identifier"
                 v-model="shareIdentifier"
                 type="text"
                 :placeholder="shareSubjectType === 'user' ? 'personne@exemple.fr' : '/nom-du-groupe'"
               />
-              <button type="submit" class="fr-btn fr-btn--sm">Inviter</button>
+              <button type="submit" class="fr-btn fr-btn--sm" :disabled="!shareTarget">Inviter</button>
             </div>
           </div>
           <p class="settings-tab__hint">
