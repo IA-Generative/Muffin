@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.0-rc.1](https://github.com/IA-Generative/Muffin/compare/v0.18.0-rc...v0.18.0-rc.1) (2026-10-21)
+
+
+### Features
+
+* **agent:** answer questions about using the application from a user guide ([f862f36](https://github.com/IA-Generative/Muffin/commit/f862f36957c93ea8d957d88fcce3f602cf9b9a12)), closes [#251](https://github.com/IA-Generative/Muffin/issues/251)
+
 ## [0.18.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.17.1-rc...v0.18.0-rc) (2026-10-21)
 
 
