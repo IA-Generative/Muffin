@@ -118,3 +118,11 @@ async def test_the_app_help_guide_and_the_help_intent_are_seeded(client):
     assert "« Nouveau chat »" in guide["content"] and "Markdown" in guide["content"]
     assert '"meta", "identity", "help")' in analyze["content"]
     assert 'Use "help" when the user asks how to USE the Muffin application' in analyze["content"]
+
+
+async def test_the_help_guide_describes_the_automatic_refresh_of_urls(client):
+    """#19 made the guide's "a URL page is read once" untrue: the migration publishes the new paragraph."""
+    guide = (await client.get("/api/internal/prompts/app_help/active", headers=_headers())).json()["content"]
+
+    assert "« Mise à jour automatique »" in guide
+    assert "elle n'est pas rafraîchie automatiquement" not in guide

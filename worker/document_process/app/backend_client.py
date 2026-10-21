@@ -122,6 +122,26 @@ class BackendClient:
         response = self._client.post(f"/api/internal/documents/{document_id}/suggest-filing")
         response.raise_for_status()
 
+    def set_content_hash(self, document_id: str, content_hash: str) -> None:
+        response = self._client.put(
+            f"/api/internal/documents/{document_id}/content-hash", json={"content_hash": content_hash}
+        )
+        response.raise_for_status()
+
+    def claim_url_refresh(self) -> list[str]:
+        """The URL documents due for a refresh - each claimed once, even with several scans at once."""
+        response = self._client.post("/api/internal/url-refresh/claim")
+        response.raise_for_status()
+        return [str(document_id) for document_id in response.json()["document_ids"]]
+
+    def report_url_fetch(self, document_id: str, content_hash: str) -> bool:
+        """Whether the page changed - the backend then reprocesses the document."""
+        response = self._client.post(
+            f"/api/internal/documents/{document_id}/url-refresh", json={"content_hash": content_hash}
+        )
+        response.raise_for_status()
+        return bool(response.json()["changed"])
+
     def set_document_error(self, document_id: str, error: str) -> None:
         response = self._client.patch(f"/api/internal/documents/{document_id}/error", json={"error": error})
         response.raise_for_status()

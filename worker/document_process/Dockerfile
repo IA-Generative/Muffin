@@ -37,4 +37,8 @@ ENV PATH="/app/.venv/bin:$PATH"
 ENV TESSDATA_PATH="/usr/share/tesseract-ocr/5/tessdata"
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
   CMD celery -A app.celery_app inspect ping -d celery@$$HOSTNAME || exit 1
-CMD ["celery", "-A", "app.celery_app", "worker", "--loglevel=info"]
+# -B: each worker also runs the beat that triggers the scheduled refresh of URL documents (#19) -
+# no extra service to deploy. With several replicas each runs its own, which is harmless: the
+# backend hands each due document to one scan only. The schedule file lives in /tmp, the one
+# writable place on a read-only root filesystem.
+CMD ["celery", "-A", "app.celery_app", "worker", "-B", "--schedule=/tmp/celerybeat-schedule", "--loglevel=info"]

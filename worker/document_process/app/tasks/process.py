@@ -22,6 +22,8 @@ from app.tasks.tabular import process_tabular_document  # noqa: E402,F401
 def _process_url(document_id: str, url: str) -> None:
     markdown = _shared.fetch_url_markdown(url)
     _shared.backend_client.add_page(document_id, page_number=1, content=markdown)
+    # What a scheduled refresh (#19) compares the page against next time.
+    _shared.backend_client.set_content_hash(document_id, _shared.content_hash(markdown))
 
 
 # Already text - one page, no liteparse, no screenshot. liteparse only handles PDF/Office/image

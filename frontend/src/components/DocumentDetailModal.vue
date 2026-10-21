@@ -2,6 +2,7 @@
 import { onMounted, ref, watch } from 'vue'
 import type { CollectionDocument, Entity, EntityType, QaPair, Relation } from '../types/collection'
 import LivingDocumentRevisions from './LivingDocumentRevisions.vue'
+import UrlRefreshSettings from './UrlRefreshSettings.vue'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
 
@@ -230,6 +231,12 @@ onMounted(() => {
                 <p v-else class="document-modal__empty">Aucun résumé disponible pour le moment.</p>
                 <p v-if="detail.error" class="document-modal__processing-error">{{ detail.error }}</p>
                 <p class="document-modal__meta">{{ detail.page_count }} page(s)</p>
+                <UrlRefreshSettings
+                  v-if="document.type === 'url'"
+                  :collection-id="collectionId"
+                  :document-id="document.id"
+                  :editable="editable ?? false"
+                />
               </template>
               <p v-else class="document-modal__loading">Chargement…</p>
             </section>

@@ -184,30 +184,34 @@ class DocumentUploadService:
     async def reindex_collection(self, collection_id: uuid.UUID, user: RequestContext) -> list[DocumentOut]:
         await self._get_owned_collection(collection_id, user)
         documents = await self.documents.list_by_collection(collection_id)
-
-        orphaned_screenshot_keys: list[str] = []
         for document in documents:
-            # Same reasoning as delete_document: clear_content wipes the Postgres chunks/pages,
-            # so their Meilisearch embeddings must be deleted first or they'd survive as stale
-            # vectors pointing at chunk ids that no longer exist.
-            chunk_ids = await self.documents.list_chunk_ids(document.id)
-            vector_store.delete_document_embeddings(collection_id, document.id, chunk_ids)
-            orphaned_screenshot_keys.extend(await self.documents.clear_content(document.id))
-            await self.documents.update_status(document, DocumentStatus.PENDING, progress=0, summary=None)
+            await self.reprocess(document, user.user_id)
+        return [DocumentOut.model_validate(document) for document in documents]
+
+    async def reprocess(self, document: Document, user_id: str) -> None:
+        """Runs the whole pipeline again on one document, from scratch: its embeddings, pages,
+        chunks and summary go, then processing is queued, which replaces all of it (and the QA,
+        entities and tags the pipeline derives). Used by a collection reindex and by a URL refresh
+        that found the page changed (#19). The task is recorded for `user_id`."""
+        # Same reasoning as delete_document: clear_content wipes the Postgres chunks/pages, so their
+        # Meilisearch embeddings must be deleted first or they'd survive as stale vectors pointing
+        # at chunk ids that no longer exist.
+        chunk_ids = await self.documents.list_chunk_ids(document.id)
+        vector_store.delete_document_embeddings(document.collection_id, document.id, chunk_ids)
+        orphaned_screenshot_keys = await self.documents.clear_content(document.id)
+        await self.documents.update_status(document, DocumentStatus.PENDING, progress=0, summary=None)
         await self.db.commit()
         storage.delete_objects(orphaned_screenshot_keys)
 
-        for document in documents:
-            celery_task_id = enqueue_process_document(str(document.id))
-            await self.tasks.create(
-                celery_task_id,
-                PROCESS_DOCUMENT_TASK,
-                user.user_id,
-                document_id=document.id,
-                collection_id=collection_id,
-            )
+        celery_task_id = enqueue_process_document(str(document.id))
+        await self.tasks.create(
+            celery_task_id,
+            PROCESS_DOCUMENT_TASK,
+            user_id,
+            document_id=document.id,
+            collection_id=document.collection_id,
+        )
         await self.db.commit()
-        return [DocumentOut.model_validate(document) for document in documents]
 
     async def get_document(
         self, collection_id: uuid.UUID, user: RequestContext, document_id: uuid.UUID
