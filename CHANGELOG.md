@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.24.0](https://github.com/IA-Generative/Muffin/compare/v0.23.1...v0.24.0) (2026-10-22)
+
+
+### Features
+
+* **documents:** extract a long PDF in ranges of pages, with its progress and an estimate in logs ([9d83882](https://github.com/IA-Generative/Muffin/commit/9d8388273da888348b0241b34f6c454779240a38)), closes [#331](https://github.com/IA-Generative/Muffin/issues/331)
+
 ## [0.23.1](https://github.com/IA-Generative/Muffin/compare/v0.23.0...v0.23.1) (2026-10-22)
 
 
