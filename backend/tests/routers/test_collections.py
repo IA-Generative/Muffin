@@ -139,7 +139,7 @@ async def test_list_collections_excludes_temporary_collections(client):
         run = (await client.post("/api/runs", json={"query": "hi"})).json()
 
     with (
-        patch("app.services.document_upload_service.storage.put_object"),
+        patch("app.services.document_upload_service.storage.upload_fileobj"),
         patch("app.services.document_upload_service.enqueue_process_document", return_value="celery-upload-1"),
     ):
         await client.post(

@@ -1,6 +1,7 @@
 import hashlib
 import importlib
 import io
+import os
 import zipfile
 from unittest.mock import MagicMock
 
@@ -138,6 +139,22 @@ class TestPlan:
 
         with pytest.raises(ArchiveRejectedError):
             _plan(_info("a.pdf", size=60, compressed=60), _info("b.pdf", size=60, compressed=60), limits=limits)
+
+    def test_without_limits_neither_the_number_of_files_nor_their_size_counts(self):
+        infos = [_info(f"a/b/c/d/e/f/g/f{i}.pdf", size=500_000_000, compressed=400_000_000) for i in range(5000)]
+
+        plan = _plan(*infos, limits=ZipLimits())
+
+        assert len(plan.files) == 5000 and plan.skipped == []
+
+    def test_by_default_only_the_compression_ratio_is_limited(self):
+        assert (
+            settings.ZIP_IMPORT_MAX_FILES,
+            settings.ZIP_IMPORT_MAX_TOTAL_BYTES,
+            settings.ZIP_IMPORT_MAX_FILE_BYTES,
+            settings.ZIP_IMPORT_MAX_DEPTH,
+        ) == (None, None, None, None)
+        assert settings.ZIP_IMPORT_MAX_RATIO == 100
 
 
 class TestExtractMember:
@@ -301,6 +318,26 @@ class TestImportTask:
         summary = backend.finish_collection_import.call_args.args[2]
         assert summary["documents_created"] == 1
         assert summary["skipped"][0]["path"] == "big.pdf"
+
+    def test_without_limits_a_large_file_is_imported_whole(self, monkeypatch):
+        content = b"%PDF" + os.urandom(5_000_000)  # incompressible: well within the ratio
+        uploaded = {}
+        backend = MagicMock()
+        backend.is_imported_duplicate.return_value = False
+        backend.begin_collection_import.return_value = {"archive_key": "imports/i.zip", "root_collection_id": "root"}
+        storage = MagicMock()
+        storage.download_fileobj.side_effect = lambda key, fileobj: fileobj.write(_zip({"big.pdf": content}))
+        storage.upload_fileobj.side_effect = lambda key, fileobj, content_type: uploaded.__setitem__(
+            key, fileobj.read()
+        )
+        monkeypatch.setattr(tasks._shared, "backend_client", backend)
+        monkeypatch.setattr(tasks._shared, "storage", storage)
+        monkeypatch.setattr(task_logging, "backend_client", MagicMock())
+
+        tasks.import_zip("import-1")
+
+        assert list(uploaded.values()) == [content]
+        assert backend.finish_collection_import.call_args.args[2]["skipped"] == []
 
     def test_an_archive_announcing_too_many_entries_is_refused_before_its_directory_is_read(self, monkeypatch):
         monkeypatch.setattr(settings, "ZIP_IMPORT_MAX_FILES", 1)  # so at most 10 entries

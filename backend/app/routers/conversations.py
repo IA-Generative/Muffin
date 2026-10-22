@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security.factory import RequestContext, get_current_user
 from app.db import get_db
+from app.routers.documents import file_too_large
 from app.schemas.conversation import ConversationOut, ConversationUpdate, MessageOut
 from app.schemas.discussion_feedback import (
     DiscussionFeedbackCreate,
@@ -22,6 +23,7 @@ from app.services.conversation_service import (
 from app.services.document_upload_service import (
     DocumentNotFoundError,
     DocumentUploadService,
+    FileTooLargeError,
 )
 from app.services.run_service import (
     ConversationNotFoundError as RunConversationNotFoundError,
@@ -226,10 +228,12 @@ async def upload_conversation_file(
         await conversations.get_conversation(conversation_id, user)
     except ConversationNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found") from error
-    content = await file.read()
-    return await documents.create_conversation_file_document(
-        conversation_id, user, file.filename, content, file.content_type or "application/octet-stream"
-    )
+    try:
+        return await documents.create_conversation_file_document(
+            conversation_id, user, file.filename, file.file, file.content_type or "application/octet-stream"
+        )
+    except FileTooLargeError as error:
+        raise file_too_large(error) from error
 
 
 @router.get(

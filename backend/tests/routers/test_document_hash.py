@@ -34,6 +34,8 @@ async def client():
 def pipeline():
     """RustFS and the processing queue replaced."""
     with (
+        patch("app.services.document_upload_service.storage.upload_fileobj"),
+        # A living document's file is still put whole.
         patch("app.services.document_upload_service.storage.put_object"),
         patch(
             "app.services.document_upload_service.enqueue_process_document",

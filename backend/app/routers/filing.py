@@ -6,11 +6,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security.factory import RequestContext, get_current_user
 from app.db import get_db
+from app.routers.documents import file_too_large
 from app.schemas.document import DocumentOut, FilingCandidateOut, FilingDecision
 from app.services.collection_service import CollectionNotFoundError
 from app.services.document_upload_service import (
     DocumentNotFoundError,
     DocumentUploadService,
+    FileTooLargeError,
     InvalidFilingDecisionError,
 )
 
@@ -45,10 +47,12 @@ async def list_files_to_file(user: UserDep, service: ServiceDep) -> list[FilingC
     status_code=status.HTTP_201_CREATED,
 )
 async def upload_standalone_document(file: UploadFile, user: UserDep, service: ServiceDep) -> DocumentOut:
-    content = await file.read()
-    return await service.upload_standalone_for_filing(
-        user, file.filename, content, file.content_type or "application/octet-stream"
-    )
+    try:
+        return await service.upload_standalone_for_filing(
+            user, file.filename, file.file, file.content_type or "application/octet-stream"
+        )
+    except FileTooLargeError as error:
+        raise file_too_large(error) from error
 
 
 @router.post(

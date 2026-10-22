@@ -140,6 +140,7 @@ désactivée par défaut en amont et doit être explicitement activée côté se
 | Variable | Définition | Défaut | Utilisée par |
 |---|---|---|---|
 | `DOCUMENT_LOCK_TTL_SECONDS` | Durée de validité, en secondes, du verrou d'édition souple d'un document vivant (`POST /api/collections/{id}/documents/{doc}/lock`) tant qu'il n'est pas renouvelé (`PUT`). Passé ce délai le verrou est ignoré, un onglet abandonné libère donc le document tout seul | `600` | **backend** (`app/config/documents.py`, `app/services/living_document_service.py`) |
+| `DOCUMENT_MAX_UPLOAD_BYTES` | Taille maximale d'un fichier déposé (collection, conversation, fichiers à ranger), en octets ; au-delà, refusé en 413. Non défini : pas de limite. Le fichier est envoyé en streaming vers le stockage, jamais chargé entier en mémoire | aucune | **backend** (`app/config/documents.py`, `app/services/document_upload_service.py`) |
 | `PINNED_DESCENDANTS_LIMIT` | Nombre max de sous-collections ajoutées quand l'utilisateur épingle une collection dans le chat (les plus proches d'abord) ; au-delà, l'agent propose d'aller plus loin depuis la collection épinglée la plus proche | `30` | **backend** (`app/config/runs.py`, `app/services/run_service.py`) |
 
 ## Backend ↔ workers (URLs)
@@ -174,11 +175,11 @@ désactivée par défaut en amont et doit être explicitement activée côté se
 | `BROKER_VISIBILITY_TIMEOUT_SECONDS` | Délai avant que Redis redonne une tâche non acquittée à un autre worker. Doit dépasser toutes les limites ci-dessus, sinon une tâche longue tournerait deux fois ; c'est aussi le délai de reprise d'une tâche dont le worker est mort (1 h par défaut chez Redis) | `14400` | **worker/document_process** (`app/config.py`, `app/celery_app.py`) |
 | `URL_FETCH_TIMEOUT_SECONDS` | Délai total pour récupérer une URL, fichier servi compris | `120` | **worker/document_process** (`app/config.py`, `app/scraping.py`) |
 | `STORAGE_CONNECT_TIMEOUT_SECONDS` / `STORAGE_READ_TIMEOUT_SECONDS` | Délais de connexion à RustFS/S3 et d'attente des octets suivants d'un transfert (3 nouvelles tentatives) | `10` / `60` | **worker/document_process** (`app/config.py`, `app/storage.py`) |
-| `ZIP_IMPORT_MAX_FILES` | Nombre maximal de fichiers d'un ZIP importé ; au-delà, l'archive entière est refusée | `2000` | **worker-document-process** (`app/config.py`, `app/tasks/import_zip.py`) |
-| `ZIP_IMPORT_MAX_TOTAL_BYTES` | Taille maximale d'un ZIP une fois décompressé, en octets ; au-delà, l'archive est refusée (vérifiée sur la taille annoncée puis sur ce qui est réellement lu) | `2147483648` (2 Go) | idem |
-| `ZIP_IMPORT_MAX_FILE_BYTES` | Taille maximale d'un fichier du ZIP, en octets ; un fichier plus gros est ignoré et listé dans le récapitulatif | `209715200` (200 Mo) | idem |
-| `ZIP_IMPORT_MAX_RATIO` | Taux de compression maximal d'un fichier du ZIP (protection zip bomb) ; au-delà, le fichier est ignoré | `100` | idem |
-| `ZIP_IMPORT_MAX_DEPTH` | Profondeur maximale de dossiers dans un ZIP ; un fichier plus profond est ignoré | `20` | idem |
+| `ZIP_IMPORT_MAX_FILES` | Nombre maximal de fichiers d'un ZIP importé ; au-delà, l'archive entière est refusée. Non défini : pas de limite | aucune | **worker-document-process** (`app/config.py`, `app/tasks/import_zip.py`) |
+| `ZIP_IMPORT_MAX_TOTAL_BYTES` | Taille maximale d'un ZIP une fois décompressé, en octets ; au-delà, l'archive est refusée (vérifiée sur la taille annoncée puis sur ce qui est réellement lu). Non défini : pas de limite | aucune | idem |
+| `ZIP_IMPORT_MAX_FILE_BYTES` | Taille maximale d'un fichier du ZIP, en octets ; un fichier plus gros est ignoré et listé dans le récapitulatif. Non défini : pas de limite | aucune | idem |
+| `ZIP_IMPORT_MAX_RATIO` | Taux de compression maximal d'un fichier du ZIP (protection zip bomb, la seule active par défaut : un vrai fichier n'est jamais compressé autant) ; au-delà, le fichier est ignoré | `100` | idem |
+| `ZIP_IMPORT_MAX_DEPTH` | Profondeur maximale de dossiers dans un ZIP ; un fichier plus profond est ignoré. Non défini : pas de limite | aucune | idem |
 | `TESSDATA_PATH` | Chemin vers les fichiers de données Tesseract, si non standard — le `Dockerfile` du worker le fixe au chemin du paquet apt `tesseract-ocr-fra` | `None` | idem |
 
 ## worker/agent_execution — budgets d'exécution de l'agent

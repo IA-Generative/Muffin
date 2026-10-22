@@ -208,7 +208,7 @@ async def test_a_second_draft_for_the_same_document_is_refused(client, io):
 async def test_a_draft_needs_a_living_document_a_prompt_and_the_owner(client, io):
     collection_id, document_id = await _living(client)
     with (
-        patch("app.services.document_upload_service.storage.put_object"),
+        patch("app.services.document_upload_service.storage.upload_fileobj"),
         patch("app.services.document_upload_service.enqueue_process_document", return_value="t-std"),
     ):
         standard = (

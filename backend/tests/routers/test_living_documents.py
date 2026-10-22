@@ -146,7 +146,7 @@ async def test_replace_rejects_a_different_format(client):
 async def test_replace_on_a_standard_document_returns_409(client):
     collection_id = await _create_collection(client)
     with (
-        patch("app.services.document_upload_service.storage.put_object"),
+        patch("app.services.document_upload_service.storage.upload_fileobj"),
         patch("app.services.document_upload_service.enqueue_process_document", return_value="task-id"),
     ):
         standard = (
@@ -437,7 +437,7 @@ async def test_release_needs_the_token_or_force_and_is_idempotent(client):
 async def test_lock_routes_reject_a_standard_document_and_a_foreign_collection(client):
     collection_id = await _create_collection(client)
     with (
-        patch("app.services.document_upload_service.storage.put_object"),
+        patch("app.services.document_upload_service.storage.upload_fileobj"),
         patch("app.services.document_upload_service.enqueue_process_document", return_value="task-id-lock"),
     ):
         standard = (
@@ -551,7 +551,7 @@ async def test_download_unknown_revision_standard_document_and_foreign_owner(cli
             del app.dependency_overrides[get_current_user]
 
     with (
-        patch("app.services.document_upload_service.storage.put_object"),
+        patch("app.services.document_upload_service.storage.upload_fileobj"),
         patch("app.services.document_upload_service.enqueue_process_document", return_value="task-id-dl"),
     ):
         standard = (

@@ -141,7 +141,7 @@ niveau) : ses dossiers deviennent des sous-collections et ses fichiers des docum
 |---|---|---|
 | `MAX_ROUTED_COLLECTIONS` | worker `agent_execution` | `15` |
 | `PINNED_DESCENDANTS_LIMIT` | backend | `30` |
-| `ZIP_IMPORT_MAX_FILES`, `ZIP_IMPORT_MAX_TOTAL_BYTES`, `ZIP_IMPORT_MAX_FILE_BYTES`, `ZIP_IMPORT_MAX_RATIO`, `ZIP_IMPORT_MAX_DEPTH` | worker `document_process` | 2000, 2 Go, 200 Mo, 100, 20 |
+| `ZIP_IMPORT_MAX_FILES`, `ZIP_IMPORT_MAX_TOTAL_BYTES`, `ZIP_IMPORT_MAX_FILE_BYTES`, `ZIP_IMPORT_MAX_RATIO`, `ZIP_IMPORT_MAX_DEPTH` | worker `document_process` | aucune limite, sauf le taux de compression (100) |
 
 Détail dans [docs/environment-variables.md](environment-variables.md).
 

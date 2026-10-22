@@ -4,7 +4,7 @@ Pure functions over ``zipfile`` - no backend or storage call - so every rule her
 with an archive built in memory. ``plan_import`` decides, from the archive's directory alone,
 which files to import into which folder and why the others are skipped; ``extract_member`` then
 copies one of them, chunk by chunk, into a file-like object, with a hard cap, never trusting the
-sizes the archive declares.
+sizes the archive declares. Every limit is optional: None, it doesn't apply.
 
 Nothing in an archive is ever written to the local filesystem under its own path: the importer
 copies each member into an anonymous temporary spool (memory, then a temporary file past a few MB)
@@ -63,11 +63,11 @@ _WINDOWS_DRIVE = re.compile(r"^[a-zA-Z]:")
 
 @dataclass(frozen=True)
 class ZipLimits:
-    max_files: int
-    max_total_bytes: int
-    max_file_bytes: int
-    max_ratio: int
-    max_depth: int
+    max_files: int | None = None
+    max_total_bytes: int | None = None
+    max_file_bytes: int | None = None
+    max_ratio: int | None = None
+    max_depth: int | None = None
 
 
 @dataclass(frozen=True)
@@ -149,11 +149,11 @@ def plan_import(infos: list[zipfile.ZipInfo], limits: ZipLimits) -> ImportPlan:
     """What to import, from the archive's directory alone. Raises ArchiveRejectedError when the
     archive as a whole is over its limits - nothing is created then."""
     members = [info for info in infos if not info.is_dir()]
-    if len(members) > limits.max_files:
+    if limits.max_files is not None and len(members) > limits.max_files:
         raise ArchiveRejectedError(
             f"L'archive contient {len(members)} fichiers, au-delà de la limite de {limits.max_files}."
         )
-    if sum(info.file_size for info in members) > limits.max_total_bytes:
+    if limits.max_total_bytes is not None and sum(info.file_size for info in members) > limits.max_total_bytes:
         raise ArchiveRejectedError("Une fois décompressée, l'archive dépasse la taille maximale autorisée.")
 
     plan = ImportPlan()
@@ -178,7 +178,7 @@ def plan_import(infos: list[zipfile.ZipInfo], limits: ZipLimits) -> ImportPlan:
             skip(path, "fichier ou dossier caché")
         elif is_symlink(info):
             skip(path, "lien symbolique")
-        elif len(parts) - 1 > limits.max_depth:
+        elif limits.max_depth is not None and len(parts) - 1 > limits.max_depth:
             skip(path, "dossier trop profond")
         elif PurePosixPath(parts[-1]).suffix.lower() in _NESTED_ARCHIVE_EXTENSIONS:
             skip(path, "archive imbriquée")
@@ -186,9 +186,9 @@ def plan_import(infos: list[zipfile.ZipInfo], limits: ZipLimits) -> ImportPlan:
             skip(path, "type de fichier non pris en charge")
         elif info.file_size == 0:
             skip(path, "fichier vide")
-        elif info.file_size > limits.max_file_bytes:
+        elif limits.max_file_bytes is not None and info.file_size > limits.max_file_bytes:
             skip(path, "fichier trop volumineux")
-        elif info.file_size > limits.max_ratio * max(info.compress_size, 1):
+        elif limits.max_ratio is not None and info.file_size > limits.max_ratio * max(info.compress_size, 1):
             skip(path, "taux de compression suspect")
         else:
             plan.files.append(PlannedFile(info=info, folder=tuple(parts[:-1]), name=parts[-1]))

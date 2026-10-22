@@ -1,11 +1,14 @@
+import asyncio
 import os
 import uuid
 from datetime import UTC, datetime
+from typing import BinaryIO
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import DocumentSettings
 from app.core import storage
-from app.core.file_hash import sha256_hex
+from app.core.file_hash import sha256_stream
 from app.core.security.factory import RequestContext
 from app.core.tasks import PROCESS_DOCUMENT_TASK, enqueue_process_document
 from app.models.document import Document, DocumentStatus
@@ -65,6 +68,17 @@ def _document_out(document: Document) -> DocumentOut:
     return out
 
 
+_document_settings = DocumentSettings()
+
+
+class FileTooLargeError(Exception):
+    """Over DOCUMENT_MAX_UPLOAD_BYTES - only when it is set: by default, a file of any size is taken."""
+
+    def __init__(self, max_bytes: int) -> None:
+        super().__init__(str(max_bytes))
+        self.max_bytes = max_bytes
+
+
 class DuplicateDocumentError(Exception):
     """The collection already holds this file, or this URL (#300): what is added is the same document
     as `existing`. Refused unless the caller says it wants it anyway."""
@@ -93,20 +107,25 @@ class DocumentUploadService:
         collection_id: uuid.UUID,
         user: RequestContext,
         filename: str,
-        content: bytes,
+        content: BinaryIO,
         content_type: str,
         *,
         allow_duplicate: bool = False,
     ) -> DocumentOut:
+        """`content` is read chunk by chunk, never whole in memory (an upload's spooled temporary file):
+        hashed, then streamed to the object store - in a thread, as both take a while for a large file."""
         await self._get_owned_collection(collection_id, user)
         safe_name = os.path.basename(filename) or "document"
-        content_hash = sha256_hex(content)
+        content_hash, size = await asyncio.to_thread(sha256_stream, content)
+        max_bytes = _document_settings.DOCUMENT_MAX_UPLOAD_BYTES
+        if max_bytes is not None and size > max_bytes:
+            raise FileTooLargeError(max_bytes)
         if not allow_duplicate:
             existing = await self.documents.find_by_hash(collection_id, content_hash)
             if existing is not None:
                 raise DuplicateDocumentError(existing)
         storage_key = document_storage_key(collection_id, safe_name)
-        storage.put_object(storage_key, content, content_type=content_type)
+        await asyncio.to_thread(storage.upload_fileobj, storage_key, content, content_type)
         document = await self.register_stored_file(
             collection_id, safe_name, storage_key, user.user_id, _uploader_display(user), content_hash=content_hash
         )
@@ -147,7 +166,7 @@ class DocumentUploadService:
         conversation_id: uuid.UUID,
         user: RequestContext,
         filename: str,
-        content: bytes,
+        content: BinaryIO,
         content_type: str,
     ) -> DocumentOut:
         """Upload a file straight into a conversation (§ conv-files) rather than a permanent
@@ -167,7 +186,7 @@ class DocumentUploadService:
         self,
         user: RequestContext,
         filename: str,
-        content: bytes,
+        content: BinaryIO,
         content_type: str,
     ) -> DocumentOut:
         """Upload a file straight to the "Fichiers à ranger" review page (§122 follow-up) - no
