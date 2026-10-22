@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.22.0...v0.23.0-rc) (2026-10-22)
+
+
+### Features
+
+* **chunking:** actually chunk by LLM, and make it the default strategy ([8c7f0f2](https://github.com/IA-Generative/Muffin/commit/8c7f0f23252610f18791e65ef8ce3fed0cfc17a9)), closes [#319](https://github.com/IA-Generative/Muffin/issues/319)
+
 ## [0.22.0](https://github.com/IA-Generative/Muffin/compare/v0.21.0...v0.22.0) (2026-10-22)
 
 
