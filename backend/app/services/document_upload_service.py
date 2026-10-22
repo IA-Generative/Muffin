@@ -30,6 +30,7 @@ from app.schemas.document import (
 from app.schemas.pagination import Page, PaginationParams
 from app.services import embedding_model_lookup, vector_store
 from app.services.document_derived_data import DocumentDerivedData
+from app.services.import_processing_queue import ImportProcessingQueue
 
 from .collection_service import FALLBACK_EMBEDDING_MODEL, CollectionNotFoundError
 
@@ -139,18 +140,20 @@ class DocumentUploadService:
         owner_id: str,
         owner_display: str,
         *,
-        bulk: bool = False,
+        defer_processing: bool = False,
         content_hash: str | None = None,
     ) -> Document:
         """Records a file already stored in RustFS as a document and queues it for processing -
-        shared by a plain upload and a ZIP import (#223), whose worker stores each file itself, and
-        whose documents are `bulk`: processed after any other waiting (#291). No ownership check
-        here: callers have done it already."""
+        shared by a plain upload and a ZIP import (#223), whose worker stores each file itself. A document
+        of an import is not queued here (`defer_processing`): its import's queue (#335) does, when it has
+        room. No ownership check here: callers have done it already."""
         document = await self.documents.create_file(
             collection_id, name, storage_key, owner_id, owner_display, content_hash=content_hash
         )
         await self.db.commit()
-        celery_task_id = enqueue_process_document(str(document.id), bulk=bulk)
+        if defer_processing:
+            return document
+        celery_task_id = enqueue_process_document(str(document.id))
         await self.tasks.create(
             celery_task_id,
             PROCESS_DOCUMENT_TASK,
@@ -399,9 +402,14 @@ class DocumentUploadService:
         vector_store.delete_document_embeddings(collection_id, document_id, chunk_ids)
         # The pairs, entities and relations generated from it go with it (#299).
         await DocumentDerivedData(self.db).clear(document, keep_validated_qa=False)
+        queue = ImportProcessingQueue(self.db)
+        import_id = await queue.import_of(document_id)
         await self.documents.delete(document)
         await self.db.commit()
         storage.delete_objects(rustfs_keys)
+        if import_id is not None:
+            # The place it held in its import's window (#335) goes to the next document.
+            await queue.release(import_id)
 
     async def list_files_to_file(self, user: RequestContext) -> list[FilingCandidateOut]:
         """The "Fichiers à ranger" review page (§122): every file this user uploaded that isn't

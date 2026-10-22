@@ -66,6 +66,8 @@ def process_tabular_document(self, document_id: str, collection_id: str, tabular
         generate_qa_pairs(profile, document_id, collection_id, settings)
 
         _shared.backend_client.update_status(document_id, status="indexing", progress=50)
+        # The extraction is over: a document of a ZIP import frees its place in its window (#335).
+        _shared._extraction_done(document_id)
         _shared._spawn(
             chunk_document,
             [

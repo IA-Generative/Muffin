@@ -215,6 +215,8 @@ def _duration(seconds: float) -> str:
 
 
 def _spawn_chunking(document: dict, parent_task_id: str) -> None:
+    # The extraction is over, whichever branch it took: a document of a ZIP import frees its place (#335).
+    _shared._extraction_done(document["id"])
     _shared._spawn(
         chunk_document,
         [document["id"], document["collection_id"]],

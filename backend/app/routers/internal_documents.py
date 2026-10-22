@@ -26,6 +26,7 @@ from app.schemas.internal_pipeline import (
     TabularProfileCreate,
 )
 from app.services.document_service import DocumentNotFoundError, DocumentService
+from app.services.import_processing_queue import ImportProcessingQueue
 from app.services.result_reuse import ResultReuse
 
 # Not user-facing: called by the document-processing worker, authenticated
@@ -238,3 +239,13 @@ async def stage_done(
 ) -> StageDoneOut:
     progress = await ResultReuse(db).mark_done(document_id, stage, body.key)
     return StageDoneOut(**progress._asdict())
+
+
+@router.post(
+    "/documents/{document_id}/extraction-done",
+    summary="The document's extraction ended and the chunking took over: when it belongs to a ZIP import "
+    "(#335), its place in the import's window goes to the next document. A no-op for any other document",
+)
+async def extraction_done(document_id: uuid.UUID, db: Annotated[AsyncSession, Depends(get_db)]) -> dict[str, str]:
+    await ImportProcessingQueue(db).finish(document_id)
+    return {"status": "ok"}

@@ -160,6 +160,18 @@ class BackendClient:
         response.raise_for_status()
         return response.json()["reused"]
 
+    def extraction_done(self, document_id: str) -> None:
+        """The document's extraction ended, the chunking takes over (#335): when it is a document of a ZIP
+        import, its place in the import's window goes to the next one. A no-op for any other document."""
+        response = self._client.post(f"/api/internal/documents/{document_id}/extraction-done")
+        response.raise_for_status()
+
+    def release_import_queue(self) -> int:
+        """The sweep of the imports' windows (#335): the backend releases what each window allows."""
+        response = self._client.post("/api/internal/collection-imports/release")
+        response.raise_for_status()
+        return response.json()["released"]
+
     def stage_done(self, document_id: str, stage: str, key: str = "_") -> dict[str, Any]:
         """A piece of a stage is done. Says where the stage is: `done` pieces of the `expected` ones, whether it
         is `complete`, and whether this very piece `completed_now` it - the one to carry on after the stage."""

@@ -17,6 +17,7 @@ from app.schemas.internal_document import (
 from app.schemas.internal_pipeline import TabularProfileCreate
 from app.services import vector_store
 from app.services.embedding_model_lookup import default_embedding_model
+from app.services.import_processing_queue import ImportProcessingQueue
 from app.services.index_vectors import vector_for_active_index
 from app.services.search_service import embed_text
 
@@ -42,6 +43,9 @@ class DocumentService:
         await self.repository.update_status(document, DocumentStatus(update.status), update.progress, update.summary)
         await self.db.commit()
         await self.db.refresh(document)
+        if document.status == DocumentStatus.ERROR:
+            # The place it held in its import's window (#335) goes to the next document.
+            await ImportProcessingQueue(self.db).finish(document_id)
         return document
 
     async def list_pages(self, document_id: uuid.UUID) -> list[DocumentPage]:
@@ -102,6 +106,7 @@ class DocumentService:
         document = await self.get_document(document_id)
         await self.repository.set_error(document, error)
         await self.db.commit()
+        await ImportProcessingQueue(self.db).finish(document_id)
 
     async def set_tabular_profile(
         self, document_id: uuid.UUID, profile: TabularProfileCreate
