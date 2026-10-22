@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.23.1](https://github.com/IA-Generative/Muffin/compare/v0.23.0...v0.23.1) (2026-10-22)
+
+
+### Bug Fixes
+
+* **documents:** log a long document's progress, refuse non-page answers, parallelize its processing ([f28b3e9](https://github.com/IA-Generative/Muffin/commit/f28b3e9d3838cd672f46db263dcad778fc50b2e6)), closes [#324](https://github.com/IA-Generative/Muffin/issues/324)
+* **tasks:** make a revoked task stay revoked, wherever it is, with the tasks it started ([09fd4b3](https://github.com/IA-Generative/Muffin/commit/09fd4b309bcd44838f028f26776e73c29f8fb569)), closes [#326](https://github.com/IA-Generative/Muffin/issues/326)
+
 ## [0.23.1-rc](https://github.com/IA-Generative/Muffin/compare/v0.23.0...v0.23.1-rc) (2026-10-22)
 
 
