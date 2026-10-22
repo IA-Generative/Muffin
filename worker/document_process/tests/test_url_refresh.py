@@ -44,7 +44,7 @@ def test_indexing_a_url_records_the_hash_of_what_was_indexed(backend, monkeypatc
 
 
 def _served(monkeypatch, content_type, body, markdown="# Page"):
-    page = MagicMock(headers={"Content-Type": content_type} if content_type else {}, body=body)
+    page = MagicMock(status=200, headers={"Content-Type": content_type} if content_type else {}, body=body)
     page.markdown.return_value = markdown
     monkeypatch.setattr(scraping.Fetcher, "get", lambda url, **options: page)
 
@@ -197,3 +197,34 @@ def test_a_document_that_is_not_a_url_is_left_alone(backend, monkeypatch):
 
     assert tasks.refresh_url_document("doc-1") is False
     fetch.assert_not_called()
+
+
+# -- what isn't the page ---------------------------------------------------------------------------
+
+
+def _answer(monkeypatch, status, body=b"", headers=None):
+    page = MagicMock(status=status, headers=headers or {"Content-Type": "text/html"}, body=body)
+    page.markdown.return_value = "# Not the page"
+    monkeypatch.setattr(scraping.Fetcher, "get", lambda url, **options: page)
+
+
+def test_an_anti_bot_challenge_is_refused_rather_than_indexed(monkeypatch):
+    _answer(monkeypatch, 403, b"<!DOCTYPE html><html><head><title>Just a moment...</title>")
+
+    with pytest.raises(scraping.UrlFetchError, match="contre les robots"):
+        scraping.fetch_url("https://www.legifrance.gouv.fr/download/file/pdf/LEGITEXT.pdf/LEGI")
+
+
+def test_a_challenge_cloudflare_flags_is_refused_whatever_its_title(monkeypatch):
+    _answer(monkeypatch, 403, b"<html></html>", {"Content-Type": "text/html", "cf-mitigated": "challenge"})
+
+    with pytest.raises(scraping.UrlFetchError, match="contre les robots"):
+        scraping.fetch_url("https://example.com/doc.pdf")
+
+
+@pytest.mark.parametrize("status", [404, 500])
+def test_an_http_error_is_refused_rather_than_indexed(monkeypatch, status):
+    _answer(monkeypatch, status, b"<html><title>Not Found</title></html>")
+
+    with pytest.raises(scraping.UrlFetchError, match=f"répondu {status}"):
+        scraping.fetch_url("https://example.com/gone")

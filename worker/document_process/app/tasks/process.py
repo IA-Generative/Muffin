@@ -6,12 +6,16 @@ chunking ici — c'est ``chunk_document`` qui s'en charge. La branche
 tabulaire est dans ``app/tasks/tabular.py``.
 """
 
+import contextvars
 import hashlib
+import time
+from concurrent.futures import ThreadPoolExecutor
 
 from loguru import logger
 
 from app import reuse
 from app.celery_app import celery_app
+from app.config import settings
 from app.tabular.detect import detect_tabular
 from app.tasks import _shared
 
@@ -26,8 +30,11 @@ def _process_url(document: dict) -> dict | None:
     has it downloaded and stored like an upload: returns the document as the usual file branch reads
     it - its storage_key, and a name whose extension says its format."""
     document_id = document["id"]
+    started = time.monotonic()
     fetched = _shared.fetch_url(document["name"])
+    seconds = time.monotonic() - started
     if fetched.data is None:
+        logger.info(f"Fetched an HTML page in {seconds:.0f} s: {len(fetched.markdown)} characters of text")
         # The page's text is its "file" (#300): the same text in another document is the same pages.
         content_hash = fetched.content_hash
         extraction = reuse.extraction(content_hash)
@@ -38,6 +45,10 @@ def _process_url(document: dict) -> dict | None:
         # What a scheduled refresh (#19) compares the page against next time.
         _shared.backend_client.set_content_hash(document_id, content_hash)
         return None
+    logger.info(
+        f"Fetched a file in {seconds:.0f} s: {fetched.content_type}, {_megabytes(fetched.data)}, "
+        f"processed as {fetched.filename}"
+    )
     # One key per document, overwritten when a refresh fetches a new version of the file.
     storage_key = f"documents/{document['collection_id']}/{document_id}-{fetched.filename}"
     _shared.storage.put_object(storage_key, fetched.data, content_type=fetched.content_type)
@@ -73,6 +84,7 @@ def _extract_file(document: dict) -> None:
         data = _shared.storage.get_object(storage_key)
         content_hash = hashlib.sha256(data).hexdigest()
     if reuse.begin(document_id, reuse.EXTRACTION, reuse.extraction(content_hash), content_hash=content_hash):
+        logger.info(f"Pages of document {document_id} reused from another document of the same file")
         return
     if data is None:
         data = _shared.storage.get_object(storage_key)
@@ -86,10 +98,13 @@ def _process_file(document_id: str, storage_key: str, data: bytes | None = None,
     if name.lower().endswith(_TEXT_EXTENSIONS):
         _process_markdown(document_id, data)
         return
+    logger.info(f"Parsing {name or 'the file'} ({_megabytes(data)}), OCR included - a long document takes a while")
+    started = time.monotonic()
     result = _shared.parse_file(data)
+    logger.info(f"Parsed {len(result.pages)} page(s) in {time.monotonic() - started:.0f} s")
     screenshots_by_page = {screenshot.page_num: screenshot for screenshot in result.screenshots}
 
-    for page in result.pages:
+    def write(page) -> None:
         screenshot_key: str | None = None
         screenshot = screenshots_by_page.get(page.page_num)
         if screenshot is not None:
@@ -101,9 +116,25 @@ def _process_file(document_id: str, storage_key: str, data: bytes | None = None,
             content=page.text,
             screenshot=screenshot_key,
         )
+
+    # Several pages at a time - 911 pages one by one, a screenshot and a request each, is minutes. Each
+    # write in a copy of this context, so that its lines stay the task's (see app/task_logging.py).
+    total = len(result.pages)
+    with ThreadPoolExecutor(max_workers=max(settings.PAGE_WRITE_CONCURRENCY, 1)) as pool:
+        futures = [pool.submit(contextvars.copy_context().run, write, page) for page in result.pages]
+        for done, future in enumerate(futures, start=1):
+            future.result()
+            if done == total or done % max(total // 10, 1) == 0:
+                logger.info(f"Stored {done}/{total} page(s) of document {document_id}")
+                # Extraction is the first half of the progress bar; chunking sets the rest.
+                _shared.backend_client.update_status(document_id, status="indexing", progress=done * 50 // total)
     # Pages are written with an upsert, so a task run twice leaves the same pages; what a previous
     # run found after the last one (#299) is dropped.
     _shared.backend_client.prune_pages(document_id, keep=max((page.page_num for page in result.pages), default=0))
+
+
+def _megabytes(data: bytes) -> str:
+    return f"{len(data) / (1024 * 1024):.1f} MB"
 
 
 def _spawn_chunking(document: dict, parent_task_id: str) -> None:

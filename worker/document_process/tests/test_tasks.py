@@ -107,13 +107,14 @@ def test_chunk_document_embeds_each_chunk_with_the_collections_own_model(monkeyp
         "pipeline_windows": {},
     }
     tasks._shared.backend_client.get_pages.return_value = [{"page_number": 1, "content": "Some page content.\n\nMore."}]
-    tasks._shared.backend_client.embed.return_value = [0.1, 0.2, 0.3]
+    tasks._shared.backend_client.embed_batch.side_effect = lambda model, texts: [[0.1, 0.2, 0.3]] * len(texts)
 
     tasks.chunk_document("doc-4", "col-4")
 
-    assert tasks._shared.backend_client.embed.call_count >= 1
-    for call in tasks._shared.backend_client.embed.call_args_list:
-        assert call.args[0] == "text-embedding-3-small"
+    # The chunks in one call, not one call each.
+    tasks._shared.backend_client.embed_batch.assert_called_once()
+    assert tasks._shared.backend_client.embed_batch.call_args.args[0] == "text-embedding-3-small"
+    tasks._shared.backend_client.embed.assert_not_called()
 
     add_chunk_calls = tasks._shared.backend_client.add_chunk.call_args_list
     assert add_chunk_calls
@@ -133,6 +134,7 @@ def test_chunk_document_tolerates_embedding_failures(monkeypatch):
         "pipeline_windows": {},
     }
     tasks._shared.backend_client.get_pages.return_value = [{"page_number": 1, "content": "Some page content."}]
+    tasks._shared.backend_client.embed_batch.side_effect = RuntimeError("LLM hub unavailable")
     tasks._shared.backend_client.embed.side_effect = RuntimeError("LLM hub unavailable")
 
     tasks.chunk_document("doc-5", "col-5")
@@ -284,3 +286,36 @@ def test_rollup_revises_an_existing_description_and_stops_when_unchanged(monkeyp
 
     assert chat.call_args.args[2].startswith("Current description:\nCurrent.")
     client.update_collection_description.assert_not_called()
+
+
+def test_chunk_document_embeds_the_chunks_in_batches(monkeypatch):
+    backend = MagicMock()
+    monkeypatch.setattr(tasks._shared, "backend_client", backend)
+    monkeypatch.setattr(task_logging, "backend_client", MagicMock())
+    monkeypatch.setattr(tasks._shared, "_spawn", MagicMock())
+    monkeypatch.setattr(tasks.chunk.worker_settings, "EMBED_BATCH_SIZE", 2)
+    backend.get_collection_settings.return_value = {
+        "chunking_strategy": "paragraph",
+        "chunk_size": 500,
+        "chunk_overlap": 50,
+        "embedding_model": "emb",
+        "pipeline_windows": {},
+    }
+    backend.get_pages.return_value = [{"page_number": 1, "content": "Un.\n\nDeux.\n\nTrois.\n\nQuatre.\n\nCinq."}]
+    backend.embed_batch.side_effect = lambda model, texts: [[float(len(text))] for text in texts]
+
+    tasks.chunk_document("doc-9", "col-9")
+
+    assert [call.args[1] for call in backend.embed_batch.call_args_list] == [
+        ["Un.", "Deux."],
+        ["Trois.", "Quatre."],
+        ["Cinq."],
+    ]
+    assert [(call.kwargs["text"], call.kwargs["embedding"]) for call in backend.add_chunk.call_args_list] == [
+        ("Un.", [3.0]),
+        ("Deux.", [5.0]),
+        ("Trois.", [6.0]),
+        ("Quatre.", [7.0]),
+        ("Cinq.", [5.0]),
+    ]
+    assert backend.add_chunk.call_args_list[0].kwargs["embedding"].model == "emb"
