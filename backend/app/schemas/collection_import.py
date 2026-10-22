@@ -105,6 +105,13 @@ class ImportedDocumentCreate(BaseModel):
     content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
+class ImportedDocumentOut(BaseModel):
+    # None when the file turned out to be a duplicate of one registered meanwhile (#334): another batch of
+    # the same import stored the same file at the same time. It is not stored, nor processed.
+    id: uuid.UUID | None
+    duplicate: bool = False
+
+
 class ImportedDocumentCheck(BaseModel):
     """Whether a file of the archive is already in the collection it would go to (#300)."""
 
@@ -120,3 +127,31 @@ class CollectionImportResult(BaseModel):
     status: Literal["completed", "failed"]
     summary: dict[str, Any] | None = None
     error: str | None = None
+
+
+class ImportBatchesBegin(BaseModel):
+    """A big archive is read in batches of files (#334): the batches announced, which complete the import
+    when all are done, and the planner's own part of the summary - the folders it created, the files it
+    skipped."""
+
+    expected: list[str] = Field(min_length=1, max_length=5000)
+    plan: dict[str, Any]
+
+
+class ImportBatchDone(BaseModel):
+    """What one batch of files reported: the documents it created, the files it skipped."""
+
+    documents_created: int = Field(ge=0)
+    skipped: list[dict[str, str]] = Field(default_factory=list)
+
+
+class ImportBatchDoneOut(BaseModel):
+    """Where the import is once a batch is done - what the batch looks at to carry on."""
+
+    # The import's status: a batch does not start the next one of its window once the import has ended.
+    status: CollectionImportStatus
+    done: int
+    expected: int
+    # True for the one batch whose completion completed the import: it carries on with the summary of all.
+    completed_now: bool
+    summary: dict[str, Any] | None = None

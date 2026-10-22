@@ -57,7 +57,9 @@ class BackendClient:
 
     def add_imported_document(
         self, import_id: str, collection_id: str, name: str, storage_key: str, content_hash: str
-    ) -> str:
+    ) -> str | None:
+        """The id of the document, or None when the collection holds this file already (#334): another batch
+        of the import registered it meanwhile, and the backend dropped the stored copy."""
         response = self._client.post(
             f"/api/internal/collection-imports/{import_id}/documents",
             json={
@@ -69,6 +71,20 @@ class BackendClient:
         )
         response.raise_for_status()
         return response.json()["id"]
+
+    def begin_import_batches(self, import_id: str, expected: list[str], plan: dict[str, Any]) -> None:
+        """The batches of files a big archive is read in (#334), with the planner's part of the summary."""
+        response = self._client.post(
+            f"/api/internal/collection-imports/{import_id}/batches/begin", json={"expected": expected, "plan": plan}
+        )
+        response.raise_for_status()
+
+    def import_batch_done(self, import_id: str, key: str, result: dict[str, Any]) -> dict[str, Any]:
+        """A batch reported: where the import is - `status`, `done` of `expected` - and, for the one batch
+        that `completed_now` it, the `summary` of the whole."""
+        response = self._client.post(f"/api/internal/collection-imports/{import_id}/batches/{key}/done", json=result)
+        response.raise_for_status()
+        return response.json()
 
     def finish_collection_import(
         self, import_id: str, status: str, summary: dict[str, Any], error: str | None = None

@@ -131,6 +131,29 @@ complète le stage (`completed_now`, vrai pour une seule) lance le chunking. Une
 document en erreur et arrête la fenêtre ; une tâche révoquée ne lance pas la suivante. Les autres formats
 (Office, images) et les PDF courts restent une seule tâche.
 
+## Lecture d'une grosse archive ZIP par lots (#334)
+
+`import_zip` ne parcourt plus les fichiers de l'archive. Il la lit **par plages d'octets** (`storage.open_seekable`,
+sans la télécharger : ni lui, ni chaque lot), applique les règles de sécurité, crée les sous-collections, range
+le plan (quels fichiers, dans quelle collection) dans `<archive>.plan.json` puis le découpe en lots de
+`IMPORT_BATCH_FILES` (50) fichiers, annoncés au backend comme les morceaux de l'import. `IMPORT_WINDOW` (4)
+tâches `import_zip_batch` partent ; chacune lit son lot (extraction, hash, doublon, envoi, enregistrement),
+dit au backend où elle en est (`batches/{key}/done`, ligne verrouillée) et lance le lot suivant de sa fenêtre.
+Le lot qui complète l'import (`completed_now`, un seul) rend compte, avec le résumé de tous, comme le ferait
+une tâche unique. Une archive d'un seul lot est lue par `import_zip` lui-même.
+
+- **Taille totale** (`ZIP_IMPORT_MAX_TOTAL_BYTES`) : garantie par le plan (somme des tailles déclarées, que
+  zipfile ne lit jamais au-delà), donc plus décomptée fichier par fichier ; la limite par fichier reste
+  contrôlée à la lecture.
+- **Doublons** : le test avant envoi reste, mais deux lots peuvent lire le même fichier en même temps ; le
+  backend tranche à l'enregistrement (verrou par collection et hash) : le perdant est retiré du stockage et
+  listé comme doublon.
+- **Échec** : un lot en échec met l'import en `failed` avec ce que les autres avaient rendu compte et ce
+  qu'il avait fait lui-même ; les lots déjà lancés finissent, aucun autre n'est lancé. Un lot rejoué compte
+  une fois, tel qu'il s'était d'abord rendu compte.
+- Les tâches de lot ne sont pas listées dans les tâches de l'utilisateur ; leurs logs le sont, rangés sous la
+  collection racine de l'import.
+
 ## Fenêtre d'extraction d'un import ZIP (#335)
 
 Les documents d'un import ZIP ne sont pas tous mis en file à leur enregistrement : le backend les garde

@@ -1,8 +1,11 @@
+import asyncio
 import uuid
 import zipfile
+from collections.abc import Sequence
 from pathlib import PurePosixPath
-from typing import BinaryIO
+from typing import Any, BinaryIO
 
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import storage
@@ -15,7 +18,13 @@ from app.repositories.collection_import_repository import CollectionImportReposi
 from app.repositories.collection_repository import CollectionRepository
 from app.repositories.conversation_repository import ConversationRepository
 from app.repositories.task_repository import TaskRepository
-from app.schemas.collection_import import AttachDecision, CollectionImportOut, CollectionImportResult
+from app.schemas.collection_import import (
+    AttachDecision,
+    CollectionImportOut,
+    CollectionImportResult,
+    ImportBatchDone,
+    ImportBatchDoneOut,
+)
 from app.services import vector_store
 from app.services.collection_hierarchy_service import CollectionHierarchyService
 from app.services.collection_service import CollectionService, ParentCollectionNotFoundError
@@ -24,6 +33,15 @@ from app.services.document_upload_service import DocumentUploadService, _uploade
 from app.services.embedding_model_lookup import default_embedding_model
 from app.services.import_processing_queue import ImportProcessingQueue
 from app.services.search_service import embed_text
+
+# The planner's own part of the batch results (#334) - a key no batch has.
+PLAN_KEY = "_plan"
+
+
+def plan_key(archive_key: str) -> str:
+    """Where the plan of a big import - which files, in which collections - is stored: beside its archive,
+    where the worker puts it (app/tasks/import_zip.py) and the end of the import removes it."""
+    return f"{archive_key}.plan.json"
 
 
 class InvalidArchiveError(Exception):
@@ -242,11 +260,22 @@ class CollectionImportService:
 
     async def add_document(
         self, import_id: uuid.UUID, collection_id: uuid.UUID, name: str, storage_key: str, content_hash: str
-    ) -> uuid.UUID:
+    ) -> uuid.UUID | None:
+        """Registers a file the worker stored. None: the collection holds this file already, registered
+        meanwhile - the batches of a big import (#334) run at the same time, and two of them may have read
+        the same file before either registered it. The file is then dropped from the store, not processed."""
         collection_import = await self._get_by_id(import_id)
         await self._get_target(collection_import, collection_id)
         if not storage_key.startswith(f"documents/{collection_id}/"):
             raise ImportTargetError(storage_key)
+        # One at a time per (collection, file): the lock is held until the document is committed.
+        await self.db.execute(
+            select(func.pg_advisory_xact_lock(func.hashtextextended(f"{collection_id}:{content_hash}", 0)))
+        )
+        if await self.documents.documents.find_by_hash(collection_id, content_hash) is not None:
+            await self.db.rollback()
+            await asyncio.to_thread(storage.delete_objects, [storage_key])
+            return None
         document = await self.documents.register_stored_file(
             collection_id,
             name,
@@ -264,16 +293,73 @@ class CollectionImportService:
         await queue.release(import_id)
         return document.id
 
+    async def begin_batches(self, import_id: uuid.UUID, expected: Sequence[str], plan: dict[str, Any]) -> None:
+        """A big archive is read in batches of files, by tasks of their own (#334): they are announced
+        here, with the planner's part of the summary, and the import is complete once each reported."""
+        collection_import = await self._get_locked(import_id)
+        collection_import.batches_expected = list(expected)
+        collection_import.batches_done = []
+        collection_import.batch_results = {PLAN_KEY: plan}
+        await self.db.commit()
+
+    async def batch_done(self, import_id: uuid.UUID, key: str, result: ImportBatchDone) -> ImportBatchDoneOut:
+        """A batch of files reported. Said twice (the task ran again) it counts once, as what it first
+        reported: its files are then registered, and would be read as duplicates the second time."""
+        collection_import = await self._get_locked(import_id)
+        required = set(collection_import.batches_expected)
+        was_complete = required <= set(collection_import.batches_done)
+        if key not in collection_import.batches_done:
+            collection_import.batches_done = [*collection_import.batches_done, key]
+            collection_import.batch_results = {**collection_import.batch_results, key: result.model_dump()}
+        complete = required <= set(collection_import.batches_done)
+        completed_now = complete and not was_complete and collection_import.status == CollectionImportStatus.RUNNING
+        summary = self._summary(collection_import) if completed_now else None
+        out = ImportBatchDoneOut(
+            status=collection_import.status,
+            done=len(required & set(collection_import.batches_done)),
+            expected=len(required),
+            completed_now=completed_now,
+            summary=summary,
+        )
+        await self.db.commit()
+        return out
+
+    @staticmethod
+    def _summary(collection_import: CollectionImport) -> dict[str, Any]:
+        """What the batches reported, with the planner's part: the summary of the whole import - the same
+        as a single task reading the archive would have made."""
+        results = collection_import.batch_results
+        plan = results.get(PLAN_KEY, {})
+        summary: dict[str, Any] = {
+            "collections_created": plan.get("collections_created", 0),
+            "documents_created": 0,
+            "skipped": list(plan.get("skipped", [])),
+        }
+        for key in collection_import.batches_expected:
+            batch = results.get(key)
+            if batch is not None:
+                summary["documents_created"] += batch["documents_created"]
+                summary["skipped"].extend(batch["skipped"])
+        return summary
+
     async def finish(self, import_id: uuid.UUID, result: CollectionImportResult) -> None:
-        collection_import = await self._get_by_id(import_id)
+        collection_import = await self._get_locked(import_id)
+        summary = result.summary
+        if result.status == "failed" and collection_import.batch_results:
+            # An import read in batches (#334) that fails: what the batches reported, and what the one that
+            # failed had done before (it never reported).
+            summary = self._summary(collection_import)
+            summary["documents_created"] += result.summary.get("documents_created", 0)
+            summary["skipped"].extend(result.summary.get("skipped", []))
         collection_import.status = CollectionImportStatus(result.status)
-        collection_import.summary = result.summary
+        collection_import.summary = summary
         collection_import.error = result.error
         archive_key, collection_import.archive_key = collection_import.archive_key, None
         await self.db.commit()
-        # Best-effort and after the commit, same as every other RustFS cleanup.
+        # Best-effort and after the commit, same as every other RustFS cleanup. The plan of a big import
+        # (#334) is stored beside its archive.
         if archive_key:
-            storage.delete_objects([archive_key])
+            storage.delete_objects([archive_key, plan_key(archive_key)])
 
     async def _get_owned(self, import_id: uuid.UUID, user: RequestContext) -> CollectionImport:
         collection_import = await self.imports.get(import_id, user.user_id)
@@ -288,6 +374,12 @@ class CollectionImportService:
             else None
         )
         return CollectionImportOut.from_model(collection_import, root)
+
+    async def _get_locked(self, import_id: uuid.UUID) -> CollectionImport:
+        collection_import = await CollectionImportRepository(self.db).get_locked(import_id)
+        if collection_import is None:
+            raise CollectionImportNotFoundError(str(import_id))
+        return collection_import
 
     async def _get_by_id(self, import_id: uuid.UUID) -> CollectionImport:
         collection_import = await self.imports.get_by_id(import_id)

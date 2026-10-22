@@ -1,9 +1,61 @@
+import io
 from typing import BinaryIO
 
 import boto3
 from botocore.config import Config
 
 from app.config import settings
+
+# What a RangeReader fetches at a time: a ZIP is read in small pieces - its end, its directory, a member's
+# header, then its data - and each piece comes out of the block already fetched when it can.
+_RANGE_BLOCK_BYTES = 8 * 1024 * 1024
+
+
+class RangeReader(io.RawIOBase):
+    """A read-only, seekable file over an object, read by ranges - what zipfile needs to read the directory
+    of an archive and the members it is asked for, without the archive being downloaded whole (#334)."""
+
+    def __init__(self, client, bucket: str, key: str, size: int, block_bytes: int = _RANGE_BLOCK_BYTES) -> None:
+        super().__init__()
+        self._client, self._bucket, self._key, self._size = client, bucket, key, size
+        self._block_bytes = block_bytes
+        self._position = 0
+        self._block_start = 0
+        self._block = b""
+
+    def readable(self) -> bool:
+        return True
+
+    def seekable(self) -> bool:
+        return True
+
+    def tell(self) -> int:
+        return self._position
+
+    def seek(self, offset: int, whence: int = io.SEEK_SET) -> int:
+        base = {io.SEEK_SET: 0, io.SEEK_CUR: self._position, io.SEEK_END: self._size}[whence]
+        self._position = max(base + offset, 0)
+        return self._position
+
+    def readinto(self, buffer) -> int:
+        wanted = min(len(buffer), self._size - self._position)
+        if wanted <= 0:
+            return 0
+        written = 0
+        while written < wanted:
+            if not self._block_start <= self._position < self._block_start + len(self._block):
+                self._fetch(self._position)
+            offset = self._position - self._block_start
+            chunk = self._block[offset : offset + wanted - written]
+            buffer[written : written + len(chunk)] = chunk
+            written += len(chunk)
+            self._position += len(chunk)
+        return written
+
+    def _fetch(self, start: int) -> None:
+        end = min(start + self._block_bytes, self._size) - 1
+        response = self._client.get_object(Bucket=self._bucket, Key=self._key, Range=f"bytes={start}-{end}")
+        self._block_start, self._block = start, response["Body"].read()
 
 
 class RustFsStorage:
@@ -59,6 +111,13 @@ class RustFsStorage:
         in one go (a ZIP import, #223)."""
         self._ensure_bucket()
         self._client.download_fileobj(self._bucket, key, fileobj)
+
+    def open_seekable(self, key: str) -> RangeReader:
+        """The object as a file that can be read anywhere, by ranges - for an archive too large to be
+        downloaded by each task that reads a part of it (#334). Close it when done."""
+        self._ensure_bucket()
+        size = self.head_object(key)["ContentLength"]
+        return RangeReader(self._client, self._bucket, key, size)
 
     def upload_fileobj(self, key: str, fileobj: BinaryIO, content_type: str = "application/octet-stream") -> None:
         """Streams a file-like object to RustFS in parts, never holding it whole in memory - a file
