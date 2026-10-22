@@ -1,6 +1,7 @@
 import asyncio
 import os
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import BinaryIO
 
@@ -10,8 +11,9 @@ from app.config import DocumentSettings
 from app.core import storage
 from app.core.file_hash import sha256_stream
 from app.core.security.factory import RequestContext
-from app.core.tasks import PROCESS_DOCUMENT_TASK, enqueue_process_document
+from app.core.tasks import PROCESS_DOCUMENT_TASK, active_task_ids, enqueue_process_document, revoke_tasks
 from app.models.document import Document, DocumentStatus
+from app.repositories.collection_hierarchy_repository import CollectionHierarchyRepository
 from app.repositories.collection_repository import CollectionRepository
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.document_revision_repository import DocumentRevisionRepository
@@ -70,6 +72,11 @@ def _document_out(document: Document) -> DocumentOut:
 
 
 _document_settings = DocumentSettings()
+
+
+class DocumentNotRetryableError(Exception):
+    """Only a document whose processing ended in error is processed again: one that is running, or indexed,
+    is not relaunched by mistake - that would run its pipeline twice."""
 
 
 class FileTooLargeError(Exception):
@@ -255,11 +262,13 @@ class DocumentUploadService:
         await self.db.commit()
         return DocumentOut.model_validate(document)
 
-    async def reprocess(self, document: Document, user_id: str) -> None:
+    async def reprocess(self, document: Document, user_id: str, *, enqueue: bool = True, bulk: bool = False) -> None:
         """Runs the whole pipeline again on one document, from scratch: its embeddings, pages, chunks,
         summary and what the pipeline derived (QA pairs, entities, relations - #299) go, then
         processing is queued, which regenerates all of it. Used by a URL refresh that found the page
-        changed (#19) and by a living document's replacement. The task is recorded for `user_id`."""
+        changed (#19), by a living document's replacement and by the relaunch of a document in error (#340).
+        The task is recorded for `user_id`. `bulk`: one of many, processed after any other waiting.
+        `enqueue` false: the document is left waiting, for its import's window to queue (#335)."""
         # Same reasoning as delete_document: clear_content wipes the Postgres chunks/pages, so their
         # Meilisearch embeddings must be deleted first or they'd survive as stale vectors pointing
         # at chunk ids that no longer exist.
@@ -270,8 +279,10 @@ class DocumentUploadService:
         await self.documents.update_status(document, DocumentStatus.PENDING, progress=0, summary=None)
         await self.db.commit()
         storage.delete_objects(orphaned_screenshot_keys)
+        if not enqueue:
+            return
 
-        celery_task_id = enqueue_process_document(str(document.id))
+        celery_task_id = enqueue_process_document(str(document.id), **({"bulk": True} if bulk else {}))
         await self.tasks.create(
             celery_task_id,
             PROCESS_DOCUMENT_TASK,
@@ -280,6 +291,53 @@ class DocumentUploadService:
             collection_id=document.collection_id,
         )
         await self.db.commit()
+
+    async def reprocess_failed_document(
+        self, collection_id: uuid.UUID, user: RequestContext, document_id: uuid.UUID
+    ) -> DocumentOut:
+        """The user relaunches the indexing of a document that ended in error (#340)."""
+        await self._get_owned_collection(collection_id, user)
+        document = await self._get_owned_document(collection_id, document_id)
+        if document.status != DocumentStatus.ERROR:
+            raise DocumentNotRetryableError(str(document_id))
+        await self.relaunch([document], user.user_id)
+        await self.db.refresh(document, attribute_names=["status", "progress", "error"])
+        return _document_out(document)
+
+    async def reprocess_failed(self, collection_id: uuid.UUID, user: RequestContext, *, recursive: bool = True) -> int:
+        """The user relaunches every document of a collection that ended in error (#340) - and of its
+        sub-collections they own, which a ZIP import creates: someone relaunching "the collection" means
+        what is under it too. Returns how many."""
+        await self._get_owned_collection(collection_id, user)
+        collection_ids = [collection_id]
+        if recursive:
+            for descendant_id in await CollectionHierarchyRepository(self.db).descendant_ids(collection_id):
+                if await self.collections.get(descendant_id, user.user_id) is not None:
+                    collection_ids.append(descendant_id)
+        return await self.relaunch(await self.documents.list_failed(collection_ids), user.user_id)
+
+    async def relaunch(self, documents: Sequence[Document], user_id: str) -> int:
+        """Processes the documents again. The ones of an import go back to waiting in its window, so that
+        fifty of them are not all queued at once; the others are queued as one of many (low priority).
+        What a document of them still has running is stopped first: two pipelines on one document would
+        write over each other."""
+        queue = ImportProcessingQueue(self.db)
+        import_ids: set[uuid.UUID] = set()
+        for document in documents:
+            await self._stop_running_tasks(document.id)
+            import_id = await queue.requeue(document.id)
+            await self.reprocess(document, user_id, enqueue=import_id is None, bulk=len(documents) > 1)
+            if import_id is not None:
+                import_ids.add(import_id)
+        for import_id in import_ids:
+            await queue.release(import_id)
+        return len(documents)
+
+    async def _stop_running_tasks(self, document_id: uuid.UUID) -> None:
+        tasks = await self.tasks.list_for_document(document_id)
+        # Redis is called for each task: off the event loop.
+        active = await asyncio.to_thread(active_task_ids, [task.celery_task_id for task in tasks])
+        await asyncio.to_thread(revoke_tasks, active)
 
     async def get_document(
         self, collection_id: uuid.UUID, user: RequestContext, document_id: uuid.UUID

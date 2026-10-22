@@ -22,6 +22,7 @@ from app.schemas.collection_import import (
     ImportedDocumentCreate,
     ImportedDocumentOut,
 )
+from app.schemas.document import ReprocessedOut
 from app.services.collection_hierarchy_service import HierarchyError
 from app.services.collection_import_service import (
     CollectionImportNotFoundError,
@@ -124,6 +125,18 @@ async def decide_attachment(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="The collection can't be attached there"
         ) from error
+
+
+@router.post(
+    "/collection-imports/{import_id}/reprocess-failed",
+    summary="Relaunch the indexing of the documents of an import that ended in error (#340)",
+    response_model=ReprocessedOut,
+)
+async def reprocess_failed_import_documents(import_id: uuid.UUID, user: UserDep, service: ServiceDep) -> ReprocessedOut:
+    try:
+        return ReprocessedOut(reprocessed=await service.reprocess_failed(import_id, user))
+    except CollectionImportNotFoundError as error:
+        raise _NOT_FOUND from error
 
 
 @router.get(

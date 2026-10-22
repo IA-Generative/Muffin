@@ -896,6 +896,51 @@ async function removeDocument(collectionId: string, documentId: string) {
   if (collection) setDocuments(collection, collection.documents.filter((item) => item.id !== documentId))
 }
 
+// Relaunching the indexing of documents that ended in error (#340). The documents are read again, which
+// shows them back as waiting, and polled until they are done. Both resolve to how many were relaunched -
+// null when it failed (documentError says why).
+async function reprocessDocument(collectionId: string, documentId: string): Promise<boolean> {
+  documentError.value = null
+  try {
+    const response = await fetch(
+      `${API_BASE_URL}/api/collections/${collectionId}/documents/${documentId}/reprocess`,
+      { method: 'POST', credentials: 'include' },
+    )
+    if (!response.ok) {
+      documentError.value =
+        response.status === 409
+          ? "Ce document n'est plus en erreur : il n'a pas été relancé."
+          : `Impossible de relancer l'indexation (${response.status}).`
+      return false
+    }
+  } catch {
+    documentError.value = "Impossible de relancer l'indexation : le serveur est injoignable."
+    return false
+  }
+  await reloadDocuments(collectionId)
+  return true
+}
+
+async function reprocessFailedDocuments(collectionId: string): Promise<number | null> {
+  documentError.value = null
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/collections/${collectionId}/documents/reprocess-failed`, {
+      method: 'POST',
+      credentials: 'include',
+    })
+    if (!response.ok) {
+      documentError.value = `Impossible de relancer l'indexation (${response.status}).`
+      return null
+    }
+    const body: { reprocessed: number } = await response.json()
+    await reloadDocuments(collectionId)
+    return body.reprocessed
+  } catch {
+    documentError.value = "Impossible de relancer l'indexation : le serveur est injoignable."
+    return null
+  }
+}
+
 const qaError = ref<string | null>(null)
 
 function qaUrl(collectionId: string, suffix = ''): string {
@@ -1262,6 +1307,8 @@ export function useCollections() {
     confirmDuplicates,
     dismissDuplicates,
     removeDocument,
+    reprocessDocument,
+    reprocessFailedDocuments,
     addQaPair,
     removeQaPair,
     toggleQaValidation,

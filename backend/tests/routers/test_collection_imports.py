@@ -38,10 +38,14 @@ def stored(monkeypatch) -> MagicMock:
     monkeypatch.setattr(collection_import_service, "storage", storage)
     monkeypatch.setattr(collection_import_service, "enqueue_import_zip", lambda import_id: f"celery-{import_id}")
     storage.queued = []
+    seen: set[str] = set()
 
     def enqueue(doc_id, bulk=False):
         storage.queued.append(doc_id)
-        return f"p-{doc_id}{'-bulk' if bulk else ''}"
+        # One id per call, like Celery's: a document processed again gets a task of its own.
+        suffix = f"-{uuid.uuid4()}" if doc_id in seen else ""
+        seen.add(doc_id)
+        return f"p-{doc_id}{'-bulk' if bulk else ''}{suffix}"
 
     monkeypatch.setattr("app.services.document_upload_service.enqueue_process_document", enqueue)
     # The documents of an import are queued by its window (#335).
@@ -805,3 +809,46 @@ class TestBatches:
         assert count == 1
         # The files of the duplicates are removed from the store.
         assert stored.delete_objects.call_count == 3
+
+
+# --- Relaunching the documents of an import that ended in error (#340) ---
+
+
+async def test_the_documents_of_an_import_in_error_are_relaunched_through_its_window(
+    client, stored, _window, monkeypatch
+):
+    for target in ("vector_store", "storage"):
+        monkeypatch.setattr(f"app.services.document_upload_service.{target}", MagicMock())
+    monkeypatch.setattr("app.services.document_upload_service.active_task_ids", lambda ids: [])
+    body = (await _import(client)).json()
+    ids = await _add(client, body, 6)
+    assert stored.queued == ids[:3]
+    async with async_session_factory() as session:
+        await session.execute(
+            update(Document)
+            .where(Document.id.in_([uuid.UUID(i) for i in ids[:5]]))
+            .values(status="error", error="boom")
+        )
+        await session.commit()
+    stored.queued.clear()
+
+    response = await client.post(f"/api/collection-imports/{body['id']}/reprocess-failed")
+
+    assert response.json() == {"reprocessed": 5}
+    # Back to waiting, like the first time: only the window is queued - the oldest first.
+    assert stored.queued == ids[:3]
+    entries = await _entries(body["id"])
+    assert [entry.released_at is not None for entry in entries] == [True] * 3 + [False] * 3
+
+
+async def test_only_the_owner_of_an_import_relaunches_its_documents(client, stored, _window):
+    body = (await _import(client)).json()
+    from app.core.security.factory import get_current_user as current_user
+
+    app.dependency_overrides[current_user] = _as_user("stranger", "stranger@example.com")
+    try:
+        response = await client.post(f"/api/collection-imports/{body['id']}/reprocess-failed")
+    finally:
+        app.dependency_overrides[current_user] = _as_user("owner", "owner@example.com")
+
+    assert response.status_code == 404
