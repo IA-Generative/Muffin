@@ -5,11 +5,13 @@ from zoneinfo import ZoneInfo
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security.factory import RequestContext
+from app.core.tasks import REFRESH_URL_DOCUMENT_TASK, enqueue_refresh_url_document
 from app.models.document import Document, DocumentStatus, DocumentType
 from app.models.document_refresh_schedule import SCAN_MINUTES, DocumentRefreshSchedule, RefreshKind
 from app.repositories.collection_repository import CollectionRepository
 from app.repositories.document_refresh_repository import DocumentRefreshRepository
 from app.repositories.document_repository import DocumentRepository
+from app.repositories.task_repository import TaskRepository
 from app.schemas.document import RefreshSchedule, RefreshScheduleOut
 
 from .collection_service import CollectionNotFoundError
@@ -22,6 +24,10 @@ CLAIM_LIMIT = 200
 
 class NotUrlDocumentError(Exception):
     """Only a document added from a URL can be fetched again."""
+
+
+class DocumentBeingProcessedError(Exception):
+    """The document is being processed: that run fetches the page already."""
 
 
 def _next_slot(moment: datetime) -> datetime:
@@ -104,6 +110,28 @@ class DocumentRefreshService:
         await self.apply(document.id, refresh_schedule)
         await self.db.commit()
         return await self._out(document)
+
+    async def refresh_now(self, collection_id: uuid.UUID, user: RequestContext, document_id: uuid.UUID) -> uuid.UUID:
+        """Fetches the page now, whatever its schedule (which goes on unchanged): the same check as a
+        scheduled one - reprocessed if the page changed, only its date of last fetch otherwise. Returns
+        the id of the task, which the user follows in their tasks, logs included."""
+        if await self.collections.get(collection_id, user.user_id) is None:
+            raise CollectionNotFoundError(str(collection_id))
+        document = await self._document(collection_id, document_id)
+        if document.type != DocumentType.URL:
+            raise NotUrlDocumentError(str(document_id))
+        if document.status in (DocumentStatus.PENDING, DocumentStatus.INDEXING):
+            raise DocumentBeingProcessedError(str(document_id))
+        celery_task_id = enqueue_refresh_url_document(str(document.id))
+        task = await TaskRepository(self.db).create(
+            celery_task_id,
+            REFRESH_URL_DOCUMENT_TASK,
+            user.user_id,
+            document_id=document.id,
+            collection_id=collection_id,
+        )
+        await self.db.commit()
+        return task.id
 
     async def apply(self, document_id: uuid.UUID, refresh_schedule: RefreshSchedule | None) -> None:
         """Sets (or, with None, removes) a URL document's schedule - also when the URL is added.

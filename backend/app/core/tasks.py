@@ -20,6 +20,8 @@ _celery_app.conf.result_expires = 60 * 60 * 24 * 7
 # Extraction: OCR, parsing, fetching a URL (CPU).
 DOCUMENT_EXTRACTION_QUEUE = "document_extraction"
 PROCESS_DOCUMENT_TASK = "app.tasks.process_document"
+# Fetching a URL document's page again, to reprocess it if it changed (#19) - on demand here.
+REFRESH_URL_DOCUMENT_TASK = "app.tasks.refresh_url_document"
 # Celery's Redis priorities run from 0 (the highest, what a message without one gets) to 9. A
 # document a ZIP import created is sent with the lowest: Redis keeps it in a list of its own, which
 # the worker only reads once the normal one is empty - so a file someone just dropped never waits
@@ -76,6 +78,13 @@ def enqueue_process_document(document_id: str, *, bulk: bool = False) -> str:
     result = _celery_app.send_task(
         PROCESS_DOCUMENT_TASK, args=[document_id], queue=DOCUMENT_EXTRACTION_QUEUE, **options
     )
+    return result.id
+
+
+def enqueue_refresh_url_document(document_id: str) -> str:
+    """A URL document's page fetched now rather than at its next scheduled check. Returns the Celery
+    task id, as enqueue_process_document does."""
+    result = _celery_app.send_task(REFRESH_URL_DOCUMENT_TASK, args=[document_id], queue=DOCUMENT_EXTRACTION_QUEUE)
     return result.id
 
 

@@ -33,6 +33,7 @@ const TASK_NAME_LABELS: Record<string, string> = {
   'app.tasks.tag_document': 'Étiquetage',
   'app.tasks.generate_qa_window': 'Q/R',
   'app.tasks.extract_entities_window': 'Entités',
+  'app.tasks.refresh_url_document': 'Relecture de l’URL',
 }
 
 function statusLabel(status: string): string {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { describeSchedule, type RefreshSchedule } from '../utils/refreshSchedule'
 import RefreshScheduleForm from './RefreshScheduleForm.vue'
 
@@ -74,7 +74,55 @@ async function save() {
   }
 }
 
+// Fetching the page now: the worker reads it again, and reprocesses the document if it changed. Its
+// date of last reading is then watched, to say when it is done.
+const refreshing = ref(false)
+const refreshMessage = ref<string | null>(null)
+let refreshTimer: ReturnType<typeof setInterval> | undefined
+const REFRESH_POLL_MS = 3000
+const REFRESH_POLL_TRIES = 40
+
+function stopWatchingRefresh() {
+  if (refreshTimer !== undefined) clearInterval(refreshTimer)
+  refreshTimer = undefined
+  refreshing.value = false
+}
+
+async function refreshNow() {
+  refreshing.value = true
+  refreshMessage.value = null
+  error.value = null
+  const fetchedBefore = current.value?.last_fetched_at ?? null
+  try {
+    const response = await fetch(
+      `${API_BASE_URL}/api/collections/${props.collectionId}/documents/${props.documentId}/refresh`,
+      { method: 'POST', credentials: 'include' },
+    )
+    if (!response.ok) {
+      const detail = (await response.json().catch(() => null))?.detail
+      throw new Error(detail?.message ?? 'La page n’a pas pu être relue.')
+    }
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : 'La page n’a pas pu être relue.'
+    refreshing.value = false
+    return
+  }
+  refreshMessage.value = 'Lecture de la page en cours…'
+  let tries = 0
+  refreshTimer = setInterval(async () => {
+    await load()
+    if ((current.value?.last_fetched_at ?? null) !== fetchedBefore) {
+      refreshMessage.value = 'Page relue : le document est retraité si elle a changé.'
+      stopWatchingRefresh()
+    } else if (++tries >= REFRESH_POLL_TRIES) {
+      refreshMessage.value = 'La lecture prend du temps : suivez-la dans les logs du document.'
+      stopWatchingRefresh()
+    }
+  }, REFRESH_POLL_MS)
+}
+
 onMounted(load)
+onUnmounted(stopWatchingRefresh)
 </script>
 
 <template>
@@ -106,6 +154,16 @@ onMounted(load)
     <p v-if="current.next_run_at" class="url-refresh__line">
       Prochaine vérification : {{ formatter.format(new Date(current.next_run_at)) }}
     </p>
+    <button
+      v-if="editable"
+      type="button"
+      class="fr-btn fr-btn--tertiary fr-btn--sm fr-icon-refresh-line fr-btn--icon-left url-refresh__now"
+      :disabled="refreshing"
+      @click="refreshNow"
+    >
+      Relire la page maintenant
+    </button>
+    <p v-if="refreshMessage" class="url-refresh__line" role="status">{{ refreshMessage }}</p>
     <p v-if="error" class="url-refresh__error" role="alert">{{ error }}</p>
   </section>
 </template>
@@ -123,6 +181,10 @@ onMounted(load)
 }
 
 .url-refresh__save {
+  margin-top: 0.75rem;
+}
+
+.url-refresh__now {
   margin-top: 0.75rem;
 }
 

@@ -48,9 +48,10 @@ class FetchedUrl:
 def fetch_url(url: str) -> FetchedUrl:
     """Single-level fetch: the page itself - no following links, no recursive crawl (that's a later
     phase, if ever)."""
-    # The timeout covers the whole request, a file served by it included - hence more than the 30 s
-    # of the library's default, which a large PDF may not fit in.
-    page = Fetcher.get(url, timeout=settings.URL_FETCH_TIMEOUT_SECONDS)
+    # A (connect, read) pair: curl then fails fast on a site it can't reach, and gives the download -
+    # a large file served by the URL included - all the time it needs, up to their sum. A single value
+    # would be one deadline for both: short, a large PDF never fits in; long, a site down hangs the task.
+    page = Fetcher.get(url, timeout=(settings.URL_FETCH_CONNECT_TIMEOUT_SECONDS, settings.URL_FETCH_TIMEOUT_SECONDS))
     content_type = next((str(value) for key, value in page.headers.items() if key.lower() == "content-type"), "")
     content_type = content_type.split(";")[0].strip().lower()
     if content_type in _HTML_CONTENT_TYPES or (not content_type and page.body.lstrip()[:1] == b"<"):
