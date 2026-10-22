@@ -189,7 +189,10 @@ class CollectionSettings(Base):
     chunking_strategy: Mapped[ChunkingStrategy] = mapped_column(
         Enum(ChunkingStrategy, name="chunking_strategy"),
         nullable=False,
-        default=ChunkingStrategy.PARAGRAPH,
+        # A model decides where the chunks begin (worker/document_process's app/chunking.py): cut along
+        # what the text says rather than where its blank lines are. A collection with no chat model
+        # available is cut by paragraph all the same.
+        default=ChunkingStrategy.LLM,
     )
     chunk_size: Mapped[int] = mapped_column(Integer, nullable=False, default=500)
     chunk_overlap: Mapped[int] = mapped_column(Integer, nullable=False, default=50)

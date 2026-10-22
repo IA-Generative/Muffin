@@ -611,3 +611,9 @@ async def test_list_relations_uses_entity_names_for_from_and_to(client):
     assert body[0]["from"] == "Alice"
     assert body[0]["to"] == "Acme Corp"
     assert body[0]["type"] == "works_at"
+
+
+async def test_a_new_collection_is_chunked_by_llm(client):
+    collection = (await client.post("/api/collections")).json()
+
+    assert collection["chunking_settings"]["strategy"] == "llm"
