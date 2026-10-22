@@ -56,15 +56,16 @@ class WorkerSettings(BaseSettings):
     STORAGE_CONNECT_TIMEOUT_SECONDS: int = 10
     STORAGE_READ_TIMEOUT_SECONDS: int = 60
 
-    # ZIP import (#223): what an archive may expand to. Over ZIP_IMPORT_MAX_FILES files or
-    # ZIP_IMPORT_MAX_TOTAL_BYTES once decompressed, the whole archive is refused; a single file
-    # over ZIP_IMPORT_MAX_FILE_BYTES, compressed more than ZIP_IMPORT_MAX_RATIO times, or more
-    # than ZIP_IMPORT_MAX_DEPTH folders deep is skipped and listed in the summary.
-    ZIP_IMPORT_MAX_FILES: int = 2000
-    ZIP_IMPORT_MAX_TOTAL_BYTES: int = 2 * 1024 * 1024 * 1024
-    ZIP_IMPORT_MAX_FILE_BYTES: int = 200 * 1024 * 1024
-    ZIP_IMPORT_MAX_RATIO: int = 100
-    ZIP_IMPORT_MAX_DEPTH: int = 20
+    # ZIP import (#223): what an archive may expand to - unset, no limit. Over ZIP_IMPORT_MAX_FILES
+    # files or ZIP_IMPORT_MAX_TOTAL_BYTES once decompressed, the whole archive is refused; a single
+    # file over ZIP_IMPORT_MAX_FILE_BYTES, compressed more than ZIP_IMPORT_MAX_RATIO times, or more
+    # than ZIP_IMPORT_MAX_DEPTH folders deep is skipped and listed in the summary. Only the ratio is set
+    # by default: it is what stops a zip bomb, and a real file is never compressed that much.
+    ZIP_IMPORT_MAX_FILES: int | None = None
+    ZIP_IMPORT_MAX_TOTAL_BYTES: int | None = None
+    ZIP_IMPORT_MAX_FILE_BYTES: int | None = None
+    ZIP_IMPORT_MAX_RATIO: int | None = 100
+    ZIP_IMPORT_MAX_DEPTH: int | None = None
     TESSDATA_PATH: str | None = None
 
     # The scheduled refresh of URL documents (#19): the minutes of each hour the beat (run inside each

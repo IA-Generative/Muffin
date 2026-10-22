@@ -7,5 +7,8 @@ class DocumentSettings(BaseSettings):
     # reading a preview before validating it doesn't expire mid-way - clients renew it while
     # the preview is open.
     DOCUMENT_LOCK_TTL_SECONDS: int = 600
+    # The largest file one may upload, in bytes - unset, no limit. A file is streamed to the object
+    # store, never held whole in memory, whatever its size.
+    DOCUMENT_MAX_UPLOAD_BYTES: int | None = None
 
     model_config = SettingsConfigDict(case_sensitive=True, env_file=(".env", ".env.local"), extra="ignore")

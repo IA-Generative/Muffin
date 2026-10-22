@@ -759,6 +759,9 @@ async function uploadFile(collectionId: string, file: File, allowDuplicate: bool
     const existingName = await existingNameOf(response)
     if (existingName !== null) {
       pendingDuplicates.value = [...pendingDuplicates.value, { kind: 'file', collectionId, file, existingName }]
+    } else if (response.status === 413) {
+      // Only when the server sets a maximum size (DOCUMENT_MAX_UPLOAD_BYTES): there is none by default.
+      documentError.value = `« ${file.name} » dépasse la taille maximale acceptée par le serveur.`
     } else if (!response.ok) {
       documentError.value = `Échec de l'envoi de « ${file.name} » (${response.status}).`
     }

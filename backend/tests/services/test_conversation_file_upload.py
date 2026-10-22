@@ -1,3 +1,4 @@
+import io
 import uuid
 from unittest.mock import patch
 
@@ -88,7 +89,7 @@ class TestCreateConversationFileDocument:
         conversation_id = await _create_conversation()
 
         with (
-            patch("app.services.document_upload_service.storage.put_object"),
+            patch("app.services.document_upload_service.storage.upload_fileobj"),
             patch(
                 "app.services.document_upload_service.enqueue_process_document",
                 side_effect=["celery-task-id-1", "celery-task-id-2"],
@@ -97,12 +98,12 @@ class TestCreateConversationFileDocument:
             async with async_session_factory() as session:
                 service = DocumentUploadService(session)
                 first = await service.create_conversation_file_document(
-                    conversation_id, _user(), "a.txt", b"hello", "text/plain"
+                    conversation_id, _user(), "a.txt", io.BytesIO(b"hello"), "text/plain"
                 )
             async with async_session_factory() as session:
                 service = DocumentUploadService(session)
                 second = await service.create_conversation_file_document(
-                    conversation_id, _user(), "b.txt", b"world", "text/plain"
+                    conversation_id, _user(), "b.txt", io.BytesIO(b"world"), "text/plain"
                 )
 
         assert first.name == "a.txt"
