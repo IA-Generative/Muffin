@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.21.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.20.0...v0.21.0-rc) (2026-10-22)
+
+
+### Features
+
+* **tasks:** structured task logs, sent as tasks run and followed live by task or document ([af4b8d0](https://github.com/IA-Generative/Muffin/commit/af4b8d034ee061f48239cd3ab7e69a9bf3d1231f)), closes [#305](https://github.com/IA-Generative/Muffin/issues/305)
+
+
+### Bug Fixes
+
+* **documents:** no size or count limit by default on ZIP imports and uploaded files ([95ae720](https://github.com/IA-Generative/Muffin/commit/95ae720cfa21e752d8578e48b0ff7a8dcbc2ed2c)), closes [#308](https://github.com/IA-Generative/Muffin/issues/308)
+
 ## [0.20.0](https://github.com/IA-Generative/Muffin/compare/v0.19.1...v0.20.0) (2026-10-21)
 
 
