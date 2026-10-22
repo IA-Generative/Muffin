@@ -160,9 +160,12 @@ class BackendClient:
         response.raise_for_status()
         return response.json()["reused"]
 
-    def stage_done(self, document_id: str, stage: str, key: str = "_") -> None:
+    def stage_done(self, document_id: str, stage: str, key: str = "_") -> dict[str, Any]:
+        """A piece of a stage is done. Says where the stage is: `done` pieces of the `expected` ones, whether it
+        is `complete`, and whether this very piece `completed_now` it - the one to carry on after the stage."""
         response = self._client.post(f"/api/internal/documents/{document_id}/stages/{stage}/done", json={"key": key})
         response.raise_for_status()
+        return response.json()
 
     def prune_pages(self, document_id: str, keep: int) -> None:
         """After writing the pages: drops those after the first `keep` that an earlier, longer run left."""

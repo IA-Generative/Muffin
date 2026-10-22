@@ -50,6 +50,7 @@ from app.tasks.import_zip import import_zip  # noqa: F401
 from app.tasks.process import (  # noqa: F401
     _process_file,
     _process_url,
+    parse_page_range,
     process_document,
 )
 from app.tasks.qa import generate_collection_qa, generate_qa_window  # noqa: F401
@@ -76,6 +77,7 @@ __all__ = [
     "_fail",
     # Tasks
     "process_document",
+    "parse_page_range",
     "process_tabular_document",
     "chunk_document",
     "summarize_document",

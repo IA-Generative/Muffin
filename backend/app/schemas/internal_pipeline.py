@@ -256,3 +256,14 @@ class StageBeginOut(BaseModel):
 
 class StageDone(BaseModel):
     key: str = Field(default="_", min_length=1, max_length=200)
+
+
+class StageDoneOut(BaseModel):
+    """Where the stage is once the piece is done - what the worker's last piece looks at to carry on."""
+
+    # The pieces done of those announced (0 of 0 for a stage that is a single piece, or that nobody began).
+    done: int
+    expected: int
+    complete: bool
+    # True for the one piece whose completion completed the stage.
+    completed_now: bool

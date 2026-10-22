@@ -12,7 +12,7 @@ from loguru import logger
 
 from app.backend_client import backend_client  # noqa: F401
 from app.chunking import PageText
-from app.parsing import parse_file  # noqa: F401
+from app.parsing import count_pages, parse_file, parse_pages  # noqa: F401
 from app.scraping import content_hash, fetch_url  # noqa: F401
 from app.storage import storage  # noqa: F401
 from app.task_revocation import TaskRevoked, raise_if_revoked

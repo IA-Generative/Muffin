@@ -16,6 +16,7 @@ celery_app = Celery(
 # the queue of the task that spawned it.
 _EXTRACTION_TASKS = (
     "app.tasks.process_document",
+    "app.tasks.parse_page_range",
     "app.tasks.process_tabular_document",
     "app.tasks.refresh_url_document",
     "app.tasks.scan_url_refresh",

@@ -60,6 +60,11 @@ class WorkerSettings(BaseSettings):
     EMBED_BATCH_SIZE: int = 64
     # The pages of a file written (its screenshot stored, its text sent) this many at a time.
     PAGE_WRITE_CONCURRENCY: int = 8
+    # A PDF of more than PARSE_RANGE_PAGES pages is extracted in ranges of that many pages, each by a task
+    # of its own (parse_page_range), PARSE_WINDOW of them at a time: a range that ends starts the next, so
+    # the queue never holds more than that of a document. Each range has its own OCR_PARSE_TIMEOUT_SECONDS.
+    PARSE_RANGE_PAGES: int = 25
+    PARSE_WINDOW: int = 4
     URL_FETCH_TIMEOUT_SECONDS: int = 30 * 60
     # RustFS/S3: connecting, and waiting for the next bytes of a transfer.
     STORAGE_CONNECT_TIMEOUT_SECONDS: int = 10

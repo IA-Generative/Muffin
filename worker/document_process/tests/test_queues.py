@@ -9,6 +9,7 @@ from app.config import settings
 
 EXTRACTION = [
     "app.tasks.process_document",
+    "app.tasks.parse_page_range",
     "app.tasks.process_tabular_document",
     "app.tasks.refresh_url_document",
     "app.tasks.scan_url_refresh",
