@@ -105,3 +105,22 @@ def test_llm_chunks_are_reused_only_under_the_same_model_and_instructions(monkey
     assert reuse.chunks(file, _settings()) == reuse.chunks(file, _settings())
     assert reuse.chunks(file, _settings()) != reuse.chunks(file, _settings(generation_models={"chunking": "other"}))
     assert reuse.chunks(file, _settings()) != reuse.chunks(file, _settings(instructions={"chunking": "Autre."}))
+
+
+def test_windows_asked_at_once_still_give_the_chunks_in_the_documents_order():
+    import threading
+    import time
+
+    pages = [PageText(page_number=n, content=f"Page {n}.") for n in range(1, 21)]
+    seen_threads = set()
+
+    def chunk_starts(paragraphs):
+        seen_threads.add(threading.get_ident())
+        # The first windows answer last.
+        time.sleep(0.05 if paragraphs[0] in ("Page 1.", "Page 2.") else 0)
+        return [0]
+
+    chunks = chunk_pages(pages, "llm", 500, 50, window_pages=1, slide_pages=1, chunk_starts=chunk_starts, concurrency=4)
+
+    assert [chunk.text for chunk in chunks] == [f"Page {n}." for n in range(1, 21)]
+    assert len(seen_threads) > 1

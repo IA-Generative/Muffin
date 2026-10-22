@@ -1,5 +1,7 @@
+import contextvars
 import re
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 from loguru import logger
@@ -107,22 +109,42 @@ def _chunk_semantic(pages: list[PageText], window_pages: int, slide_pages: int) 
 ChunkStarts = Callable[[list[str]], list[int]]
 
 
-def _chunk_llm(pages: list[PageText], window_pages: int, chunk_starts: ChunkStarts) -> list[Chunk]:
+def _chunk_llm(
+    pages: list[PageText], window_pages: int, chunk_starts: ChunkStarts, concurrency: int = 1
+) -> list[Chunk]:
     """An LLM decides where the chunks of each window of pages begin - windows side by side, so that no
     text lands in two chunks. It only picks among the window's paragraphs, never rewrites them: a chunk
     is always the document's own text, consecutive paragraphs joined. A window it fails on (an error,
-    an answer that isn't a list of paragraph indices) is cut by paragraph instead."""
-    chunks: list[Chunk] = []
+    an answer that isn't a list of paragraph indices) is cut by paragraph instead.
+
+    `concurrency` windows are asked at once: a long document is hundreds of windows, one after the
+    other they would take hours. The chunks come out in the document's order all the same."""
     window_pages = max(window_pages, 1)
-    for start in range(0, len(pages), window_pages):
-        paragraphs = _chunk_paragraphs(pages[start : start + window_pages])
-        if not paragraphs:
-            continue
+    windows = [_chunk_paragraphs(pages[start : start + window_pages]) for start in range(0, len(pages), window_pages)]
+    windows = [paragraphs for paragraphs in windows if paragraphs]
+
+    def starts_of(paragraphs: list[Chunk]) -> list[int] | None:
+        """None when the model failed on the window."""
         try:
-            starts = _valid_starts(chunk_starts([paragraph.text for paragraph in paragraphs]), len(paragraphs))
+            return _valid_starts(chunk_starts([paragraph.text for paragraph in paragraphs]), len(paragraphs))
         except Exception as error:
-            logger.warning(f"LLM chunking failed on pages {pages[start].page_number}+, cut by paragraph: {error}")
-            starts = list(range(len(paragraphs)))
+            logger.warning(f"LLM chunking failed on pages {paragraphs[0].page_start}+, cut by paragraph: {error}")
+            return None
+
+    with ThreadPoolExecutor(max_workers=max(concurrency, 1)) as pool:
+        # Each call in a copy of this context: its lines stay the task's (see app/task_logging.py).
+        futures = [pool.submit(contextvars.copy_context().run, starts_of, paragraphs) for paragraphs in windows]
+        answers = [future.result() for future in futures]
+    if windows:
+        failed = sum(answer is None for answer in answers)
+        logger.info(f"LLM chunking: {len(windows)} window(s) of pages, {failed} cut by paragraph instead")
+    all_starts = [
+        list(range(len(paragraphs))) if starts is None else starts
+        for paragraphs, starts in zip(windows, answers, strict=True)
+    ]
+
+    chunks: list[Chunk] = []
+    for paragraphs, starts in zip(windows, all_starts, strict=True):
         for first, end in zip(starts, [*starts[1:], len(paragraphs)], strict=True):
             group = paragraphs[first:end]
             chunks.append(
@@ -151,9 +173,10 @@ def chunk_pages(
     window_pages: int,
     slide_pages: int,
     chunk_starts: ChunkStarts | None = None,
+    concurrency: int = 1,
 ) -> list[Chunk]:
     """`chunk_starts`: how the "llm" strategy asks the model - without one (no model available), the
-    document is cut by paragraph."""
+    document is cut by paragraph. `concurrency`: how many windows it is asked about at once."""
     if not pages:
         return []
     if strategy == "fixed":
@@ -161,5 +184,5 @@ def chunk_pages(
     if strategy == "semantic":
         return _chunk_semantic(pages, window_pages, slide_pages)
     if strategy == "llm" and chunk_starts is not None:
-        return _chunk_llm(pages, window_pages, chunk_starts)
+        return _chunk_llm(pages, window_pages, chunk_starts, concurrency)
     return _chunk_paragraphs(pages)

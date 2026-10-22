@@ -26,6 +26,16 @@ class UnsupportedUrlContentError(Exception):
     """The URL serves a file the pipeline can't process (an archive, a video...)."""
 
 
+class UrlFetchError(Exception):
+    """The site answered, but not with the page: an HTTP error, or an anti-bot challenge in its place.
+    Neither is the document - indexed, it would be a page saying "Just a moment..." or "Not found". The
+    message is shown with the document, hence in French."""
+
+
+# The titles of the pages anti-bot services answer with instead of the content (Cloudflare's, mostly).
+_CHALLENGE_TITLES = (b"<title>just a moment", b"<title>attention required", b"<title>un instant")
+
+
 @dataclass(frozen=True)
 class FetchedUrl:
     """What a URL served: an HTML page rendered to Markdown, or a file (`data`, named `filename` after
@@ -52,6 +62,7 @@ def fetch_url(url: str) -> FetchedUrl:
     # a large file served by the URL included - all the time it needs, up to their sum. A single value
     # would be one deadline for both: short, a large PDF never fits in; long, a site down hangs the task.
     page = Fetcher.get(url, timeout=(settings.URL_FETCH_CONNECT_TIMEOUT_SECONDS, settings.URL_FETCH_TIMEOUT_SECONDS))
+    _check_answer(page)
     content_type = next((str(value) for key, value in page.headers.items() if key.lower() == "content-type"), "")
     content_type = content_type.split(";")[0].strip().lower()
     if content_type in _HTML_CONTENT_TYPES or (not content_type and page.body.lstrip()[:1] == b"<"):
@@ -61,6 +72,21 @@ def fetch_url(url: str) -> FetchedUrl:
         filename=_filename(url, content_type, page.body),
         content_type=content_type or "application/octet-stream",
     )
+
+
+def _check_answer(page) -> None:
+    """Raises UrlFetchError when what came back isn't the page: Fetcher hands back an error page or a
+    challenge like any other, with its status."""
+    headers = {str(key).lower(): str(value) for key, value in page.headers.items()}
+    head = page.body[:4096].lower()
+    if headers.get("cf-mitigated") == "challenge" or (
+        page.status in (403, 429, 503) and any(title in head for title in _CHALLENGE_TITLES)
+    ):
+        raise UrlFetchError(
+            f"Le site protège cette page contre les robots (réponse {page.status}) : elle n'a pas pu être récupérée."
+        )
+    if page.status >= 400:
+        raise UrlFetchError(f"Le site a répondu {page.status} : la page n'a pas pu être récupérée.")
 
 
 def _filename(url: str, content_type: str, body: bytes) -> str:
