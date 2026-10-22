@@ -74,8 +74,25 @@ Une seule image, trois pods, chacun sur ses queues (routage par nom de tâche da
   documents d'une archive.
 - La commande par défaut de l'image (`Dockerfile`) est celle du pod d'extraction ; les deux autres la
   remplacent.
-- Les logs d'une tâche (`capture_task_logs`) ne prennent que les lignes de son propre thread : sans
-  ça, en pool de threads, chaque tâche récupérerait aussi celles des autres.
+
+## Logs des tâches (#305)
+
+Tout passe par loguru (`app/task_logging.py`, le même module dans chaque worker) :
+
+- Le `logging` standard (Celery, le beat, les bibliothèques) est redirigé vers loguru. Celery ne
+  configure plus le logging lui-même (signal `setup_logging`).
+- `task_prerun` place la tâche en cours dans une variable de contexte, propre à chaque thread : en
+  pool de threads, chaque tâche ne prend que ses propres lignes. Chaque ligne émise pendant la tâche
+  porte `celery_task_id`, `task_name`, et le `document_id` / `collection_id` de ses arguments. Elles
+  apparaissent sur stdout (`LOG_FORMAT=json` pour du JSON) et sont envoyées au backend.
+- L'envoi se fait par lot, à partir de `TASK_LOG_LEVEL` (INFO par défaut) : toutes les 2 s pendant
+  la tâche, puis à sa fin (`POST /internal/task-logs`, table `task_log_entries`). Si le backend est
+  injoignable, la tâche n'échoue pas : les lignes partent avec le lot suivant.
+- Lecture : `GET /api/tasks/{id}/logs?after=&level=` pour une tâche, et
+  `GET /api/collections/{cid}/documents/{did}/logs` pour toute la pipeline d'un document. Le front
+  les suit en direct.
+- Le beat purge chaque heure les lignes plus vieilles que `TASK_LOG_RETENTION_DAYS` (backend,
+  7 jours).
 
 ## Limites de temps (#294)
 

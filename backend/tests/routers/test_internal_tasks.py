@@ -1,8 +1,9 @@
 import uuid
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from app.core.security import worker_auth
 from app.db import async_session_factory
@@ -10,6 +11,7 @@ from app.main import app
 from app.models.collection import Collection, CollectionSettings
 from app.models.document import Document
 from app.models.task import Task
+from app.models.task_log_entry import TaskLogEntry
 
 API_KEY = "test-worker-key"
 
@@ -24,6 +26,7 @@ async def client():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as async_client:
         yield async_client
     async with async_session_factory() as session:
+        await session.execute(delete(TaskLogEntry))
         await session.execute(delete(Task))
         await session.execute(delete(Collection))
         await session.commit()
@@ -105,7 +108,68 @@ async def test_create_task_document_not_found(client):
     assert response.status_code == 404
 
 
-async def test_update_task_logs(client):
+def _line(celery_task_id: str, message: str, **fields) -> dict:
+    return {
+        "celery_task_id": celery_task_id,
+        "task_name": "app.tasks.process_document",
+        "ts": "2026-10-28T09:00:00+00:00",
+        "level": "INFO",
+        "message": message,
+        **fields,
+    }
+
+
+async def _lines() -> list[TaskLogEntry]:
+    async with async_session_factory() as session:
+        return list((await session.execute(select(TaskLogEntry).order_by(TaskLogEntry.id))).scalars())
+
+
+async def test_add_task_logs_records_each_line_in_order(client):
+    document_id = uuid.uuid4()
+    response = await client.post(
+        "/api/internal/task-logs",
+        headers=_headers(),
+        json={
+            "entries": [
+                _line("celery-3", "first", document_id=str(document_id), extra={"function": "process_document"}),
+                _line("celery-3", "second"),
+                # A task the beat sent has no Task row: its lines are recorded all the same.
+                _line("beat-scan", "scan", task_name="app.tasks.scan_url_refresh"),
+            ]
+        },
+    )
+
+    assert response.status_code == 204
+    lines = await _lines()
+    assert [line.message for line in lines] == ["first", "second", "scan"]
+    assert lines[0].document_id == document_id
+    assert lines[0].extra == {"function": "process_document"}
+    assert lines[2].celery_task_id == "beat-scan"
+
+
+async def test_add_task_logs_requires_the_worker_key(client):
+    response = await client.post("/api/internal/task-logs", json={"entries": [_line("celery-3", "first")]})
+    assert response.status_code == 401
+
+
+async def test_purge_task_logs_deletes_only_the_lines_past_their_retention(client):
+    old = (datetime.now(UTC) - timedelta(days=8)).isoformat()
+    await client.post(
+        "/api/internal/task-logs",
+        headers=_headers(),
+        json={
+            "entries": [_line("celery-4", "old", ts=old), _line("celery-4", "recent", ts=datetime.now(UTC).isoformat())]
+        },
+    )
+
+    response = await client.delete("/api/internal/task-logs", headers=_headers())
+
+    assert response.json() == {"deleted": 1}
+    assert [line.message for line in await _lines()] == ["recent"]
+
+
+async def test_update_task_logs_records_the_whole_output_as_one_line(client):
+    """What a worker not yet upgraded sends, at the end of its task."""
     document_id = await _create_document()
     await client.post(
         "/api/internal/tasks",
@@ -118,11 +182,10 @@ async def test_update_task_logs(client):
     )
     assert response.status_code == 200
 
-    async with async_session_factory() as session:
-        from sqlalchemy import select
-
-        task = (await session.execute(select(Task).where(Task.celery_task_id == "celery-2"))).scalar_one()
-    assert task.logs == "line 1\nline 2"
+    lines = await _lines()
+    assert [(line.celery_task_id, line.message, line.document_id) for line in lines] == [
+        ("celery-2", "line 1\nline 2", document_id)
+    ]
 
 
 async def test_update_task_logs_not_found(client):

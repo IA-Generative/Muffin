@@ -49,6 +49,7 @@ from app.models.report import Report, ReportStatus, ReportType
 from app.models.run import Run, RunEvent, RunStatus
 from app.models.source import MessageSource, Source
 from app.models.task import Task
+from app.models.task_log_entry import TaskLogEntry
 from app.models.token_usage import TokenUsage, TokenUsageKind, UserProfile
 
 __all__ = [
@@ -111,6 +112,7 @@ __all__ = [
     "ShareSubjectType",
     "Source",
     "Task",
+    "TaskLogEntry",
     "TokenUsage",
     "TokenUsageKind",
     "UserProfile",

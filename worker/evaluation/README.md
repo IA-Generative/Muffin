@@ -65,7 +65,7 @@ app/
   metrics.py         precision@k/recall@k/MRR/nDCG, fonctions pures
   celery_app.py      app Celery (queue, noms des tâches - doit matcher backend/app/core/tasks.py)
   backend_client.py  client HTTP vers les endpoints /internal/* du backend
-  task_logging.py    capture les logs loguru d'un run et les renvoie au backend
+  task_logging.py    loguru partout, et les logs de chaque run envoyés au backend en direct (#305)
   config.py          Settings (voir docs/environment-variables.md)
 ```
 

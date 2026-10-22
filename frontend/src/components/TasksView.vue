@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref, watch } from 'vue'
-import { useTasks, type Task } from '../composables/useTasks'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { useTasks } from '../composables/useTasks'
 import PaginationControls from './PaginationControls.vue'
+import TaskLogViewer from './TaskLogViewer.vue'
 import TaskTableRow from './TaskTableRow.vue'
 
-const { tasks, isLoading, error, page, pageCount, totalTasks, fetchTasks, revokeTask, fetchTaskLogs } = useTasks()
-onMounted(fetchTasks)
-watch(page, fetchTasks)
+const { tasks, isLoading, error, page, pageCount, totalTasks, fetchTasks, revokeTask } = useTasks()
+onMounted(() => fetchTasks())
+watch(page, () => fetchTasks())
 
 const rootTasks = () => tasks.value.filter((task) => task.parentId === null)
 
@@ -20,25 +21,25 @@ function toggleExpand(taskId: string) {
   }
 }
 
-const logsTask = ref<Task | null>(null)
-const logsContent = ref('')
-const logsLoading = ref(false)
+// The task whose logs are open - looked up in the list, so that its status follows the refreshes.
+const logsTaskId = ref<string | null>(null)
+const logsTask = computed(() => tasks.value.find((task) => task.id === logsTaskId.value) ?? null)
+const logsLive = computed(() => logsTask.value?.status === 'PENDING' || logsTask.value?.status === 'STARTED')
 
-async function openLogs(task: Task) {
-  logsTask.value = task
-  logsLoading.value = true
-  try {
-    logsContent.value = await fetchTaskLogs(task.id)
-  } catch {
-    logsContent.value = 'Impossible de récupérer les logs.'
-  } finally {
-    logsLoading.value = false
-  }
+// While its logs are followed live, the task's status is refreshed too: they stop with it.
+let statusTimer: ReturnType<typeof setInterval> | undefined
+watch(logsLive, (live) => {
+  if (statusTimer !== undefined) clearInterval(statusTimer)
+  statusTimer = live ? setInterval(() => fetchTasks({ quiet: true }), 5000) : undefined
+})
+onUnmounted(() => clearInterval(statusTimer))
+
+function openLogs(task: { id: string }) {
+  logsTaskId.value = task.id
 }
 
 function closeLogs() {
-  logsTask.value = null
-  logsContent.value = ''
+  logsTaskId.value = null
 }
 </script>
 
@@ -46,7 +47,7 @@ function closeLogs() {
   <section class="tasks-view">
     <div class="tasks-view__header">
       <h1>Tâches</h1>
-      <button type="button" class="fr-btn fr-btn--secondary" @click="fetchTasks">Actualiser</button>
+      <button type="button" class="fr-btn fr-btn--secondary" @click="fetchTasks()">Actualiser</button>
     </div>
     <p class="tasks-view__intro">
       Suivez l'avancement des traitements lancés en arrière-plan (extraction, découpage, résumé, étiquetage,
@@ -94,8 +95,7 @@ function closeLogs() {
           <h2>Logs — {{ logsTask.taskName }}</h2>
           <button type="button" class="logs-modal__close" aria-label="Fermer" @click="closeLogs">✕</button>
         </div>
-        <p v-if="logsLoading" class="tasks-view__empty">Chargement…</p>
-        <pre v-else class="logs-modal__content">{{ logsContent || 'Aucun log pour cette tâche.' }}</pre>
+        <TaskLogViewer :path="`/api/tasks/${logsTask.id}/logs`" :live="logsLive" />
       </dialog>
     </div>
   </section>
@@ -210,7 +210,8 @@ function closeLogs() {
 
 .logs-modal {
   width: 100%;
-  max-width: 48rem;
+  max-width: 64rem;
+  height: 80vh;
   max-height: 80vh;
   display: flex;
   flex-direction: column;
@@ -241,19 +242,5 @@ function closeLogs() {
   cursor: pointer;
   font-size: 1rem;
   color: var(--text-mention-grey, #888);
-}
-
-.logs-modal__content {
-  flex: 1;
-  overflow-y: auto;
-  margin: 0;
-  padding: 0.75rem;
-  border-radius: 0.375rem;
-  background: var(--background-alt-grey, #f6f6f6);
-  color: var(--text-default-grey, #333);
-  font-size: 0.8125rem;
-  font-family: ui-monospace, monospace;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
 }
 </style>

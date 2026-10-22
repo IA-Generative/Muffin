@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -30,6 +32,12 @@ class WorkerSettings(BaseSettings):
     # LibreOffice binary and how long a single ODT -> PDF preview conversion may take.
     SOFFICE_BIN: str = "soffice"
     PREVIEW_TIMEOUT_SECONDS: int = 120
+
+    # Logging (#305): stdout - JSON for kubectl/Loki, or readable - from LOG_LEVEL up. The lines a task
+    # logs from TASK_LOG_LEVEL up are also sent to the backend, to be followed in Muffin as it runs.
+    LOG_FORMAT: Literal["console", "json"] = "console"
+    LOG_LEVEL: str = "INFO"
+    TASK_LOG_LEVEL: str = "INFO"
 
     model_config = SettingsConfigDict(case_sensitive=True, env_file=(".env", ".env.local"), extra="ignore")
 

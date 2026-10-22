@@ -11,7 +11,6 @@ from app.edit_types import OperationError
 from app.odt_editor import ImageData, insert_images
 from app.preview import PreviewError, convert_to_pdf
 from app.storage import storage
-from app.task_logging import capture_task_logs
 
 _MEDIA_TYPES = {"odt": "application/vnd.oasis.opendocument.text", "md": "text/markdown; charset=utf-8"}
 _INTERNAL_ERROR = "L'édition a échoué (erreur interne)."
@@ -106,43 +105,40 @@ def edit_document(self, payload: dict[str, Any]) -> dict[str, Any]:
     draft is an unchanged copy and `edited` is False, with its explanation in operations_summary and
     no preview. When it can't produce an applicable edit at all, the task fails (EditFailedError),
     the backend is told why, and the message is in the task's logs."""
-    with capture_task_logs(self.request.id):
 
-        def work() -> EditJobResult:
-            job = EditJobInput.model_validate(payload)
-            start_key = job.previous_draft_key or job.source_storage_key
-            logger.info(f"Edit job for document {job.document_id} (revision {job.base_revision}) from {start_key}")
+    def work() -> EditJobResult:
+        job = EditJobInput.model_validate(payload)
+        start_key = job.previous_draft_key or job.source_storage_key
+        logger.info(f"Edit job for document {job.document_id} (revision {job.base_revision}) from {start_key}")
 
-            outcome = run_edit_agent(
-                storage.get_object(start_key),
-                job.format,
-                job.prompt,
-                _llm(),
-                max_attempts=settings.EDIT_MAX_ATTEMPTS,
-                max_outline_chars=settings.EDIT_MAX_OUTLINE_CHARS,
-            )
-            # An unchanged copy needs no preview: there is nothing to look at, only a message.
-            key, pdf_key = _store_draft(
-                job.document_id, self.request.id, job.format, outcome.data, preview=outcome.edited
-            )
-            logger.info(f"Wrote draft {key} ({len(outcome.data)} bytes), edited={outcome.edited}, preview={pdf_key}")
+        outcome = run_edit_agent(
+            storage.get_object(start_key),
+            job.format,
+            job.prompt,
+            _llm(),
+            max_attempts=settings.EDIT_MAX_ATTEMPTS,
+            max_outline_chars=settings.EDIT_MAX_OUTLINE_CHARS,
+        )
+        # An unchanged copy needs no preview: there is nothing to look at, only a message.
+        key, pdf_key = _store_draft(job.document_id, self.request.id, job.format, outcome.data, preview=outcome.edited)
+        logger.info(f"Wrote draft {key} ({len(outcome.data)} bytes), edited={outcome.edited}, preview={pdf_key}")
 
-            summary = "\n".join(f"- {line}" for line in outcome.summary) if outcome.edited else outcome.message
-            base_pdf_key = (
-                _render_base(job.document_id, self.request.id, job.source_storage_key)
-                if job.render_base and job.format == "odt" and outcome.edited
-                else None
-            )
-            return EditJobResult(
-                draft_storage_key=key,
-                preview_pdf_key=pdf_key,
-                base_preview_pdf_key=base_pdf_key,
-                operations_summary=summary,
-                pending_images=outcome.pending_images,
-                edited=outcome.edited,
-            )
+        summary = "\n".join(f"- {line}" for line in outcome.summary) if outcome.edited else outcome.message
+        base_pdf_key = (
+            _render_base(job.document_id, self.request.id, job.source_storage_key)
+            if job.render_base and job.format == "odt" and outcome.edited
+            else None
+        )
+        return EditJobResult(
+            draft_storage_key=key,
+            preview_pdf_key=pdf_key,
+            base_preview_pdf_key=base_pdf_key,
+            operations_summary=summary,
+            pending_images=outcome.pending_images,
+            edited=outcome.edited,
+        )
 
-        return _run(self.request.id, "edit", work)
+    return _run(self.request.id, "edit", work)
 
 
 @celery_app.task(name="app.tasks.render_upload", bind=True)
@@ -151,20 +147,19 @@ def render_upload(self, payload: dict[str, Any]) -> dict[str, Any]:
     the document it would replace. The picked file is already stored and stays as it is; the result
     points back at it. If the new file can't be rendered the task fails and the user is told why -
     nothing to compare, nothing to validate; the current document's PDF is best-effort."""
-    with capture_task_logs(self.request.id):
 
-        def work() -> EditJobResult:
-            job = RenderUploadInput.model_validate(payload)
-            logger.info(f"Rendering the previews of a replacement of document {job.document_id}")
-            pdf_key = _render_pdf(job.document_id, self.request.id, "draft", storage.get_object(job.draft_storage_key))
-            return EditJobResult(
-                draft_storage_key=job.draft_storage_key,
-                preview_pdf_key=pdf_key,
-                base_preview_pdf_key=_render_base(job.document_id, self.request.id, job.source_storage_key),
-                edited=True,
-            )
+    def work() -> EditJobResult:
+        job = RenderUploadInput.model_validate(payload)
+        logger.info(f"Rendering the previews of a replacement of document {job.document_id}")
+        pdf_key = _render_pdf(job.document_id, self.request.id, "draft", storage.get_object(job.draft_storage_key))
+        return EditJobResult(
+            draft_storage_key=job.draft_storage_key,
+            preview_pdf_key=pdf_key,
+            base_preview_pdf_key=_render_base(job.document_id, self.request.id, job.source_storage_key),
+            edited=True,
+        )
 
-        return _run(self.request.id, "upload", work)
+    return _run(self.request.id, "upload", work)
 
 
 @celery_app.task(name="app.tasks.insert_images", bind=True)
@@ -172,31 +167,30 @@ def insert_images_task(self, payload: dict[str, Any]) -> dict[str, Any]:
     """Adds the images the user uploaded to an ODT draft and renders a fresh preview - a
     deterministic step, no model. The draft it started from is left as it was; the result points at
     the new files."""
-    with capture_task_logs(self.request.id):
 
-        def work() -> EditJobResult:
-            job = InsertImagesInput.model_validate(payload)
-            logger.info(f"Inserting {len(job.images)} image(s) into the draft of document {job.document_id}")
-            images = [
-                ImageData(
-                    id=image.id,
-                    description=image.description,
-                    content=storage.get_object(image.storage_key),
-                    section=image.section,
-                    after_paragraph=image.after_paragraph,
-                )
-                for image in job.images
-            ]
-            try:
-                result = insert_images(storage.get_object(job.draft_storage_key), images)
-            except OperationError as error:
-                raise EditFailedError(error.message) from error
-            key, pdf_key = _store_draft(job.document_id, self.request.id, "odt", result.data, preview=True)
-            return EditJobResult(
-                draft_storage_key=key,
-                preview_pdf_key=pdf_key,
-                operations_summary="\n".join(f"- {line}" for line in result.summary),
-                edited=True,
+    def work() -> EditJobResult:
+        job = InsertImagesInput.model_validate(payload)
+        logger.info(f"Inserting {len(job.images)} image(s) into the draft of document {job.document_id}")
+        images = [
+            ImageData(
+                id=image.id,
+                description=image.description,
+                content=storage.get_object(image.storage_key),
+                section=image.section,
+                after_paragraph=image.after_paragraph,
             )
+            for image in job.images
+        ]
+        try:
+            result = insert_images(storage.get_object(job.draft_storage_key), images)
+        except OperationError as error:
+            raise EditFailedError(error.message) from error
+        key, pdf_key = _store_draft(job.document_id, self.request.id, "odt", result.data, preview=True)
+        return EditJobResult(
+            draft_storage_key=key,
+            preview_pdf_key=pdf_key,
+            operations_summary="\n".join(f"- {line}" for line in result.summary),
+            edited=True,
+        )
 
-        return _run(self.request.id, "images", work)
+    return _run(self.request.id, "images", work)

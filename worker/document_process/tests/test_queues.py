@@ -1,12 +1,9 @@
 """Which pod runs what (#291): every task of this image is routed to the queue of its kind of work."""
 
-import threading
 from pathlib import Path
 
 import pytest
-from loguru import logger
 
-from app import task_logging
 from app.celery_app import celery_app
 from app.config import settings
 
@@ -15,6 +12,7 @@ EXTRACTION = [
     "app.tasks.process_tabular_document",
     "app.tasks.refresh_url_document",
     "app.tasks.scan_url_refresh",
+    "app.tasks.purge_task_logs",
 ]
 ENRICHMENT = [
     "app.tasks.chunk_document",
@@ -64,26 +62,3 @@ def test_the_image_starts_as_the_extraction_pod_with_the_beat():
     dockerfile = (Path(__file__).parent.parent / "Dockerfile").read_text()
     queues = f"{settings.EXTRACTION_QUEUE_NAME},{settings.LEGACY_QUEUE_NAME}"
     assert f'"-Q", "{queues}"' in dockerfile and '"-B"' in dockerfile
-
-
-def test_a_tasks_logs_are_only_its_own_in_a_pool_of_threads(monkeypatch):
-    reported = {}
-    monkeypatch.setattr(
-        task_logging.backend_client, "set_task_logs", lambda task_id, logs: reported.__setitem__(task_id, logs)
-    )
-    both_started = threading.Barrier(2)
-
-    def task(task_id):
-        with task_logging.capture_task_logs(task_id):
-            both_started.wait()
-            logger.info(f"line of {task_id}")
-            both_started.wait()
-
-    threads = [threading.Thread(target=task, args=(task_id,)) for task_id in ("task-a", "task-b")]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join()
-
-    assert "line of task-a" in reported["task-a"] and "task-b" not in reported["task-a"]
-    assert "line of task-b" in reported["task-b"] and "task-a" not in reported["task-b"]

@@ -18,7 +18,6 @@ from loguru import logger
 
 from app.celery_app import celery_app
 from app.config import settings
-from app.task_logging import capture_task_logs
 from app.tasks import _shared
 from app.zip_import import (
     ArchiveRejectedError,
@@ -108,49 +107,46 @@ def import_zip(self, import_id: str) -> None:
     """Never leaves the import pending: whatever happens, the backend is told how it ended. What
     was created before a failure is kept, and the summary says so. A large archive may take a while
     and is not killed for it: only past IMPORT_SOFT_TIME_LIMIT_SECONDS does it stop, as failed."""
-    with capture_task_logs(self.request.id):
-        collection_import = _shared.backend_client.begin_collection_import(import_id)
-        summary: dict = {"collections_created": 0, "documents_created": 0, "skipped": []}
-        try:
-            with tempfile.TemporaryFile() as archive_file:
-                _shared.storage.download_fileobj(collection_import["archive_key"], archive_file)
-                entries = count_entries(archive_file)
-                if entries is not None and entries > settings.ZIP_IMPORT_MAX_FILES * _MAX_ENTRIES_PER_FILE_ALLOWED:
-                    raise ArchiveRejectedError(
-                        f"L'archive annonce {entries} entrées, bien au-delà de ce qui est accepté."
-                    )
-                with zipfile.ZipFile(archive_file) as archive:
-                    _run_import(import_id, collection_import["root_collection_id"], archive, summary)
-        except ArchiveRejectedError as error:
-            logger.warning(f"ZIP import {import_id} refused: {error}")
-            _shared.backend_client.finish_collection_import(import_id, "failed", summary, str(error))
-            return
-        except SoftTimeLimitExceeded:
-            hours = settings.IMPORT_SOFT_TIME_LIMIT_SECONDS / 3600
-            logger.warning(f"ZIP import {import_id} stopped after {hours:g} h")
-            _shared.backend_client.finish_collection_import(
-                import_id,
-                "failed",
-                summary,
-                f"L'import a dépassé le délai de {hours:g} h et a été interrompu : "
-                f"{summary['documents_created']} document(s) déjà importé(s) ont été conservés.",
-            )
-            raise
-        except zipfile.BadZipFile as error:
-            logger.warning(f"ZIP import {import_id}: unreadable archive ({error})")
-            _shared.backend_client.finish_collection_import(
-                import_id, "failed", summary, "L'archive est corrompue ou n'est pas un ZIP valide."
-            )
-            return
-        except Exception:
-            logger.exception(f"ZIP import {import_id} failed")
-            _shared.backend_client.finish_collection_import(
-                import_id, "failed", summary, "L'import s'est interrompu sur une erreur inattendue."
-            )
-            raise
-
-        logger.info(
-            f"ZIP import {import_id} done: {summary['collections_created']} collection(s), "
-            f"{summary['documents_created']} document(s), {len(summary['skipped'])} skipped"
+    collection_import = _shared.backend_client.begin_collection_import(import_id)
+    summary: dict = {"collections_created": 0, "documents_created": 0, "skipped": []}
+    try:
+        with tempfile.TemporaryFile() as archive_file:
+            _shared.storage.download_fileobj(collection_import["archive_key"], archive_file)
+            entries = count_entries(archive_file)
+            if entries is not None and entries > settings.ZIP_IMPORT_MAX_FILES * _MAX_ENTRIES_PER_FILE_ALLOWED:
+                raise ArchiveRejectedError(f"L'archive annonce {entries} entrées, bien au-delà de ce qui est accepté.")
+            with zipfile.ZipFile(archive_file) as archive:
+                _run_import(import_id, collection_import["root_collection_id"], archive, summary)
+    except ArchiveRejectedError as error:
+        logger.warning(f"ZIP import {import_id} refused: {error}")
+        _shared.backend_client.finish_collection_import(import_id, "failed", summary, str(error))
+        return
+    except SoftTimeLimitExceeded:
+        hours = settings.IMPORT_SOFT_TIME_LIMIT_SECONDS / 3600
+        logger.warning(f"ZIP import {import_id} stopped after {hours:g} h")
+        _shared.backend_client.finish_collection_import(
+            import_id,
+            "failed",
+            summary,
+            f"L'import a dépassé le délai de {hours:g} h et a été interrompu : "
+            f"{summary['documents_created']} document(s) déjà importé(s) ont été conservés.",
         )
-        _shared.backend_client.finish_collection_import(import_id, "completed", summary)
+        raise
+    except zipfile.BadZipFile as error:
+        logger.warning(f"ZIP import {import_id}: unreadable archive ({error})")
+        _shared.backend_client.finish_collection_import(
+            import_id, "failed", summary, "L'archive est corrompue ou n'est pas un ZIP valide."
+        )
+        return
+    except Exception:
+        logger.exception(f"ZIP import {import_id} failed")
+        _shared.backend_client.finish_collection_import(
+            import_id, "failed", summary, "L'import s'est interrompu sur une erreur inattendue."
+        )
+        raise
+
+    logger.info(
+        f"ZIP import {import_id} done: {summary['collections_created']} collection(s), "
+        f"{summary['documents_created']} document(s), {len(summary['skipped'])} skipped"
+    )
+    _shared.backend_client.finish_collection_import(import_id, "completed", summary)

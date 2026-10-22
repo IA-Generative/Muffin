@@ -39,9 +39,6 @@ class TaskRepository:
         result = await self.db.execute(select(Task).where(Task.celery_task_id == celery_task_id))
         return result.scalar_one_or_none()
 
-    async def set_logs(self, task: Task, logs: str) -> None:
-        task.logs = logs
-
     async def list_root_runs_by_owner(self, owner_id: str, *, limit: int, offset: int) -> tuple[Sequence[Task], int]:
         """Paginates over top-level runs (parent_id IS NULL) rather than raw
         rows - a run's children are fetched separately via
@@ -92,6 +89,7 @@ class TaskRepository:
         )
         return result.scalar_one_or_none()
 
-    async def get_logs(self, task_id: uuid.UUID, owner_id: str) -> Task | None:
+    async def get_bare(self, task_id: uuid.UUID, owner_id: str) -> Task | None:
+        """`get` without the document and the collection, for when only the task itself is needed."""
         result = await self.db.execute(select(Task).where(Task.id == task_id, Task.owner_id == owner_id))
         return result.scalar_one_or_none()

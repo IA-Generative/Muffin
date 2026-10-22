@@ -113,6 +113,7 @@ app/
   backend_client.py client HTTP vers les endpoints /internal/* du backend
   searxng_client.py client HTTP vers SearXNG (outil web_search, appelé directement, pas via le backend)
   celery_app.py     app Celery (queue, nom des tâches)
+  task_logging.py   loguru partout, et les logs de chaque run envoyés au backend en direct (#305)
   config.py         Settings, dont les budgets d'exécution (voir docs/environment-variables.md)
 ```
 
