@@ -8,7 +8,6 @@ from app import metrics
 from app.backend_client import backend_client
 from app.celery_app import celery_app
 from app.config import settings
-from app.task_logging import capture_task_logs
 
 _ANSWER_SYSTEM_PROMPT = (
     "Answer the question using only the excerpts given below. If the excerpts don't contain "
@@ -224,92 +223,91 @@ def run_evaluation(self, collection_id: str, k: int | None = None, validated_onl
     with no children, and the backend already creates its Task row itself right after dispatching
     it (see EvaluationService.trigger - it already knows the user at that point, no round trip
     needed)."""
-    with capture_task_logs(self.request.id):
-        k = k or settings.DEFAULT_TOP_K
-        collection_settings = backend_client.get_collection_settings(collection_id)
-        model = (collection_settings.get("generation_models") or {}).get(
-            "evaluation"
-        ) or backend_client.get_default_chat_model()
-        if model is None:
-            logger.warning(f"No chat model available to run evaluation for collection {collection_id}, skipping")
-            return
+    k = k or settings.DEFAULT_TOP_K
+    collection_settings = backend_client.get_collection_settings(collection_id)
+    model = (collection_settings.get("generation_models") or {}).get(
+        "evaluation"
+    ) or backend_client.get_default_chat_model()
+    if model is None:
+        logger.warning(f"No chat model available to run evaluation for collection {collection_id}, skipping")
+        return
 
-        qa_pairs = backend_client.list_qa_pairs(collection_id)
-        # Relevance can only be judged at document granularity (see app/metrics.py's module
-        # docstring) - a pair with no source document has nothing to score retrieval against,
-        # regardless of whether it's validated.
-        evaluable_pairs = [pair for pair in qa_pairs if _relevant_documents(pair)]
-        # When validated_only is True, restrict to validated pairs only; when False (default),
-        # evaluate all pairs with a source document - the run's validated/unvalidated breakdown
-        # still separates them in the results.
-        if validated_only:
-            evaluable_pairs = [pair for pair in evaluable_pairs if pair.get("validated")]
-        skipped = len(qa_pairs) - len(evaluable_pairs)
-        if skipped:
-            logger.info(f"Skipping {skipped} QA pair(s) with no source document")
-        if not evaluable_pairs:
-            logger.warning(f"No evaluable QA pairs for collection {collection_id}, nothing to run")
-            return
+    qa_pairs = backend_client.list_qa_pairs(collection_id)
+    # Relevance can only be judged at document granularity (see app/metrics.py's module
+    # docstring) - a pair with no source document has nothing to score retrieval against,
+    # regardless of whether it's validated.
+    evaluable_pairs = [pair for pair in qa_pairs if _relevant_documents(pair)]
+    # When validated_only is True, restrict to validated pairs only; when False (default),
+    # evaluate all pairs with a source document - the run's validated/unvalidated breakdown
+    # still separates them in the results.
+    if validated_only:
+        evaluable_pairs = [pair for pair in evaluable_pairs if pair.get("validated")]
+    skipped = len(qa_pairs) - len(evaluable_pairs)
+    if skipped:
+        logger.info(f"Skipping {skipped} QA pair(s) with no source document")
+    if not evaluable_pairs:
+        logger.warning(f"No evaluable QA pairs for collection {collection_id}, nothing to run")
+        return
 
-        # Dedup: if an identical run already exists (same QA pairs content, same chunking/embedding
-        # settings, same k, same LLM model, same validated_only scope), skip - the result would be
-        # identical. Same strategy as score_discussion's content_hash skip (see #31).
-        content_hash = _evaluation_hash(qa_pairs, collection_settings, k, model, validated_only)
-        existing_id = backend_client.find_evaluation_run(collection_id, content_hash, model)
-        if existing_id is not None:
-            logger.info(
-                f"Evaluation run {existing_id} already exists for collection {collection_id} "
-                f"with the same content hash and model, skipping"
-            )
-            return
+    # Dedup: if an identical run already exists (same QA pairs content, same chunking/embedding
+    # settings, same k, same LLM model, same validated_only scope), skip - the result would be
+    # identical. Same strategy as score_discussion's content_hash skip (see #31).
+    content_hash = _evaluation_hash(qa_pairs, collection_settings, k, model, validated_only)
+    existing_id = backend_client.find_evaluation_run(collection_id, content_hash, model)
+    if existing_id is not None:
+        logger.info(
+            f"Evaluation run {existing_id} already exists for collection {collection_id} "
+            f"with the same content hash and model, skipping"
+        )
+        return
 
-        logger.info(f"Evaluating {len(evaluable_pairs)} QA pair(s) for collection {collection_id} at k={k}")
+    logger.info(f"Evaluating {len(evaluable_pairs)} QA pair(s) for collection {collection_id} at k={k}")
 
-        chunk_counts: dict[str, int] = {}
-        results = []
-        for pair in evaluable_pairs:
-            search_results = backend_client.search([collection_id], pair["question"], k)
-            # Recall's denominator is every chunk of every document that holds the answer.
-            for document_id in _relevant_documents(pair):
-                if document_id not in chunk_counts:
-                    chunk_counts[document_id] = backend_client.get_document_chunk_count(document_id)
-            total_relevant = sum(chunk_counts[document_id] for document_id in _relevant_documents(pair))
+    chunk_counts: dict[str, int] = {}
+    results = []
+    for pair in evaluable_pairs:
+        search_results = backend_client.search([collection_id], pair["question"], k)
+        # Recall's denominator is every chunk of every document that holds the answer.
+        for document_id in _relevant_documents(pair):
+            if document_id not in chunk_counts:
+                chunk_counts[document_id] = backend_client.get_document_chunk_count(document_id)
+        total_relevant = sum(chunk_counts[document_id] for document_id in _relevant_documents(pair))
 
-            scores = _score_pair(pair, search_results, total_relevant)
-            generated_answer = _build_answer(model, pair["question"], search_results)
+        scores = _score_pair(pair, search_results, total_relevant)
+        generated_answer = _build_answer(model, pair["question"], search_results)
 
-            results.append(
-                {
-                    "qa_pair_id": pair["id"],
-                    "question": pair["question"],
-                    "expected_answer": pair["answer"],
-                    "generated_answer": generated_answer,
-                    "validated": pair["validated"],
-                    "golden": bool(pair.get("golden")),
-                    "retrieved_sources": [f"{r['document_name']}#{r['chunk_id']}" for r in search_results],
-                    **scores,
-                }
-            )
+        results.append(
+            {
+                "qa_pair_id": pair["id"],
+                "question": pair["question"],
+                "expected_answer": pair["answer"],
+                "generated_answer": generated_answer,
+                "validated": pair["validated"],
+                "golden": bool(pair.get("golden")),
+                "retrieved_sources": [f"{r['document_name']}#{r['chunk_id']}" for r in search_results],
+                **scores,
+            }
+        )
 
-        payload = {
-            "k": k,
-            "pair_count": len(results),
-            "llm_model": model,
-            "snapshot_chunking_strategy": collection_settings["chunking_strategy"],
-            "snapshot_chunk_size": collection_settings["chunk_size"],
-            "snapshot_chunk_overlap": collection_settings["chunk_overlap"],
-            "snapshot_embedding_model": collection_settings["embedding_model"],
-            # The golden pairs are scored apart from every other aggregate below: they are the
-            # human-written test set, and a generated question's score must never be blended with one.
-            **_average([r for r in results if not r["golden"]]),
-            **_golden_average(results),
-            **_subset_average(results, validated=True),
-            **_subset_average(results, validated=False),
-            "content_hash": content_hash,
-            "results": results,
-        }
-        run_id = backend_client.create_evaluation_run(collection_id, payload)
-        logger.info(f"Evaluation run {run_id} created for collection {collection_id}: {len(results)} pair(s) scored")
+    payload = {
+        "k": k,
+        "pair_count": len(results),
+        "llm_model": model,
+        "snapshot_chunking_strategy": collection_settings["chunking_strategy"],
+        "snapshot_chunk_size": collection_settings["chunk_size"],
+        "snapshot_chunk_overlap": collection_settings["chunk_overlap"],
+        "snapshot_embedding_model": collection_settings["embedding_model"],
+        # The golden pairs are scored apart from every other aggregate below: they are the
+        # human-written test set, and a generated question's score must never be blended with one.
+        **_average([r for r in results if not r["golden"]]),
+        **_golden_average(results),
+        **_subset_average(results, validated=True),
+        **_subset_average(results, validated=False),
+        "content_hash": content_hash,
+        "results": results,
+    }
+    run_id = backend_client.create_evaluation_run(collection_id, payload)
+    logger.info(f"Evaluation run {run_id} created for collection {collection_id}: {len(results)} pair(s) scored")
 
 
 @celery_app.task(name="app.tasks.score_discussion", bind=True)
@@ -325,46 +323,45 @@ def score_discussion(self, conversation_id: str, model: str | None = None) -> No
     used - the (conversation, content_hash, model) unique index means re-scoring the same
     transcript with a different model creates a new score row instead of being a no-op.
     """
-    with capture_task_logs(self.request.id):
-        messages = backend_client.list_conversation_messages(conversation_id)
-        assistant_turns = sum(1 for message in messages if message["role"] == "assistant")
-        if assistant_turns < _MIN_ASSISTANT_TURNS_FOR_DISCUSSION_SCORE:
-            logger.warning(
-                f"Conversation {conversation_id} has only {assistant_turns} assistant turn(s), "
-                "nothing to compare across turns - skipping"
-            )
-            return
+    messages = backend_client.list_conversation_messages(conversation_id)
+    assistant_turns = sum(1 for message in messages if message["role"] == "assistant")
+    if assistant_turns < _MIN_ASSISTANT_TURNS_FOR_DISCUSSION_SCORE:
+        logger.warning(
+            f"Conversation {conversation_id} has only {assistant_turns} assistant turn(s), "
+            "nothing to compare across turns - skipping"
+        )
+        return
 
-        if model is None:
-            model = backend_client.get_default_chat_model()
-        if model is None:
-            logger.warning(f"No chat model available to score conversation {conversation_id}, skipping")
-            return
+    if model is None:
+        model = backend_client.get_default_chat_model()
+    if model is None:
+        logger.warning(f"No chat model available to score conversation {conversation_id}, skipping")
+        return
 
-        content_hash = _transcript_hash(messages)
-        existing_id = backend_client.find_discussion_score(conversation_id, content_hash, model)
-        if existing_id is not None:
-            logger.info(
-                f"Conversation {conversation_id} already scored with model {model} for this "
-                f"transcript (score {existing_id}), skipping"
-            )
-            return
+    content_hash = _transcript_hash(messages)
+    existing_id = backend_client.find_discussion_score(conversation_id, content_hash, model)
+    if existing_id is not None:
+        logger.info(
+            f"Conversation {conversation_id} already scored with model {model} for this "
+            f"transcript (score {existing_id}), skipping"
+        )
+        return
 
-        logger.info(f"Scoring conversation {conversation_id}: {len(messages)} message(s), {assistant_turns} turn(s)")
-        judgment = _judge_discussion(model, _build_transcript(messages))
+    logger.info(f"Scoring conversation {conversation_id}: {len(messages)} message(s), {assistant_turns} turn(s)")
+    judgment = _judge_discussion(model, _build_transcript(messages))
 
-        payload = {
-            "message_count": len(messages),
-            "llm_model": model,
-            "content_hash": content_hash,
-            "coherent": bool(judgment["coherent"]),
-            "coherence_issues": judgment.get("coherence_issues", []),
-            "context_usage_score": float(judgment["context_usage_score"]),
-            "context_usage_issues": judgment.get("context_usage_issues", []),
-            "reasoning": judgment.get("reasoning"),
-        }
-        score_id = backend_client.create_discussion_score(conversation_id, payload)
-        logger.info(f"Discussion score {score_id} created for conversation {conversation_id}")
+    payload = {
+        "message_count": len(messages),
+        "llm_model": model,
+        "content_hash": content_hash,
+        "coherent": bool(judgment["coherent"]),
+        "coherence_issues": judgment.get("coherence_issues", []),
+        "context_usage_score": float(judgment["context_usage_score"]),
+        "context_usage_issues": judgment.get("context_usage_issues", []),
+        "reasoning": judgment.get("reasoning"),
+    }
+    score_id = backend_client.create_discussion_score(conversation_id, payload)
+    logger.info(f"Discussion score {score_id} created for conversation {conversation_id}")
 
 
 def _golden_average(results: list[dict[str, Any]]) -> dict[str, Any]:

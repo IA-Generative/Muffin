@@ -53,8 +53,6 @@ def test_score_discussion_persists_a_well_formed_judgment(monkeypatch):
     assert payload["content_hash"]
     assert len(payload["content_hash"]) == 64
 
-    fake.set_task_logs.assert_called_once()
-
 
 def test_score_discussion_skips_when_already_scored(monkeypatch):
     fake = MagicMock()

@@ -1,5 +1,6 @@
 from celery import Celery
 
+from app import task_logging  # noqa: F401 - loguru everywhere, and each task's lines to the backend (#305)
 from app.config import settings
 
 celery_app = Celery("muffin_document_edit", broker=settings.REDIS_URL, backend=settings.REDIS_URL)

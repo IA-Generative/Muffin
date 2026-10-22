@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -47,6 +49,12 @@ class WorkerSettings(BaseSettings):
     CREATE_MAX_CHARS: int = 30000
     EDIT_WAIT_SECONDS: int = 300
     EDIT_POLL_SECONDS: float = 2.0
+
+    # Logging (#305): stdout - JSON for kubectl/Loki, or readable - from LOG_LEVEL up. The lines a task
+    # logs from TASK_LOG_LEVEL up are also sent to the backend, to be followed in Muffin as it runs.
+    LOG_FORMAT: Literal["console", "json"] = "console"
+    LOG_LEVEL: str = "INFO"
+    TASK_LOG_LEVEL: str = "INFO"
 
     model_config = SettingsConfigDict(case_sensitive=True, env_file=(".env", ".env.local"), extra="ignore")
 

@@ -11,7 +11,6 @@ from loguru import logger
 from app import reuse
 from app.celery_app import celery_app
 from app.chunking import chunk_pages
-from app.task_logging import capture_task_logs
 from app.tasks import _shared
 from app.tasks.extract import extract_entities_window  # noqa: E402,F401
 from app.tasks.qa import generate_qa_window  # noqa: E402,F401
@@ -74,114 +73,112 @@ def chunk_document(
     on raw CSV rows is slow (LLM per window) and low-value for tabular data
     where the profile already captures the structure. The tabular pipeline
     skips it entirely."""
-    with capture_task_logs(self.request.id):
-        try:
-            settings = _shared.backend_client.get_collection_settings(collection_id)
-            pages = _shared._get_pages(document_id)
-            windows = _shared._windows(settings)
-            logger.info(
-                f"Chunking document {document_id} with strategy='{settings['chunking_strategy']}' "
-                f"over {len(pages)} page(s)"
-            )
+    try:
+        settings = _shared.backend_client.get_collection_settings(collection_id)
+        pages = _shared._get_pages(document_id)
+        windows = _shared._windows(settings)
+        logger.info(
+            f"Chunking document {document_id} with strategy='{settings['chunking_strategy']}' over {len(pages)} page(s)"
+        )
 
-            content_hash = (
-                reuse.valid_hash(_shared.backend_client.get_document(document_id).get("content_hash"))
-                if not (skip_chunking and skip_qa and skip_extraction)
-                else None
-            )
+        content_hash = (
+            reuse.valid_hash(_shared.backend_client.get_document(document_id).get("content_hash"))
+            if not (skip_chunking and skip_qa and skip_extraction)
+            else None
+        )
 
-            if not skip_chunking:
-                # The chunks of another document of the same file, if its settings were the same (#300):
-                # copied with their vectors, nothing is cut or embedded here.
-                fingerprint = reuse.chunks(content_hash, settings) if content_hash else None
-                if reuse.begin(document_id, reuse.CHUNKS, fingerprint):
-                    logger.info(f"Chunks of document {document_id} reused")
-                else:
-                    chunks = chunk_pages(
-                        pages,
-                        strategy=settings["chunking_strategy"],
-                        chunk_size=settings["chunk_size"],
-                        chunk_overlap=settings["chunk_overlap"],
-                        window_pages=windows["chunking_window_pages"],
-                        slide_pages=windows["chunking_slide_pages"],
-                    )
-                    logger.info(f"Produced {len(chunks)} chunk(s) for document {document_id}")
-                    for index, chunk in enumerate(chunks):
-                        # The collection's own embedding_model (unlike the collection-description
-                        # embedding above, chunk search never compares across collections - each one is
-                        # searched on its own once VDB routing has already picked it, see
-                        # docs/research-agent-plan.md). Best-effort: a chunk with no embedding is just
-                        # not searchable, it still exists for its text/summary/QA/extraction uses.
-                        embedding = None
-                        try:
-                            embedding = _shared.backend_client.embed(settings["embedding_model"], chunk.text)
-                        except Exception:
-                            logger.exception(f"Failed to embed chunk {index} of document {document_id}")
-
-                        _shared.backend_client.add_chunk(
-                            document_id,
-                            index=index,
-                            text=chunk.text,
-                            token_count=round(len(chunk.text) * _shared.TOKENS_PER_CHAR),
-                            extras={
-                                "page_start": chunk.page_start,
-                                "page_end": chunk.page_end,
-                            },
-                            embedding=embedding,
-                        )
-                    # Chunks are written with an upsert on their position, so a task run twice leaves the
-                    # same ones; what a previous run cut after the last one goes, with its vectors (#299).
-                    _shared.backend_client.prune_chunks(document_id, keep=len(chunks))
-                    reuse.done(document_id, reuse.CHUNKS)
+        if not skip_chunking:
+            # The chunks of another document of the same file, if its settings were the same (#300):
+            # copied with their vectors, nothing is cut or embedded here.
+            fingerprint = reuse.chunks(content_hash, settings) if content_hash else None
+            if reuse.begin(document_id, reuse.CHUNKS, fingerprint):
+                logger.info(f"Chunks of document {document_id} reused")
             else:
-                logger.info(f"Skipping chunking for document {document_id} (tabular pipeline)")
+                chunks = chunk_pages(
+                    pages,
+                    strategy=settings["chunking_strategy"],
+                    chunk_size=settings["chunk_size"],
+                    chunk_overlap=settings["chunk_overlap"],
+                    window_pages=windows["chunking_window_pages"],
+                    slide_pages=windows["chunking_slide_pages"],
+                )
+                logger.info(f"Produced {len(chunks)} chunk(s) for document {document_id}")
+                for index, chunk in enumerate(chunks):
+                    # The collection's own embedding_model (unlike the collection-description
+                    # embedding above, chunk search never compares across collections - each one is
+                    # searched on its own once VDB routing has already picked it, see
+                    # docs/research-agent-plan.md). Best-effort: a chunk with no embedding is just
+                    # not searchable, it still exists for its text/summary/QA/extraction uses.
+                    embedding = None
+                    try:
+                        embedding = _shared.backend_client.embed(settings["embedding_model"], chunk.text)
+                    except Exception:
+                        logger.exception(f"Failed to embed chunk {index} of document {document_id}")
 
-            _shared.backend_client.update_status(document_id, status="indexed", progress=100)
+                    _shared.backend_client.add_chunk(
+                        document_id,
+                        index=index,
+                        text=chunk.text,
+                        token_count=round(len(chunk.text) * _shared.TOKENS_PER_CHAR),
+                        extras={
+                            "page_start": chunk.page_start,
+                            "page_end": chunk.page_end,
+                        },
+                        embedding=embedding,
+                    )
+                # Chunks are written with an upsert on their position, so a task run twice leaves the
+                # same ones; what a previous run cut after the last one goes, with its vectors (#299).
+                _shared.backend_client.prune_chunks(document_id, keep=len(chunks))
+                reuse.done(document_id, reuse.CHUNKS)
+        else:
+            logger.info(f"Skipping chunking for document {document_id} (tabular pipeline)")
 
-            parent_id = self.request.id
-            if not skip_summary:
+        _shared.backend_client.update_status(document_id, status="indexed", progress=100)
+
+        parent_id = self.request.id
+        if not skip_summary:
+            _shared._spawn(
+                summarize_document,
+                [document_id, collection_id],
+                "app.tasks.summarize_document",
+                document_id,
+                parent_id,
+            )
+
+        total_pages = len(pages)
+        qa_windows = list(sliding_windows(total_pages, windows["qa_window_pages"], windows["qa_slide_pages"]))
+        if not skip_qa and not _reused_windows(
+            document_id, content_hash, settings, reuse.QA, "qa", qa_windows, "window"
+        ):
+            for start, end in qa_windows:
                 _shared._spawn(
-                    summarize_document,
-                    [document_id, collection_id],
-                    "app.tasks.summarize_document",
+                    generate_qa_window,
+                    [
+                        document_id,
+                        collection_id,
+                        start,
+                        end,
+                        windows["qa_questions_per_window"],
+                    ],
+                    "app.tasks.generate_qa_window",
                     document_id,
                     parent_id,
                 )
-
-            total_pages = len(pages)
-            qa_windows = list(sliding_windows(total_pages, windows["qa_window_pages"], windows["qa_slide_pages"]))
-            if not skip_qa and not _reused_windows(
-                document_id, content_hash, settings, reuse.QA, "qa", qa_windows, "window"
-            ):
-                for start, end in qa_windows:
-                    _shared._spawn(
-                        generate_qa_window,
-                        [
-                            document_id,
-                            collection_id,
-                            start,
-                            end,
-                            windows["qa_questions_per_window"],
-                        ],
-                        "app.tasks.generate_qa_window",
-                        document_id,
-                        parent_id,
-                    )
-            extraction_windows = list(
-                sliding_windows(total_pages, windows["extraction_window_pages"], windows["extraction_slide_pages"])
-            )
-            if not skip_extraction and not _reused_windows(
-                document_id, content_hash, settings, reuse.ENTITIES, "extraction", extraction_windows, "pages"
-            ):
-                for start, end in extraction_windows:
-                    _shared._spawn(
-                        extract_entities_window,
-                        [document_id, collection_id, start, end],
-                        "app.tasks.extract_entities_window",
-                        document_id,
-                        parent_id,
-                    )
-        except Exception as error:
-            _shared.backend_client.update_status(document_id, status="error")
-            _shared._fail(document_id, "chunk", error)
-            raise
+        extraction_windows = list(
+            sliding_windows(total_pages, windows["extraction_window_pages"], windows["extraction_slide_pages"])
+        )
+        if not skip_extraction and not _reused_windows(
+            document_id, content_hash, settings, reuse.ENTITIES, "extraction", extraction_windows, "pages"
+        ):
+            for start, end in extraction_windows:
+                _shared._spawn(
+                    extract_entities_window,
+                    [document_id, collection_id, start, end],
+                    "app.tasks.extract_entities_window",
+                    document_id,
+                    parent_id,
+                )
+    except Exception as error:
+        _shared.backend_client.update_status(document_id, status="error")
+        _shared._fail(document_id, "chunk", error)
+        raise

@@ -152,8 +152,10 @@ désactivée par défaut en amont et doit être explicitement activée côté se
 
 | Variable | Définition | Défaut | Utilisée par |
 |---|---|---|---|
-| `LOG_FORMAT` | Format de sortie des logs (`console` lisible en dev, `json` structuré) | `console` | **backend** (`app/config/logging.py` → `app/logger.py`) |
-| `LOG_LEVEL` | Niveau de log (`DEBUG`, `INFO`, `WARNING`, ...) | `INFO` | idem |
+| `LOG_FORMAT` | Format de sortie des logs (`console` lisible en dev, `json` structuré). Dans les workers, chaque ligne émise pendant une tâche porte `celery_task_id`, `task_name`, `document_id`, `collection_id` | `console` | **backend** (`app/config/logging.py` → `app/logger.py`), **tous les workers** (`app/config.py` → `app/task_logging.py`) |
+| `LOG_LEVEL` | Niveau de log sur stdout (`DEBUG`, `INFO`, `WARNING`, ...) | `INFO` | idem |
+| `TASK_LOG_LEVEL` | Niveau à partir duquel les lignes d'une tâche sont envoyées au backend (#305), pour être suivies en direct dans Muffin | `INFO` | **tous les workers** |
+| `TASK_LOG_RETENTION_DAYS` | Durée de conservation des lignes de log des tâches (purgées chaque heure par le beat de `document_process`) | `7` | **backend** |
 
 ## worker/document_process — spécifique OCR
 

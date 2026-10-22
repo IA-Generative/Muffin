@@ -312,9 +312,15 @@ class BackendClient:
         )
         response.raise_for_status()
 
-    def set_task_logs(self, celery_task_id: str, logs: str) -> None:
-        response = self._client.patch(f"/api/internal/tasks/{celery_task_id}/logs", json={"logs": logs})
+    def add_task_logs(self, lines: list[dict]) -> None:
+        """A short timeout: the lines are sent again with the next batch, a task never waits on them."""
+        response = self._client.post("/api/internal/task-logs", json={"entries": lines}, timeout=5.0)
         response.raise_for_status()
+
+    def purge_task_logs(self) -> int:
+        response = self._client.delete("/api/internal/task-logs")
+        response.raise_for_status()
+        return response.json()["deleted"]
 
     def llm_chat(self, model: str, messages: list[dict[str, str]], max_tokens: int | None = None) -> str:
         response = self._client.post(

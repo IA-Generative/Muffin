@@ -23,7 +23,6 @@ pour faciliter le test unitaire de chaque phase.
 
 from app.celery_app import celery_app
 from app.tabular.loader import load_tabular
-from app.task_logging import capture_task_logs
 from app.tasks import _shared
 from app.tasks._tabular_steps import (
     compute_tabular_profile,
@@ -51,38 +50,37 @@ def process_tabular_document(self, document_id: str, collection_id: str, tabular
     texte d'un CSV n'est pas pertinent pour la recherche vectorielle).
     Le tagging et l'extraction d'entités restent gérés par les tâches
     classiques dispatchées par chunk_document."""
-    with capture_task_logs(self.request.id):
-        try:
-            document, settings, fmt = validate_document(document_id, collection_id, tabular_format)
-            _shared.backend_client.update_status(document_id, status="indexing", progress=0)
+    try:
+        document, settings, fmt = validate_document(document_id, collection_id, tabular_format)
+        _shared.backend_client.update_status(document_id, status="indexing", progress=0)
 
-            with load_tabular(document["storage_key"], fmt, document_id) as table:
-                export_parquet(table, collection_id, document_id)
-                profile = compute_tabular_profile(table, document_id)
-                persist_profile(profile, document_id)
-                serialize_to_csv_page(table, document_id)
+        with load_tabular(document["storage_key"], fmt, document_id) as table:
+            export_parquet(table, collection_id, document_id)
+            profile = compute_tabular_profile(table, document_id)
+            persist_profile(profile, document_id)
+            serialize_to_csv_page(table, document_id)
 
-            # Summary and QA use tabular prompts (profile-based, more compact
-            # than CSV) but the same LLM calls and persistence as classic docs.
-            generate_summary(profile, document_id, collection_id, settings)
-            generate_qa_pairs(profile, document_id, collection_id, settings)
+        # Summary and QA use tabular prompts (profile-based, more compact
+        # than CSV) but the same LLM calls and persistence as classic docs.
+        generate_summary(profile, document_id, collection_id, settings)
+        generate_qa_pairs(profile, document_id, collection_id, settings)
 
-            _shared.backend_client.update_status(document_id, status="indexing", progress=50)
-            _shared._spawn(
-                chunk_document,
-                [
-                    document_id,
-                    collection_id,
-                    True,
-                    True,
-                    True,
-                    True,
-                ],  # skip_summary, skip_qa, skip_chunking, skip_extraction
-                "app.tasks.chunk_document",
+        _shared.backend_client.update_status(document_id, status="indexing", progress=50)
+        _shared._spawn(
+            chunk_document,
+            [
                 document_id,
-                self.request.id,
-            )
-        except Exception as error:
-            _shared.backend_client.update_status(document_id, status="error")
-            _shared._fail(document_id, "process tabular document", error)
-            raise
+                collection_id,
+                True,
+                True,
+                True,
+                True,
+            ],  # skip_summary, skip_qa, skip_chunking, skip_extraction
+            "app.tasks.chunk_document",
+            document_id,
+            self.request.id,
+        )
+    except Exception as error:
+        _shared.backend_client.update_status(document_id, status="error")
+        _shared._fail(document_id, "process tabular document", error)
+        raise

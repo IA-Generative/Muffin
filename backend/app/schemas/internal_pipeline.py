@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -30,7 +31,26 @@ class TaskCreate(BaseModel):
 
 
 class TaskLogsUpdate(BaseModel):
+    """The whole output of a task at once, as workers sent it before #305 - only while they roll out."""
+
     logs: str
+
+
+class TaskLogEntryIn(BaseModel):
+    celery_task_id: str = Field(max_length=255)
+    task_name: str = Field(max_length=255)
+    document_id: uuid.UUID | None = None
+    collection_id: uuid.UUID | None = None
+    ts: datetime
+    level: str = Field(max_length=16)
+    message: str
+    extra: dict[str, Any] | None = None
+
+
+class TaskLogEntriesIn(BaseModel):
+    """A batch of lines a worker logged while running its tasks (#305)."""
+
+    entries: list[TaskLogEntryIn] = Field(max_length=1000)
 
 
 class DocumentSummaryUpdate(BaseModel):

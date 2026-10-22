@@ -16,12 +16,20 @@ class TaskOut(BaseModel):
     collection_name: str | None
     parent_id: uuid.UUID | None
     created_at: datetime
-    # Tail of the raw loguru output the worker produced for this task, always
-    # populated (not just on failure) - see app/models/task.py.
-    log_preview: str
-    has_more_logs: bool
+
+
+class TaskLogEntryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    # Pass the last one back as `after` to get only the lines logged since.
+    id: int
+    task_name: str
+    ts: datetime
+    level: str
+    message: str
 
 
 class TaskLogsOut(BaseModel):
-    id: uuid.UUID
-    logs: str
+    entries: list[TaskLogEntryOut]
+    # More lines than one page already: ask again right away, with the last id as `after`.
+    has_more: bool

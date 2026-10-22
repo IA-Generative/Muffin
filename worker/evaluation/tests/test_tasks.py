@@ -72,8 +72,6 @@ def test_run_evaluation_scores_each_pair_and_posts_one_run(monkeypatch):
     assert result["generated_answer"] == "Telework is allowed 2 days per week."
     assert result["retrieved_sources"] == ["handbook.pdf#chunk-1", "other.pdf#chunk-2"]
 
-    fake.set_task_logs.assert_called_once()
-
 
 def test_run_evaluation_breaks_metrics_down_by_validated_status(monkeypatch):
     fake = MagicMock()
