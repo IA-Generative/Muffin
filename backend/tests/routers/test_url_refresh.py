@@ -442,3 +442,73 @@ async def test_indexing_records_the_hash_of_the_page(client):
         f"/api/internal/documents/{document_id}/content-hash", json={"content_hash": "not-a-hash"}, headers=WORKER
     )
     assert bad.status_code == 422
+
+
+# -- fetching now ----------------------------------------------------------------------------------
+
+REFRESH_NOW = "app.services.document_refresh_service.enqueue_refresh_url_document"
+
+
+async def test_refresh_now_queues_a_fetch_recorded_as_the_users_task(client):
+    collection_id, document_id = await _document()
+
+    with patch(REFRESH_NOW, return_value="celery-refresh-1") as enqueue:
+        response = await client.post(f"/api/collections/{collection_id}/documents/{document_id}/refresh")
+
+    assert response.status_code == 202
+    enqueue.assert_called_once_with(str(document_id))
+    async with async_session_factory() as session:
+        task = (await session.execute(select(Task).where(Task.celery_task_id == "celery-refresh-1"))).scalar_one()
+    assert response.json() == {"task_id": str(task.id)}
+    assert (task.task_name, task.owner_id, task.document_id) == (
+        "app.tasks.refresh_url_document",
+        "dev-user",
+        document_id,
+    )
+
+
+async def test_refresh_now_leaves_the_schedule_alone(client):
+    collection_id, document_id = await _document()
+    await client.put(
+        f"/api/collections/{collection_id}/documents/{document_id}/refresh-schedule",
+        json={"schedule": {"kind": "interval", "interval_minutes": 60}},
+    )
+    before = (await client.get(f"/api/collections/{collection_id}/documents/{document_id}/refresh-schedule")).json()
+
+    with patch(REFRESH_NOW, return_value="celery-refresh-2"):
+        await client.post(f"/api/collections/{collection_id}/documents/{document_id}/refresh")
+
+    after = (await client.get(f"/api/collections/{collection_id}/documents/{document_id}/refresh-schedule")).json()
+    assert after == before
+
+
+async def test_refresh_now_of_a_file_document_is_refused(client):
+    collection_id, document_id = await _document(type_=DocumentType.FILE)
+
+    with patch(REFRESH_NOW) as enqueue:
+        response = await client.post(f"/api/collections/{collection_id}/documents/{document_id}/refresh")
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "not_url_document"
+    enqueue.assert_not_called()
+
+
+async def test_refresh_now_of_a_document_being_processed_is_refused(client):
+    collection_id, document_id = await _document(status=DocumentStatus.INDEXING)
+
+    with patch(REFRESH_NOW) as enqueue:
+        response = await client.post(f"/api/collections/{collection_id}/documents/{document_id}/refresh")
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "document_processing"
+    enqueue.assert_not_called()
+
+
+async def test_refresh_now_is_for_the_owner_only(client):
+    collection_id, document_id = await _document(owner="someone-else", visibility=CollectionVisibility.PUBLIC)
+
+    with patch(REFRESH_NOW) as enqueue:
+        response = await client.post(f"/api/collections/{collection_id}/documents/{document_id}/refresh")
+
+    assert response.status_code == 404
+    enqueue.assert_not_called()

@@ -50,8 +50,10 @@ class WorkerSettings(BaseSettings):
     # acknowledge when they end, `acks_late`). Above every limit here, or a long task would run twice
     # at once; it is also how long a task whose worker died waits to be run again.
     BROKER_VISIBILITY_TIMEOUT_SECONDS: int = 4 * 60 * 60
-    # Fetching a URL: the whole request, a file served by it included.
-    URL_FETCH_TIMEOUT_SECONDS: int = 120
+    # Fetching a URL: connecting to the site - short, a site down fails fast - then the whole download,
+    # a file served by it included - long, a large PDF from a slow site takes a while.
+    URL_FETCH_CONNECT_TIMEOUT_SECONDS: int = 30
+    URL_FETCH_TIMEOUT_SECONDS: int = 30 * 60
     # RustFS/S3: connecting, and waiting for the next bytes of a transfer.
     STORAGE_CONNECT_TIMEOUT_SECONDS: int = 10
     STORAGE_READ_TIMEOUT_SECONDS: int = 60
