@@ -36,9 +36,14 @@ async def _create_collection(client) -> str:
 
 async def test_create_file_document_uploads_and_queues_processing(client):
     collection_id = await _create_collection(client)
+    stored = {}
 
     with (
-        patch("app.services.document_upload_service.storage.put_object") as mock_put,
+        # Streamed from the upload's spooled file, never read whole into memory.
+        patch(
+            "app.services.document_upload_service.storage.upload_fileobj",
+            side_effect=lambda key, fileobj, content_type: stored.__setitem__(key, fileobj.read()),
+        ),
         patch(
             "app.services.document_upload_service.enqueue_process_document",
             return_value="celery-task-id",
@@ -55,8 +60,7 @@ async def test_create_file_document_uploads_and_queues_processing(client):
     assert body["type"] == "file"
     assert body["status"] == "pending"
 
-    mock_put.assert_called_once()
-    key, data = mock_put.call_args.args[:2]
+    [(key, data)] = stored.items()
     assert key.endswith("-report.pdf")
     assert data == b"%PDF-1.4 fake"
     mock_enqueue.assert_called_once_with(body["id"], bulk=False)
@@ -113,7 +117,7 @@ async def test_create_document_for_unknown_collection_returns_404(client):
 async def test_get_document_returns_detail_with_tags_and_page_count(client):
     collection_id = await _create_collection(client)
     with (
-        patch("app.services.document_upload_service.storage.put_object"),
+        patch("app.services.document_upload_service.storage.upload_fileobj"),
         patch(
             "app.services.document_upload_service.enqueue_process_document",
             return_value="celery-task-id",
@@ -152,7 +156,7 @@ async def test_get_unknown_document_returns_404(client):
 async def test_list_document_pages_paginated_with_screenshot_urls(client):
     collection_id = await _create_collection(client)
     with (
-        patch("app.services.document_upload_service.storage.put_object"),
+        patch("app.services.document_upload_service.storage.upload_fileobj"),
         patch(
             "app.services.document_upload_service.enqueue_process_document",
             return_value="celery-task-id",
@@ -196,7 +200,7 @@ async def test_list_document_pages_paginated_with_screenshot_urls(client):
 async def test_get_page_screenshot_streams_through_the_backend(client):
     collection_id = await _create_collection(client)
     with (
-        patch("app.services.document_upload_service.storage.put_object"),
+        patch("app.services.document_upload_service.storage.upload_fileobj"),
         patch(
             "app.services.document_upload_service.enqueue_process_document",
             return_value="celery-task-id",
@@ -235,7 +239,7 @@ async def test_get_page_screenshot_streams_through_the_backend(client):
 async def test_get_page_screenshot_for_page_without_one_returns_404(client):
     collection_id = await _create_collection(client)
     with (
-        patch("app.services.document_upload_service.storage.put_object"),
+        patch("app.services.document_upload_service.storage.upload_fileobj"),
         patch(
             "app.services.document_upload_service.enqueue_process_document",
             return_value="celery-task-id",
@@ -259,7 +263,7 @@ async def test_get_page_screenshot_for_page_without_one_returns_404(client):
 async def test_delete_document_removes_its_rustfs_objects(client):
     collection_id = await _create_collection(client)
     with (
-        patch("app.services.document_upload_service.storage.put_object"),
+        patch("app.services.document_upload_service.storage.upload_fileobj"),
         patch(
             "app.services.document_upload_service.enqueue_process_document",
             return_value="celery-task-id",
@@ -295,7 +299,7 @@ async def test_delete_unknown_document_returns_404(client):
 async def test_reprocess_resets_status_and_requeues(client):
     collection_id = await _create_collection(client)
     with (
-        patch("app.services.document_upload_service.storage.put_object"),
+        patch("app.services.document_upload_service.storage.upload_fileobj"),
         patch(
             "app.services.document_upload_service.enqueue_process_document",
             return_value="celery-task-id-1",
@@ -439,3 +443,31 @@ async def test_collection_reports_its_document_counts(client):
     for body in (listed, detail):
         assert body["document_count"] == 2
         assert body["indexed_document_count"] == 1
+
+
+async def test_a_file_of_any_size_is_taken_by_default(client):
+    from app.services import document_upload_service
+
+    assert document_upload_service._document_settings.DOCUMENT_MAX_UPLOAD_BYTES is None
+
+
+async def test_a_file_over_the_upload_limit_is_refused_when_one_is_set(client, monkeypatch):
+    from app.services import document_upload_service
+
+    monkeypatch.setattr(document_upload_service._document_settings, "DOCUMENT_MAX_UPLOAD_BYTES", 2 * 1024 * 1024)
+    collection_id = await _create_collection(client)
+
+    with (
+        patch("app.services.document_upload_service.storage.upload_fileobj") as mock_upload,
+        patch("app.services.document_upload_service.enqueue_process_document") as mock_enqueue,
+    ):
+        response = await client.post(
+            f"/api/collections/{collection_id}/documents/file",
+            files={"file": ("big.pdf", b"x" * (2 * 1024 * 1024 + 1), "application/pdf")},
+        )
+
+    assert response.status_code == 413
+    assert response.json()["detail"]["code"] == "file_too_large"
+    assert "2 Mo" in response.json()["detail"]["message"]
+    mock_upload.assert_not_called()
+    mock_enqueue.assert_not_called()

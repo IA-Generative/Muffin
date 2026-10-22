@@ -20,6 +20,7 @@ from app.services.document_upload_service import (
     DocumentNotFoundError,
     DocumentUploadService,
     DuplicateDocumentError,
+    FileTooLargeError,
 )
 
 router = APIRouter(tags=["Documents"])
@@ -151,6 +152,17 @@ async def list_document_relations(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found") from error
 
 
+def file_too_large(error: FileTooLargeError) -> HTTPException:
+    """Only when DOCUMENT_MAX_UPLOAD_BYTES is set - by default, a file of any size is taken."""
+    return HTTPException(
+        status.HTTP_413_CONTENT_TOO_LARGE,
+        {
+            "code": "file_too_large",
+            "message": f"Le fichier dépasse la taille maximale acceptée ({error.max_bytes // (1024 * 1024)} Mo).",
+        },
+    )
+
+
 def _duplicate(error: DuplicateDocumentError) -> HTTPException:
     """The collection already holds it (#300): the existing document is named so that the user can decide
     to add it anyway - which they can do, so this is a 409 to confirm and not a refusal."""
@@ -175,12 +187,11 @@ async def create_file_document(
     collection_id: uuid.UUID, user: UserDep, service: ServiceDep, file: UploadFile, allow_duplicate: bool = False
 ) -> DocumentOut:
     try:
-        content = await file.read()
         return await service.create_file_document(
             collection_id,
             user,
             file.filename or "document",
-            content,
+            file.file,
             file.content_type or "application/octet-stream",
             allow_duplicate=allow_duplicate,
         )
@@ -188,6 +199,8 @@ async def create_file_document(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
     except DuplicateDocumentError as error:
         raise _duplicate(error) from error
+    except FileTooLargeError as error:
+        raise file_too_large(error) from error
 
 
 @router.post(

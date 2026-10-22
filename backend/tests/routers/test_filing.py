@@ -40,7 +40,7 @@ async def _create_conversation_file(client, *, celery_task_id: str = "celery-upl
     """Uploads a file straight into a brand-new conversation (§ conv-files) - returns
     (conversation_id, document_id)."""
     with (
-        patch("app.services.document_upload_service.storage.put_object"),
+        patch("app.services.document_upload_service.storage.upload_fileobj"),
         patch("app.services.document_upload_service.enqueue_process_document", return_value=celery_task_id),
         patch("app.services.run_service.enqueue_run_agent", return_value="celery-run-1"),
     ):
@@ -175,7 +175,7 @@ async def test_decide_filing_by_someone_who_did_not_upload_it_returns_404(client
 
 async def test_upload_standalone_document_lands_in_a_personal_holding_collection(client):
     with (
-        patch("app.services.document_upload_service.storage.put_object"),
+        patch("app.services.document_upload_service.storage.upload_fileobj"),
         patch("app.services.document_upload_service.enqueue_process_document", return_value="celery-standalone-1"),
     ):
         response = await client.post(
@@ -195,7 +195,7 @@ async def test_upload_standalone_document_lands_in_a_personal_holding_collection
 
 async def test_upload_standalone_document_reuses_the_same_holding_collection(client):
     with (
-        patch("app.services.document_upload_service.storage.put_object"),
+        patch("app.services.document_upload_service.storage.upload_fileobj"),
         patch(
             "app.services.document_upload_service.enqueue_process_document",
             side_effect=["celery-standalone-1", "celery-standalone-2"],

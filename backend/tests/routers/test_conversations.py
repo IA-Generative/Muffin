@@ -276,7 +276,7 @@ async def test_upload_conversation_file_creates_temporary_collection(client):
     conversation_id = run["conversation_id"]
 
     with (
-        patch("app.services.document_upload_service.storage.put_object") as mock_put,
+        patch("app.services.document_upload_service.storage.upload_fileobj") as mock_put,
         patch(
             "app.services.document_upload_service.enqueue_process_document",
             return_value="celery-upload-1",
@@ -308,7 +308,7 @@ async def test_upload_conversation_file_reuses_the_same_collection_across_upload
     conversation_id = run["conversation_id"]
 
     with (
-        patch("app.services.document_upload_service.storage.put_object"),
+        patch("app.services.document_upload_service.storage.upload_fileobj"),
         patch(
             "app.services.document_upload_service.enqueue_process_document",
             side_effect=["celery-a", "celery-b"],
@@ -365,7 +365,7 @@ async def test_list_conversation_documents_after_upload(client):
     conversation_id = run["conversation_id"]
 
     with (
-        patch("app.services.document_upload_service.storage.put_object"),
+        patch("app.services.document_upload_service.storage.upload_fileobj"),
         patch("app.services.document_upload_service.enqueue_process_document", return_value="celery-list-1"),
     ):
         await client.post(
@@ -389,7 +389,7 @@ async def test_delete_conversation_document(client):
     conversation_id = run["conversation_id"]
 
     with (
-        patch("app.services.document_upload_service.storage.put_object"),
+        patch("app.services.document_upload_service.storage.upload_fileobj"),
         patch("app.services.document_upload_service.enqueue_process_document", return_value="celery-del-1"),
     ):
         upload = await client.post(

@@ -388,7 +388,7 @@ async def test_create_run_auto_pins_the_conversation_s_temporary_collection(clie
     conversation_id = first.json()["conversation_id"]
 
     with (
-        patch("app.services.document_upload_service.storage.put_object"),
+        patch("app.services.document_upload_service.storage.upload_fileobj"),
         patch("app.services.document_upload_service.enqueue_process_document", return_value="celery-upload-1"),
     ):
         await client.post(
@@ -419,7 +419,7 @@ async def test_create_run_does_not_duplicate_an_already_pinned_temporary_collect
     conversation_id = first.json()["conversation_id"]
 
     with (
-        patch("app.services.document_upload_service.storage.put_object"),
+        patch("app.services.document_upload_service.storage.upload_fileobj"),
         patch("app.services.document_upload_service.enqueue_process_document", return_value="celery-upload-1"),
     ):
         await client.post(

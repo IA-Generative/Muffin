@@ -31,9 +31,9 @@ from app.zip_import import (
 # A member is copied into memory up to this size, then into an anonymous temporary file: small
 # documents never touch the disk, a large one never fills the memory.
 _SPOOL_IN_MEMORY_BYTES = 8 * 1024 * 1024
-# Entries (files and folders) an archive may announce before its directory is even read. Generous:
-# plan_import's own file limit is what applies to a real archive; this only stops one claiming
-# millions of entries from being loaded into memory to be counted.
+# Entries (files and folders) an archive may announce before its directory is even read, with a file
+# limit set. Generous: plan_import's own file limit is what applies to a real archive; this only stops
+# one claiming millions of entries from being loaded into memory to be counted.
 _MAX_ENTRIES_PER_FILE_ALLOWED = 10
 
 
@@ -60,6 +60,12 @@ def _limits() -> ZipLimits:
     )
 
 
+def _cap(info: zipfile.ZipInfo, limits: ZipLimits, budget: int | None) -> int:
+    """The most a member may expand to: its file limit and what is left of the total, or - with neither
+    set - the size it declares (which zipfile never reads past anyway)."""
+    return min((cap for cap in (limits.max_file_bytes, budget) if cap is not None), default=info.file_size)
+
+
 def _run_import(import_id: str, root_collection_id: str, archive: zipfile.ZipFile, summary: dict) -> None:
     limits = _limits()
     plan = plan_import(archive.infolist(), limits)
@@ -73,7 +79,7 @@ def _run_import(import_id: str, root_collection_id: str, archive: zipfile.ZipFil
         summary["collections_created"] += 1
 
     # The sizes plan_import checked are only what the archive declares - what is actually read is
-    # counted again here, against the same overall budget.
+    # counted again here, against the same overall budget (when there is one).
     budget = limits.max_total_bytes
     for planned in plan.files:
         path = "/".join((*planned.folder, planned.name))
@@ -84,12 +90,13 @@ def _run_import(import_id: str, root_collection_id: str, archive: zipfile.ZipFil
         with tempfile.SpooledTemporaryFile(max_size=_SPOOL_IN_MEMORY_BYTES) as spool:
             sink = _HashingSink(spool)
             try:
-                size = extract_member(archive, planned.info, min(limits.max_file_bytes, budget), sink)
+                size = extract_member(archive, planned.info, _cap(planned.info, limits, budget), sink)
             except MemberSkippedError as error:
                 # Nothing stored yet: a member is only uploaded once it has been read whole, within its cap.
                 summary["skipped"].append({"path": path, "reason": str(error)})
                 continue
-            budget -= size
+            if budget is not None:
+                budget -= size
             content_hash = sink.hasher.hexdigest()
             # Already in the collection, from an earlier import or earlier in this archive (#300): it is
             # neither stored nor processed again.
@@ -113,7 +120,8 @@ def import_zip(self, import_id: str) -> None:
         with tempfile.TemporaryFile() as archive_file:
             _shared.storage.download_fileobj(collection_import["archive_key"], archive_file)
             entries = count_entries(archive_file)
-            if entries is not None and entries > settings.ZIP_IMPORT_MAX_FILES * _MAX_ENTRIES_PER_FILE_ALLOWED:
+            max_files = settings.ZIP_IMPORT_MAX_FILES
+            if max_files is not None and entries is not None and entries > max_files * _MAX_ENTRIES_PER_FILE_ALLOWED:
                 raise ArchiveRejectedError(f"L'archive annonce {entries} entrées, bien au-delà de ce qui est accepté.")
             with zipfile.ZipFile(archive_file) as archive:
                 _run_import(import_id, collection_import["root_collection_id"], archive, summary)
