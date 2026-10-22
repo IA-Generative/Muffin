@@ -53,6 +53,7 @@ celery_app.conf.update(
         **{name: {"queue": settings.EXTRACTION_QUEUE_NAME} for name in _EXTRACTION_TASKS},
         **{name: {"queue": settings.ENRICHMENT_QUEUE_NAME} for name in _ENRICHMENT_TASKS},
         "app.tasks.import_zip": {"queue": settings.IMPORT_QUEUE_NAME},
+        "app.tasks.import_zip_batch": {"queue": settings.IMPORT_QUEUE_NAME},
         "app.tasks.rebuild_index": {"queue": settings.REBUILD_QUEUE_NAME},
     },
     # No hard limit: a big document or archive is not killed for being big (#294). What can hang is

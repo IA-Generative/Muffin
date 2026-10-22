@@ -341,7 +341,10 @@ class TestWorkerRoutes:
 
         out = (await client.get(f"/api/collection-imports/{body['id']}")).json()
         assert out["status"] == "completed" and out["summary"] == summary
-        stored.delete_objects.assert_called_once_with([f"imports/{body['id']}.zip"])
+        # The archive, and the plan of a big import (#334) stored beside it.
+        stored.delete_objects.assert_called_once_with(
+            [f"imports/{body['id']}.zip", f"imports/{body['id']}.zip.plan.json"]
+        )
         async with async_session_factory() as session:
             collection_import = await session.get(CollectionImport, uuid.UUID(body["id"]))
         assert collection_import.archive_key is None
@@ -677,3 +680,128 @@ async def test_a_document_that_could_not_be_queued_waits_again(client, stored, _
 
     entries = await _entries(body["id"])
     assert len(entries) == 1 and entries[0].released_at is None
+
+
+# --- A big archive read in batches of files (#334) ---
+
+
+class TestBatches:
+    async def _begin(self, client, import_id: str, expected: list[str]):
+        plan = {"collections_created": 2, "skipped": [{"path": "run.exe", "reason": "type"}]}
+        response = await client.post(
+            f"/api/internal/collection-imports/{import_id}/batches/begin",
+            headers=_headers(),
+            json={"expected": expected, "plan": plan},
+        )
+        assert response.status_code == 200, response.text
+
+    async def _done(self, client, import_id: str, key: str, created: int = 0, skipped=()):
+        response = await client.post(
+            f"/api/internal/collection-imports/{import_id}/batches/{key}/done",
+            headers=_headers(),
+            json={"documents_created": created, "skipped": list(skipped)},
+        )
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    async def test_a_batch_says_where_the_import_is_and_the_last_one_gets_the_summary_of_all(self, client):
+        body = (await _import(client)).json()
+        await client.get(f"/api/collection-imports/{body['id']}")
+        await client.post(f"/api/internal/collection-imports/{body['id']}/begin", headers=_headers())
+        await self._begin(client, body["id"], ["batch:0", "batch:1", "batch:2"])
+
+        first = await self._done(
+            client, body["id"], "batch:1", created=5, skipped=[{"path": "b.pdf", "reason": "doublon"}]
+        )
+        second = await self._done(client, body["id"], "batch:0", created=3)
+        last = await self._done(client, body["id"], "batch:2", created=4)
+
+        assert first == {"status": "running", "done": 1, "expected": 3, "completed_now": False, "summary": None}
+        assert second["done"] == 2 and not second["completed_now"]
+        assert last["completed_now"] and last["done"] == 3
+        # The planner's part, then each batch's in the order they were announced - whichever finished first.
+        assert last["summary"] == {
+            "collections_created": 2,
+            "documents_created": 12,
+            "skipped": [{"path": "run.exe", "reason": "type"}, {"path": "b.pdf", "reason": "doublon"}],
+        }
+
+    async def test_a_batch_that_runs_again_counts_once_as_what_it_first_reported(self, client):
+        body = (await _import(client)).json()
+        await client.post(f"/api/internal/collection-imports/{body['id']}/begin", headers=_headers())
+        await self._begin(client, body["id"], ["batch:0", "batch:1"])
+        await self._done(client, body["id"], "batch:0", created=3)
+
+        # Its files are registered by now: read again, they are duplicates.
+        again = await self._done(
+            client, body["id"], "batch:0", created=0, skipped=[{"path": "a.pdf", "reason": "doublon"}]
+        )
+        last = await self._done(client, body["id"], "batch:1", created=1)
+
+        assert again["done"] == 1 and not again["completed_now"]
+        assert last["summary"]["documents_created"] == 4 and len(last["summary"]["skipped"]) == 1
+
+    async def test_the_batches_finishing_at_the_same_time_complete_the_import_once(self, client):
+        body = (await _import(client)).json()
+        await client.post(f"/api/internal/collection-imports/{body['id']}/begin", headers=_headers())
+        keys = [f"batch:{number}" for number in range(6)]
+        await self._begin(client, body["id"], keys)
+
+        results = await asyncio.gather(*(self._done(client, body["id"], key, created=1) for key in keys))
+
+        assert sum(result["completed_now"] for result in results) == 1
+        assert max(result["done"] for result in results) == 6
+
+    async def test_a_failure_keeps_what_the_batches_reported_and_what_the_failed_one_had_done(self, client):
+        body = (await _import(client)).json()
+        await client.post(f"/api/internal/collection-imports/{body['id']}/begin", headers=_headers())
+        await self._begin(client, body["id"], ["batch:0", "batch:1"])
+        await self._done(client, body["id"], "batch:0", created=3)
+
+        await client.put(
+            f"/api/internal/collection-imports/{body['id']}/result",
+            headers=_headers(),
+            json={
+                "status": "failed",
+                "summary": {"documents_created": 2, "skipped": [{"path": "c.pdf", "reason": "corrompu"}]},
+                "error": "boom",
+            },
+        )
+
+        out = (await client.get(f"/api/collection-imports/{body['id']}")).json()
+        assert out["status"] == "failed" and out["error"] == "boom"
+        assert out["summary"] == {
+            "collections_created": 2,
+            "documents_created": 5,
+            "skipped": [{"path": "run.exe", "reason": "type"}, {"path": "c.pdf", "reason": "corrompu"}],
+        }
+        # An import that has ended is not completed by a batch that reports after it.
+        late = await self._done(client, body["id"], "batch:1", created=1)
+        assert late["status"] == "failed" and not late["completed_now"]
+
+    async def test_the_same_file_registered_twice_at_the_same_time_makes_one_document(self, client, stored):
+        body = (await _import(client)).json()
+        root_id = body["root_collection_id"]
+
+        async def register(number: int):
+            return await client.post(
+                f"/api/internal/collection-imports/{body['id']}/documents",
+                headers=_headers(),
+                json={
+                    "collection_id": root_id,
+                    "name": "doc.pdf",
+                    "storage_key": f"documents/{root_id}/{uuid.uuid4()}-doc.pdf",
+                    "content_hash": HASH,
+                },
+            )
+
+        responses = await asyncio.gather(*(register(number) for number in range(4)))
+
+        bodies = [response.json() for response in responses]
+        assert sum(item["id"] is not None for item in bodies) == 1
+        assert sum(item["duplicate"] for item in bodies) == 3
+        async with async_session_factory() as session:
+            count = len((await session.scalars(select(Document).where(Document.content_hash == HASH))).all())
+        assert count == 1
+        # The files of the duplicates are removed from the store.
+        assert stored.delete_objects.call_count == 3

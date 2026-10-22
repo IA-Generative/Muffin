@@ -45,13 +45,20 @@ def test_embeddings_and_llm_calls_run_on_the_enrichment_queue(task_name):
 
 def test_an_import_and_a_rebuild_run_on_their_own_queues():
     assert _queue_of("app.tasks.import_zip") == settings.IMPORT_QUEUE_NAME
+    assert _queue_of("app.tasks.import_zip_batch") == settings.IMPORT_QUEUE_NAME
     assert _queue_of("app.tasks.rebuild_index") == settings.REBUILD_QUEUE_NAME
 
 
 def test_every_task_of_the_image_has_a_route():
     """A new task without one would silently land on the default queue - the extraction pod's."""
     ours = {name for name in celery_app.tasks if name.startswith("app.tasks.")}
-    assert ours == {*EXTRACTION, *ENRICHMENT, "app.tasks.import_zip", "app.tasks.rebuild_index"}
+    assert ours == {
+        *EXTRACTION,
+        *ENRICHMENT,
+        "app.tasks.import_zip",
+        "app.tasks.import_zip_batch",
+        "app.tasks.rebuild_index",
+    }
 
 
 def test_each_queue_has_its_own_exchange_and_routing_key():
