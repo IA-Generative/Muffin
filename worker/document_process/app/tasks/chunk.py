@@ -9,8 +9,10 @@ asynchrone, sans jamais le bloquer.
 from loguru import logger
 
 from app import reuse
+from app.backend_client import Embedding
 from app.celery_app import celery_app
-from app.chunking import ChunkStarts, chunk_pages
+from app.chunking import Chunk, ChunkStarts, chunk_pages
+from app.config import settings as worker_settings
 from app.tasks import _shared
 from app.tasks.extract import extract_entities_window  # noqa: E402,F401
 from app.tasks.qa import generate_qa_window  # noqa: E402,F401
@@ -63,6 +65,40 @@ def _llm_chunk_starts(settings: dict) -> ChunkStarts | None:
         return _shared._chat_json(model, system, numbered)
 
     return chunk_starts
+
+
+def _embed_all(model: str, chunks: list[Chunk], document_id: str) -> list[Embedding | None]:
+    """The chunks' vectors, EMBED_BATCH_SIZE to a call. A batch the hub refuses is done again one chunk at
+    a time, so that a single bad chunk costs its own vector only. Best-effort: a chunk with no embedding
+    is just not searchable, it still exists for its text/summary/QA/extraction uses."""
+    embeddings: list[Embedding | None] = []
+    size = max(worker_settings.EMBED_BATCH_SIZE, 1)
+    for start in range(0, len(chunks), size):
+        texts = [chunk.text for chunk in chunks[start : start + size]]
+        try:
+            vectors = list(_shared.backend_client.embed_batch(model, texts))
+            if len(vectors) != len(texts):
+                raise ValueError(f"{len(vectors)} vector(s) for {len(texts)} text(s)")
+            embeddings.extend(Embedding(vector, model) for vector in vectors)
+        except Exception:
+            logger.exception(
+                f"Failed to embed chunks {start}-{start + len(texts) - 1} of document {document_id} at once"
+            )
+            for offset, text in enumerate(texts):
+                try:
+                    embeddings.append(_shared.backend_client.embed(model, text))
+                except Exception:
+                    logger.exception(f"Failed to embed chunk {start + offset} of document {document_id}")
+                    embeddings.append(None)
+        _log_progress("Embedded", len(embeddings), len(chunks), "chunk(s)", document_id)
+    return embeddings
+
+
+def _log_progress(what: str, done: int, total: int, unit: str, document_id: str) -> None:
+    """About ten lines however long the document: a long one shows it is moving, a short one stays quiet."""
+    step = max(total // 10, 1)
+    if done == total or done // step != (done - 1) // step:
+        logger.info(f"{what} {done}/{total} {unit} of document {document_id}")
 
 
 @celery_app.task(name="app.tasks.chunk_document", bind=True)
@@ -128,20 +164,14 @@ def chunk_document(
                     window_pages=windows["chunking_window_pages"],
                     slide_pages=windows["chunking_slide_pages"],
                     chunk_starts=_llm_chunk_starts(settings),
+                    concurrency=worker_settings.CHUNKING_LLM_CONCURRENCY,
                 )
                 logger.info(f"Produced {len(chunks)} chunk(s) for document {document_id}")
-                for index, chunk in enumerate(chunks):
-                    # The collection's own embedding_model (unlike the collection-description
-                    # embedding above, chunk search never compares across collections - each one is
-                    # searched on its own once VDB routing has already picked it, see
-                    # docs/research-agent-plan.md). Best-effort: a chunk with no embedding is just
-                    # not searchable, it still exists for its text/summary/QA/extraction uses.
-                    embedding = None
-                    try:
-                        embedding = _shared.backend_client.embed(settings["embedding_model"], chunk.text)
-                    except Exception:
-                        logger.exception(f"Failed to embed chunk {index} of document {document_id}")
-
+                # The collection's own embedding_model (unlike the collection-description embedding,
+                # chunk search never compares across collections - each one is searched on its own once
+                # VDB routing has already picked it, see docs/research-agent-plan.md).
+                embeddings = _embed_all(settings["embedding_model"], chunks, document_id)
+                for index, (chunk, embedding) in enumerate(zip(chunks, embeddings, strict=True)):
                     _shared.backend_client.add_chunk(
                         document_id,
                         index=index,
@@ -153,6 +183,7 @@ def chunk_document(
                         },
                         embedding=embedding,
                     )
+                    _log_progress("Stored", index + 1, len(chunks), "chunk(s)", document_id)
                 # Chunks are written with an upsert on their position, so a task run twice leaves the
                 # same ones; what a previous run cut after the last one goes, with its vectors (#299).
                 _shared.backend_client.prune_chunks(document_id, keep=len(chunks))

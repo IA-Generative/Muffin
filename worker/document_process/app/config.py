@@ -53,6 +53,13 @@ class WorkerSettings(BaseSettings):
     # Fetching a URL: connecting to the site - short, a site down fails fast - then the whole download,
     # a file served by it included - long, a large PDF from a slow site takes a while.
     URL_FETCH_CONNECT_TIMEOUT_SECONDS: int = 30
+    # A long document's chunking (911 pages: hundreds of LLM windows, thousands of chunks): how many
+    # windows the "llm" strategy asks the model about at once, and how many chunks one embedding call
+    # takes - one call per chunk, one after the other, would take hours.
+    CHUNKING_LLM_CONCURRENCY: int = 8
+    EMBED_BATCH_SIZE: int = 64
+    # The pages of a file written (its screenshot stored, its text sent) this many at a time.
+    PAGE_WRITE_CONCURRENCY: int = 8
     URL_FETCH_TIMEOUT_SECONDS: int = 30 * 60
     # RustFS/S3: connecting, and waiting for the next bytes of a transfer.
     STORAGE_CONNECT_TIMEOUT_SECONDS: int = 10
