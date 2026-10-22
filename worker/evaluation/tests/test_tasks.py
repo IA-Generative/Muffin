@@ -356,6 +356,44 @@ def test_the_evaluation_hash_covers_judge_generator_and_golden_pairs():
     )
 
 
+# The backend's trigger-time dedup (app/services/evaluation_service.py) computes the same
+# digest over the same collection state to answer "skipped" before dispatching. Both sides
+# pin this fixture's digest - if either hash drifts, these two tests disagree with it.
+_VECTOR_PAIRS = [
+    {
+        "id": "11111111-1111-1111-1111-111111111111",
+        "question": "Quelle est la réponse ?",
+        "answer": "42",
+        "document_id": "22222222-2222-2222-2222-222222222222",
+        "validated": True,
+        "golden": False,
+        "relevant_document_ids": [],
+    },
+    {
+        "id": "33333333-3333-3333-3333-333333333333",
+        "question": "Golden ?",
+        "answer": "Oui.",
+        "document_id": None,
+        "validated": True,
+        "golden": True,
+        "relevant_document_ids": ["44444444-4444-4444-4444-444444444444", "22222222-2222-2222-2222-222222222222"],
+    },
+]
+_VECTOR_SETTINGS = {
+    "chunking_strategy": "paragraph",
+    "chunk_size": 500,
+    "chunk_overlap": 50,
+    "embedding_model": "text-embedding-3-small",
+}
+_VECTOR_DIGEST = "0ca8d8bebf1ed3ed2018d17e21493e0acb1b1debd88ce039edfbe99931cda9c4"
+
+
+def test_the_evaluation_hash_matches_the_backend_vector():
+    assert (
+        tasks._evaluation_hash(_VECTOR_PAIRS, _VECTOR_SETTINGS, 5, "judge-model", "gen-model", False) == _VECTOR_DIGEST
+    )
+
+
 def test_counts_from_results_coerce_string_vars():
     # promptfoo hands vars back as strings on some paths: "false" must not read as true.
     results = json.dumps(

@@ -2,11 +2,13 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security.factory import RequestContext, get_current_user
 from app.core.sharing import SharingNotConfiguredError
 from app.db import get_db
+from app.routers import internal_llm
 from app.schemas.collection import (
     ChunkOut,
     CollectionCreate,
@@ -267,7 +269,8 @@ async def get_feedback_stats(collection_id: uuid.UUID, user: UserDep, service: S
     "/collections/{collection_id}/evaluations",
     summary="Trigger an evaluation run against this collection's QA pairs - promptfoo "
     "replays retrieval and judges each generated answer's factuality (runs asynchronously "
-    "in a dedicated worker - see #11)",
+    "in a dedicated worker - see #11). Returns 200 instead of 202 when an identical run "
+    "already exists: nothing is dispatched then, the response names it",
     status_code=status.HTTP_202_ACCEPTED,
 )
 async def trigger_evaluation(
@@ -275,12 +278,27 @@ async def trigger_evaluation(
     body: EvaluationTriggerRequest,
     user: UserDep,
     service: EvaluationServiceDep,
-) -> dict[str, str]:
+):
+    # The worker resolves its generator model through the same function (its backend_client's
+    # get_default_chat_model hits /internal/llm/default-chat-model) - the trigger-time dedup
+    # hash must be computed over the models the worker would actually use.
+    default_chat_model = await internal_llm._default_chat_model()
     try:
-        celery_task_id = await service.trigger(collection_id, user, body.k, body.validated_only)
+        result = await service.trigger(collection_id, user, body.k, body.validated_only, default_chat_model)
     except EvaluationCollectionNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
-    return {"celery_task_id": celery_task_id}
+    if result.skipped:
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "status": "skipped",
+                "existing_run_id": str(result.skipped_run_id),
+                "existing_run_created_at": (
+                    result.skipped_run_created_at.isoformat() if result.skipped_run_created_at else None
+                ),
+            },
+        )
+    return {"status": "dispatched", "celery_task_id": result.celery_task_id}
 
 
 @router.get(

@@ -106,6 +106,11 @@ def _evaluation_hash(
     validated_only scope. If none of these changed since the last run with the same models, the
     result would be identical and there's no reason to re-run (same dedup strategy as
     _transcript_hash for DiscussionScore).
+
+    MUST stay in sync with the backend's copy in app/services/evaluation_service.py - the
+    trigger-time dedup check computes this same digest to answer "skipped" before dispatching.
+    Both sides pin the same fixture digest in their tests (tests/test_tasks.py here,
+    tests/services/test_evaluation_service.py there) so a drift breaks them.
     """
     pairs_fingerprint = [
         {

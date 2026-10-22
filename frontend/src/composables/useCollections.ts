@@ -1,5 +1,6 @@
 import { computed, ref } from 'vue'
 import { router } from '../router'
+import { pushToast } from './useToast'
 import type {
   ChunkingSettings,
   ChunkStrategy,
@@ -1298,6 +1299,8 @@ const EVAL_K = 5
 const evaluationPolls = new Map<string, ReturnType<typeof setInterval>>()
 // Reactive set of collection IDs currently running an evaluation.
 const evaluatingCollectionIds = ref<Set<string>>(new Set())
+// Formats the "already evaluated on ..." date shown when a trigger is deduped server-side.
+const skipDateFormatter = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })
 
 function isEvaluating(collectionId: string): boolean {
   return evaluatingCollectionIds.value.has(collectionId)
@@ -1328,6 +1331,25 @@ async function runEvaluation(collectionId: string) {
     if (!response.ok) {
       evaluatingCollectionIds.value.delete(collectionId)
       evaluatingCollectionIds.value = new Set(evaluatingCollectionIds.value)
+      return
+    }
+    const body = (await response.json().catch(() => null)) as
+      | { status?: string; existing_run_id?: string; existing_run_created_at?: string }
+      | null
+    if (body?.status === 'skipped' && body.existing_run_id) {
+      // Identical run already persisted - nothing was dispatched, so there is nothing to
+      // poll for: explain the skip via a toast (auto-dismissed) and stop here.
+      evaluatingCollectionIds.value.delete(collectionId)
+      evaluatingCollectionIds.value = new Set(evaluatingCollectionIds.value)
+      const createdAt = body.existing_run_created_at
+        ? ` le ${skipDateFormatter.format(new Date(body.existing_run_created_at))}`
+        : ''
+      pushToast(
+        'info',
+        'Évaluation déjà réalisée',
+        `Une évaluation identique a déjà été enregistrée${createdAt} : les paires QA, les modèles et le paramètre k n'ont pas changé depuis. Modifiez une paire QA ou changez le modèle d'évaluation pour en relancer une.`,
+        8000,
+      )
       return
     }
   } catch {

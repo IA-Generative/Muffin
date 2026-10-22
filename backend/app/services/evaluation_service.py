@@ -1,12 +1,20 @@
+import hashlib
+import json
 import uuid
+from collections.abc import Sequence
+from dataclasses import dataclass
+from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import storage
 from app.core.security.factory import RequestContext
 from app.core.tasks import RUN_EVALUATION_TASK, enqueue_run_evaluation
+from app.models.collection import CollectionSettings
+from app.models.qa import QaPair
 from app.repositories.collection_repository import CollectionRepository
 from app.repositories.evaluation_repository import EvaluationRepository
+from app.repositories.qa_pair_repository import QaPairRepository
 from app.repositories.task_repository import TaskRepository
 from app.schemas.evaluation import EvaluationResultOut, EvaluationRunOut
 from app.services import evaluation_artifacts
@@ -14,6 +22,64 @@ from app.services import evaluation_artifacts
 
 class CollectionNotFoundError(Exception):
     pass
+
+
+def _evaluation_hash(
+    pairs: Sequence[QaPair],
+    settings: CollectionSettings,
+    k: int,
+    llm_model: str,
+    generator_model: str,
+    validated_only: bool,
+) -> str:
+    """SHA-256 of everything that affects an evaluation run's result, over the same inputs the
+    worker hashes (worker/evaluation/app/tasks.py's _evaluation_hash, which fetches them through
+    the internal API): the QA pairs (id, question, answer, document_id, validated, golden,
+    relevant documents), the chunking/embedding config, k, the judge model, the generator model
+    and the validated_only scope. MUST stay in sync with the worker's copy - the trigger-time
+    dedup check below only works if both produce the same digest for the same collection state.
+    Both sides pin the same fixture digest in their tests (tests/services/test_evaluation_service.py
+    and worker/evaluation/tests/test_tasks.py) so a drift breaks them.
+    """
+    pairs_fingerprint = [
+        {
+            "id": str(pair.id),
+            "question": pair.question,
+            "answer": pair.answer,
+            "document_id": str(pair.document_id) if pair.document_id else None,
+            "validated": pair.validated,
+            "golden": bool(pair.golden),
+            "relevant_document_ids": sorted(str(i) for i in (pair.relevant_document_ids or [])),
+        }
+        for pair in sorted(pairs, key=lambda pair: str(pair.id))
+    ]
+    payload = {
+        "qa_pairs": pairs_fingerprint,
+        "chunking_strategy": settings.chunking_strategy,
+        "chunk_size": settings.chunk_size,
+        "chunk_overlap": settings.chunk_overlap,
+        # Same resolution as the internal settings endpoint the worker reads.
+        "embedding_model": settings.index_embedding_model or settings.embedding_model,
+        "k": k,
+        "llm_model": llm_model,
+        "generator_model": generator_model,
+        "validated_only": validated_only,
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+
+
+@dataclass
+class EvaluationTriggerResult:
+    """What a trigger produced: either a dispatched Celery task (celery_task_id set) or an
+    already-persisted identical run the trigger refused to duplicate (skipped_run_id set)."""
+
+    celery_task_id: str | None = None
+    skipped_run_id: uuid.UUID | None = None
+    skipped_run_created_at: datetime | None = None
+
+    @property
+    def skipped(self) -> bool:
+        return self.skipped_run_id is not None
 
 
 class EvaluationRunNotFoundError(Exception):
@@ -30,6 +96,7 @@ class EvaluationService:
         self.db = db
         self.collections = CollectionRepository(db)
         self.evaluations = EvaluationRepository(db)
+        self.qa_pairs = QaPairRepository(db)
         self.tasks = TaskRepository(db)
 
     async def trigger(
@@ -38,8 +105,29 @@ class EvaluationService:
         user: RequestContext,
         k: int,
         validated_only: bool = False,
-    ) -> str:
-        await self._get_accessible(collection_id, user)
+        default_chat_model: str | None = None,
+    ) -> EvaluationTriggerResult:
+        collection = await self._get_accessible(collection_id, user)
+        # Dedup at trigger time, so the user learns immediately that an identical run already
+        # exists instead of watching a task that skips (the worker re-checks on its side - the
+        # race window between two rapid triggers is its to catch). Same models the worker's
+        # run_evaluation resolves: the judge is the collection's evaluation model falling back
+        # to the hub's default chat model, the generator is always that default. Without a
+        # default chat model the worker no-ops ("No chat model available"), so no run can exist
+        # to dedup against - dispatch as before and let it log.
+        if default_chat_model is not None:
+            judge_model = (collection.settings.generation_models or {}).get("evaluation") or default_chat_model
+            pairs = await self.qa_pairs.list_by_collection(collection_id)
+            content_hash = _evaluation_hash(
+                pairs, collection.settings, k, judge_model, default_chat_model, validated_only
+            )
+            existing_id = await self.evaluations.find_existing(collection_id, content_hash, judge_model)
+            if existing_id is not None:
+                existing = await self.evaluations.get(existing_id)
+                return EvaluationTriggerResult(
+                    skipped_run_id=existing.id,
+                    skipped_run_created_at=existing.created_at,
+                )
         # No EvaluationRun row is created here - see EvaluationRepository.create_run's docstring,
         # the worker posts a fully computed one back once it's done. The Task row (progress/logs
         # tracking, unrelated to the EvaluationRun itself) is created here directly though - same
@@ -54,7 +142,7 @@ class EvaluationService:
             collection_id=collection_id,
         )
         await self.db.commit()
-        return celery_task_id
+        return EvaluationTriggerResult(celery_task_id=celery_task_id)
 
     async def delete_run(self, collection_id: uuid.UUID, run_id: uuid.UUID, user: RequestContext) -> None:
         await self._get_accessible(collection_id, user)

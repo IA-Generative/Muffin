@@ -20,8 +20,12 @@ from app.models.feedback import (
     FeedbackValue,
 )
 from app.models.message import Message, MessageRole
+from app.models.qa import QaOrigin, QaPair
 from app.models.run import Run
 from app.models.task import Task
+from app.repositories.collection_repository import CollectionRepository
+from app.repositories.qa_pair_repository import QaPairRepository
+from app.services.evaluation_service import _evaluation_hash
 
 
 @pytest.fixture
@@ -530,14 +534,17 @@ async def test_groundedness_stats_for_unknown_collection_returns_404(client):
 async def test_trigger_evaluation_enqueues_and_returns_celery_task_id(client):
     collection_id = (await client.post("/api/collections")).json()["id"]
 
-    with patch(
-        "app.services.evaluation_service.enqueue_run_evaluation",
-        return_value="celery-eval-1",
-    ) as mock_enqueue:
+    with (
+        patch("app.routers.internal_llm._default_chat_model", return_value="test-chat-model"),
+        patch(
+            "app.services.evaluation_service.enqueue_run_evaluation",
+            return_value="celery-eval-1",
+        ) as mock_enqueue,
+    ):
         response = await client.post(f"/api/collections/{collection_id}/evaluations", json={"k": 8})
 
     assert response.status_code == 202
-    assert response.json() == {"celery_task_id": "celery-eval-1"}
+    assert response.json() == {"status": "dispatched", "celery_task_id": "celery-eval-1"}
     mock_enqueue.assert_called_once_with(collection_id, 8, False)
 
     # The Task row (progress/logs tracking) is created directly here, not by a worker round-trip
@@ -553,10 +560,13 @@ async def test_trigger_evaluation_enqueues_and_returns_celery_task_id(client):
 async def test_trigger_evaluation_defaults_k(client):
     collection_id = (await client.post("/api/collections")).json()["id"]
 
-    with patch(
-        "app.services.evaluation_service.enqueue_run_evaluation",
-        return_value="celery-eval-2",
-    ) as mock_enqueue:
+    with (
+        patch("app.routers.internal_llm._default_chat_model", return_value="test-chat-model"),
+        patch(
+            "app.services.evaluation_service.enqueue_run_evaluation",
+            return_value="celery-eval-2",
+        ) as mock_enqueue,
+    ):
         response = await client.post(f"/api/collections/{collection_id}/evaluations", json={})
 
     assert response.status_code == 202
@@ -564,8 +574,71 @@ async def test_trigger_evaluation_defaults_k(client):
 
 
 async def test_trigger_evaluation_for_unknown_collection_returns_404(client):
-    response = await client.post(f"/api/collections/{uuid.uuid4()}/evaluations", json={})
+    with patch("app.routers.internal_llm._default_chat_model", return_value=None):
+        response = await client.post(f"/api/collections/{uuid.uuid4()}/evaluations", json={})
     assert response.status_code == 404
+
+
+async def test_trigger_evaluation_skips_when_an_identical_run_exists(client):
+    # The trigger-time dedup: same QA pairs, same settings, same models, same k as a run that
+    # already ran - nothing is dispatched, the response names the existing run instead.
+    collection_id = uuid.UUID((await client.post("/api/collections")).json()["id"])
+    async with async_session_factory() as session:
+        session.add(
+            QaPair(
+                collection_id=collection_id,
+                question="Q",
+                answer="A",
+                origin=QaOrigin.MANUAL,
+                validated=True,
+            )
+        )
+        await session.commit()
+
+    # Seed a run carrying the exact hash this trigger will compute (the algorithm itself is
+    # pinned by the shared vector in tests/services/test_evaluation_service.py).
+    async with async_session_factory() as session:
+        collection = await CollectionRepository(session).get_by_id(collection_id)
+        pairs = await QaPairRepository(session).list_by_collection(collection_id)
+        content_hash = _evaluation_hash(pairs, collection.settings, 5, "test-chat-model", "test-chat-model", False)
+        run = EvaluationRun(
+            collection_id=collection_id,
+            k=5,
+            pair_count=1,
+            llm_model="test-chat-model",
+            snapshot_chunking_strategy=collection.settings.chunking_strategy,
+            snapshot_chunk_size=collection.settings.chunk_size,
+            snapshot_chunk_overlap=collection.settings.chunk_overlap,
+            snapshot_embedding_model=collection.settings.embedding_model,
+            golden_pair_count=0,
+            validated_pair_count=1,
+            unvalidated_pair_count=0,
+            content_hash=content_hash,
+        )
+        session.add(run)
+        await session.commit()
+        run_id = run.id
+        run_created_at = run.created_at.isoformat()
+
+    with (
+        patch("app.routers.internal_llm._default_chat_model", return_value="test-chat-model"),
+        patch("app.services.evaluation_service.enqueue_run_evaluation") as mock_enqueue,
+    ):
+        response = await client.post(f"/api/collections/{collection_id}/evaluations", json={})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "skipped",
+        "existing_run_id": str(run_id),
+        "existing_run_created_at": run_created_at,
+    }
+    mock_enqueue.assert_not_called()
+    # No Task row either - nothing was dispatched.
+    async with async_session_factory() as session:
+        tasks = (
+            (await session.execute(select(Task).where(Task.task_name == "app.tasks.run_evaluation"))).scalars().all()
+        )
+    assert tasks == []
 
 
 async def test_list_evaluations_empty_initially(client):
