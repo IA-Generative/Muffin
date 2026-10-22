@@ -100,7 +100,7 @@ def test_the_storage_client_has_explicit_timeouts_and_a_few_retries():
     assert config.retries == {"mode": "standard", "total_max_attempts": 4}
 
 
-def test_a_url_is_fetched_with_a_timeout_that_a_large_file_fits_in(monkeypatch):
+def test_a_url_is_fetched_with_a_short_connect_and_a_long_download_timeout(monkeypatch):
     seen = {}
 
     def get(url, **options):
@@ -112,4 +112,6 @@ def test_a_url_is_fetched_with_a_timeout_that_a_large_file_fits_in(monkeypatch):
     with pytest.raises(TimeoutError):
         scraping.fetch_url("https://example.com/big.pdf")
 
-    assert seen["timeout"] == settings.URL_FETCH_TIMEOUT_SECONDS > 30
+    connect, download = seen["timeout"]
+    assert connect == settings.URL_FETCH_CONNECT_TIMEOUT_SECONDS <= 30
+    assert download == settings.URL_FETCH_TIMEOUT_SECONDS >= 30 * 60

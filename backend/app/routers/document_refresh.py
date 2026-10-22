@@ -15,7 +15,11 @@ from app.schemas.document import (
     UrlRefreshClaimOut,
 )
 from app.services.collection_service import CollectionNotFoundError
-from app.services.document_refresh_service import DocumentRefreshService, NotUrlDocumentError
+from app.services.document_refresh_service import (
+    DocumentBeingProcessedError,
+    DocumentRefreshService,
+    NotUrlDocumentError,
+)
 from app.services.document_upload_service import DocumentNotFoundError
 
 # The scheduled refresh of a URL document (#19): the owner sets when its page is fetched again
@@ -75,6 +79,31 @@ async def set_refresh_schedule(
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             {"code": "not_url_document", "message": "Seul un document ajouté depuis une URL peut être rafraîchi."},
+        ) from error
+
+
+@router.post(
+    "/collections/{collection_id}/documents/{document_id}/refresh",
+    summary="Fetch a URL document's page now, whatever its schedule - reprocessed if it changed. Returns "
+    "the id of the task doing it",
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def refresh_now(
+    collection_id: uuid.UUID, document_id: uuid.UUID, user: UserDep, service: ServiceDep
+) -> dict[str, uuid.UUID]:
+    try:
+        return {"task_id": await service.refresh_now(collection_id, user, document_id)}
+    except (CollectionNotFoundError, DocumentNotFoundError) as error:
+        raise _not_found(error) from error
+    except NotUrlDocumentError as error:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            {"code": "not_url_document", "message": "Seul un document ajouté depuis une URL peut être rafraîchi."},
+        ) from error
+    except DocumentBeingProcessedError as error:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            {"code": "document_processing", "message": "Le document est en cours de traitement : réessayez ensuite."},
         ) from error
 
 
