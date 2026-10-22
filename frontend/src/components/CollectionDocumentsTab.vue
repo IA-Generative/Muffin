@@ -31,6 +31,8 @@ const {
   removeDocument,
   documentError,
   refreshChildren,
+  reprocessDocument,
+  reprocessFailedDocuments,
 } = useCollections()
 const { imports, startImport } = useCollectionImports()
 
@@ -118,6 +120,19 @@ function onDrop(event: DragEvent) {
   handleFiles(event.dataTransfer?.files ?? null)
 }
 
+// The documents that ended in error (#340): one click relaunches them all, or each by its own button.
+const failedCount = computed(() => documents.value.filter((document) => document.status === 'error').length)
+const relaunched = ref<number | null>(null)
+
+async function relaunchAll() {
+  relaunched.value = await reprocessFailedDocuments(props.collection.id)
+}
+
+async function relaunch(documentId: string) {
+  relaunched.value = null
+  await reprocessDocument(props.collection.id, documentId)
+}
+
 const STATUS_LABEL = {
   pending: 'En attente',
   indexing: 'Indexation…',
@@ -189,6 +204,15 @@ const STATUS_LABEL = {
 
     <p v-if="documentError && !showMarkdownModal" class="documents-tab__error" role="alert">{{ documentError }}</p>
 
+    <div v-if="collection.isOwner && failedCount" class="documents-tab__failed">
+      <button type="button" class="fr-btn fr-btn--secondary fr-btn--sm" @click="relaunchAll">
+        Relancer {{ failedCount > 1 ? `les ${failedCount} documents en erreur` : 'le document en erreur' }}
+      </button>
+    </div>
+    <p v-if="relaunched !== null" class="documents-tab__relaunched" role="status">
+      {{ relaunched > 1 ? `${relaunched} documents relancés.` : `${relaunched} document relancé.` }}
+    </p>
+
     <ul v-if="collection.documents.length" class="documents-tab__list">
       <li v-for="document in pagedDocuments" :key="document.id" class="documents-tab__item">
         <button
@@ -223,6 +247,16 @@ const STATUS_LABEL = {
           <span class="documents-tab__item-status" :class="`documents-tab__item-status--${document.status}`">
             {{ STATUS_LABEL[document.status] }}
           </span>
+        </button>
+
+        <button
+          v-if="collection.isOwner && document.status === 'error'"
+          type="button"
+          class="fr-btn fr-btn--tertiary fr-btn--sm documents-tab__item-retry"
+          :aria-label="`Réessayer l'indexation de ${document.name}`"
+          @click="relaunch(document.id)"
+        >
+          Réessayer
         </button>
 
         <button
@@ -424,6 +458,24 @@ const STATUS_LABEL = {
 
 .documents-tab__item-status--indexed {
   color: var(--text-default-success);
+}
+
+.documents-tab__failed {
+  margin-top: 0.75rem;
+}
+
+.documents-tab__relaunched {
+  margin: 0.5rem 0 0;
+  font-size: 0.8125rem;
+  color: var(--text-mention-grey);
+}
+
+.documents-tab__item-retry {
+  flex-shrink: 0;
+}
+
+.documents-tab__item-status--error {
+  color: var(--text-default-error);
 }
 
 .documents-tab__item-remove {

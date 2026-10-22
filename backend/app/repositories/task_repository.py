@@ -35,6 +35,10 @@ class TaskRepository:
         await self.db.flush()
         return task
 
+    async def list_for_document(self, document_id: uuid.UUID) -> Sequence[Task]:
+        result = await self.db.execute(select(Task).where(Task.document_id == document_id))
+        return result.scalars().all()
+
     async def get_by_celery_id(self, celery_task_id: str) -> Task | None:
         result = await self.db.execute(select(Task).where(Task.celery_task_id == celery_task_id))
         return result.scalar_one_or_none()

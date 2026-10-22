@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useCollections } from '../composables/useCollections'
+import { useCollectionImports } from '../composables/useCollectionImports'
 import type { CollectionImport } from '../composables/useCollectionImports'
 
 const props = defineProps<{
@@ -8,6 +9,7 @@ const props = defineProps<{
 }>()
 
 const { openCollection } = useCollections()
+const { reprocessFailed } = useCollectionImports()
 const showSkipped = ref(false)
 
 function plural(count: number, singular: string, pluralForm: string): string {
@@ -38,6 +40,17 @@ const message = computed(() => {
   }
 })
 
+// The documents of a finished import that ended in error can be relaunched (#340): they wait for their turn
+// in the import's window again. The answer says how many were.
+const relaunched = ref<number | null>(null)
+const relaunchFailed = ref(false)
+
+async function relaunch() {
+  relaunchFailed.value = false
+  relaunched.value = await reprocessFailed(props.item.id)
+  relaunchFailed.value = relaunched.value === null
+}
+
 const isError = computed(() => props.item.status === 'failed' || props.item.status === 'upload_failed')
 const skipped = computed(() => props.item.summary?.skipped ?? [])
 </script>
@@ -55,6 +68,18 @@ const skipped = computed(() => props.item.summary?.skipped ?? [])
         Ouvrir
       </button>
     </p>
+    <button
+      v-if="item.status === 'completed' || item.status === 'failed'"
+      type="button"
+      class="import-status__link"
+      @click="relaunch"
+    >
+      Relancer les documents en erreur
+    </button>
+    <p v-if="relaunched !== null" class="import-status__result">
+      {{ relaunched > 1 ? `${relaunched} documents relancés.` : `${relaunched} document relancé.` }}
+    </p>
+    <p v-if="relaunchFailed" class="import-status__result" role="alert">Impossible de relancer l'indexation.</p>
     <!-- Partial failures keep what was created (#223): the summary still says what was skipped. -->
     <template v-if="skipped.length">
       <button type="button" class="import-status__link" :aria-expanded="showSkipped" @click="showSkipped = !showSkipped">
@@ -97,6 +122,11 @@ const skipped = computed(() => props.item.summary?.skipped ?? [])
   font: inherit;
   text-decoration: underline;
   cursor: pointer;
+}
+
+.import-status__result {
+  margin: 0;
+  color: var(--text-mention-grey);
 }
 
 .import-status__skipped {

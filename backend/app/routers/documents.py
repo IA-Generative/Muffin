@@ -1,7 +1,7 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security.factory import RequestContext, get_current_user
@@ -12,12 +12,14 @@ from app.schemas.document import (
     DocumentOut,
     DocumentPageOut,
     DocumentUrlCreate,
+    ReprocessedOut,
     TabularProfileOut,
 )
 from app.schemas.pagination import Page, PaginationParams
 from app.services.collection_service import CollectionNotFoundError
 from app.services.document_upload_service import (
     DocumentNotFoundError,
+    DocumentNotRetryableError,
     DocumentUploadService,
     DuplicateDocumentError,
     FileTooLargeError,
@@ -237,3 +239,37 @@ async def delete_document(collection_id: uuid.UUID, document_id: uuid.UUID, user
         await service.delete_document(collection_id, user, document_id)
     except (CollectionNotFoundError, DocumentNotFoundError) as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found") from error
+
+
+@router.post(
+    "/collections/{collection_id}/documents/reprocess-failed",
+    summary="Relaunch the indexing of every document of the collection - and of its sub-collections, unless "
+    "`recursive` is false - that ended in error (#340)",
+    response_model=ReprocessedOut,
+)
+async def reprocess_failed_documents(
+    collection_id: uuid.UUID, user: UserDep, service: ServiceDep, recursive: Annotated[bool, Query()] = True
+) -> ReprocessedOut:
+    try:
+        return ReprocessedOut(reprocessed=await service.reprocess_failed(collection_id, user, recursive=recursive))
+    except CollectionNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
+
+
+@router.post(
+    "/collections/{collection_id}/documents/{document_id}/reprocess",
+    summary="Relaunch the indexing of a document that ended in error (#340): its pipeline runs again from "
+    "scratch. A document that is not in error is refused",
+    response_model=DocumentOut,
+)
+async def reprocess_failed_document(
+    collection_id: uuid.UUID, document_id: uuid.UUID, user: UserDep, service: ServiceDep
+) -> DocumentOut:
+    try:
+        return await service.reprocess_failed_document(collection_id, user, document_id)
+    except (CollectionNotFoundError, DocumentNotFoundError) as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found") from error
+    except DocumentNotRetryableError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Only a document in error can be relaunched"
+        ) from error

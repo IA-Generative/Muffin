@@ -1,9 +1,9 @@
 import uuid
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 
 from app.core.security.factory import get_current_user
 from app.db import async_session_factory
@@ -471,3 +471,156 @@ async def test_a_file_over_the_upload_limit_is_refused_when_one_is_set(client, m
     assert "2 Mo" in response.json()["detail"]["message"]
     mock_upload.assert_not_called()
     mock_enqueue.assert_not_called()
+
+
+# --- Relaunching the indexing of documents in error (#340) ---
+
+
+@pytest.fixture
+def relaunch():
+    """What a relaunch touches outside the database replaced: the queue, the index, the object store and the
+    tasks the document still has running."""
+    enqueued = MagicMock(side_effect=lambda document_id, **options: f"celery-{document_id}")
+    revoked = MagicMock()
+    with (
+        patch("app.services.document_upload_service.enqueue_process_document", enqueued),
+        patch("app.services.document_upload_service.vector_store", MagicMock()),
+        patch("app.services.document_upload_service.storage", MagicMock()),
+        patch("app.services.document_upload_service.active_task_ids", return_value=[]) as active,
+        patch("app.services.document_upload_service.revoke_tasks", revoked),
+    ):
+        enqueued.revoked, enqueued.active = revoked, active
+        yield enqueued
+
+
+async def _fail(*document_ids: str) -> None:
+    async with async_session_factory() as session:
+        await session.execute(
+            update(Document)
+            .where(Document.id.in_([uuid.UUID(document_id) for document_id in document_ids]))
+            .values(status=DocumentStatus.ERROR, error="OCR failed")
+        )
+        await session.commit()
+
+
+async def _status(document_id: str) -> DocumentStatus:
+    async with async_session_factory() as session:
+        return (await session.get(Document, uuid.UUID(document_id))).status
+
+
+async def test_a_document_in_error_is_relaunched_from_scratch(client, relaunch):
+    collection_id = await _create_collection(client)
+    document_id = await _add_url_document(client, collection_id)
+    await _fail(document_id)
+    relaunch.reset_mock()
+
+    response = await client.post(f"/api/collections/{collection_id}/documents/{document_id}/reprocess")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "pending" and response.json()["progress"] == 0
+    relaunch.assert_called_once_with(document_id)
+    async with async_session_factory() as session:
+        task = await session.scalar(
+            select(Task).where(
+                Task.document_id == uuid.UUID(document_id), Task.celery_task_id == f"celery-{document_id}"
+            )
+        )
+    assert task is not None and task.task_name == "app.tasks.process_document"
+
+
+async def test_a_document_that_is_not_in_error_is_not_relaunched(client, relaunch):
+    collection_id = await _create_collection(client)
+    document_id = await _add_url_document(client, collection_id)
+    relaunch.reset_mock()
+
+    response = await client.post(f"/api/collections/{collection_id}/documents/{document_id}/reprocess")
+
+    assert response.status_code == 409
+    relaunch.assert_not_called()
+
+
+async def test_relaunching_an_unknown_document_is_a_404(client, relaunch):
+    collection_id = await _create_collection(client)
+
+    response = await client.post(f"/api/collections/{collection_id}/documents/{uuid.uuid4()}/reprocess")
+
+    assert response.status_code == 404
+
+
+async def test_only_the_owner_relaunches_a_document(client, relaunch):
+    app.dependency_overrides[get_current_user] = _as_user("owner", "owner@example.com")
+    collection_id = await _create_collection(client)
+    document_id = await _add_url_document(client, collection_id)
+    await _fail(document_id)
+    await client.patch(f"/api/collections/{collection_id}/visibility", json={"visibility": "public"})
+    relaunch.reset_mock()
+
+    try:
+        app.dependency_overrides[get_current_user] = _as_user("viewer", "viewer@example.com")
+        one = await client.post(f"/api/collections/{collection_id}/documents/{document_id}/reprocess")
+        bulk = await client.post(f"/api/collections/{collection_id}/documents/reprocess-failed")
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+    assert one.status_code == 404 and bulk.status_code == 404
+    relaunch.assert_not_called()
+    assert await _status(document_id) == DocumentStatus.ERROR
+
+
+async def test_a_document_that_still_has_tasks_running_has_them_stopped_before_it_is_relaunched(client, relaunch):
+    collection_id = await _create_collection(client)
+    document_id = await _add_url_document(client, collection_id)
+    await _fail(document_id)
+    relaunch.active.return_value = ["running-task"]
+
+    await client.post(f"/api/collections/{collection_id}/documents/{document_id}/reprocess")
+
+    relaunch.revoked.assert_called_once_with(["running-task"])
+
+
+async def test_every_document_in_error_of_a_collection_and_its_sub_collections_is_relaunched(client, relaunch):
+    collection_id = await _create_collection(client)
+    sub_id = (await client.post("/api/collections", json={"name": "Sous", "parent_id": collection_id})).json()["id"]
+    failed = [await _add_url_document(client, collection_id) for _ in range(2)]
+    failed.append(await _add_url_document(client, sub_id))
+    fine = await _add_url_document(client, collection_id)
+    await _fail(*failed)
+    relaunch.reset_mock()
+
+    response = await client.post(f"/api/collections/{collection_id}/documents/reprocess-failed")
+
+    assert response.json() == {"reprocessed": 3}
+    # One of many: processed after any other waiting.
+    assert sorted(call.args[0] for call in relaunch.call_args_list) == sorted(failed)
+    assert all(call.kwargs == {"bulk": True} for call in relaunch.call_args_list)
+    assert [await _status(document_id) for document_id in failed] == [DocumentStatus.PENDING] * 3
+    assert await _status(fine) == DocumentStatus.PENDING
+
+
+async def test_a_relaunch_in_bulk_can_leave_the_sub_collections_alone(client, relaunch):
+    collection_id = await _create_collection(client)
+    sub_id = (await client.post("/api/collections", json={"name": "Sous", "parent_id": collection_id})).json()["id"]
+    here, below = await _add_url_document(client, collection_id), await _add_url_document(client, sub_id)
+    await _fail(here, below)
+
+    response = await client.post(f"/api/collections/{collection_id}/documents/reprocess-failed?recursive=false")
+
+    assert response.json() == {"reprocessed": 1}
+    assert await _status(below) == DocumentStatus.ERROR
+
+
+async def test_a_cancelled_document_is_relaunched_like_one_in_error(client, relaunch):
+    """Cancelling a task marks its document as in error ("Traitement annulé.") - it can be relaunched."""
+    collection_id = await _create_collection(client)
+    document_id = await _add_url_document(client, collection_id)
+    async with async_session_factory() as session:
+        await session.execute(
+            update(Document)
+            .where(Document.id == uuid.UUID(document_id))
+            .values(status=DocumentStatus.ERROR, error="Traitement annulé.")
+        )
+        await session.commit()
+
+    response = await client.post(f"/api/collections/{collection_id}/documents/{document_id}/reprocess")
+
+    assert response.status_code == 200
