@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.22.0](https://github.com/IA-Generative/Muffin/compare/v0.21.0...v0.22.0) (2026-10-22)
+
+
+### Features
+
+* **documents:** fetch a URL document again on demand, and give a long one time to download ([c7f7aef](https://github.com/IA-Generative/Muffin/commit/c7f7aefefce902bfa0cb7e3bdf85a2e96b140938)), closes [#312](https://github.com/IA-Generative/Muffin/issues/312)
+
+
+### Bug Fixes
+
+* **tests:** build the same ZIP bytes at every call in the collection import tests ([894d7a7](https://github.com/IA-Generative/Muffin/commit/894d7a7c4a690425591bfc21d3cc0e9b30a712fa)), closes [#314](https://github.com/IA-Generative/Muffin/issues/314)
+
 ## [0.22.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.21.0...v0.22.0-rc) (2026-10-22)
 
 
