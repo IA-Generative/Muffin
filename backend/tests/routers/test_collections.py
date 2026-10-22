@@ -1,3 +1,4 @@
+import json
 import uuid
 from unittest.mock import patch
 
@@ -8,9 +9,10 @@ from sqlalchemy import delete, select
 from app.core.security.factory import RequestContext, get_current_user
 from app.db import async_session_factory
 from app.main import app
-from app.models.collection import Collection
+from app.models.collection import ChunkingStrategy, Collection
 from app.models.conversation import Conversation
 from app.models.document import Document, DocumentPage
+from app.models.evaluation import EvaluationRun
 from app.models.feedback import (
     Feedback,
     FeedbackReason,
@@ -35,6 +37,7 @@ async def client():
         await session.execute(delete(Task))
         await session.execute(delete(Run))
         await session.execute(delete(Conversation))
+        await session.execute(delete(EvaluationRun))
         await session.execute(delete(Collection))
         await session.commit()
 
@@ -575,6 +578,226 @@ async def test_list_evaluations_empty_initially(client):
 async def test_list_evaluations_for_unknown_collection_returns_404(client):
     response = await client.get(f"/api/collections/{uuid.uuid4()}/evaluations")
     assert response.status_code == 404
+
+
+# A promptfoo results.json fixture: two scored non-golden pairs, one the judge
+# errored on (no namedScores - excluded from the averages), one golden pair.
+_RESULTS_JSON = {
+    "results": {
+        "results": [
+            {
+                "vars": {
+                    "question": "Q1",
+                    "reference": "A1",
+                    "validated": True,
+                    "golden": False,
+                    "qa_pair_id": "11111111-1111-1111-1111-111111111111",
+                },
+                "response": {
+                    "output": {"answer": "Generated 1", "context": ["c"]},
+                    "metadata": {"sources": ["handbook.pdf#0"]},
+                },
+                "namedScores": {"factuality": 0.9},
+            },
+            {
+                "vars": {
+                    "question": "Q2",
+                    "reference": "A2",
+                    "validated": False,
+                    "golden": False,
+                    "qa_pair_id": "22222222-2222-2222-2222-222222222222",
+                },
+                "response": {"output": {"answer": "Generated 2"}, "metadata": {"sources": []}},
+                "namedScores": {"factuality": 0.5},
+            },
+            {
+                "vars": {"question": "Q3", "reference": "A3", "validated": True, "golden": False},
+                "response": {"output": {"answer": "Generated 3"}, "metadata": {}},
+                "error": "judge failed",
+            },
+            {
+                "vars": {"question": "GQ", "reference": "GA", "validated": True, "golden": True},
+                "response": {
+                    "output": {"answer": "Golden answer"},
+                    "metadata": {"sources": ["handbook.pdf#1"]},
+                },
+                "namedScores": {"factuality": 1.0},
+            },
+        ]
+    }
+}
+
+
+async def _create_evaluation_run(
+    collection_id: str,
+    results_json_key: str | None = "evaluations/run/results.json",
+    report_html_key: str | None = "evaluations/run/report.html",
+) -> uuid.UUID:
+    async with async_session_factory() as session:
+        run = EvaluationRun(
+            collection_id=uuid.UUID(collection_id),
+            k=5,
+            pair_count=4,
+            llm_model="judge-model",
+            snapshot_chunking_strategy=ChunkingStrategy.PARAGRAPH,
+            snapshot_chunk_size=500,
+            snapshot_chunk_overlap=50,
+            snapshot_embedding_model="text-embedding-3-small",
+            golden_pair_count=1,
+            validated_pair_count=2,
+            unvalidated_pair_count=1,
+            content_hash="hash",
+            results_json_key=results_json_key,
+            report_html_key=report_html_key,
+        )
+        session.add(run)
+        await session.commit()
+        return run.id
+
+
+def _fake_storage(monkeypatch, results_json=_RESULTS_JSON, report_html=b"<html>report</html>"):
+    """Serves the run's artifacts from memory - no RustFS in tests."""
+    objects = {
+        "evaluations/run/results.json": (
+            json.dumps(results_json).encode(),
+            "application/json",
+        ),
+        "evaluations/run/report.html": (report_html, "text/html"),
+    }
+    monkeypatch.setattr("app.core.storage.get_object", lambda key: objects[key])
+    return objects
+
+
+async def test_list_evaluations_computes_factuality_averages_from_the_artifact(client, monkeypatch):
+    collection_id = (await client.post("/api/collections")).json()["id"]
+    await _create_evaluation_run(collection_id)
+    _fake_storage(monkeypatch)
+
+    response = await client.get(f"/api/collections/{collection_id}/evaluations")
+
+    assert response.status_code == 200
+    run = response.json()[0]
+    # (0.9 + 0.5) / 2 - the errored pair is excluded, never averaged in as a zero.
+    assert run["metrics"] == {"factuality": pytest.approx(0.7)}
+    assert run["golden_metrics"] == {"factuality": 1.0}
+    assert run["has_artifacts"] is True
+    assert run["llm_model"] == "judge-model"
+
+
+async def test_list_evaluations_reports_null_metrics_for_a_run_without_artifact(client):
+    # A run predating the promptfoo migration: no artifact keys, no scores.
+    collection_id = (await client.post("/api/collections")).json()["id"]
+    await _create_evaluation_run(collection_id, results_json_key=None, report_html_key=None)
+
+    response = await client.get(f"/api/collections/{collection_id}/evaluations")
+
+    assert response.status_code == 200
+    run = response.json()[0]
+    assert run["metrics"] is None
+    assert run["golden_metrics"] is None
+    assert run["has_artifacts"] is False
+
+
+async def test_evaluation_results_detail_is_normalized_from_the_artifact(client, monkeypatch):
+    collection_id = (await client.post("/api/collections")).json()["id"]
+    run_id = await _create_evaluation_run(collection_id)
+    _fake_storage(monkeypatch)
+
+    response = await client.get(f"/api/collections/{collection_id}/evaluations/{run_id}/results")
+
+    assert response.status_code == 200
+    results = response.json()
+    assert results[0] == {
+        "qa_pair_id": "11111111-1111-1111-1111-111111111111",
+        "question": "Q1",
+        "expected_answer": "A1",
+        "generated_answer": "Generated 1",
+        "factuality": 0.9,
+        "validated": True,
+        "golden": False,
+        "retrieved_sources": ["handbook.pdf#0"],
+    }
+    # The pair the judge errored on keeps its place in the detail, scoreless.
+    assert results[2]["factuality"] is None
+    assert results[3]["golden"] is True
+
+
+async def test_evaluation_results_detail_empty_for_a_run_without_artifact(client):
+    collection_id = (await client.post("/api/collections")).json()["id"]
+    run_id = await _create_evaluation_run(collection_id, results_json_key=None, report_html_key=None)
+
+    response = await client.get(f"/api/collections/{collection_id}/evaluations/{run_id}/results")
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+async def test_evaluation_report_is_served_inline_or_as_a_download(client, monkeypatch):
+    collection_id = (await client.post("/api/collections")).json()["id"]
+    run_id = await _create_evaluation_run(collection_id)
+    _fake_storage(monkeypatch)
+
+    response = await client.get(f"/api/collections/{collection_id}/evaluations/{run_id}/report")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert response.content == b"<html>report</html>"
+    assert "content-disposition" not in response.headers
+
+    download = await client.get(f"/api/collections/{collection_id}/evaluations/{run_id}/report?download=1")
+
+    assert download.status_code == 200
+    assert download.headers["content-disposition"] == 'attachment; filename="evaluation-report.html"'
+
+
+async def test_evaluation_results_json_is_served_as_a_download(client, monkeypatch):
+    collection_id = (await client.post("/api/collections")).json()["id"]
+    run_id = await _create_evaluation_run(collection_id)
+    _fake_storage(monkeypatch)
+
+    response = await client.get(f"/api/collections/{collection_id}/evaluations/{run_id}/results.json")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.headers["content-disposition"] == 'attachment; filename="evaluation-results.json"'
+    assert response.json() == _RESULTS_JSON
+
+
+async def test_evaluation_artifact_endpoints_404_without_artifact(client):
+    collection_id = (await client.post("/api/collections")).json()["id"]
+    run_id = await _create_evaluation_run(collection_id, results_json_key=None, report_html_key=None)
+
+    report = await client.get(f"/api/collections/{collection_id}/evaluations/{run_id}/report")
+    results = await client.get(f"/api/collections/{collection_id}/evaluations/{run_id}/results.json")
+
+    assert report.status_code == 404
+    assert results.status_code == 404
+
+
+async def test_evaluation_endpoints_404_for_unknown_run(client):
+    collection_id = (await client.post("/api/collections")).json()["id"]
+
+    report = await client.get(f"/api/collections/{collection_id}/evaluations/{uuid.uuid4()}/report")
+    results = await client.get(f"/api/collections/{collection_id}/evaluations/{uuid.uuid4()}/results")
+    raw = await client.get(f"/api/collections/{collection_id}/evaluations/{uuid.uuid4()}/results.json")
+
+    assert report.status_code == 404
+    assert results.status_code == 404
+    assert raw.status_code == 404
+
+
+async def test_delete_evaluation_also_deletes_the_rustfs_artifacts(client, monkeypatch):
+    collection_id = (await client.post("/api/collections")).json()["id"]
+    run_id = await _create_evaluation_run(collection_id)
+    deleted: list[str] = []
+    monkeypatch.setattr("app.core.storage.delete_objects", lambda keys: deleted.extend(keys))
+
+    response = await client.delete(f"/api/collections/{collection_id}/evaluations/{run_id}")
+
+    assert response.status_code == 204
+    assert deleted == ["evaluations/run/results.json", "evaluations/run/report.html"]
+    async with async_session_factory() as session:
+        assert (await session.get(EvaluationRun, run_id)) is None
 
 
 async def test_feedback_stats_aggregates_by_collection(client):

@@ -1,18 +1,17 @@
 import hashlib
 import json
+import shutil
+import subprocess
+import tempfile
+from pathlib import Path
 from typing import Any
 
+import yaml
 from loguru import logger
 
-from app import metrics
 from app.backend_client import backend_client
 from app.celery_app import celery_app
 from app.config import settings
-
-_ANSWER_SYSTEM_PROMPT = (
-    "Answer the question using only the excerpts given below. If the excerpts don't contain "
-    "enough information to answer, say so plainly rather than guessing."
-)
 
 # At least 2 assistant turns are needed for "do these answers contradict each other" to mean
 # anything - a single-turn conversation has nothing to compare across (see #31).
@@ -93,32 +92,18 @@ def _judge_discussion(model: str, transcript: str) -> dict[str, Any]:
         return _FALLBACK_JUDGMENT
 
 
-def _build_answer(model: str, question: str, search_results: list[dict[str, Any]]) -> str:
-    if not search_results:
-        return "No relevant excerpts were retrieved for this question."
-    excerpts = "\n\n".join(f"[{i + 1}] {r['text']}" for i, r in enumerate(search_results))
-    return backend_client.llm_chat(
-        model,
-        [
-            {"role": "system", "content": _ANSWER_SYSTEM_PROMPT},
-            {
-                "role": "user",
-                "content": f"Question: {question}\n\nExcerpts:\n{excerpts}",
-            },
-        ],
-    )
-
-
 def _evaluation_hash(
     qa_pairs: list[dict[str, Any]],
     collection_settings: dict[str, Any],
     k: int,
     llm_model: str,
+    generator_model: str | None = None,
     validated_only: bool = False,
 ) -> str:
     """SHA-256 of everything that affects an evaluation run's result: the QA pairs (id, question,
     answer, document_id, relevant documents, validated, golden), the chunking/embedding config, k,
-    the LLM model, and the validated_only scope. If none of these changed since the last run with the same model, the
+    the judge model, the generator model (it writes the answers the judge scores), and the
+    validated_only scope. If none of these changed since the last run with the same models, the
     result would be identical and there's no reason to re-run (same dedup strategy as
     _transcript_hash for DiscussionScore).
     """
@@ -142,6 +127,7 @@ def _evaluation_hash(
         "embedding_model": collection_settings["embedding_model"],
         "k": k,
         "llm_model": llm_model,
+        "generator_model": generator_model,
         "validated_only": validated_only,
     }
     return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
@@ -156,86 +142,179 @@ def _relevant_documents(pair: dict[str, Any]) -> list[str]:
     return [str(pair["document_id"])] if pair.get("document_id") else []
 
 
-def _score_pair(pair: dict[str, Any], search_results: list[dict[str, Any]], total_relevant: int) -> dict[str, float]:
-    relevant = set(_relevant_documents(pair))
-    relevances = [str(result["document_id"]) in relevant for result in search_results]
+def _write_promptfoo_dir(
+    directory: Path,
+    *,
+    collection_id: str,
+    k: int,
+    judge_model: str,
+    generator_model: str,
+    pairs: list[dict[str, Any]],
+) -> None:
+    """Lays out everything promptfoo needs in one throwaway directory: the generated YAML, the
+    provider and test-loader modules copied next to it (promptfoo resolves file:// paths relative
+    to the YAML), and the already-filtered QA pairs as pairs.json.
+
+    The YAML is built as a dict then safe_dumped - never string-interpolated - so a question or
+    a model name can never inject YAML structure. No secret is written into it: both the judge
+    (apiKeyEnvar) and the provider (api_key_envar) read WORKER_API_KEY from the environment the
+    subprocess inherits, because promptfoo replays the whole config into results.json - a stored
+    artifact.
+    """
+    for module in ("provider.py", "create_tests.py"):
+        shutil.copy2(Path(__file__).parent / "promptfoo" / module, directory / module)
+    (directory / "pairs.json").write_text(json.dumps(pairs, ensure_ascii=False))
+
+    config = {
+        "description": f"Muffin evaluation - collection {collection_id}",
+        # Never send any result to promptfoo's servers.
+        "sharing": False,
+        "prompts": ["{{question}}"],
+        "providers": [
+            {
+                "id": "file://provider.py",
+                "label": "muffin-retrieval",
+                "config": {
+                    "backend_url": settings.BACKEND_API_URL,
+                    "api_key_envar": "WORKER_API_KEY",
+                    "collection_id": collection_id,
+                    "k": k,
+                    "generator_model": generator_model,
+                },
+            }
+        ],
+        "defaultTest": {
+            "options": {
+                # The judge: the collection's "evaluation" model, through the backend's
+                # OpenAI-compatible proxy. X-Collection-Id makes the proxy attribute the
+                # judge's tokens to the collection's owner.
+                "provider": {
+                    "id": f"openai:chat:{judge_model}",
+                    "config": {
+                        "apiBaseUrl": f"{settings.BACKEND_API_URL}/api/internal/v1",
+                        "apiKeyEnvar": "WORKER_API_KEY",
+                        "temperature": 0,
+                        "headers": {"X-Collection-Id": collection_id},
+                    },
+                },
+                # The provider returns {answer, context}: the assertion scores the answer.
+                "transform": "output.answer",
+            }
+        },
+        "tests": [
+            {
+                "path": "file://create_tests.py:create_tests",
+                "config": {"pairs_file": "pairs.json"},
+            }
+        ],
+        "evaluateOptions": {"maxConcurrency": settings.EVAL_CONCURRENCY},
+    }
+    (directory / "promptfooconfig.yaml").write_text(yaml.safe_dump(config, sort_keys=False))
+
+
+# promptfoo exits 100 when at least one test failed its threshold - that is a legitimate
+# evaluation outcome (a low factuality score), not an execution error. Anything else (1,
+# timeout, missing binary) means the run itself broke and the task must fail.
+_PROMPTFOO_OK_EXIT_CODES = (0, 100)
+
+
+def _run_promptfoo(directory: Path) -> tuple[bytes, bytes]:
+    """Runs `promptfoo eval` in the directory and returns (results.json, report.html) - the
+    subprocess inherits this process's environment, so WORKER_API_KEY is visible to both the
+    judge and the provider without ever being written to disk."""
+    binary = shutil.which("promptfoo")
+    if binary is None:
+        raise RuntimeError(
+            "promptfoo is not installed - the evaluation worker image must bundle Node.js and "
+            "a pinned promptfoo (see worker/evaluation/Dockerfile)"
+        )
+    completed = subprocess.run(  # noqa: S603
+        [
+            binary,
+            "eval",
+            "--config",
+            "promptfooconfig.yaml",
+            "--output",
+            "results.json",
+            "--output",
+            "report.html",
+            "--no-cache",
+            "--no-progress-bar",
+            "--no-table",
+            # Keep promptfoo's own copy of the results out of the container: the task
+            # uploads the artifacts it needs itself.
+            "--no-write",
+        ],
+        cwd=directory,
+        capture_output=True,
+        text=True,
+        timeout=settings.EVAL_TIMEOUT_SECONDS,
+    )
+    if completed.returncode not in _PROMPTFOO_OK_EXIT_CODES:
+        logger.error(f"promptfoo exited with {completed.returncode}:\n{completed.stdout}\n{completed.stderr}")
+        raise RuntimeError(f"promptfoo eval failed with exit code {completed.returncode}")
+
+    results = (directory / "results.json").read_bytes()
+    report = (directory / "report.html").read_bytes()
+    # A results.json that does not parse means the run did not produce what we expect - fail
+    # the task rather than persist a run built on a misread artifact.
+    json.loads(results)
+    return results, report
+
+
+def _counts_from_results(results_json: bytes) -> dict[str, int]:
+    """The run's counters, read from what actually ran (the artifact) rather than from what was
+    intended (pairs.json) - the artifact is the truth. Golden pairs are counted apart, exactly
+    like the old metric columns did: they are the human-written test set."""
+    tests = json.loads(results_json)["results"]["results"]
+    golden = [_coerce_bool(t.get("vars", {}).get("golden")) for t in tests]
+    validated = [_coerce_bool(t.get("vars", {}).get("validated")) for t in tests]
     return {
-        "precision_at_k": metrics.precision_at_k(relevances),
-        "recall_at_k": metrics.recall_at_k(relevances, total_relevant),
-        "reciprocal_rank": metrics.reciprocal_rank(relevances),
-        "ndcg": metrics.ndcg(relevances),
+        "pair_count": len(tests),
+        "golden_pair_count": sum(golden),
+        "validated_pair_count": sum(v and not g for v, g in zip(validated, golden, strict=False)),
+        "unvalidated_pair_count": sum(not v and not g for v, g in zip(validated, golden, strict=False)),
     }
 
 
-def _average(results: list[dict[str, Any]]) -> dict[str, float | None]:
-    """The global aggregate - every evaluated pair that isn't golden, validated and not (the golden
-    ones are scored apart, see _golden_average). None when there is no such pair, so a run made only
-    of test questions never reports a misleading 0.0."""
-    count = len(results)
-    if count == 0:
-        return {"precision_at_k": None, "recall_at_k": None, "mrr": None, "ndcg": None}
-    return {
-        "precision_at_k": sum(r["precision_at_k"] for r in results) / count,
-        "recall_at_k": sum(r["recall_at_k"] for r in results) / count,
-        "mrr": sum(r["reciprocal_rank"] for r in results) / count,
-        "ndcg": sum(r["ndcg"] for r in results) / count,
-    }
-
-
-def _subset_average(results: list[dict[str, Any]], validated: bool) -> dict[str, Any]:
-    """Same four metrics as _average, but over just the validated (or just the not-yet-validated)
-    subset - None when that subset is empty, so an absent subset never gets reported as a
-    misleading 0.0 (see EvaluationRun's docstring on the backend)."""
-    prefix = "validated" if validated else "unvalidated"
-    subset = [r for r in results if r["validated"] is validated and not r["golden"]]
-    if not subset:
-        return {
-            f"{prefix}_pair_count": 0,
-            f"{prefix}_precision_at_k": None,
-            f"{prefix}_recall_at_k": None,
-            f"{prefix}_mrr": None,
-            f"{prefix}_ndcg": None,
-        }
-    return {
-        f"{prefix}_pair_count": len(subset),
-        f"{prefix}_precision_at_k": sum(r["precision_at_k"] for r in subset) / len(subset),
-        f"{prefix}_recall_at_k": sum(r["recall_at_k"] for r in subset) / len(subset),
-        f"{prefix}_mrr": sum(r["reciprocal_rank"] for r in subset) / len(subset),
-        f"{prefix}_ndcg": sum(r["ndcg"] for r in subset) / len(subset),
-    }
+def _coerce_bool(value: Any) -> bool:
+    """promptfoo's vars come back as strings when loaded from some paths - "false" must not
+    read as true (same coercion as the backend's evaluation_artifacts)."""
+    if isinstance(value, str):
+        return value.strip().lower() == "true"
+    return bool(value)
 
 
 @celery_app.task(name="app.tasks.run_evaluation", bind=True)
 def run_evaluation(self, collection_id: str, k: int | None = None, validated_only: bool = False) -> None:
     """Replays every QA pair of a collection through the same search the research agent uses,
-    scores retrieval against each pair's source document (the only ground truth a QaPair carries
-    - see app/metrics.py), generates an answer from what was retrieved, then posts one
-    fully-computed EvaluationRun back to the backend (see #11 - the model has no in-progress
-    state, so nothing is created until everything is scored). The run's aggregates are reported
-    four ways - global, validated-only, unvalidated-only (all three over the pairs that aren't
-    golden), and the golden test questions apart (#260) - so a low score can be told apart from
-    "these questions were never reviewed" rather than looking like a retrieval problem, and the
-    human-written test set is never blended with generated questions. A golden pair can name several
-    relevant documents; any other pair has its one source document. When
-    validated_only is True, only validated QA pairs are evaluated; when False (default), all QA
-    pairs with a source document are evaluated regardless of validation status. No self.request.id
-    Task registration here, unlike worker/document_process's spawned tasks: this is a single task
-    with no children, and the backend already creates its Task row itself right after dispatching
-    it (see EvaluationService.trigger - it already knows the user at that point, no round trip
-    needed)."""
+    generates an answer from what was retrieved, and has the collection's "evaluation" model
+    judge each answer's factuality - all of it driven by promptfoo (see app/promptfoo/): the
+    task lays out a throwaway config directory, runs `promptfoo eval`, then posts one
+    EvaluationRun back to the backend with the two artifacts (results.json + report.html) as
+    its whole persistence (see #11 - the model has no in-progress state, so nothing is created
+    until the evaluation succeeded). The per-pair scores and every aggregate are computed from
+    the stored artifact at read time, on the backend. A golden pair can name several relevant
+    documents; any other pair has its one source document. When validated_only is True, only
+    validated QA pairs are evaluated; when False (default), all QA pairs with a source document
+    are evaluated regardless of validation status. No self.request.id Task registration here,
+    unlike worker/document_process's spawned tasks: this is a single task with no children, and
+    the backend already creates its Task row itself right after dispatching it (see
+    EvaluationService.trigger - it already knows the user at that point, no round trip needed).
+    """
     k = k or settings.DEFAULT_TOP_K
     collection_settings = backend_client.get_collection_settings(collection_id)
-    model = (collection_settings.get("generation_models") or {}).get(
+    judge_model = (collection_settings.get("generation_models") or {}).get(
         "evaluation"
     ) or backend_client.get_default_chat_model()
-    if model is None:
+    generator_model = backend_client.get_default_chat_model()
+    if judge_model is None or generator_model is None:
         logger.warning(f"No chat model available to run evaluation for collection {collection_id}, skipping")
         return
 
     qa_pairs = backend_client.list_qa_pairs(collection_id)
-    # Relevance can only be judged at document granularity (see app/metrics.py's module
-    # docstring) - a pair with no source document has nothing to score retrieval against,
-    # regardless of whether it's validated.
+    # A pair with no source document has nothing to score against, regardless of whether
+    # it's validated.
     evaluable_pairs = [pair for pair in qa_pairs if _relevant_documents(pair)]
     # When validated_only is True, restrict to validated pairs only; when False (default),
     # evaluate all pairs with a source document - the run's validated/unvalidated breakdown
@@ -250,10 +329,10 @@ def run_evaluation(self, collection_id: str, k: int | None = None, validated_onl
         return
 
     # Dedup: if an identical run already exists (same QA pairs content, same chunking/embedding
-    # settings, same k, same LLM model, same validated_only scope), skip - the result would be
-    # identical. Same strategy as score_discussion's content_hash skip (see #31).
-    content_hash = _evaluation_hash(qa_pairs, collection_settings, k, model, validated_only)
-    existing_id = backend_client.find_evaluation_run(collection_id, content_hash, model)
+    # settings, same k, same judge AND generator models, same validated_only scope), skip - the
+    # result would be identical. Same strategy as score_discussion's content_hash skip (see #31).
+    content_hash = _evaluation_hash(qa_pairs, collection_settings, k, judge_model, generator_model, validated_only)
+    existing_id = backend_client.find_evaluation_run(collection_id, content_hash, judge_model)
     if existing_id is not None:
         logger.info(
             f"Evaluation run {existing_id} already exists for collection {collection_id} "
@@ -261,53 +340,38 @@ def run_evaluation(self, collection_id: str, k: int | None = None, validated_onl
         )
         return
 
-    logger.info(f"Evaluating {len(evaluable_pairs)} QA pair(s) for collection {collection_id} at k={k}")
+    logger.info(
+        f"Evaluating {len(evaluable_pairs)} QA pair(s) for collection {collection_id} at k={k} "
+        f"(judge: {judge_model}, generator: {generator_model})"
+    )
 
-    chunk_counts: dict[str, int] = {}
-    results = []
-    for pair in evaluable_pairs:
-        search_results = backend_client.search([collection_id], pair["question"], k)
-        # Recall's denominator is every chunk of every document that holds the answer.
-        for document_id in _relevant_documents(pair):
-            if document_id not in chunk_counts:
-                chunk_counts[document_id] = backend_client.get_document_chunk_count(document_id)
-        total_relevant = sum(chunk_counts[document_id] for document_id in _relevant_documents(pair))
-
-        scores = _score_pair(pair, search_results, total_relevant)
-        generated_answer = _build_answer(model, pair["question"], search_results)
-
-        results.append(
-            {
-                "qa_pair_id": pair["id"],
-                "question": pair["question"],
-                "expected_answer": pair["answer"],
-                "generated_answer": generated_answer,
-                "validated": pair["validated"],
-                "golden": bool(pair.get("golden")),
-                "retrieved_sources": [f"{r['document_name']}#{r['chunk_id']}" for r in search_results],
-                **scores,
-            }
+    with tempfile.TemporaryDirectory(prefix="muffin-eval-") as temp_dir:
+        directory = Path(temp_dir)
+        _write_promptfoo_dir(
+            directory,
+            collection_id=collection_id,
+            k=k,
+            judge_model=judge_model,
+            generator_model=generator_model,
+            pairs=evaluable_pairs,
         )
+        results_json, report_html = _run_promptfoo(directory)
 
     payload = {
         "k": k,
-        "pair_count": len(results),
-        "llm_model": model,
+        "llm_model": judge_model,
         "snapshot_chunking_strategy": collection_settings["chunking_strategy"],
         "snapshot_chunk_size": collection_settings["chunk_size"],
         "snapshot_chunk_overlap": collection_settings["chunk_overlap"],
         "snapshot_embedding_model": collection_settings["embedding_model"],
-        # The golden pairs are scored apart from every other aggregate below: they are the
-        # human-written test set, and a generated question's score must never be blended with one.
-        **_average([r for r in results if not r["golden"]]),
-        **_golden_average(results),
-        **_subset_average(results, validated=True),
-        **_subset_average(results, validated=False),
         "content_hash": content_hash,
-        "results": results,
+        **_counts_from_results(results_json),
     }
     run_id = backend_client.create_evaluation_run(collection_id, payload)
-    logger.info(f"Evaluation run {run_id} created for collection {collection_id}: {len(results)} pair(s) scored")
+    backend_client.upload_evaluation_artifacts(collection_id, run_id, results_json, report_html)
+    logger.info(
+        f"Evaluation run {run_id} created for collection {collection_id}: {payload['pair_count']} pair(s) evaluated"
+    )
 
 
 @celery_app.task(name="app.tasks.score_discussion", bind=True)
@@ -362,24 +426,3 @@ def score_discussion(self, conversation_id: str, model: str | None = None) -> No
     }
     score_id = backend_client.create_discussion_score(conversation_id, payload)
     logger.info(f"Discussion score {score_id} created for conversation {conversation_id}")
-
-
-def _golden_average(results: list[dict[str, Any]]) -> dict[str, Any]:
-    """The same four metrics over the golden pairs only (#260): human-written questions that are in
-    no index, so the scores to follow over time. None when there are none."""
-    subset = [r for r in results if r["golden"]]
-    if not subset:
-        return {
-            "golden_pair_count": 0,
-            "golden_precision_at_k": None,
-            "golden_recall_at_k": None,
-            "golden_mrr": None,
-            "golden_ndcg": None,
-        }
-    return {
-        "golden_pair_count": len(subset),
-        "golden_precision_at_k": sum(r["precision_at_k"] for r in subset) / len(subset),
-        "golden_recall_at_k": sum(r["recall_at_k"] for r in subset) / len(subset),
-        "golden_mrr": sum(r["reciprocal_rank"] for r in subset) / len(subset),
-        "golden_ndcg": sum(r["ndcg"] for r in subset) / len(subset),
-    }

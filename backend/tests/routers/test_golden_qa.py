@@ -1,3 +1,4 @@
+import json
 import uuid
 from unittest.mock import patch
 
@@ -259,105 +260,90 @@ async def test_the_evaluation_worker_is_given_the_golden_flag_and_every_relevant
     assert generated["relevant_document_ids"] == []
 
 
-async def test_an_evaluation_run_reports_its_golden_scores_apart(client):
-    collection_id, (doc_a, _) = await _collection()
-    payload = {
-        "k": 5,
-        "pair_count": 2,
-        "llm_model": "test-model",
-        "content_hash": "golden-run",
-        "snapshot_chunking_strategy": "paragraph",
-        "snapshot_chunk_size": 500,
-        "snapshot_chunk_overlap": 50,
-        "snapshot_embedding_model": "text-embedding-3-small",
-        "precision_at_k": 0.5,
-        "recall_at_k": 0.25,
-        "mrr": 0.5,
-        "ndcg": 0.5,
-        "golden_pair_count": 1,
-        "golden_precision_at_k": 1.0,
-        "golden_recall_at_k": 0.75,
-        "golden_mrr": 1.0,
-        "golden_ndcg": 1.0,
-        "validated_pair_count": 1,
-        "validated_precision_at_k": 0.5,
-        "validated_recall_at_k": 0.25,
-        "validated_mrr": 0.5,
-        "validated_ndcg": 0.5,
-        "unvalidated_pair_count": 0,
-        "unvalidated_precision_at_k": None,
-        "unvalidated_recall_at_k": None,
-        "unvalidated_mrr": None,
-        "unvalidated_ndcg": None,
-        "results": [
-            {
-                "qa_pair_id": None,
-                "question": "Test ?",
-                "expected_answer": "x",
-                "generated_answer": "y",
-                "precision_at_k": 1.0,
-                "recall_at_k": 0.75,
-                "reciprocal_rank": 1.0,
-                "ndcg": 1.0,
-                "validated": True,
-                "golden": True,
-                "retrieved_sources": ["a.pdf#1"],
-            }
-        ],
+def _results_json(*tests):
+    return {"results": {"results": list(tests)}}
+
+
+def _test_row(question, factuality, golden):
+    return {
+        "vars": {"question": question, "reference": "x", "validated": True, "golden": golden},
+        "response": {"output": {"answer": "y"}, "metadata": {"sources": ["a.pdf#1"]}},
+        "namedScores": {"factuality": factuality},
     }
+
+
+async def _run_with_artifact(client, monkeypatch, collection_id, tests, golden_pair_count):
+    """Creates the run then uploads its promptfoo artifact, RustFS mocked out."""
+    objects: dict[str, bytes] = {}
+    monkeypatch.setattr("app.core.storage.put_object", lambda key, data, content_type: objects.update({key: data}))
+    monkeypatch.setattr(
+        "app.core.storage.get_object",
+        lambda key: (objects[key], "application/json" if key.endswith(".json") else "text/html"),
+    )
     created = await client.post(
-        f"/api/internal/collections/{collection_id}/evaluation-runs", json=payload, headers=WORKER
+        f"/api/internal/collections/{collection_id}/evaluation-runs",
+        json={
+            "k": 5,
+            "pair_count": len(tests),
+            "llm_model": "test-model",
+            "content_hash": f"hash-{uuid.uuid4()}",
+            "snapshot_chunking_strategy": "paragraph",
+            "snapshot_chunk_size": 500,
+            "snapshot_chunk_overlap": 50,
+            "snapshot_embedding_model": "text-embedding-3-small",
+            "golden_pair_count": golden_pair_count,
+            "validated_pair_count": len(tests) - golden_pair_count,
+            "unvalidated_pair_count": 0,
+        },
+        headers=WORKER,
     )
     assert created.status_code == 201
+    run_id = created.json()["id"]
+    uploaded = await client.post(
+        f"/api/internal/collections/{collection_id}/evaluation-runs/{run_id}/artifacts",
+        headers=WORKER,
+        files={
+            "results": ("results.json", json.dumps(_results_json(*tests)).encode(), "application/json"),
+            "report": ("report.html", b"<html></html>", "text/html"),
+        },
+    )
+    assert uploaded.status_code == 201
+    return run_id
 
-    (run,) = (await client.get(f"/api/collections/{collection_id}/evaluations")).json()
 
-    assert (run["golden_pair_count"], run["golden_precision_at_k"], run["golden_recall_at_k"]) == (1, 1.0, 0.75)
-    assert run["precision_at_k"] == 0.5  # the generated pairs' own, untouched by the golden one
-    assert run["results"][0]["golden"] is True
-
-
-async def test_a_run_made_only_of_golden_pairs_has_no_global_aggregate(client):
+async def test_an_evaluation_run_reports_its_golden_scores_apart(client, monkeypatch):
     collection_id, _ = await _collection()
-    payload = {
-        "k": 5,
-        "pair_count": 1,
-        "llm_model": "test-model",
-        "content_hash": "golden-only",
-        "snapshot_chunking_strategy": "paragraph",
-        "snapshot_chunk_size": 500,
-        "snapshot_chunk_overlap": 50,
-        "snapshot_embedding_model": "text-embedding-3-small",
-        "precision_at_k": None,
-        "recall_at_k": None,
-        "mrr": None,
-        "ndcg": None,
-        "golden_pair_count": 1,
-        "golden_precision_at_k": 1.0,
-        "golden_recall_at_k": 1.0,
-        "golden_mrr": 1.0,
-        "golden_ndcg": 1.0,
-        "validated_pair_count": 0,
-        "validated_precision_at_k": None,
-        "validated_recall_at_k": None,
-        "validated_mrr": None,
-        "validated_ndcg": None,
-        "unvalidated_pair_count": 0,
-        "unvalidated_precision_at_k": None,
-        "unvalidated_recall_at_k": None,
-        "unvalidated_mrr": None,
-        "unvalidated_ndcg": None,
-        "results": [],
-    }
-    created = await client.post(
-        f"/api/internal/collections/{collection_id}/evaluation-runs", json=payload, headers=WORKER
+    await _run_with_artifact(
+        client,
+        monkeypatch,
+        collection_id,
+        tests=[
+            _test_row("Question générée ?", 0.5, golden=False),
+            _test_row("Question dorée ?", 1.0, golden=True),
+        ],
+        golden_pair_count=1,
     )
-    assert created.status_code == 201
 
     (run,) = (await client.get(f"/api/collections/{collection_id}/evaluations")).json()
 
-    assert run["precision_at_k"] is None and run["mrr"] is None
-    assert run["golden_precision_at_k"] == 1.0
+    assert run["golden_metrics"] == {"factuality": 1.0}
+    assert run["metrics"] == {"factuality": 0.5}  # the generated pairs' own, untouched by the golden one
+
+
+async def test_a_run_made_only_of_golden_pairs_has_no_global_aggregate(client, monkeypatch):
+    collection_id, _ = await _collection()
+    await _run_with_artifact(
+        client,
+        monkeypatch,
+        collection_id,
+        tests=[_test_row("Question dorée ?", 1.0, golden=True)],
+        golden_pair_count=1,
+    )
+
+    (run,) = (await client.get(f"/api/collections/{collection_id}/evaluations")).json()
+
+    assert run["metrics"] is None
+    assert run["golden_metrics"] == {"factuality": 1.0}
 
 
 # -- a reference pair, written by hand, is the opposite: the assistant answers from it --------------

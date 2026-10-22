@@ -139,7 +139,7 @@ désactivée par défaut en amont et doit être explicitement activée côté se
 
 | Variable | Définition | Défaut | Utilisée par |
 |---|---|---|---|
-| `WORKER_API_KEY` | Secret partagé, vérifié sur chaque appel `/internal/*` par `app/core/security/worker_auth.py` (dépendance `require_worker_api_key`) | `""` côté backend / `""` côté workers | **backend** (`app/config/worker.py`), **worker/document_process**, **worker/agent_execution**, **worker/evaluation**, **worker/document_edit** — doit être identique des deux côtés, sinon tout appel interne échoue en 401 |
+| `WORKER_API_KEY` | Secret partagé, vérifié sur chaque appel `/internal/*` par `app/core/security/worker_auth.py` (dépendance `require_worker_api_key`) et sur le proxy OpenAI-compatible `/api/internal/v1` (dépendance `require_worker_bearer_key`, utilisé par le juge promptfoo) | `""` côté backend / `""` côté workers | **backend** (`app/config/worker.py`), **worker/document_process**, **worker/agent_execution**, **worker/evaluation**, **worker/document_edit** — doit être identique des deux côtés, sinon tout appel interne échoue en 401 |
 
 ## Partage de collections (invitations hashées)
 
@@ -323,12 +323,14 @@ Délégation d'une modification de document vivant à l'agent d'édition (#171) 
 | `EDIT_WAIT_SECONDS` | Durée maximale pendant laquelle un run attend que l'agent d'édition ait fini une modification déléguée. Passé ce délai, la réponse dit que la proposition apparaîtra dans la carte du chat | `300` | idem (`graph/nodes/delegate_edit.py`) |
 | `EDIT_POLL_SECONDS` | Intervalle entre deux interrogations du backend sur l'état du brouillon pendant cette attente | `2.0` | idem |
 
-## worker/evaluation — évaluation du retrieval (issue #11)
+## worker/evaluation — évaluation des réponses via promptfoo (issue #11)
 
 | Variable | Définition | Défaut | Utilisée par |
 |---|---|---|---|
 | `CELERY_QUEUE_NAME` | Nom de la queue Celery consommée par ce worker | `evaluation` | **worker/evaluation** (`app/config.py`) |
 | `DEFAULT_TOP_K` | Nombre de chunks retrouvés par question quand `k` n'est pas explicitement passé à la tâche | `5` | idem (`app/tasks.py`) |
+| `EVAL_CONCURRENCY` | Nombre de paires QA évaluées en parallèle par promptfoo (`evaluateOptions.maxConcurrency` du YAML généré) | `4` | idem (`app/tasks.py`) |
+| `EVAL_TIMEOUT_SECONDS` | Délai maximal du subprocess promptfoo pour un run complet | `3600` | idem (`app/tasks.py`) |
 
 ## worker/document_edit — édition de documents vivants (issue #167)
 

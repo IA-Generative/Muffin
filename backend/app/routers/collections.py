@@ -1,7 +1,7 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security.factory import RequestContext, get_current_user
@@ -24,7 +24,7 @@ from app.schemas.collection import (
     ShareOut,
     VisibilityUpdate,
 )
-from app.schemas.evaluation import EvaluationRunOut, EvaluationTriggerRequest
+from app.schemas.evaluation import EvaluationResultOut, EvaluationRunOut, EvaluationTriggerRequest
 from app.schemas.feedback import FeedbackStatsOut
 from app.schemas.pagination import Page, PaginationParams
 from app.services.collection_hierarchy_service import (
@@ -45,6 +45,7 @@ from app.services.evaluation_service import (
     CollectionNotFoundError as EvaluationCollectionNotFoundError,
 )
 from app.services.evaluation_service import (
+    EvaluationArtifactNotFoundError,
     EvaluationRunNotFoundError,
     EvaluationService,
 )
@@ -264,8 +265,9 @@ async def get_feedback_stats(collection_id: uuid.UUID, user: UserDep, service: S
 
 @router.post(
     "/collections/{collection_id}/evaluations",
-    summary="Trigger a retrieval-evaluation run against this collection's QA pairs "
-    "(runs asynchronously in a dedicated worker - see #11)",
+    summary="Trigger an evaluation run against this collection's QA pairs - promptfoo "
+    "replays retrieval and judges each generated answer's factuality (runs asynchronously "
+    "in a dedicated worker - see #11)",
     status_code=status.HTTP_202_ACCEPTED,
 )
 async def trigger_evaluation(
@@ -283,7 +285,8 @@ async def trigger_evaluation(
 
 @router.get(
     "/collections/{collection_id}/evaluations",
-    summary="List this collection's retrieval-evaluation runs, most recent first (see #11)",
+    summary="List this collection's evaluation runs, most recent first, with their factuality "
+    "averages computed from the run's results.json artifact (see #11)",
     response_model=list[EvaluationRunOut],
 )
 async def list_evaluations(
@@ -295,9 +298,79 @@ async def list_evaluations(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
 
 
+@router.get(
+    "/collections/{collection_id}/evaluations/{run_id}/results",
+    summary="One run's per-pair detail (question, expected and generated answers, retrieved "
+    "sources, factuality), normalized from its results.json artifact (see #11)",
+    response_model=list[EvaluationResultOut],
+)
+async def list_evaluation_results(
+    collection_id: uuid.UUID, run_id: uuid.UUID, user: UserDep, service: EvaluationServiceDep
+) -> list[EvaluationResultOut]:
+    try:
+        return await service.run_results(collection_id, run_id, user)
+    except EvaluationCollectionNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
+    except EvaluationRunNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Evaluation run not found") from error
+
+
+@router.get(
+    "/collections/{collection_id}/evaluations/{run_id}/report",
+    summary="One run's promptfoo HTML report, served through the backend so every access is "
+    "re-checked against the user's collection access (see #11)",
+    response_class=Response,
+)
+async def get_evaluation_report(
+    collection_id: uuid.UUID,
+    run_id: uuid.UUID,
+    user: UserDep,
+    service: EvaluationServiceDep,
+    download: bool = False,
+) -> Response:
+    try:
+        report = await service.run_report(collection_id, run_id, user)
+    except EvaluationCollectionNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
+    except EvaluationRunNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Evaluation run not found") from error
+    except EvaluationArtifactNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="No report for this evaluation run"
+        ) from error
+    headers = {"Content-Disposition": 'attachment; filename="evaluation-report.html"'} if download else None
+    return Response(content=report, media_type="text/html", headers=headers)
+
+
+@router.get(
+    "/collections/{collection_id}/evaluations/{run_id}/results.json",
+    summary="One run's raw promptfoo results.json - the downloadable source of truth for "
+    "everything scored in the run (see #11)",
+    response_class=Response,
+)
+async def download_evaluation_results_json(
+    collection_id: uuid.UUID, run_id: uuid.UUID, user: UserDep, service: EvaluationServiceDep
+) -> Response:
+    try:
+        data = await service.run_results_json(collection_id, run_id, user)
+    except EvaluationCollectionNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
+    except EvaluationRunNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Evaluation run not found") from error
+    except EvaluationArtifactNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="No results for this evaluation run"
+        ) from error
+    return Response(
+        content=data,
+        media_type="application/json",
+        headers={"Content-Disposition": 'attachment; filename="evaluation-results.json"'},
+    )
+
+
 @router.delete(
     "/collections/{collection_id}/evaluations/{run_id}",
-    summary="Delete a retrieval-evaluation run and all its per-pair results (see #11)",
+    summary="Delete an evaluation run and its RustFS artifacts (see #11)",
     status_code=status.HTTP_204_NO_CONTENT,
 )
 async def delete_evaluation(

@@ -1,6 +1,33 @@
+import json
+import os
+import stat
 from unittest.mock import MagicMock
 
+import pytest
+import yaml
+
 from app import task_logging, tasks
+
+# A minimal promptfoo results.json: the shape _counts_from_results and the backend's
+# artifact reader both walk is results.results[*].vars + namedScores.
+_RESULTS_JSON = {
+    "results": {
+        "results": [
+            {
+                "vars": {"question": "Validated?", "validated": True, "golden": False},
+                "namedScores": {"factuality": 0.9},
+            },
+            {
+                "vars": {"question": "Unvalidated?", "validated": False, "golden": False},
+                "namedScores": {"factuality": 0.5},
+            },
+            {
+                "vars": {"question": "Golden?", "validated": True, "golden": True},
+                "namedScores": {"factuality": 1.0},
+            },
+        ]
+    }
+}
 
 
 def _fake_settings(**overrides):
@@ -15,122 +42,116 @@ def _fake_settings(**overrides):
     return settings
 
 
-def _qa_pair(id_: str, question: str, document_id: str | None, validated: bool):
+def _qa_pair(id_: str, question: str, document_id: str | None, validated: bool, golden: bool = False):
     return {
         "id": id_,
         "question": question,
         "answer": "answer",
         "document_id": document_id,
         "validated": validated,
+        "golden": golden,
     }
 
 
-def _search_result(document_id: str, document_name: str = "handbook.pdf", chunk_id: str = "chunk-1"):
-    return {
-        "chunk_id": chunk_id,
-        "document_id": document_id,
-        "document_name": document_name,
-        "collection_id": "col-1",
-        "text": "Telework is allowed 2 days per week.",
-        "rank": 1.0,
-        "page_number": 1,
-    }
+def _fake_promptfoo_on_path(monkeypatch, tmp_path, *, exit_code=0, results=_RESULTS_JSON, raw_results=None):
+    """A promptfoo stand-in on PATH: writes both artifacts in its cwd, exits as told.
+    raw_results, when given, is written verbatim - to simulate a broken artifact."""
+    binary = tmp_path / "bin" / "promptfoo"
+    binary.parent.mkdir(parents=True, exist_ok=True)
+    payload = raw_results if raw_results is not None else json.dumps(results)
+    script = (
+        "#!/bin/sh\n"
+        "cat > results.json <<'EOF'\n"
+        f"{payload}\n"
+        "EOF\n"
+        "printf '%s' '<html>report</html>' > report.html\n"
+        f"exit {exit_code}\n"
+    )
+    binary.write_text(script)
+    binary.chmod(binary.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    monkeypatch.setenv("PATH", f"{binary.parent}{os.pathsep}{os.environ.get('PATH', '')}")
 
 
-def test_run_evaluation_scores_each_pair_and_posts_one_run(monkeypatch):
+def _run(monkeypatch, pairs, *, results=_RESULTS_JSON, exit_code=0, tmp_path=None, validated_only=False):
+    """Wires a fake backend and (unless the caller wants the subprocess to fail) a fake
+    promptfoo, runs the task, and returns the fake backend."""
+    if tmp_path is not None:
+        _fake_promptfoo_on_path(monkeypatch, tmp_path, exit_code=exit_code, results=results)
+
     fake = MagicMock()
     monkeypatch.setattr(tasks, "backend_client", fake)
     monkeypatch.setattr(task_logging, "backend_client", fake)
-
     fake.get_collection_settings.return_value = _fake_settings()
-    fake.get_default_chat_model.return_value = "test-model"
+    fake.get_default_chat_model.return_value = "generator-model"
     fake.find_evaluation_run.return_value = None
-    fake.list_qa_pairs.return_value = [_qa_pair("qa-1", "What is the telework policy?", "doc-1", validated=True)]
-    fake.search.return_value = [
-        _search_result("doc-1"),
-        _search_result("doc-2", "other.pdf", "chunk-2"),
-    ]
-    fake.get_document_chunk_count.return_value = 4
-    fake.llm_chat.return_value = "Telework is allowed 2 days per week."
+    fake.list_qa_pairs.return_value = pairs
     fake.create_evaluation_run.return_value = "run-1"
+    tasks.run_evaluation("col-1", 5, validated_only)
+    return fake
 
-    tasks.run_evaluation("col-1", 5)
 
-    fake.search.assert_called_once_with(["col-1"], "What is the telework policy?", 5)
-    fake.get_document_chunk_count.assert_called_once_with("doc-1")
+def test_run_evaluation_posts_one_run_with_both_artifacts(monkeypatch, tmp_path):
+    fake = _run(monkeypatch, [_qa_pair("qa-1", "q", "doc-1", validated=True)], tmp_path=tmp_path)
 
     fake.create_evaluation_run.assert_called_once()
     collection_id, payload = fake.create_evaluation_run.call_args.args
     assert collection_id == "col-1"
-    assert payload["pair_count"] == 1
+    # The slim metadata payload: no scores, no per-pair results - those live in the artifact.
     assert payload["k"] == 5
+    assert payload["llm_model"] == "generator-model"  # no "evaluation" model configured: default
     assert payload["snapshot_chunking_strategy"] == "paragraph"
-    assert payload["precision_at_k"] == 0.5  # 1 of 2 retrieved chunks belongs to doc-1
-    result = payload["results"][0]
-    assert result["qa_pair_id"] == "qa-1"
-    assert result["validated"] is True
-    assert result["generated_answer"] == "Telework is allowed 2 days per week."
-    assert result["retrieved_sources"] == ["handbook.pdf#chunk-1", "other.pdf#chunk-2"]
-
-
-def test_run_evaluation_breaks_metrics_down_by_validated_status(monkeypatch):
-    fake = MagicMock()
-    monkeypatch.setattr(tasks, "backend_client", fake)
-    monkeypatch.setattr(task_logging, "backend_client", fake)
-
-    fake.get_collection_settings.return_value = _fake_settings()
-    fake.get_default_chat_model.return_value = "test-model"
-    fake.find_evaluation_run.return_value = None
-    fake.list_qa_pairs.return_value = [
-        _qa_pair("qa-validated", "Validated question?", "doc-1", validated=True),
-        _qa_pair("qa-unvalidated", "Unvalidated question?", "doc-1", validated=False),
-    ]
-    # Perfect match for the validated pair, a miss for the unvalidated one - the two subset
-    # averages must diverge to prove they're computed independently, not just copies of the
-    # global one.
-    fake.search.side_effect = [
-        [_search_result("doc-1")],
-        [_search_result("doc-2", "other.pdf", "chunk-2")],
-    ]
-    fake.get_document_chunk_count.return_value = 1
-    fake.llm_chat.return_value = "answer"
-    fake.create_evaluation_run.return_value = "run-1"
-
-    tasks.run_evaluation("col-1", 5)
-
-    _, payload = fake.create_evaluation_run.call_args.args
-    assert payload["pair_count"] == 2
+    assert payload["content_hash"]
+    # Counters read from what actually ran, golden apart (same semantics as before).
+    assert payload["pair_count"] == 3
+    assert payload["golden_pair_count"] == 1
     assert payload["validated_pair_count"] == 1
-    assert payload["validated_precision_at_k"] == 1.0
     assert payload["unvalidated_pair_count"] == 1
-    assert payload["unvalidated_precision_at_k"] == 0.0
-    # Global sits between the two, over both pairs together.
-    assert payload["precision_at_k"] == 0.5
+
+    fake.upload_evaluation_artifacts.assert_called_once()
+    _, run_id, results_json, report_html = fake.upload_evaluation_artifacts.call_args.args
+    assert run_id == "run-1"
+    assert json.loads(results_json) == _RESULTS_JSON
+    assert report_html == b"<html>report</html>"
 
 
-def test_run_evaluation_reports_none_for_an_empty_subset(monkeypatch):
+def test_run_evaluation_accepts_failed_tests_as_results(monkeypatch, tmp_path):
+    # promptfoo exits 100 when a test scores below its threshold - a low factuality
+    # score is an evaluation outcome, not an execution error.
+    fake = _run(
+        monkeypatch,
+        [_qa_pair("qa-1", "q", "doc-1", validated=True)],
+        exit_code=100,
+        tmp_path=tmp_path,
+    )
+
+    fake.create_evaluation_run.assert_called_once()
+    fake.upload_evaluation_artifacts.assert_called_once()
+
+
+def test_run_evaluation_fails_without_artifacts_when_promptfoo_breaks(monkeypatch, tmp_path):
+    # Exit 1 means the run itself broke: the task fails and nothing is persisted -
+    # the model has no in-progress state (see #11).
+    with pytest.raises(RuntimeError, match="exit code 1"):
+        _run(monkeypatch, [_qa_pair("qa-1", "q", "doc-1", validated=True)], exit_code=1, tmp_path=tmp_path)
+
+
+def test_run_evaluation_fails_on_an_unparseable_results_json(monkeypatch, tmp_path):
+    # A results.json that does not parse means the run did not produce what we expect:
+    # fail the task rather than persist a run built on a misread artifact.
+    _fake_promptfoo_on_path(monkeypatch, tmp_path, raw_results="not json at all")
+
     fake = MagicMock()
     monkeypatch.setattr(tasks, "backend_client", fake)
     monkeypatch.setattr(task_logging, "backend_client", fake)
-
     fake.get_collection_settings.return_value = _fake_settings()
-    fake.get_default_chat_model.return_value = "test-model"
+    fake.get_default_chat_model.return_value = "m"
     fake.find_evaluation_run.return_value = None
     fake.list_qa_pairs.return_value = [_qa_pair("qa-1", "q", "doc-1", validated=True)]
-    fake.search.return_value = []
-    fake.get_document_chunk_count.return_value = 1
-    fake.llm_chat.return_value = "answer"
-    fake.create_evaluation_run.return_value = "run-1"
 
-    tasks.run_evaluation("col-1", 5)
+    with pytest.raises(json.JSONDecodeError):
+        tasks.run_evaluation("col-1", 5)
 
-    _, payload = fake.create_evaluation_run.call_args.args
-    assert payload["validated_pair_count"] == 1
-    assert payload["unvalidated_pair_count"] == 0
-    assert payload["unvalidated_precision_at_k"] is None
-    assert payload["unvalidated_recall_at_k"] is None
-    assert payload["unvalidated_mrr"] is None
-    assert payload["unvalidated_ndcg"] is None
+    fake.create_evaluation_run.assert_not_called()
 
 
 def test_run_evaluation_skips_qa_pairs_with_no_source_document(monkeypatch):
@@ -139,12 +160,42 @@ def test_run_evaluation_skips_qa_pairs_with_no_source_document(monkeypatch):
     monkeypatch.setattr(task_logging, "backend_client", fake)
 
     fake.get_collection_settings.return_value = _fake_settings()
+    fake.get_default_chat_model.return_value = "test-model"
     fake.list_qa_pairs.return_value = [_qa_pair("qa-1", "Manual pair?", None, validated=True)]
 
     tasks.run_evaluation("col-1", 5)
 
-    fake.search.assert_not_called()
     fake.create_evaluation_run.assert_not_called()
+
+
+def test_run_evaluation_restricts_to_validated_pairs_when_asked(monkeypatch, tmp_path):
+    _fake_promptfoo_on_path(monkeypatch, tmp_path, results={"results": {"results": []}})
+
+    # The filtering happens in the task, before pairs.json is written - the YAML's test
+    # loader must receive only the pairs that will run.
+    captured = {}
+    original = tasks._write_promptfoo_dir
+
+    def spy(directory, **kwargs):
+        captured["pairs"] = kwargs["pairs"]
+        original(directory, **kwargs)
+
+    monkeypatch.setattr(tasks, "_write_promptfoo_dir", spy)
+
+    fake = MagicMock()
+    monkeypatch.setattr(tasks, "backend_client", fake)
+    monkeypatch.setattr(task_logging, "backend_client", fake)
+    fake.get_collection_settings.return_value = _fake_settings()
+    fake.get_default_chat_model.return_value = "m"
+    fake.find_evaluation_run.return_value = None
+    fake.list_qa_pairs.return_value = [
+        _qa_pair("qa-1", "Validated", "doc-1", validated=True),
+        _qa_pair("qa-2", "Not yet", "doc-1", validated=False),
+    ]
+
+    tasks.run_evaluation("col-1", 5, validated_only=True)
+
+    assert [p["id"] for p in captured["pairs"]] == ["qa-1"]
 
 
 def test_run_evaluation_skips_entirely_without_a_chat_model(monkeypatch):
@@ -161,166 +212,167 @@ def test_run_evaluation_skips_entirely_without_a_chat_model(monkeypatch):
     fake.create_evaluation_run.assert_not_called()
 
 
-def test_run_evaluation_prefers_a_configured_evaluation_model(monkeypatch):
+def test_run_evaluation_prefers_a_configured_evaluation_model(monkeypatch, tmp_path):
     fake = MagicMock()
     monkeypatch.setattr(tasks, "backend_client", fake)
     monkeypatch.setattr(task_logging, "backend_client", fake)
+    _fake_promptfoo_on_path(monkeypatch, tmp_path)
 
-    fake.get_collection_settings.return_value = _fake_settings(generation_models={"evaluation": "gpt-configured"})
-    fake.list_qa_pairs.return_value = []
-
-    tasks.run_evaluation("col-1", 5)
-
-    fake.get_default_chat_model.assert_not_called()
-
-
-def test_run_evaluation_defaults_k_from_settings(monkeypatch):
-    fake = MagicMock()
-    monkeypatch.setattr(tasks, "backend_client", fake)
-    monkeypatch.setattr(task_logging, "backend_client", fake)
-    monkeypatch.setattr(tasks.settings, "DEFAULT_TOP_K", 7)
-
-    fake.get_collection_settings.return_value = _fake_settings()
-    fake.get_default_chat_model.return_value = "test-model"
+    fake.get_collection_settings.return_value = _fake_settings(generation_models={"evaluation": "judge-model"})
+    fake.get_default_chat_model.return_value = "generator-model"
     fake.find_evaluation_run.return_value = None
     fake.list_qa_pairs.return_value = [_qa_pair("qa-1", "q", "doc-1", validated=True)]
-    fake.search.return_value = []
-    fake.get_document_chunk_count.return_value = 1
-    fake.llm_chat.return_value = "answer"
-    fake.create_evaluation_run.return_value = "run-1"
-
-    tasks.run_evaluation("col-1", None)
-
-    fake.search.assert_called_once_with(["col-1"], "q", 7)
-
-
-# -- golden (test) pairs, scored apart (#260) ---------------------------------------------------
-
-
-def _golden(id_: str, question: str, relevant: list[str]):
-    return {
-        "id": id_,
-        "question": question,
-        "answer": "answer",
-        "document_id": relevant[0] if relevant else None,
-        "validated": True,
-        "golden": True,
-        "relevant_document_ids": relevant,
-    }
-
-
-def _run(monkeypatch, pairs, search_results, chunk_counts=None):
-    fake = MagicMock()
-    monkeypatch.setattr(tasks, "backend_client", fake)
-    monkeypatch.setattr(task_logging, "backend_client", fake)
-    fake.get_collection_settings.return_value = _fake_settings()
-    fake.get_default_chat_model.return_value = "test-model"
-    fake.find_evaluation_run.return_value = None
-    fake.list_qa_pairs.return_value = pairs
-    fake.search.return_value = search_results
-    fake.get_document_chunk_count.side_effect = lambda document_id: (chunk_counts or {}).get(document_id, 4)
-    fake.llm_chat.return_value = "answer"
-    fake.create_evaluation_run.return_value = "run-1"
-    tasks.run_evaluation("col-1", 5)
-    return fake, fake.create_evaluation_run.call_args.args[1]
-
-
-def test_golden_pairs_are_scored_apart_from_the_others(monkeypatch):
-    fake, payload = _run(
-        monkeypatch,
-        [
-            _qa_pair("qa-1", "Generated, found?", "doc-1", validated=True),
-            _golden("qa-2", "Golden, found?", ["doc-1"]),
-        ],
-        [_search_result("doc-1")],
-    )
-
-    # Every pair is evaluated and flagged...
-    assert payload["pair_count"] == 2
-    assert {r["qa_pair_id"]: r["golden"] for r in payload["results"]} == {"qa-1": False, "qa-2": True}
-    # ...and the golden one has its own aggregate, left out of every other one.
-    assert payload["golden_pair_count"] == 1
-    assert payload["golden_precision_at_k"] == 1.0
-    assert payload["validated_pair_count"] == 1 and payload["unvalidated_pair_count"] == 0
-
-
-def test_a_golden_score_is_never_blended_with_the_generated_ones(monkeypatch):
-    # The generated question finds its document, the golden one does not: neither score moves the other.
-    def search(_collection_ids, question, _k):
-        return [_search_result("doc-1")] if "Generated" in question else [_search_result("doc-9")]
-
-    fake = MagicMock()
-    monkeypatch.setattr(tasks, "backend_client", fake)
-    monkeypatch.setattr(task_logging, "backend_client", fake)
-    fake.get_collection_settings.return_value = _fake_settings()
-    fake.get_default_chat_model.return_value = "test-model"
-    fake.find_evaluation_run.return_value = None
-    fake.list_qa_pairs.return_value = [
-        _qa_pair("qa-1", "Generated, found?", "doc-1", validated=True),
-        _golden("qa-2", "Golden, not found", ["doc-1"]),
-    ]
-    fake.search.side_effect = search
-    fake.get_document_chunk_count.return_value = 4
-    fake.llm_chat.return_value = "answer"
     fake.create_evaluation_run.return_value = "run-1"
 
     tasks.run_evaluation("col-1", 5)
 
-    payload = fake.create_evaluation_run.call_args.args[1]
-    assert payload["precision_at_k"] == 1.0 and payload["mrr"] == 1.0
-    assert payload["validated_precision_at_k"] == 1.0
-    assert payload["golden_precision_at_k"] == 0.0 and payload["golden_mrr"] == 0.0
+    # The judge is the configured model; the generator stays the default one.
+    _, payload = fake.create_evaluation_run.call_args.args
+    assert payload["llm_model"] == "judge-model"
 
 
-def test_a_run_made_only_of_golden_pairs_has_no_global_aggregate(monkeypatch):
-    _, payload = _run(monkeypatch, [_golden("qa-1", "Golden", ["doc-1"])], [_search_result("doc-1")])
-
-    assert payload["precision_at_k"] is None and payload["mrr"] is None
-    assert payload["validated_pair_count"] == 0 and payload["validated_precision_at_k"] is None
-    assert payload["golden_pair_count"] == 1 and payload["golden_ndcg"] == 1.0
-
-
-def test_a_run_without_golden_pairs_reports_none_for_them(monkeypatch):
-    _, payload = _run(monkeypatch, [_qa_pair("qa-1", "Generated", "doc-1", validated=True)], [_search_result("doc-1")])
-
-    assert payload["golden_pair_count"] == 0
-    assert payload["golden_precision_at_k"] is None and payload["golden_recall_at_k"] is None
-
-
-def test_a_golden_pair_with_several_relevant_documents_counts_them_all(monkeypatch):
-    fake, payload = _run(
-        monkeypatch,
-        [_golden("qa-1", "Spans two documents", ["doc-1", "doc-2"])],
-        [_search_result("doc-1"), _search_result("doc-2", "other.pdf", "chunk-2"), _search_result("doc-3", "x.pdf")],
-        chunk_counts={"doc-1": 2, "doc-2": 2},
-    )
-
-    result = payload["results"][0]
-    # Two of the three retrieved chunks are relevant; recall is over the chunks of both documents.
-    assert result["precision_at_k"] == 2 / 3
-    assert result["recall_at_k"] == 2 / 4
-    assert {call.args[0] for call in fake.get_document_chunk_count.call_args_list} == {"doc-1", "doc-2"}
-
-
-def test_a_golden_pair_without_any_document_cannot_be_scored(monkeypatch):
+def test_run_evaluation_skips_when_an_identical_run_exists(monkeypatch):
     fake = MagicMock()
     monkeypatch.setattr(tasks, "backend_client", fake)
     monkeypatch.setattr(task_logging, "backend_client", fake)
+
     fake.get_collection_settings.return_value = _fake_settings()
     fake.get_default_chat_model.return_value = "test-model"
-    fake.list_qa_pairs.return_value = [_golden("qa-1", "No document", [])]
+    fake.find_evaluation_run.return_value = "existing-run"
+    fake.list_qa_pairs.return_value = [_qa_pair("qa-1", "q", "doc-1", validated=True)]
 
     tasks.run_evaluation("col-1", 5)
 
     fake.create_evaluation_run.assert_not_called()
 
 
-def test_adding_a_golden_pair_changes_the_evaluation_hash():
+def test_run_evaluation_defaults_k_from_settings(monkeypatch, tmp_path):
+    fake = MagicMock()
+    monkeypatch.setattr(tasks, "backend_client", fake)
+    monkeypatch.setattr(task_logging, "backend_client", fake)
+    monkeypatch.setattr(tasks.settings, "DEFAULT_TOP_K", 7)
+    _fake_promptfoo_on_path(monkeypatch, tmp_path)
+
+    fake.get_collection_settings.return_value = _fake_settings()
+    fake.get_default_chat_model.return_value = "test-model"
+    fake.find_evaluation_run.return_value = None
+    fake.list_qa_pairs.return_value = [_qa_pair("qa-1", "q", "doc-1", validated=True)]
+    fake.create_evaluation_run.return_value = "run-1"
+
+    tasks.run_evaluation("col-1", None)
+
+    _, payload = fake.create_evaluation_run.call_args.args
+    assert payload["k"] == 7
+
+
+# -- the generated promptfoo directory -----------------------------------------------
+
+
+def _written_config(tmp_path, **kwargs):
+    """Runs _write_promptfoo_dir into a directory and returns (directory, parsed YAML)."""
+    directory = tmp_path / "eval"
+    directory.mkdir()
+    parameters = {
+        "collection_id": "col-1",
+        "k": 5,
+        "judge_model": "judge-model",
+        "generator_model": "generator-model",
+        "pairs": [_qa_pair("qa-1", "Question ?", "doc-1", validated=True)],
+    }
+    parameters.update(kwargs)
+    tasks._write_promptfoo_dir(directory, **parameters)
+    config = yaml.safe_load((directory / "promptfooconfig.yaml").read_text())
+    return directory, config
+
+
+def test_the_generated_yaml_wires_provider_judge_and_tests(tmp_path):
+    directory, config = _written_config(tmp_path)
+
+    provider = config["providers"][0]
+    assert provider["id"] == "file://provider.py"
+    assert provider["config"]["collection_id"] == "col-1"
+    assert provider["config"]["k"] == 5
+    assert provider["config"]["generator_model"] == "generator-model"
+    assert provider["config"]["backend_url"] == tasks.settings.BACKEND_API_URL
+
+    judge = config["defaultTest"]["options"]["provider"]
+    assert judge["id"] == "openai:chat:judge-model"
+    assert judge["config"]["apiBaseUrl"].endswith("/api/internal/v1")
+    assert judge["config"]["headers"] == {"X-Collection-Id": "col-1"}
+    assert config["defaultTest"]["options"]["transform"] == "output.answer"
+
+    assert config["tests"][0]["path"] == "file://create_tests.py:create_tests"
+    assert config["sharing"] is False
+    assert config["evaluateOptions"] == {"maxConcurrency": tasks.settings.EVAL_CONCURRENCY}
+
+    # The modules are copied next to the YAML (promptfoo resolves file:// relative to it)
+    # and the pairs ride along as JSON.
+    assert (directory / "provider.py").exists()
+    assert (directory / "create_tests.py").exists()
+    assert json.loads((directory / "pairs.json").read_text())[0]["question"] == "Question ?"
+
+
+def test_the_generated_yaml_never_contains_the_api_key(tmp_path):
+    # promptfoo replays the whole config into results.json - a stored artifact. The key
+    # must only ever be read from the subprocess's inherited environment.
+    _, config = _written_config(tmp_path)
+
+    assert config["providers"][0]["config"]["api_key_envar"] == "WORKER_API_KEY"
+    assert config["defaultTest"]["options"]["provider"]["config"]["apiKeyEnvar"] == "WORKER_API_KEY"
+    if tasks.settings.WORKER_API_KEY:  # empty in tests, set in production - both must hold
+        assert tasks.settings.WORKER_API_KEY not in yaml.safe_dump(config)
+
+
+def test_a_question_can_not_inject_yaml_structure(tmp_path):
+    # The YAML is safe_dumped from a dict, never string-interpolated: a question holding
+    # YAML or Jinja syntax stays a plain string var.
+    malicious = "q: {{question}}\n  - injected: true"
+    directory, config = _written_config(tmp_path, pairs=[_qa_pair("qa-1", malicious, "doc-1", validated=True)])
+
+    assert config["prompts"] == ["{{question}}"]
+    assert json.loads((directory / "pairs.json").read_text())[0]["question"] == malicious
+
+
+# -- the dedup hash ------------------------------------------------------------------
+
+
+def test_the_evaluation_hash_covers_judge_generator_and_golden_pairs():
     settings = _fake_settings()
     generated = [_qa_pair("qa-1", "q", "doc-1", validated=True)]
+    golden = {**_qa_pair("qa-2", "q2", "doc-1", validated=True), "golden": True, "relevant_document_ids": ["doc-1"]}
 
-    base = tasks._evaluation_hash(generated, settings, 5, "m")
-    with_golden = tasks._evaluation_hash([*generated, _golden("qa-2", "q2", ["doc-1"])], settings, 5, "m")
-    other_documents = tasks._evaluation_hash([*generated, _golden("qa-2", "q2", ["doc-1", "doc-2"])], settings, 5, "m")
+    base = tasks._evaluation_hash(generated, settings, 5, "judge", "gen")
+    assert (
+        len(
+            {
+                base,
+                tasks._evaluation_hash(generated, settings, 5, "other-judge", "gen"),
+                tasks._evaluation_hash(generated, settings, 5, "judge", "other-gen"),
+                tasks._evaluation_hash([*generated, golden], settings, 5, "judge", "gen"),
+                tasks._evaluation_hash(generated, settings, 8, "judge", "gen"),
+            }
+        )
+        == 5
+    )
 
-    assert len({base, with_golden, other_documents}) == 3
+
+def test_counts_from_results_coerce_string_vars():
+    # promptfoo hands vars back as strings on some paths: "false" must not read as true.
+    results = json.dumps(
+        {
+            "results": {
+                "results": [
+                    {"vars": {"validated": "true", "golden": "false"}},
+                    {"vars": {"validated": "false", "golden": "false"}},
+                    {"vars": {"validated": "true", "golden": "true"}},
+                ]
+            }
+        }
+    ).encode()
+
+    assert tasks._counts_from_results(results) == {
+        "pair_count": 3,
+        "golden_pair_count": 1,
+        "validated_pair_count": 1,
+        "unvalidated_pair_count": 1,
+    }

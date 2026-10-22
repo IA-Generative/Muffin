@@ -17,20 +17,23 @@ class EvaluationTriggerRequest(BaseModel):
     validated_only: bool = False
 
 
-class EvaluationResultSourceOut(BaseModel):
-    source: str
+class EvaluationMetricsOut(BaseModel):
+    """A run's factuality averages, computed from its results.json artifact at read
+    time (see app/services/evaluation_artifacts.py) - not stored in the database."""
+
+    factuality: float | None
 
 
 class EvaluationResultOut(BaseModel):
-    id: uuid.UUID
-    qa_pair_id: uuid.UUID | None
+    """One QA pair's outcome in a run, normalized from the results.json artifact -
+    the frontend never parses promptfoo's format itself."""
+
+    qa_pair_id: str | None
     question: str
     expected_answer: str
     generated_answer: str
-    precision_at_k: float
-    recall_at_k: float
-    reciprocal_rank: float
-    ndcg: float
+    # None when the judge errored on this pair (no namedScores entry).
+    factuality: float | None
     validated: bool
     golden: bool = False
     retrieved_sources: list[str]
@@ -42,35 +45,23 @@ class EvaluationRunOut(BaseModel):
     created_at: datetime
     k: int
     pair_count: int
+    # The judge model (the collection's "evaluation" generation model).
     llm_model: str
     snapshot_chunking_strategy: ChunkingStrategy
     snapshot_chunk_size: int
     snapshot_chunk_overlap: int
     snapshot_embedding_model: str
-    # Global aggregate over the pairs that aren't golden - None when the run only had golden pairs.
-    precision_at_k: float | None
-    recall_at_k: float | None
-    mrr: float | None
-    ndcg: float | None
-    # The golden (test) pairs, scored apart - the numbers to follow over time. None when there are none.
+    # The golden (test) pairs, scored apart - the numbers to follow over time.
     golden_pair_count: int = 0
-    golden_precision_at_k: float | None = None
-    golden_recall_at_k: float | None = None
-    golden_mrr: float | None = None
-    golden_ndcg: float | None = None
-    # Same four metrics, broken down by whether the QA pair was validated at evaluation time -
-    # None when that subset is empty (see EvaluationRun's own docstring).
     validated_pair_count: int
-    validated_precision_at_k: float | None
-    validated_recall_at_k: float | None
-    validated_mrr: float | None
-    validated_ndcg: float | None
     unvalidated_pair_count: int
-    unvalidated_precision_at_k: float | None
-    unvalidated_recall_at_k: float | None
-    unvalidated_mrr: float | None
-    unvalidated_ndcg: float | None
-    # SHA-256 of (QA pairs + chunking settings + embedding model + k + llm_model) - present when
-    # the worker computed it for dedup (see EvaluationRun.content_hash).
+    # SHA-256 of (QA pairs + chunking settings + embedding model + k + judge model + generator
+    # model) - present when the worker computed it for dedup (see EvaluationRun.content_hash).
     content_hash: str | None = None
-    results: list[EvaluationResultOut]
+    # Factuality averages over the non-golden / golden pairs - None when that subset is
+    # empty, or when the run predates the promptfoo migration (no artifact).
+    metrics: EvaluationMetricsOut | None
+    golden_metrics: EvaluationMetricsOut | None
+    # Whether the report/results.json artifacts exist (download links, report preview) -
+    # False on the runs predating the promptfoo migration.
+    has_artifacts: bool

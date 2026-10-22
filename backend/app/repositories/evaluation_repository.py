@@ -1,58 +1,43 @@
 import uuid
 from collections.abc import Sequence
-from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
-from app.models.evaluation import (
-    EvaluationResult,
-    EvaluationResultSource,
-    EvaluationRun,
-)
+from app.models.evaluation import EvaluationRun
 
 
 class EvaluationRepository:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
-    async def create_run(self, collection_id: uuid.UUID, data: dict[str, Any]) -> EvaluationRun:
+    async def create_run(self, collection_id: uuid.UUID, data: dict) -> EvaluationRun:
         """One shot: the model has no in-progress state (no status column, see
         app/models/evaluation.py) - a run only ever exists once fully computed, so there's
-        nothing to create-then-update. worker/evaluation computes everything in memory and posts
-        it here once at the end."""
-        results_in = data.pop("results")
+        nothing to create-then-update. worker/evaluation runs promptfoo, posts the run's
+        metadata here, then uploads its artifacts right after (attach_artifacts)."""
         run = EvaluationRun(collection_id=collection_id, **data)
         self.db.add(run)
         await self.db.flush()
-
-        for result_in in results_in:
-            sources = result_in.pop("retrieved_sources", [])
-            result = EvaluationResult(run_id=run.id, **result_in)
-            self.db.add(result)
-            await self.db.flush()
-            for source in sources:
-                self.db.add(EvaluationResultSource(evaluation_result_id=result.id, source=source))
-
-        await self.db.flush()
         return run
+
+    async def attach_artifacts(self, run: EvaluationRun, results_json_key: str, report_html_key: str) -> None:
+        """Records where the run's promptfoo artifacts live in RustFS - the second half
+        of a run's creation, once the worker has uploaded both files."""
+        run.results_json_key = results_json_key
+        run.report_html_key = report_html_key
+        await self.db.flush()
 
     async def list_by_collection(self, collection_id: uuid.UUID) -> Sequence[EvaluationRun]:
         result = await self.db.execute(
             select(EvaluationRun)
             .where(EvaluationRun.collection_id == collection_id)
-            .options(selectinload(EvaluationRun.results).selectinload(EvaluationResult.retrieved_sources))
             .order_by(EvaluationRun.created_at.desc())
         )
         return result.scalars().all()
 
     async def get(self, run_id: uuid.UUID) -> EvaluationRun | None:
-        result = await self.db.execute(
-            select(EvaluationRun)
-            .where(EvaluationRun.id == run_id)
-            .options(selectinload(EvaluationRun.results).selectinload(EvaluationResult.retrieved_sources))
-        )
+        result = await self.db.execute(select(EvaluationRun).where(EvaluationRun.id == run_id))
         return result.scalar_one_or_none()
 
     async def find_existing(self, collection_id: uuid.UUID, content_hash: str, llm_model: str) -> uuid.UUID | None:
@@ -70,8 +55,5 @@ class EvaluationRepository:
         return result.scalar_one_or_none()
 
     async def delete_run(self, run: EvaluationRun) -> None:
-        """Cascading delete: EvaluationResult and EvaluationResultSource rows are removed via
-        the ORM cascade (see EvaluationResult.run_id ON DELETE CASCADE), so a single delete
-        on the run row cleans up everything."""
         await self.db.delete(run)
         await self.db.flush()

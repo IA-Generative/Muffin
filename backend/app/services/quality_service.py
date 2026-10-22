@@ -1,7 +1,8 @@
 """Quality service: cross-collection aggregation for the /quality dashboard (see #33).
 
 Aggregates four metric families:
-- retrieval: latest EvaluationRun per collection (see #11)
+- retrieval: latest EvaluationRun per collection, factuality average read from its
+  results.json artifact (see #11)
 - feedback: thumbs up/down counts (see #30)
 - discussion: DiscussionScore + DiscussionFeedback aggregates (see #31)
 - groundedness: Run.grounding_valid aggregates (see #32)
@@ -33,6 +34,7 @@ from app.schemas.quality import (
     QualityOverviewOut,
     RetrievalMetricOut,
 )
+from app.services import evaluation_artifacts
 
 # Same citations[].vdb_id matching as FeedbackRepository - the only real link between a run
 # and a collection.
@@ -124,20 +126,24 @@ class QualityService:
 
         query = query.order_by(EvaluationRun.created_at.desc())
         result = await self.db.execute(query)
-        return [
-            RetrievalMetricOut(
-                collection_id=run.collection_id,
-                collection_name=name,
-                run_id=run.id,
-                created_at=run.created_at,
-                pair_count=run.pair_count,
-                precision_at_k=run.precision_at_k,
-                recall_at_k=run.recall_at_k,
-                mrr=run.mrr,
-                ndcg=run.ndcg,
+        rows = []
+        for run, name in result.all():
+            # The scores live in the run's results.json artifact, not in columns (see
+            # docs/promptfoo-evaluation-plan.md) - read at display time, degrading to
+            # None when there is no artifact.
+            tests = evaluation_artifacts.load_tests(run)
+            metrics = evaluation_artifacts.metrics_from_tests(tests)[0] if tests else None
+            rows.append(
+                RetrievalMetricOut(
+                    collection_id=run.collection_id,
+                    collection_name=name,
+                    run_id=run.id,
+                    created_at=run.created_at,
+                    pair_count=run.pair_count,
+                    factuality=metrics.factuality if metrics else None,
+                )
             )
-            for run, name in result.all()
-        ]
+        return rows
 
     async def _get_feedback_metrics(self, user: RequestContext, collection_id: uuid.UUID | None) -> FeedbackMetricOut:
         """Aggregates feedback (thumbs up/down) across all messages whose run cited the scoped collections.

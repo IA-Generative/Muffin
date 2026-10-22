@@ -156,7 +156,7 @@ function toggleConversationExpand(id: string) {
     <div class="quality-view__header">
       <h1>Qualité</h1>
       <p class="quality-view__intro">
-        Vue d'ensemble des métriques de qualité de l'agent — retrieval, retours utilisateur, cohérence de
+        Vue d'ensemble des métriques de qualité de l'agent — évaluation des réponses, retours utilisateur, cohérence de
         discussion, et groundedness. Les administrateurs voient toutes les collections et toutes les
         conversations agrégées.
       </p>
@@ -183,22 +183,22 @@ function toggleConversationExpand(id: string) {
     </div>
 
     <template v-else-if="overview">
-      <!-- ── Retrieval ─────────────────────────────────────────────────── -->
+      <!-- ── Évaluation des réponses ───────────────────────────────────── -->
       <section class="quality-family">
         <div class="quality-family__header">
-          <h2>Retrieval</h2>
+          <h2>Évaluation des réponses</h2>
           <button type="button" class="quality-tooltip">
             <span class="quality-tooltip__icon" aria-hidden="true">ℹ</span>
-            <span class="quality-tooltip__text">Mesure si la recherche documentaire retrouve les bons passages en rejouant les paires Q/R de chaque collection contre son index actuel.</span>
+            <span class="quality-tooltip__text">Rejoue les paires Q/R de chaque collection à travers le pipeline, puis un juge note la factualité de chaque réponse générée face à la réponse attendue.</span>
           </button>
         </div>
         <p class="quality-family__description">
-          Est-ce que la recherche documentaire retrouve les bons passages ? Mesuré en rejouant les paires
-          question/réponse de chaque collection contre son index actuel.
+          Les réponses générées sont-elles fidèles aux réponses attendues ? Chaque paire question/réponse de la
+          collection est rejouée à travers le pipeline, et un juge note la factualité de la réponse générée.
         </p>
 
         <div v-if="retrievalMetrics.length === 0" class="quality-family__empty">
-          Aucune évaluation de retrieval pour le moment.
+          Aucune évaluation pour le moment.
         </div>
         <div v-else class="quality-family__table-wrap">
           <div class="quality-family__table-scroll">
@@ -209,31 +209,10 @@ function toggleConversationExpand(id: string) {
                 <th>Date</th>
                 <th>Paires</th>
                 <th>
-                  Precision@k
+                  Factualité
                   <button type="button" class="quality-tooltip">
                     <span class="quality-tooltip__icon" aria-hidden="true">ℹ</span>
-                    <span class="quality-tooltip__text">Parmi les passages retournés, quelle proportion est réellement pertinente.</span>
-          </button>
-                </th>
-                <th>
-                  Recall@k
-                  <button type="button" class="quality-tooltip">
-                    <span class="quality-tooltip__icon" aria-hidden="true">ℹ</span>
-                    <span class="quality-tooltip__text">Parmi tous les passages pertinents, quelle proportion a été retrouvée.</span>
-          </button>
-                </th>
-                <th>
-                  MRR
-                  <button type="button" class="quality-tooltip">
-                    <span class="quality-tooltip__icon" aria-hidden="true">ℹ</span>
-                    <span class="quality-tooltip__text">Mean Reciprocal Rank : plus le premier passage pertinent est tôt, plus le score est élevé.</span>
-          </button>
-                </th>
-                <th>
-                  nDCG
-                  <button type="button" class="quality-tooltip">
-                    <span class="quality-tooltip__icon" aria-hidden="true">ℹ</span>
-                    <span class="quality-tooltip__text">Normalized Discounted Cumulative Gain : qualité du classement des passages, en pénalisant les pertinents mal positionnés.</span>
+                    <span class="quality-tooltip__text">Score moyen donné par le juge à la factualité des réponses générées (1.0 = toujours fidèles à la réponse attendue).</span>
           </button>
                 </th>
               </tr>
@@ -243,10 +222,7 @@ function toggleConversationExpand(id: string) {
                 <td>{{ run.collectionName }}</td>
                 <td>{{ formatDate(run.createdAt) }}</td>
                 <td>{{ run.pairCount }}</td>
-                <td>{{ pct(run.precisionAtK) }}</td>
-                <td>{{ pct(run.recallAtK) }}</td>
-                <td>{{ ratio(run.mrr) }}</td>
-                <td>{{ ratio(run.ndcg) }}</td>
+                <td>{{ run.factuality !== null ? pct(run.factuality) : '—' }}</td>
               </tr>
             </tbody>
           </table>

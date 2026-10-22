@@ -2,16 +2,14 @@ import uuid
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete, select
-from sqlalchemy.orm import selectinload
+from sqlalchemy import delete
 
 from app.core.security import worker_auth
 from app.db import async_session_factory
 from app.main import app
-from app.models.chunk import Chunk
 from app.models.collection import Collection, CollectionSettings
 from app.models.document import Document
-from app.models.evaluation import EvaluationResultSource, EvaluationRun
+from app.models.evaluation import EvaluationRun
 from app.models.qa import QaOrigin, QaPair
 
 API_KEY = "test-worker-key"
@@ -29,7 +27,6 @@ async def client():
     async with async_session_factory() as session:
         await session.execute(delete(EvaluationRun))
         await session.execute(delete(QaPair))
-        await session.execute(delete(Chunk))
         await session.execute(delete(Document))
         await session.execute(delete(Collection))
         await session.commit()
@@ -42,28 +39,16 @@ def _headers() -> dict[str, str]:
 def _run_payload(**overrides) -> dict:
     payload = {
         "k": 5,
-        "pair_count": 0,
-        "llm_model": "test-model",
+        "pair_count": 1,
+        "llm_model": "judge-model",
         "content_hash": "abc123",
         "snapshot_chunking_strategy": "paragraph",
         "snapshot_chunk_size": 500,
         "snapshot_chunk_overlap": 50,
         "snapshot_embedding_model": "text-embedding-3-small",
-        "precision_at_k": 0.0,
-        "recall_at_k": 0.0,
-        "mrr": 0.0,
-        "ndcg": 0.0,
-        "validated_pair_count": 0,
-        "validated_precision_at_k": None,
-        "validated_recall_at_k": None,
-        "validated_mrr": None,
-        "validated_ndcg": None,
+        "golden_pair_count": 0,
+        "validated_pair_count": 1,
         "unvalidated_pair_count": 0,
-        "unvalidated_precision_at_k": None,
-        "unvalidated_recall_at_k": None,
-        "unvalidated_mrr": None,
-        "unvalidated_ndcg": None,
-        "results": [],
     }
     payload.update(overrides)
     return payload
@@ -84,6 +69,16 @@ async def _create_collection_with_document() -> tuple[uuid.UUID, uuid.UUID]:
         session.add(document)
         await session.commit()
         return collection.id, document.id
+
+
+async def _create_run(client, collection_id: uuid.UUID) -> uuid.UUID:
+    response = await client.post(
+        f"/api/internal/collections/{collection_id}/evaluation-runs",
+        headers=_headers(),
+        json=_run_payload(),
+    )
+    assert response.status_code == 201
+    return uuid.UUID(response.json()["id"])
 
 
 async def test_list_qa_pairs_for_evaluation_includes_validated_and_not(client):
@@ -126,103 +121,30 @@ async def test_list_qa_pairs_for_evaluation_for_unknown_collection_returns_404(c
     assert response.status_code == 404
 
 
-async def test_get_document_chunk_count(client):
-    _, document_id = await _create_collection_with_document()
-    async with async_session_factory() as session:
-        session.add_all(
-            [
-                Chunk(document_id=document_id, index=0, text="a", token_count=1),
-                Chunk(document_id=document_id, index=1, text="b", token_count=1),
-            ]
-        )
-        await session.commit()
-
-    response = await client.get(f"/api/internal/documents/{document_id}/chunk-count", headers=_headers())
-
-    assert response.status_code == 200
-    assert response.json() == {"count": 2}
-
-
-async def test_get_document_chunk_count_not_found(client):
-    response = await client.get(f"/api/internal/documents/{uuid.uuid4()}/chunk-count", headers=_headers())
-    assert response.status_code == 404
-
-
-async def test_create_evaluation_run_persists_run_and_results(client):
-    collection_id, document_id = await _create_collection_with_document()
-    async with async_session_factory() as session:
-        qa_pair = QaPair(
-            collection_id=collection_id,
-            document_id=document_id,
-            question="What is the policy?",
-            answer="2 days/week.",
-            origin=QaOrigin.MANUAL,
-            validated=True,
-        )
-        session.add(qa_pair)
-        await session.commit()
-        qa_pair_id = qa_pair.id
+async def test_create_evaluation_run_persists_metadata_only(client):
+    collection_id, _ = await _create_collection_with_document()
 
     response = await client.post(
         f"/api/internal/collections/{collection_id}/evaluation-runs",
         headers=_headers(),
-        json=_run_payload(
-            pair_count=1,
-            precision_at_k=0.8,
-            recall_at_k=0.6,
-            mrr=1.0,
-            ndcg=0.9,
-            validated_pair_count=1,
-            validated_precision_at_k=0.8,
-            validated_recall_at_k=0.6,
-            validated_mrr=1.0,
-            validated_ndcg=0.9,
-            results=[
-                {
-                    "qa_pair_id": str(qa_pair_id),
-                    "question": "What is the policy?",
-                    "expected_answer": "2 days/week.",
-                    "generated_answer": "Telework is 2 days/week.",
-                    "precision_at_k": 0.8,
-                    "recall_at_k": 0.6,
-                    "reciprocal_rank": 1.0,
-                    "ndcg": 0.9,
-                    "validated": True,
-                    "retrieved_sources": ["handbook.pdf#0", "handbook.pdf#1"],
-                }
-            ],
-        ),
+        json=_run_payload(golden_pair_count=1, unvalidated_pair_count=2, validated_pair_count=0),
     )
 
     assert response.status_code == 201
     run_id = uuid.UUID(response.json()["id"])
 
     async with async_session_factory() as session:
-        run = await session.get(EvaluationRun, run_id, options=[selectinload(EvaluationRun.results)])
+        run = await session.get(EvaluationRun, run_id)
         assert run is not None
         assert run.pair_count == 1
-        assert run.precision_at_k == 0.8
-        assert run.validated_pair_count == 1
-        assert run.validated_precision_at_k == 0.8
-        assert run.unvalidated_pair_count == 0
-        assert run.unvalidated_precision_at_k is None
-        assert len(run.results) == 1
-        result = run.results[0]
-        assert result.qa_pair_id == qa_pair_id
-        assert result.validated is True
-        sources = (
-            (
-                await session.execute(
-                    select(EvaluationResultSource).where(EvaluationResultSource.evaluation_result_id == result.id)
-                )
-            )
-            .scalars()
-            .all()
-        )
-        assert {source.source for source in sources} == {
-            "handbook.pdf#0",
-            "handbook.pdf#1",
-        }
+        assert run.llm_model == "judge-model"
+        assert run.golden_pair_count == 1
+        assert run.validated_pair_count == 0
+        assert run.unvalidated_pair_count == 2
+        assert run.content_hash == "abc123"
+        # No artifacts yet - they follow via the artifacts endpoint.
+        assert run.results_json_key is None
+        assert run.report_html_key is None
 
 
 async def test_create_evaluation_run_for_unknown_collection_returns_404(client):
@@ -232,3 +154,80 @@ async def test_create_evaluation_run_for_unknown_collection_returns_404(client):
         json=_run_payload(),
     )
     assert response.status_code == 404
+
+
+async def test_upload_artifacts_stores_both_files_and_references_them(client, monkeypatch):
+    stored: dict[str, tuple[bytes, str]] = {}
+    monkeypatch.setattr(
+        "app.core.storage.put_object",
+        lambda key, data, content_type: stored.update({key: (data, content_type)}),
+    )
+    collection_id, _ = await _create_collection_with_document()
+    run_id = await _create_run(client, collection_id)
+
+    response = await client.post(
+        f"/api/internal/collections/{collection_id}/evaluation-runs/{run_id}/artifacts",
+        headers=_headers(),
+        files={
+            "results": ("results.json", b'{"results": {"results": []}}', "application/json"),
+            "report": ("report.html", b"<html>report</html>", "text/html"),
+        },
+    )
+
+    assert response.status_code == 201
+    assert stored == {
+        f"evaluations/{run_id}/results.json": (b'{"results": {"results": []}}', "application/json"),
+        f"evaluations/{run_id}/report.html": (b"<html>report</html>", "text/html"),
+    }
+    async with async_session_factory() as session:
+        run = await session.get(EvaluationRun, run_id)
+        assert run.results_json_key == f"evaluations/{run_id}/results.json"
+        assert run.report_html_key == f"evaluations/{run_id}/report.html"
+
+
+async def test_upload_artifacts_for_unknown_run_returns_404(client):
+    collection_id, _ = await _create_collection_with_document()
+
+    response = await client.post(
+        f"/api/internal/collections/{collection_id}/evaluation-runs/{uuid.uuid4()}/artifacts",
+        headers=_headers(),
+        files={
+            "results": ("results.json", b"{}", "application/json"),
+            "report": ("report.html", b"<html></html>", "text/html"),
+        },
+    )
+
+    assert response.status_code == 404
+
+
+async def test_upload_artifacts_for_run_of_another_collection_returns_404(client):
+    collection_id, _ = await _create_collection_with_document()
+    other_collection_id, _ = await _create_collection_with_document()
+    run_id = await _create_run(client, collection_id)
+
+    response = await client.post(
+        f"/api/internal/collections/{other_collection_id}/evaluation-runs/{run_id}/artifacts",
+        headers=_headers(),
+        files={
+            "results": ("results.json", b"{}", "application/json"),
+            "report": ("report.html", b"<html></html>", "text/html"),
+        },
+    )
+
+    assert response.status_code == 404
+
+
+async def test_upload_artifacts_rejects_oversized_file(client):
+    collection_id, _ = await _create_collection_with_document()
+    run_id = await _create_run(client, collection_id)
+
+    response = await client.post(
+        f"/api/internal/collections/{collection_id}/evaluation-runs/{run_id}/artifacts",
+        headers=_headers(),
+        files={
+            "results": ("results.json", b"x" * (50 * 1024 * 1024 + 1), "application/json"),
+            "report": ("report.html", b"<html></html>", "text/html"),
+        },
+    )
+
+    assert response.status_code == 413

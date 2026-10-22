@@ -31,11 +31,6 @@ class BackendClient:
         response.raise_for_status()
         return response.json()
 
-    def get_document_chunk_count(self, document_id: str) -> int:
-        response = self._client.get(f"/api/internal/documents/{document_id}/chunk-count")
-        response.raise_for_status()
-        return response.json()["count"]
-
     def search(self, collection_ids: list[str], query: str, limit: int) -> list[dict[str, Any]]:
         response = self._client.post(
             "/api/internal/search",
@@ -61,6 +56,21 @@ class BackendClient:
         response = self._client.post(f"/api/internal/collections/{collection_id}/evaluation-runs", json=payload)
         response.raise_for_status()
         return response.json()["id"]
+
+    def upload_evaluation_artifacts(
+        self, collection_id: str, run_id: str, results_json: bytes, report_html: bytes
+    ) -> None:
+        """Posts the two promptfoo artifacts of a run - the machine-readable scores and the
+        human-readable report - as multipart files. Called right after create_evaluation_run;
+        together they are the run's whole persistence (no per-pair rows anymore)."""
+        response = self._client.post(
+            f"/api/internal/collections/{collection_id}/evaluation-runs/{run_id}/artifacts",
+            files={
+                "results": ("results.json", results_json, "application/json"),
+                "report": ("report.html", report_html, "text/html"),
+            },
+        )
+        response.raise_for_status()
 
     def find_evaluation_run(self, collection_id: str, content_hash: str, llm_model: str) -> str | None:
         """Returns the id of an already-persisted run for this exact (collection, content, model)

@@ -9,6 +9,7 @@ import type {
   CollectionPathItem,
   CollectionVisibility,
   Entity,
+  EvaluationResult,
   EvaluationRun,
   IndexRebuild,
   FieldStamp,
@@ -659,39 +660,39 @@ async function refreshEntitiesAndRelations(collectionId: string) {
   }
 }
 
-// Backend EvaluationRunOut is snake_case and has validated/unvalidated breakdowns the
-// frontend doesn't use yet - we map to the simpler EvaluationRun shape the UI expects.
+// Backend EvaluationRunOut is snake_case - we map to the EvaluationRun shape the UI
+// expects. The per-pair results are NOT in this response: they are loaded on demand
+// (fetchEvaluationResults) so listing the runs stays cheap.
 interface EvaluationRunOut {
   id: string
   created_at: string
   k: number
   pair_count: number
+  golden_pair_count: number
+  validated_pair_count: number
+  unvalidated_pair_count: number
   llm_model: string
   snapshot_chunking_strategy: string
   snapshot_chunk_size: number
   snapshot_chunk_overlap: number
   snapshot_embedding_model: string
-  precision_at_k: number | null
-  recall_at_k: number | null
-  mrr: number | null
-  ndcg: number | null
-  golden_pair_count: number
-  golden_precision_at_k: number | null
-  golden_recall_at_k: number | null
-  golden_mrr: number | null
-  golden_ndcg: number | null
-  results: {
-    qa_pair_id: string | null
-    golden: boolean
-    question: string
-    expected_answer: string
-    generated_answer: string
-    precision_at_k: number
-    recall_at_k: number
-    reciprocal_rank: number
-    ndcg: number
-    retrieved_sources: string[]
-  }[]
+  // Factuality averages computed from the run's results.json artifact - null when the
+  // subset is empty or the run predates the promptfoo migration.
+  metrics: { factuality: number | null } | null
+  golden_metrics: { factuality: number | null } | null
+  has_artifacts: boolean
+}
+
+// Backend EvaluationResultOut, normalized from the results.json artifact.
+interface EvaluationResultOut {
+  qa_pair_id: string | null
+  question: string
+  expected_answer: string
+  generated_answer: string
+  factuality: number | null
+  validated: boolean
+  golden: boolean
+  retrieved_sources: string[]
 }
 
 async function refreshEvaluation(collectionId: string) {
@@ -709,6 +710,9 @@ async function refreshEvaluation(collectionId: string) {
       runAt: run.created_at,
       k: run.k,
       pairCount: run.pair_count,
+      goldenPairCount: run.golden_pair_count,
+      validatedPairCount: run.validated_pair_count,
+      unvalidatedPairCount: run.unvalidated_pair_count,
       llmModel: run.llm_model,
       chunkingSnapshot: {
         strategy: run.snapshot_chunking_strategy as ChunkStrategy,
@@ -716,40 +720,37 @@ async function refreshEvaluation(collectionId: string) {
         chunkOverlap: run.snapshot_chunk_overlap,
         embeddingModel: run.snapshot_embedding_model,
       },
-      metrics:
-        run.precision_at_k === null || run.recall_at_k === null || run.mrr === null || run.ndcg === null
-          ? null
-          : { precisionAtK: run.precision_at_k, recallAtK: run.recall_at_k, mrr: run.mrr, ndcg: run.ndcg },
+      metrics: run.metrics && run.metrics.factuality !== null ? { factuality: run.metrics.factuality } : null,
       goldenMetrics:
-        run.golden_pair_count > 0 &&
-        run.golden_precision_at_k !== null &&
-        run.golden_recall_at_k !== null &&
-        run.golden_mrr !== null &&
-        run.golden_ndcg !== null
-          ? {
-              pairCount: run.golden_pair_count,
-              precisionAtK: run.golden_precision_at_k,
-              recallAtK: run.golden_recall_at_k,
-              mrr: run.golden_mrr,
-              ndcg: run.golden_ndcg,
-            }
+        run.golden_metrics && run.golden_metrics.factuality !== null
+          ? { factuality: run.golden_metrics.factuality }
           : null,
-      results: run.results.map((result) => ({
-        qaPairId: result.qa_pair_id ?? '',
-        question: result.question,
-        expectedAnswer: result.expected_answer,
-        generatedAnswer: result.generated_answer,
-        retrievedSources: result.retrieved_sources,
-        precisionAtK: result.precision_at_k,
-        recallAtK: result.recall_at_k,
-        reciprocalRank: result.reciprocal_rank,
-        ndcg: result.ndcg,
-        golden: result.golden,
-      })),
+      hasArtifacts: run.has_artifacts,
     }))
   } catch {
     // Ignored: same as refreshQaPairs above.
   }
+}
+
+// A run's per-pair results, loaded on demand when the user expands it in the UI - the
+// list endpoint deliberately leaves them out.
+async function fetchEvaluationResults(collectionId: string, runId: string): Promise<EvaluationResult[]> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/collections/${collectionId}/evaluations/${runId}/results`,
+    { credentials: 'include' },
+  )
+  if (!response.ok) return []
+  const results: EvaluationResultOut[] = await response.json()
+  return results.map((result) => ({
+    qaPairId: result.qa_pair_id ?? '',
+    question: result.question,
+    expectedAnswer: result.expected_answer,
+    generatedAnswer: result.generated_answer,
+    factuality: result.factuality,
+    validated: result.validated,
+    golden: result.golden,
+    retrievedSources: result.retrieved_sources,
+  }))
 }
 
 function pollDocumentsWhileProcessing(collectionId: string) {
@@ -1426,6 +1427,7 @@ export function useCollections() {
     refreshChunks,
     refreshEntitiesAndRelations,
     refreshEvaluation,
+    fetchEvaluationResults,
     loadTabData,
     updateChunkingSettings,
     updateEmbeddingModel,

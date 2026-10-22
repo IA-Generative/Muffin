@@ -14,6 +14,11 @@ class WorkerSettings(BaseSettings):
     # mirrors EvaluationTriggerRequest.k's own default on the backend (app/schemas/evaluation.py).
     DEFAULT_TOP_K: int = 5
 
+    # promptfoo drives the evaluation: how many tests it may run in parallel, and how
+    # long the whole subprocess may take before the task gives up on it.
+    EVAL_CONCURRENCY: int = 4
+    EVAL_TIMEOUT_SECONDS: int = 3600
+
     # Logging (#305): stdout - JSON for kubectl/Loki, or readable - from LOG_LEVEL up. The lines a task
     # logs from TASK_LOG_LEVEL up are also sent to the backend, to be followed in Muffin as it runs.
     LOG_FORMAT: Literal["console", "json"] = "console"

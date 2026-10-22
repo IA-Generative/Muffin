@@ -1,14 +1,13 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import storage
 from app.core.security.worker_auth import require_worker_api_key
 from app.db import get_db
-from app.repositories.chunk_repository import ChunkRepository
 from app.repositories.collection_repository import CollectionRepository
-from app.repositories.document_repository import DocumentRepository
 from app.repositories.evaluation_repository import EvaluationRepository
 from app.repositories.qa_pair_repository import QaPairRepository
 from app.schemas.internal_evaluation import EvaluationQaPairOut, EvaluationRunCreate
@@ -18,6 +17,11 @@ router = APIRouter(
     tags=["Internal"],
     dependencies=[Depends(require_worker_api_key)],
 )
+
+# A results.json holds one entry per QA pair (question, answers, contexts, scores) and a
+# report.html one table row per pair - a few MB even for a large collection. Anything
+# past this is a promptfoo output gone wrong, not something to store as-is.
+_MAX_ARTIFACT_BYTES = 50 * 1024 * 1024
 
 
 @router.get(
@@ -46,23 +50,10 @@ async def list_qa_pairs_for_evaluation(
     ]
 
 
-@router.get(
-    "/documents/{document_id}/chunk-count",
-    summary="Number of chunks a document has - the recall@k denominator for retrieval evaluation "
-    "(see ChunkRepository.count_by_document)",
-)
-async def get_document_chunk_count(
-    document_id: uuid.UUID, db: Annotated[AsyncSession, Depends(get_db)]
-) -> dict[str, int]:
-    if await DocumentRepository(db).get(document_id) is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
-    count = await ChunkRepository(db).count_by_document(document_id)
-    return {"count": count}
-
-
 @router.post(
     "/collections/{collection_id}/evaluation-runs",
-    summary="Record a completed retrieval-evaluation run and its per-pair results (see #11)",
+    summary="Record a completed promptfoo evaluation run's metadata (see #11) - its "
+    "results.json/report.html artifacts follow via /evaluation-runs/{run_id}/artifacts",
     status_code=status.HTTP_201_CREATED,
 )
 async def create_evaluation_run(
@@ -75,6 +66,40 @@ async def create_evaluation_run(
     run = await EvaluationRepository(db).create_run(collection_id, body.model_dump(mode="python"))
     await db.commit()
     return {"status": "ok", "id": str(run.id)}
+
+
+@router.post(
+    "/collections/{collection_id}/evaluation-runs/{run_id}/artifacts",
+    summary="Store a run's promptfoo artifacts (results.json + report.html) in RustFS and "
+    "reference them on the run - the second half of recording a run (see #11)",
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_evaluation_artifacts(
+    collection_id: uuid.UUID,
+    run_id: uuid.UUID,
+    results: Annotated[UploadFile, File(description="promptfoo's results.json")],
+    report: Annotated[UploadFile, File(description="promptfoo's report.html")],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict[str, str]:
+    if await CollectionRepository(db).get_by_id(collection_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found")
+    run = await EvaluationRepository(db).get(run_id)
+    if run is None or run.collection_id != collection_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Evaluation run not found")
+    results_bytes = await results.read()
+    report_bytes = await report.read()
+    if len(results_bytes) > _MAX_ARTIFACT_BYTES or len(report_bytes) > _MAX_ARTIFACT_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail="Evaluation artifacts exceed the size limit",
+        )
+    results_key = f"evaluations/{run_id}/results.json"
+    report_key = f"evaluations/{run_id}/report.html"
+    storage.put_object(results_key, results_bytes, "application/json")
+    storage.put_object(report_key, report_bytes, "text/html")
+    await EvaluationRepository(db).attach_artifacts(run, results_key, report_key)
+    await db.commit()
+    return {"status": "ok", "results_json_key": results_key, "report_html_key": report_key}
 
 
 @router.get(

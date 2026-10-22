@@ -147,29 +147,19 @@ export interface IndexingEstimate {
   collectionMax: number
 }
 
-export interface EvaluationMetrics {
-  precisionAtK: number
-  recallAtK: number
-  mrr: number
-  ndcg: number
-}
-
-// The golden pairs' scores, apart from the others': the numbers to follow over time.
-export interface GoldenMetrics extends EvaluationMetrics {
-  pairCount: number
-}
-
+// One QA pair's outcome in a run, normalized by the backend from the run's results.json
+// artifact - the frontend never parses promptfoo's format itself.
 export interface EvaluationResult {
   qaPairId: string
   question: string
   expectedAnswer: string
   generatedAnswer: string
-  retrievedSources: string[]
-  precisionAtK: number
-  recallAtK: number
-  reciprocalRank: number
-  ndcg: number
+  // The judge's factuality score for the generated answer - null when the judge errored
+  // on this pair (no score in the artifact).
+  factuality: number | null
+  validated: boolean
   golden: boolean
+  retrievedSources: string[]
 }
 
 export interface ChunkingSnapshot extends ChunkingSettings {
@@ -181,14 +171,22 @@ export interface EvaluationRun {
   runAt: string
   k: number
   pairCount: number
+  // The golden (test) pairs, scored apart - the numbers to follow over time.
+  goldenPairCount: number
+  validatedPairCount: number
+  unvalidatedPairCount: number
+  // The judge model (the collection's "evaluation" generation model).
   llmModel: string
   chunkingSnapshot: ChunkingSnapshot
-  // Over the pairs that aren't golden (generated or reference, validated or not) - null when the run
-  // only had golden pairs.
-  metrics: EvaluationMetrics | null
-  // Over the golden pairs only - null when the collection has none.
-  goldenMetrics: GoldenMetrics | null
-  results: EvaluationResult[]
+  // Factuality averages over the non-golden / golden pairs - null when that subset is
+  // empty, or when the run predates the promptfoo migration (no artifact).
+  metrics: { factuality: number } | null
+  goldenMetrics: { factuality: number } | null
+  // Whether the report/results.json artifacts exist (download links, report preview) -
+  // false on the runs predating the promptfoo migration.
+  hasArtifacts: boolean
+  // Not in the list response: the per-pair results are loaded on demand when a run is
+  // expanded (fetchEvaluationResults in useCollections).
 }
 
 export type CollectionVisibility = 'private' | 'public'

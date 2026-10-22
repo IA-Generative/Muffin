@@ -18,17 +18,18 @@ from pydantic import BaseModel
 
 
 class RetrievalMetricOut(BaseModel):
-    """Snapshot of the latest evaluation run's global aggregates."""
+    """Snapshot of the latest evaluation run's factuality average (see #11): the run
+    replays the collection's QA pairs through the pipeline and a judge scores each
+    generated answer - this is that run's average over its non-golden pairs."""
 
     collection_id: UUID
     collection_name: str
     run_id: UUID
     created_at: datetime
     pair_count: int
-    precision_at_k: float
-    recall_at_k: float
-    mrr: float
-    ndcg: float
+    # None when the run predates the promptfoo migration (no artifact) or the judge
+    # scored nothing - never 0.0, which would read as a terrible score.
+    factuality: float | None
 
 
 class FeedbackMetricOut(BaseModel):

@@ -28,6 +28,7 @@ from app.routers.internal_documents import router as internal_documents_router
 from app.routers.internal_edit_requests import router as internal_edit_requests_router
 from app.routers.internal_evaluation import router as internal_evaluation_router
 from app.routers.internal_llm import router as internal_llm_router
+from app.routers.internal_openai_compat import router as internal_openai_compat_router
 from app.routers.internal_pipeline import router as internal_pipeline_router
 from app.routers.internal_prompts import router as internal_prompts_router
 from app.routers.internal_runs import router as internal_runs_router
@@ -137,5 +138,6 @@ app.include_router(internal_collections_router, prefix="/api")
 app.include_router(internal_pipeline_router, prefix="/api")
 app.include_router(internal_tasks_router, prefix="/api")
 app.include_router(internal_llm_router, prefix="/api")
+app.include_router(internal_openai_compat_router, prefix="/api")
 app.include_router(internal_runs_router, prefix="/api")
 app.include_router(internal_prompts_router, prefix="/api")
