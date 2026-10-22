@@ -15,6 +15,7 @@ from app.chunking import PageText
 from app.parsing import parse_file  # noqa: F401
 from app.scraping import content_hash, fetch_url  # noqa: F401
 from app.storage import storage  # noqa: F401
+from app.task_revocation import TaskRevoked, raise_if_revoked
 
 TOKENS_PER_CHAR = 0.25  # rough estimate, good enough until a real tokenizer is wired in
 
@@ -64,6 +65,9 @@ def _spawn(task, args: list[Any], task_name: str, document_id: str, parent_task_
 
 
 def _chat(model: str, system: str, user_content: str) -> str:
+    # An LLM call is where a task spends its time: a revoked one stops before the next, even in a pool
+    # of threads where Celery cannot kill it.
+    raise_if_revoked()
     messages = (
         [
             {"role": "system", "content": system},
@@ -99,6 +103,10 @@ def _get_pages(document_id: str) -> list[PageText]:
 
 
 def _fail(document_id: str, task_label: str, error: Exception) -> None:
+    if isinstance(error, TaskRevoked):
+        # The user stopped it: not a failure to report on the document (the backend marked it cancelled).
+        logger.info(f"Stopped to {task_label} for document {document_id}: revoked")
+        return
     logger.exception(f"Failed to {task_label} for document {document_id}")
     try:
         backend_client.set_document_error(document_id, str(error))

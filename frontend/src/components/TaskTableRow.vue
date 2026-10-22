@@ -87,6 +87,7 @@ function formatDate(iso: string) {
         v-if="isRevocable(task.status)"
         type="button"
         class="task-row__revoke"
+        :title="children.length > 0 ? 'Arrête cette tâche et toutes celles qu’elle a lancées' : undefined"
         @click="emit('revoke', task.id)"
       >
         Révoquer

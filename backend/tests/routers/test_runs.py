@@ -168,12 +168,12 @@ async def test_list_run_events_empty_initially(client):
 async def test_cancel_run_sets_cancel_requested_and_revokes(client):
     created = (await _create_run(client)).json()
 
-    with patch("app.services.run_service.revoke_task") as mock_revoke:
+    with patch("app.services.run_service.revoke_tasks") as mock_revoke:
         response = await client.post(f"/api/runs/{created['id']}/cancel")
 
     assert response.status_code == 200
     assert response.json()["cancel_requested"] is True
-    mock_revoke.assert_called_once_with("celery-run-1")
+    mock_revoke.assert_called_once_with(["celery-run-1"])
 
 
 async def test_cancel_unknown_run_returns_404(client):

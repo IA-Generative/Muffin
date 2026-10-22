@@ -184,5 +184,33 @@ def get_task_status(celery_task_id: str) -> str:
     return AsyncResult(celery_task_id, app=_celery_app).status
 
 
-def revoke_task(celery_task_id: str) -> None:
-    _celery_app.control.revoke(celery_task_id, terminate=True)
+# A task that is still to run or running: the only ones worth revoking. Celery reports PENDING for an
+# id it knows nothing about as well, which here is a task waiting in the queue - or one whose result
+# expired long ago, harmlessly revoked again.
+ACTIVE_TASK_STATES = frozenset({"PENDING", "RECEIVED", "STARTED", "RETRY"})
+
+# The flag a revoked task leaves in Redis, which every worker looks at when a task starts (see
+# app/task_revocation.py in each worker - the key must be the same). Celery's own revoke is a broadcast
+# to the workers up at that moment, kept in their memory: a task revoked while it waits in the queue
+# runs all the same on a pod that starts afterwards (a deploy, a scale-up), and one whose worker died
+# runs again, revoked or not, when Redis hands it out again - after the visibility timeout, hours.
+REVOKED_KEY = "muffin:revoked:{task_id}"
+
+
+def active_task_ids(celery_task_ids: list[str]) -> list[str]:
+    return [task_id for task_id in celery_task_ids if get_task_status(task_id) in ACTIVE_TASK_STATES]
+
+
+def revoke_tasks(celery_task_ids: list[str]) -> None:
+    """Revokes tasks for good, however far each is:
+    - a flag in Redis, for the workers that start the task later or run it again;
+    - REVOKED in the result backend, so that the status says so now, with no worker alive to say it;
+    - Celery's broadcast, with terminate, for the workers that have it now: a running task is killed
+      (only in a prefork pool - one of threads stops it itself, see the workers' task_revocation.py)."""
+    if not celery_task_ids:
+        return
+    client = _celery_app.backend.client
+    for task_id in celery_task_ids:
+        client.set(REVOKED_KEY.format(task_id=task_id), 1, ex=_celery_app.conf.result_expires)
+        _celery_app.backend.mark_as_revoked(task_id, reason="revoked by the user")
+    _celery_app.control.revoke(celery_task_ids, terminate=True)
