@@ -224,3 +224,46 @@ def test_with_the_real_parser_the_pages_are_counted_and_a_range_keeps_its_page_n
 
     assert [(page.page_num, page.text.strip()) for page in result.pages] == [(2, "Page 2"), (3, "Page 3")]
     assert sorted(screenshot.page_num for screenshot in result.screenshots) == [2, 3]
+
+
+# -- the window of a ZIP import (#335) ----------------------------------------------------------
+
+
+def test_the_end_of_the_extraction_frees_the_place_of_the_document_in_its_import(backend, monkeypatch):
+    monkeypatch.setattr(tasks._shared, "parse_file", MagicMock(return_value=_pages(1, 1)))
+    monkeypatch.setattr(tasks._shared, "count_pages", lambda data: 1)
+
+    tasks.process_document("doc-1")
+
+    backend.extraction_done.assert_called_once_with("doc-1")
+    assert len(_spawned("chunk_document")) == 1
+
+
+def test_a_long_pdf_frees_its_place_only_when_its_last_range_completes_the_extraction(backend, monkeypatch):
+    monkeypatch.setattr(tasks._shared, "count_pages", lambda data: 240)
+    tasks.process_document("doc-1")
+    backend.extraction_done.assert_not_called()
+
+    monkeypatch.setattr(tasks._shared, "parse_pages", MagicMock(return_value=_pages(226, 240)))
+    backend.stage_done.return_value = {"done": 10, "expected": 10, "complete": True, "completed_now": True}
+    tasks.parse_page_range(_payload(226, total=240))
+
+    backend.extraction_done.assert_called_once_with("doc-1")
+
+
+def test_a_backend_that_does_not_answer_never_fails_the_extraction(backend, monkeypatch):
+    monkeypatch.setattr(tasks._shared, "parse_file", MagicMock(return_value=_pages(1, 1)))
+    monkeypatch.setattr(tasks._shared, "count_pages", lambda data: 1)
+    backend.extraction_done.side_effect = RuntimeError("backend down")
+
+    tasks.process_document("doc-1")
+
+    assert len(_spawned("chunk_document")) == 1
+
+
+def test_the_beat_sweeps_the_windows_of_the_imports(backend):
+    backend.release_import_queue.return_value = 3
+
+    assert tasks.release_import_queue() == 3
+    entry = tasks.celery_app.conf.beat_schedule["release-import-queue"]
+    assert entry["task"] == "app.tasks.release_import_queue"

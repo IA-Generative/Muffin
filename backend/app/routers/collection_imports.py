@@ -28,6 +28,7 @@ from app.services.collection_import_service import (
     InvalidAttachDecisionError,
 )
 from app.services.collection_service import ParentCollectionNotFoundError
+from app.services.import_processing_queue import ImportProcessingQueue
 
 router = APIRouter(tags=["Collection imports"])
 internal_router = APIRouter(prefix="/internal", tags=["Internal"], dependencies=[Depends(require_worker_api_key)])
@@ -211,3 +212,12 @@ async def finish_import(import_id: uuid.UUID, body: CollectionImportResult, serv
     except CollectionImportNotFoundError as error:
         raise _NOT_FOUND from error
     return {"status": "ok"}
+
+
+@internal_router.post(
+    "/collection-imports/release",
+    summary="The sweep of the imports' windows (#335): releases, for each import with documents waiting, "
+    "what its window allows - whatever freed a place without releasing the next document (a lost call)",
+)
+async def release_waiting_documents(db: Annotated[AsyncSession, Depends(get_db)]) -> dict[str, int]:
+    return {"released": await ImportProcessingQueue(db).release_waiting()}

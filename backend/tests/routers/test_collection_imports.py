@@ -1,13 +1,15 @@
 """ZIP import (#223): the backend half - upload, root collection, and the routes the worker uses."""
 
+import asyncio
 import io
 import uuid
 import zipfile
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 
 from app.core.security import worker_auth
 from app.core.security.factory import get_current_user
@@ -17,9 +19,10 @@ from app.models.collection import Collection
 from app.models.collection_import import CollectionImport, CollectionImportStatus
 from app.models.conversation import Conversation
 from app.models.document import Document
+from app.models.import_document import ImportDocument
 from app.models.run import Run
 from app.models.task import Task
-from app.services import collection_import_service
+from app.services import collection_import_service, import_processing_queue
 from tests.routers.test_collections import _as_user
 from tests.routers.test_internal_runs import API_KEY, _headers
 
@@ -34,10 +37,15 @@ def stored(monkeypatch) -> MagicMock:
     storage.upload_fileobj.side_effect = lambda key, fileobj, content_type: setattr(storage, "uploaded", fileobj.read())
     monkeypatch.setattr(collection_import_service, "storage", storage)
     monkeypatch.setattr(collection_import_service, "enqueue_import_zip", lambda import_id: f"celery-{import_id}")
-    monkeypatch.setattr(
-        "app.services.document_upload_service.enqueue_process_document",
-        lambda doc_id, bulk=False: f"p-{doc_id}{'-bulk' if bulk else ''}",
-    )
+    storage.queued = []
+
+    def enqueue(doc_id, bulk=False):
+        storage.queued.append(doc_id)
+        return f"p-{doc_id}{'-bulk' if bulk else ''}"
+
+    monkeypatch.setattr("app.services.document_upload_service.enqueue_process_document", enqueue)
+    # The documents of an import are queued by its window (#335).
+    monkeypatch.setattr("app.services.import_processing_queue.enqueue_process_document", enqueue)
     monkeypatch.setattr(worker_auth._worker_settings, "WORKER_API_KEY", API_KEY)
     return storage
 
@@ -499,3 +507,173 @@ class TestAttachSuggestion:
         listed = (await client.get("/api/collection-imports", params={"conversation_id": str(conversation_id)})).json()
 
         assert [item["id"] for item in listed] == [mine["id"]]
+
+
+# --- The window of an import's extractions (#335) ---
+
+
+@pytest.fixture
+def _window(monkeypatch):
+    monkeypatch.setattr(import_processing_queue._settings, "IMPORT_PROCESSING_WINDOW", 3)
+
+
+async def _add(client, import_body: dict, count: int) -> list[str]:
+    """`count` documents registered by the worker, one after the other, as it stores the archive's files."""
+    root_id, ids = import_body["root_collection_id"], []
+    for number in range(count):
+        response = await client.post(
+            f"/api/internal/collection-imports/{import_body['id']}/documents",
+            headers=_headers(),
+            json={
+                "collection_id": root_id,
+                "name": f"doc-{number}.pdf",
+                "storage_key": f"documents/{root_id}/{uuid.uuid4()}-doc-{number}.pdf",
+                "content_hash": f"{number:064x}",
+            },
+        )
+        assert response.status_code == 201, response.text
+        ids.append(response.json()["id"])
+    return ids
+
+
+async def _entries(import_id: str) -> list[ImportDocument]:
+    async with async_session_factory() as session:
+        result = await session.execute(
+            select(ImportDocument)
+            .where(ImportDocument.import_id == uuid.UUID(import_id))
+            .order_by(ImportDocument.created_at, ImportDocument.document_id)
+        )
+        return list(result.scalars())
+
+
+async def _extraction_done(client, document_id: str):
+    response = await client.post(f"/api/internal/documents/{document_id}/extraction-done", headers=_headers())
+    assert response.status_code == 200, response.text
+
+
+async def test_only_a_window_of_the_documents_of_an_import_is_queued(client, stored, _window):
+    body = (await _import(client)).json()
+
+    ids = await _add(client, body, 10)
+
+    assert stored.queued == ids[:3]
+    assert [entry.released_at is not None for entry in await _entries(body["id"])] == [True] * 3 + [False] * 7
+    async with async_session_factory() as session:
+        # A document that waits has no task yet: it is queued, with the low priority of an import, later.
+        tasks = (await session.scalars(select(Task.celery_task_id).where(Task.document_id.is_not(None)))).all()
+    assert sorted(tasks) == sorted(f"p-{document_id}-bulk" for document_id in ids[:3])
+
+
+async def test_the_end_of_an_extraction_releases_the_next_document_of_its_import(client, stored, _window):
+    body = (await _import(client)).json()
+    ids = await _add(client, body, 6)
+
+    await _extraction_done(client, ids[0])
+
+    assert stored.queued == ids[:4]
+    # Said again - a task run twice - it frees nothing more.
+    await _extraction_done(client, ids[0])
+    assert stored.queued == ids[:4]
+
+
+async def test_the_ends_of_two_extractions_at_the_same_time_release_two_different_documents(client, stored, _window):
+    body = (await _import(client)).json()
+    ids = await _add(client, body, 8)
+
+    await asyncio.gather(*(_extraction_done(client, document_id) for document_id in ids[:3]))
+
+    assert stored.queued == ids[:6] or sorted(stored.queued) == sorted(ids[:6])
+    assert len(set(stored.queued)) == len(stored.queued) == 6
+
+
+async def test_the_end_of_a_document_that_is_not_of_an_import_does_nothing(client, stored, _window):
+    await _extraction_done(client, str(uuid.uuid4()))
+
+    assert stored.queued == []
+
+
+async def test_a_document_that_fails_gives_its_place_to_the_next(client, stored, _window):
+    body = (await _import(client)).json()
+    ids = await _add(client, body, 5)
+
+    response = await client.patch(
+        f"/api/internal/documents/{ids[1]}/status", headers=_headers(), json={"status": "error"}
+    )
+
+    assert response.status_code == 200
+    assert stored.queued == ids[:4]
+
+
+async def test_a_document_whose_error_is_reported_gives_its_place_to_the_next(client, stored, _window):
+    body = (await _import(client)).json()
+    ids = await _add(client, body, 5)
+
+    await client.patch(f"/api/internal/documents/{ids[0]}/error", headers=_headers(), json={"error": "boom"})
+
+    assert stored.queued == ids[:4]
+
+
+async def test_a_document_deleted_while_it_is_extracted_gives_its_place_to_the_next(
+    client, stored, _window, monkeypatch
+):
+    monkeypatch.setattr("app.services.document_upload_service.vector_store", MagicMock())
+    monkeypatch.setattr("app.services.document_upload_service.storage", MagicMock())
+    body = (await _import(client)).json()
+    ids = await _add(client, body, 5)
+
+    response = await client.delete(f"/api/collections/{body['root_collection_id']}/documents/{ids[0]}")
+
+    assert response.status_code == 204
+    assert stored.queued == ids[:4]
+
+
+async def test_a_document_deleted_while_it_waits_takes_nobody_s_place(client, stored, _window, monkeypatch):
+    monkeypatch.setattr("app.services.document_upload_service.vector_store", MagicMock())
+    monkeypatch.setattr("app.services.document_upload_service.storage", MagicMock())
+    body = (await _import(client)).json()
+    ids = await _add(client, body, 5)
+
+    await client.delete(f"/api/collections/{body['root_collection_id']}/documents/{ids[4]}")
+
+    assert stored.queued == ids[:3]
+    assert len(await _entries(body["id"])) == 4
+
+
+async def test_two_imports_each_have_their_own_window(client, stored, _window):
+    first, second = (await _import(client)).json(), (await _import(client, "Autre.zip")).json()
+
+    first_ids, second_ids = await _add(client, first, 6), await _add(client, second, 6)
+
+    assert sorted(stored.queued) == sorted(first_ids[:3] + second_ids[:3])
+
+
+async def test_the_sweep_releases_the_place_of_a_document_that_was_lost(client, stored, _window):
+    body = (await _import(client)).json()
+    ids = await _add(client, body, 5)
+    assert (await client.post("/api/internal/collection-imports/release", headers=_headers())).json() == {"released": 0}
+    # Its task never ran, and the window is full of such documents: past the delay, they stop holding it.
+    stale = datetime.now(UTC) - timedelta(seconds=import_processing_queue._settings.IMPORT_SLOT_TIMEOUT_SECONDS + 60)
+    async with async_session_factory() as session:
+        await session.execute(
+            update(ImportDocument).where(ImportDocument.document_id == uuid.UUID(ids[0])).values(released_at=stale)
+        )
+        await session.commit()
+
+    response = await client.post("/api/internal/collection-imports/release", headers=_headers())
+
+    assert response.json() == {"released": 1}
+    assert stored.queued == ids[:4]
+
+
+async def test_a_document_that_could_not_be_queued_waits_again(client, stored, _window, monkeypatch):
+    body = (await _import(client)).json()
+
+    def broken(document_id, bulk=False):
+        raise ConnectionError("Redis is down")
+
+    monkeypatch.setattr("app.services.import_processing_queue.enqueue_process_document", broken)
+    with pytest.raises(ConnectionError):
+        await _add(client, body, 1)
+
+    entries = await _entries(body["id"])
+    assert len(entries) == 1 and entries[0].released_at is None

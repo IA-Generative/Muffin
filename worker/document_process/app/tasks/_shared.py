@@ -64,6 +64,15 @@ def _spawn(task, args: list[Any], task_name: str, document_id: str, parent_task_
     backend_client.create_task(result.id, task_name, document_id, parent_celery_task_id=parent_task_id)
 
 
+def _extraction_done(document_id: str) -> None:
+    """The extraction of the document ended (#335): the backend gives its place in its import's window to
+    the next document. Never fails the task: a call lost here is caught by the periodic sweep."""
+    try:
+        backend_client.extraction_done(document_id)
+    except Exception:
+        logger.exception(f"Could not tell the backend that the extraction of document {document_id} ended")
+
+
 def _chat(model: str, system: str, user_content: str) -> str:
     # An LLM call is where a task spends its time: a revoked one stops before the next, even in a pool
     # of threads where Celery cannot kill it.

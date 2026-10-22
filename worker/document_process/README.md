@@ -131,6 +131,17 @@ complète le stage (`completed_now`, vrai pour une seule) lance le chunking. Une
 document en erreur et arrête la fenêtre ; une tâche révoquée ne lance pas la suivante. Les autres formats
 (Office, images) et les PDF courts restent une seule tâche.
 
+## Fenêtre d'extraction d'un import ZIP (#335)
+
+Les documents d'un import ZIP ne sont pas tous mis en file à leur enregistrement : le backend les garde
+« en attente » (`import_documents`) et n'en libère que `IMPORT_PROCESSING_WINDOW` (4) à la fois, toujours
+avec la priorité basse d'un import. Quand l'extraction d'un document se termine (le worker appelle
+`extraction-done` là où il lance le chunking - donc aussi quand la dernière plage d'un long PDF complète
+l'extraction), ou qu'il passe en erreur, est annulé ou supprimé, sa place va au document suivant de son
+import. Une tâche `release_import_queue`, envoyée par le beat toutes les 5 minutes, libère ce que ces
+appels n'ont pas fait (appel perdu) ; un document libéré mais jamais extrait cesse de compter au bout de
+`IMPORT_SLOT_TIMEOUT_SECONDS`.
+
 ## Limites de temps (#294)
 
 Aucune tâche n'est tuée parce qu'elle est grosse : il n'y a plus de limite dure (l'ancienne,

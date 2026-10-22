@@ -22,6 +22,7 @@ from app.services.collection_service import CollectionService, ParentCollectionN
 from app.services.description_rollup_service import DescriptionRollupService
 from app.services.document_upload_service import DocumentUploadService, _uploader_display
 from app.services.embedding_model_lookup import default_embedding_model
+from app.services.import_processing_queue import ImportProcessingQueue
 from app.services.search_service import embed_text
 
 
@@ -252,9 +253,15 @@ class CollectionImportService:
             storage_key,
             collection_import.owner_id,
             collection_import.owner_display,
-            bulk=True,
+            defer_processing=True,
             content_hash=content_hash,
         )
+        # Not queued yet: it is, when the import has room for it (#335) - with the low priority of an
+        # import, processed after any other waiting (#291).
+        queue = ImportProcessingQueue(self.db)
+        await queue.add(import_id, document.id)
+        await self.db.commit()
+        await queue.release(import_id)
         return document.id
 
     async def finish(self, import_id: uuid.UUID, result: CollectionImportResult) -> None:
