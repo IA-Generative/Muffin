@@ -58,9 +58,11 @@ async def client(stored):
 
 
 def _zip_bytes() -> bytes:
+    """The same bytes at every call: a fixed date for the entry, which writestr would otherwise stamp with
+    the current time - two calls on either side of a (2 s, in a ZIP) tick would differ."""
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
-        archive.writestr("a/doc.pdf", b"%PDF")
+        archive.writestr(zipfile.ZipInfo("a/doc.pdf", date_time=(2026, 1, 1, 0, 0, 0)), b"%PDF")
     return buffer.getvalue()
 
 
