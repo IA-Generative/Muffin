@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.25.0](https://github.com/IA-Generative/Muffin/compare/v0.24.0...v0.25.0) (2026-10-22)
+
+
+### Features
+
+* **import:** at most a window of a ZIP import's documents are extracted at a time ([39337a4](https://github.com/IA-Generative/Muffin/commit/39337a4dc5e8c5781260d0fe278c20414c3ccc22)), closes [#335](https://github.com/IA-Generative/Muffin/issues/335)
+* **import:** read a big ZIP in batches of files, a window of them at a time ([5de4d01](https://github.com/IA-Generative/Muffin/commit/5de4d01195b3995cb190b9d333e17b71bd92f9fb)), closes [#334](https://github.com/IA-Generative/Muffin/issues/334)
+
 ## [0.25.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.24.0...v0.25.0-rc) (2026-10-22)
 
 
