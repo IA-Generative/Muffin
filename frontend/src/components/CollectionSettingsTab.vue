@@ -152,7 +152,7 @@ const STRATEGY_HINT: Record<ChunkingSettings['strategy'], string> = {
   fixed: 'Découpe en blocs de taille fixe, sans tenir compte de la structure du texte.',
   semantic:
     'Regroupe les phrases par similarité de sens avant de découper : la taille des chunks en résulte, elle ne se règle pas.',
-  llm: "Un LLM lit le document et décide lui-même où découper, guidé par les instructions ci-dessous. La taille en résulte, elle ne se règle pas.",
+  llm: "Un LLM lit le document et décide lui-même où découper, guidé par les instructions ci-dessous. La taille en résulte, elle ne se règle pas. Sans modèle disponible, le découpage se fait par paragraphe.",
 }
 
 // Le chevauchement (tokens répétés d'un chunk à l'autre) n'a de sens que
@@ -378,10 +378,10 @@ function stepTooltipTitle(step: Step) {
         <div class="settings-tab__field">
           <label for="chunk-strategy">Stratégie de découpage</label>
           <select id="chunk-strategy" v-model="chunkingForm.strategy" class="fr-select">
+            <option value="llm">Par LLM (par défaut)</option>
             <option value="paragraph">Par paragraphe</option>
             <option value="fixed">Taille fixe</option>
             <option value="semantic">Sémantique</option>
-            <option value="llm">Par LLM</option>
           </select>
           <p class="settings-tab__hint">{{ STRATEGY_HINT[chunkingForm.strategy] }}</p>
         </div>

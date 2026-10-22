@@ -17,7 +17,10 @@ Une chaîne de tâches Celery, chacune enchaînant la suivante (voir `app/tasks.
    page par page.
 2. `chunk_document` - découpe le texte en chunks selon la stratégie de la collection
    (`app/chunking.py` : `paragraph`/`fixed`/`semantic`/`llm`), calcule leur embedding, les envoie
-   au backend (`ChunkCreate.embedding`).
+   au backend (`ChunkCreate.embedding`). `llm`, la stratégie par défaut, est faite par fenêtres de pages
+   (`chunking_window_pages`) : le modèle de découpage de la collection reçoit les paragraphes numérotés
+   et répond par les numéros de ceux qui commencent un chunk. Il ne réécrit jamais le texte. Une
+   fenêtre où il échoue, ou une collection sans modèle, est découpée par paragraphe.
 3. En parallèle, par fenêtres de pages (`app/windows.py`) :
    - `summarize_document` - résumé du document, embeddé lui aussi pour la recherche par résumé.
    - `tag_document` - tags automatiques.

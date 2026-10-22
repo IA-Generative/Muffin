@@ -10,7 +10,7 @@ from loguru import logger
 
 from app import reuse
 from app.celery_app import celery_app
-from app.chunking import chunk_pages
+from app.chunking import ChunkStarts, chunk_pages
 from app.tasks import _shared
 from app.tasks.extract import extract_entities_window  # noqa: E402,F401
 from app.tasks.qa import generate_qa_window  # noqa: E402,F401
@@ -37,6 +37,32 @@ def _reused_windows(
     return reuse.begin(
         document_id, stage, fingerprint, expected=[f"{key_prefix}:{start}-{end}" for start, end in windows]
     )
+
+
+def _llm_chunk_starts(settings: dict) -> ChunkStarts | None:
+    """How the "llm" strategy asks the collection's chunking model (or the hub's default one) where its
+    chunks begin - None, the document cut by paragraph, without any. The model sees the paragraphs
+    numbered and answers with numbers only: it never writes the chunks' text."""
+    if settings["chunking_strategy"] != "llm":
+        return None
+    model = _shared._model_for(settings, "chunking")
+    if model is None:
+        logger.warning("LLM chunking without any chat model available: cut by paragraph")
+        return None
+    instructions = settings["instructions"].get("chunking", "")
+    system = (
+        f"{instructions}\nYou split a document into chunks for semantic search. You are given its paragraphs, "
+        "numbered from 0, in order. Group consecutive paragraphs into chunks that each cover one topic and can "
+        "be understood on their own - typically a few paragraphs, 100 to 400 words; a heading always starts a "
+        "chunk with what follows it. Respond only with a JSON array of the numbers of the paragraphs that start "
+        "a chunk, in increasing order, starting with 0."
+    ).strip()
+
+    def chunk_starts(paragraphs: list[str]) -> list[int]:
+        numbered = "\n\n".join(f"[{index}] {paragraph}" for index, paragraph in enumerate(paragraphs))
+        return _shared._chat_json(model, system, numbered)
+
+    return chunk_starts
 
 
 @celery_app.task(name="app.tasks.chunk_document", bind=True)
@@ -101,6 +127,7 @@ def chunk_document(
                     chunk_overlap=settings["chunk_overlap"],
                     window_pages=windows["chunking_window_pages"],
                     slide_pages=windows["chunking_slide_pages"],
+                    chunk_starts=_llm_chunk_starts(settings),
                 )
                 logger.info(f"Produced {len(chunks)} chunk(s) for document {document_id}")
                 for index, chunk in enumerate(chunks):
