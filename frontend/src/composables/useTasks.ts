@@ -88,6 +88,8 @@ async function revokeTask(id: string) {
     const task = toTask(await response.json())
     const index = tasks.value.findIndex((item) => item.id === id)
     if (index !== -1) tasks.value[index] = task
+    // The tasks it started are revoked with it: their status is read again, not left as it was.
+    await fetchTasks({ quiet: true })
   } catch {
     error.value = 'Impossible de révoquer cette tâche.'
   }

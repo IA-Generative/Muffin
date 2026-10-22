@@ -13,6 +13,7 @@ from app.backend_client import Embedding
 from app.celery_app import celery_app
 from app.chunking import Chunk, ChunkStarts, chunk_pages
 from app.config import settings as worker_settings
+from app.task_revocation import TaskRevoked, raise_if_revoked
 from app.tasks import _shared
 from app.tasks.extract import extract_entities_window  # noqa: E402,F401
 from app.tasks.qa import generate_qa_window  # noqa: E402,F401
@@ -74,6 +75,9 @@ def _embed_all(model: str, chunks: list[Chunk], document_id: str) -> list[Embedd
     embeddings: list[Embedding | None] = []
     size = max(worker_settings.EMBED_BATCH_SIZE, 1)
     for start in range(0, len(chunks), size):
+        # A batch is an embedding call: where a task in a pool of threads, which Celery cannot kill,
+        # notices it was revoked.
+        raise_if_revoked()
         texts = [chunk.text for chunk in chunks[start : start + size]]
         try:
             vectors = list(_shared.backend_client.embed_batch(model, texts))
@@ -236,6 +240,8 @@ def chunk_document(
                     document_id,
                     parent_id,
                 )
+    except TaskRevoked:
+        raise
     except Exception as error:
         _shared.backend_client.update_status(document_id, status="error")
         _shared._fail(document_id, "chunk", error)

@@ -2,8 +2,11 @@ from celery import Celery
 
 from app import task_logging  # noqa: F401 - loguru everywhere, and each task's lines to the backend (#305)
 from app.config import settings
+from app.task_revocation import RevocableTask
 
-celery_app = Celery("muffin_document_edit", broker=settings.REDIS_URL, backend=settings.REDIS_URL)
+celery_app = Celery(
+    "muffin_document_edit", broker=settings.REDIS_URL, backend=settings.REDIS_URL, task_cls=RevocableTask
+)
 
 celery_app.conf.update(
     task_default_queue=settings.CELERY_QUEUE_NAME,

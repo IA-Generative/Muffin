@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import RunSettings
 from app.core.security.factory import RequestContext
-from app.core.tasks import enqueue_resume_agent, enqueue_run_agent, revoke_task
+from app.core.tasks import enqueue_resume_agent, enqueue_run_agent, revoke_tasks
 from app.models.feedback import FeedbackSourceRole
 from app.models.message import MessageRole
 from app.models.run import RunStatus
@@ -187,7 +187,7 @@ class RunService:
         # the cooperative `cancel_requested` flag is what actually halts a
         # run already mid-flight (see docs/research-agent-plan.md §6).
         if run.celery_task_id:
-            revoke_task(run.celery_task_id)
+            revoke_tasks([run.celery_task_id])
         await self.db.commit()
         await self.db.refresh(run, attribute_names=["created_at", "updated_at"])
         return self._to_out(run)
