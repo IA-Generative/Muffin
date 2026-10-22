@@ -135,9 +135,9 @@ def test_an_edit_the_agent_cannot_produce_fails_the_task_and_reports_its_logs(fa
     job_id, message = backend.report_draft_failure.call_args.args
     assert job_id == "job-6"
     assert "2 tentative(s)" in message
-    logs = task_logging.backend_client.set_task_logs.call_args.args
-    assert logs[0] == "job-6"
-    assert "2 tentative(s)" in logs[1]
+    sent = [line for call in task_logging.backend_client.add_task_logs.call_args_list for line in call.args[0]]
+    assert {line["celery_task_id"] for line in sent} == {"job-6"}
+    assert any("2 tentative(s)" in line["message"] for line in sent)
 
 
 def test_a_markdown_job_uses_the_markdown_media_type_and_extension(fake_io):

@@ -57,6 +57,7 @@ from app.tasks.rebuild import rebuild_index  # noqa: F401
 from app.tasks.refresh import refresh_url_document, scan_url_refresh  # noqa: F401
 from app.tasks.summarize import summarize_document, tag_document  # noqa: F401
 from app.tasks.tabular import process_tabular_document  # noqa: F401
+from app.tasks.task_logs import purge_task_logs  # noqa: F401
 
 __all__ = [
     # Constants
@@ -88,6 +89,7 @@ __all__ = [
     "generate_collection_qa",
     "scan_url_refresh",
     "refresh_url_document",
+    "purge_task_logs",
     "rebuild_index",
     # Internal helpers used by tests
     "_process_url",

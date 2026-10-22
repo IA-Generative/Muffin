@@ -2,6 +2,7 @@ from celery import Celery
 from celery.schedules import crontab
 from kombu import Exchange, Queue
 
+from app import task_logging  # noqa: F401 - loguru everywhere, and each task's lines to the backend (#305)
 from app.config import settings
 
 celery_app = Celery("muffin_document_process", broker=settings.REDIS_URL, backend=settings.REDIS_URL)
@@ -15,6 +16,7 @@ _EXTRACTION_TASKS = (
     "app.tasks.process_tabular_document",
     "app.tasks.refresh_url_document",
     "app.tasks.scan_url_refresh",
+    "app.tasks.purge_task_logs",
 )
 _ENRICHMENT_TASKS = (
     "app.tasks.chunk_document",
@@ -74,7 +76,13 @@ celery_app.conf.update(
             "task": "app.tasks.scan_url_refresh",
             "schedule": crontab(minute=settings.URL_REFRESH_SCAN_MINUTES),
             "options": {"queue": settings.EXTRACTION_QUEUE_NAME},
-        }
+        },
+        # The task log lines past their retention (#305), once an hour.
+        "purge-task-logs": {
+            "task": "app.tasks.purge_task_logs",
+            "schedule": crontab(minute=15),
+            "options": {"queue": settings.EXTRACTION_QUEUE_NAME},
+        },
     },
 )
 

@@ -10,7 +10,6 @@ from loguru import logger
 
 from app import reuse
 from app.celery_app import celery_app
-from app.task_logging import capture_task_logs
 from app.tasks import _shared
 from app.tasks.collection import (  # noqa: E402,F401
     update_collection_description,
@@ -62,56 +61,55 @@ def summarize_document(self, document_id: str, collection_id: str) -> None:
     update_collection_description and update_collection_tags - both decide
     for themselves whether the collection's description/tags actually need
     to change given this new summary."""
-    with capture_task_logs(self.request.id):
+    try:
+        settings = _shared.backend_client.get_collection_settings(collection_id)
+        model = _shared._model_for(settings, "summary")
+        if model is None:
+            logger.warning(f"No summary model configured for collection {collection_id}, skipping")
+            return
+
+        content_hash = reuse.valid_hash(_shared.backend_client.get_document(document_id).get("content_hash"))
+        # The summary of another document of the same file, under the same model and instructions
+        # (#300): copied with its vector, nothing is summarized here.
+        fingerprint = reuse.summary(content_hash, settings, model) if content_hash else None
+        if reuse.begin(document_id, reuse.SUMMARY, fingerprint):
+            logger.info(f"Summary of document {document_id} reused")
+        else:
+            _summarize(document_id, settings, model)
+            reuse.done(document_id, reuse.SUMMARY)
+
+        # Best-effort, fire-and-forget - a no-op unless this document sits in a conversation's
+        # temporary collection (§122), and never worth failing the summary itself over.
         try:
-            settings = _shared.backend_client.get_collection_settings(collection_id)
-            model = _shared._model_for(settings, "summary")
-            if model is None:
-                logger.warning(f"No summary model configured for collection {collection_id}, skipping")
-                return
+            _shared.backend_client.suggest_filing(document_id)
+        except Exception:
+            logger.exception(f"Failed to compute a filing suggestion for document {document_id}")
 
-            content_hash = reuse.valid_hash(_shared.backend_client.get_document(document_id).get("content_hash"))
-            # The summary of another document of the same file, under the same model and instructions
-            # (#300): copied with its vector, nothing is summarized here.
-            fingerprint = reuse.summary(content_hash, settings, model) if content_hash else None
-            if reuse.begin(document_id, reuse.SUMMARY, fingerprint):
-                logger.info(f"Summary of document {document_id} reused")
-            else:
-                _summarize(document_id, settings, model)
-                reuse.done(document_id, reuse.SUMMARY)
-
-            # Best-effort, fire-and-forget - a no-op unless this document sits in a conversation's
-            # temporary collection (§122), and never worth failing the summary itself over.
-            try:
-                _shared.backend_client.suggest_filing(document_id)
-            except Exception:
-                logger.exception(f"Failed to compute a filing suggestion for document {document_id}")
-
-            parent_id = self.request.id
-            _shared._spawn(
-                tag_document,
-                [document_id, collection_id],
-                "app.tasks.tag_document",
-                document_id,
-                parent_id,
-            )
-            _shared._spawn(
-                update_collection_description,
-                [document_id, collection_id],
-                "app.tasks.update_collection_description",
-                document_id,
-                parent_id,
-            )
-            _shared._spawn(
-                update_collection_tags,
-                [document_id, collection_id],
-                "app.tasks.update_collection_tags",
-                document_id,
-                parent_id,
-            )
-        except Exception as error:
-            _shared._fail(document_id, "summarize", error)
-            raise
+        parent_id = self.request.id
+        _shared._spawn(
+            tag_document,
+            [document_id, collection_id],
+            "app.tasks.tag_document",
+            document_id,
+            parent_id,
+        )
+        _shared._spawn(
+            update_collection_description,
+            [document_id, collection_id],
+            "app.tasks.update_collection_description",
+            document_id,
+            parent_id,
+        )
+        _shared._spawn(
+            update_collection_tags,
+            [document_id, collection_id],
+            "app.tasks.update_collection_tags",
+            document_id,
+            parent_id,
+        )
+    except Exception as error:
+        _shared._fail(document_id, "summarize", error)
+        raise
 
 
 @celery_app.task(name="app.tasks.tag_document", bind=True)
@@ -119,39 +117,36 @@ def tag_document(self, document_id: str, collection_id: str) -> None:
     """Reads the summary summarize_document just produced (falling back to
     the first page if there isn't one yet) and asks for a short list of
     tags."""
-    with capture_task_logs(self.request.id):
-        try:
-            settings = _shared.backend_client.get_collection_settings(collection_id)
-            model = _shared._model_for(settings, "tagging")
-            if model is None:
-                logger.warning(f"No tagging model configured for collection {collection_id}, skipping")
-                return
+    try:
+        settings = _shared.backend_client.get_collection_settings(collection_id)
+        model = _shared._model_for(settings, "tagging")
+        if model is None:
+            logger.warning(f"No tagging model configured for collection {collection_id}, skipping")
+            return
 
-            document = _shared.backend_client.get_document(document_id)
-            # The tags of another document of the same file whose summary and tagging settings were the
-            # same (#300): copied, nothing is asked of the model.
-            content_hash = reuse.valid_hash(document.get("content_hash"))
-            summary_model = _shared._model_for(settings, "summary")
-            fingerprint = (
-                reuse.tags(content_hash, settings, summary_model, model) if content_hash and summary_model else None
-            )
-            if reuse.begin(document_id, reuse.TAGS, fingerprint):
-                logger.info(f"Tags of document {document_id} reused")
-                return
+        document = _shared.backend_client.get_document(document_id)
+        # The tags of another document of the same file whose summary and tagging settings were the
+        # same (#300): copied, nothing is asked of the model.
+        content_hash = reuse.valid_hash(document.get("content_hash"))
+        summary_model = _shared._model_for(settings, "summary")
+        fingerprint = (
+            reuse.tags(content_hash, settings, summary_model, model) if content_hash and summary_model else None
+        )
+        if reuse.begin(document_id, reuse.TAGS, fingerprint):
+            logger.info(f"Tags of document {document_id} reused")
+            return
 
-            instructions = settings["instructions"].get("tagging", "")
-            content = document.get("summary") or "\n\n".join(
-                page.content for page in _shared._get_pages(document_id)[:1]
-            )
+        instructions = settings["instructions"].get("tagging", "")
+        content = document.get("summary") or "\n\n".join(page.content for page in _shared._get_pages(document_id)[:1])
 
-            prompt = f"{instructions}\nRespond only with a JSON array of short, lowercase tag strings (no more than 8)."
-            tags = _shared._chat_json(model, prompt.strip(), content)
-            if not isinstance(tags, list):
-                raise ValueError(f"Expected a JSON array of tags, got: {tags!r}")
+        prompt = f"{instructions}\nRespond only with a JSON array of short, lowercase tag strings (no more than 8)."
+        tags = _shared._chat_json(model, prompt.strip(), content)
+        if not isinstance(tags, list):
+            raise ValueError(f"Expected a JSON array of tags, got: {tags!r}")
 
-            _shared.backend_client.replace_document_tags(document_id, [str(tag) for tag in tags])
-            reuse.done(document_id, reuse.TAGS)
-            logger.info(f"Saved {len(tags)} tag(s) for document {document_id}")
-        except Exception as error:
-            _shared._fail(document_id, "tag", error)
-            raise
+        _shared.backend_client.replace_document_tags(document_id, [str(tag) for tag in tags])
+        reuse.done(document_id, reuse.TAGS)
+        logger.info(f"Saved {len(tags)} tag(s) for document {document_id}")
+    except Exception as error:
+        _shared._fail(document_id, "tag", error)
+        raise

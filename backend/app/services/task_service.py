@@ -1,25 +1,36 @@
 import uuid
+from collections.abc import Sequence
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security.factory import RequestContext
 from app.core.tasks import get_task_status, revoke_task
 from app.models.task import Task
+from app.models.task_log_entry import TaskLogEntry
+from app.repositories.collection_repository import CollectionRepository
+from app.repositories.document_repository import DocumentRepository
+from app.repositories.task_log_repository import TaskLogRepository, levels_from
 from app.repositories.task_repository import TaskRepository
 from app.schemas.pagination import Page, PaginationParams
-from app.schemas.task import TaskLogsOut, TaskOut
+from app.schemas.task import TaskLogEntryOut, TaskLogsOut, TaskOut
 
-LOG_PREVIEW_CHARS = 2000
+# The most log lines one request returns: a reader behind by more asks again (`has_more`).
+LOG_PAGE_SIZE = 500
 
 
 class TaskNotFoundError(Exception):
     pass
 
 
+class LogsDocumentNotFoundError(Exception):
+    """The document isn't in a collection of the user's own - only its owner sees its tasks."""
+
+
 class TaskService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
         self.tasks = TaskRepository(db)
+        self.logs = TaskLogRepository(db)
 
     async def list_tasks(self, user: RequestContext, pagination: PaginationParams) -> Page[TaskOut]:
         roots, total = await self.tasks.list_root_runs_by_owner(
@@ -36,14 +47,37 @@ class TaskService:
         revoke_task(task.celery_task_id)
         return self._to_out(task)
 
-    async def get_logs(self, task_id: uuid.UUID, user: RequestContext) -> TaskLogsOut:
-        task = await self.tasks.get_logs(task_id, user.user_id)
+    async def get_logs(
+        self, task_id: uuid.UUID, user: RequestContext, *, after: int = 0, min_level: str | None = None
+    ) -> TaskLogsOut:
+        task = await self.tasks.get_bare(task_id, user.user_id)
         if task is None:
             raise TaskNotFoundError(str(task_id))
-        return TaskLogsOut(id=task.id, logs=task.logs or "")
+        entries = await self.logs.list_for_task(
+            task.celery_task_id, after=after, levels=levels_from(min_level), limit=LOG_PAGE_SIZE + 1
+        )
+        return _logs_out(entries)
+
+    async def get_document_logs(
+        self,
+        collection_id: uuid.UUID,
+        document_id: uuid.UUID,
+        user: RequestContext,
+        *,
+        after: int = 0,
+        min_level: str | None = None,
+    ) -> TaskLogsOut:
+        """Every task of a document's pipeline on one timeline - whichever task each line came from."""
+        if await CollectionRepository(self.db).get(collection_id, user.user_id) is None:
+            raise LogsDocumentNotFoundError(str(collection_id))
+        if await DocumentRepository(self.db).get_in_collection(collection_id, document_id) is None:
+            raise LogsDocumentNotFoundError(str(document_id))
+        entries = await self.logs.list_for_document(
+            document_id, after=after, levels=levels_from(min_level), limit=LOG_PAGE_SIZE + 1
+        )
+        return _logs_out(entries)
 
     def _to_out(self, task: Task) -> TaskOut:
-        logs = task.logs or ""
         return TaskOut(
             id=task.id,
             task_name=task.task_name,
@@ -54,8 +88,12 @@ class TaskService:
             collection_name=task.collection.name if task.collection else None,
             parent_id=task.parent_id,
             created_at=task.created_at,
-            # Tail, not head: the most recent lines (including any traceback
-            # on failure) are what a card preview should surface first.
-            log_preview=logs[-LOG_PREVIEW_CHARS:],
-            has_more_logs=len(logs) > LOG_PREVIEW_CHARS,
         )
+
+
+def _logs_out(entries: Sequence[TaskLogEntry]) -> TaskLogsOut:
+    """`entries` were fetched one past the page: that one only tells there are more."""
+    page = entries[:LOG_PAGE_SIZE]
+    return TaskLogsOut(
+        entries=[TaskLogEntryOut.model_validate(entry) for entry in page], has_more=len(entries) > LOG_PAGE_SIZE
+    )

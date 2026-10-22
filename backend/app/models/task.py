@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import ForeignKey, String, Text
+from sqlalchemy import ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDMixin
@@ -10,10 +10,11 @@ class Task(UUIDMixin, TimestampMixin, Base):
     """A dispatched Celery task, recorded so a user can see its status and
     revoke it. Live status isn't stored here - it's looked up from Celery's
     own result backend by celery_task_id (see app/core/tasks.py), so there's
-    nothing to keep in sync. Logs are stored here though: Celery's result
-    backend only keeps the return value/exception, not the loguru output the
-    worker produced along the way, and the user wants that raw output
-    available for every task, not just failed ones."""
+    nothing to keep in sync. Its logs are lines of their own, sent while it
+    runs: see app/models/task_log_entry.py (#305). The `logs` column the
+    whole output used to be stored in, at the end of the task, is no longer
+    mapped - its content was copied into task_log_entries, and it goes in the
+    next release."""
 
     __tablename__ = "tasks"
 
@@ -37,7 +38,6 @@ class Task(UUIDMixin, TimestampMixin, Base):
     # and the per-window qa/entity tasks are children of chunk_document - lets
     # the UI group a whole document's pipeline run under one card.
     parent_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("tasks.id", ondelete="CASCADE"), nullable=True)
-    logs: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     document: Mapped["Document | None"] = relationship()  # noqa: F821
     collection: Mapped["Collection | None"] = relationship()  # noqa: F821

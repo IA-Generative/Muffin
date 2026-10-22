@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -70,6 +72,12 @@ class WorkerSettings(BaseSettings):
     # past, the times a schedule can be set to. Several replicas each running their own beat is
     # harmless: the backend hands each due document to one scan only.
     URL_REFRESH_SCAN_MINUTES: str = "0,30"
+
+    # Logging (#305): stdout - JSON for kubectl/Loki, or readable - from LOG_LEVEL up. The lines a task
+    # logs from TASK_LOG_LEVEL up are also sent to the backend, to be followed in Muffin as it runs.
+    LOG_FORMAT: Literal["console", "json"] = "console"
+    LOG_LEVEL: str = "INFO"
+    TASK_LOG_LEVEL: str = "INFO"
 
     model_config = SettingsConfigDict(case_sensitive=True, env_file=(".env", ".env.local"), extra="ignore")
 

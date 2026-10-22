@@ -298,5 +298,10 @@ class BackendClient:
         )
         response.raise_for_status()
 
+    def add_task_logs(self, lines: list[dict]) -> None:
+        """A short timeout: the lines are sent again with the next batch, a task never waits on them."""
+        response = self._client.post("/api/internal/task-logs", json={"entries": lines}, timeout=5.0)
+        response.raise_for_status()
+
 
 backend_client = BackendClient()

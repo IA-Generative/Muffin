@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import type { CollectionDocument, Entity, EntityType, QaPair, Relation } from '../types/collection'
 import LivingDocumentRevisions from './LivingDocumentRevisions.vue'
+import TaskLogViewer from './TaskLogViewer.vue'
 import UrlRefreshSettings from './UrlRefreshSettings.vue'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
@@ -37,7 +38,7 @@ interface DocumentPage {
   screenshot_url: string | null
 }
 
-type Tab = 'summary' | 'entities' | 'qa' | 'revisions'
+type Tab = 'summary' | 'entities' | 'qa' | 'revisions' | 'logs'
 
 const activeTab = ref<Tab>('summary')
 
@@ -56,6 +57,9 @@ const qaError = ref(false)
 const entities = ref<Entity[]>()
 const relations = ref<Relation[]>()
 const entitiesError = ref(false)
+
+// The logs of every task of its pipeline (#305), followed live while it is being processed.
+const isProcessing = computed(() => ['pending', 'indexing'].includes(detail.value?.status ?? props.document.status))
 
 const ENTITY_LABEL: Record<EntityType, string> = {
   personne: 'Personne',
@@ -218,9 +222,18 @@ onMounted(() => {
             >
               Révisions
             </button>
+            <button
+              v-if="editable"
+              type="button"
+              class="document-modal__tab"
+              :class="{ 'document-modal__tab--active': activeTab === 'logs' }"
+              @click="activeTab = 'logs'"
+            >
+              Logs
+            </button>
           </nav>
 
-          <div class="document-modal__body">
+          <div class="document-modal__body" :class="{ 'document-modal__body--logs': activeTab === 'logs' }">
             <section v-if="activeTab === 'summary'">
               <p v-if="detailError" class="document-modal__error">Impossible de charger ce document.</p>
               <template v-else-if="detail">
@@ -291,6 +304,13 @@ onMounted(() => {
               :document-id="document.id"
               :editable="editable ?? false"
               @changed="emit('changed')"
+            />
+
+            <TaskLogViewer
+              v-else-if="activeTab === 'logs'"
+              :path="`/api/collections/${collectionId}/documents/${document.id}/logs`"
+              :live="isProcessing"
+              show-task-name
             />
           </div>
         </div>
@@ -398,6 +418,13 @@ onMounted(() => {
   flex: 1;
   padding: 1.25rem 1.5rem 1.5rem;
   overflow-y: auto;
+}
+
+/* The log viewer scrolls its lines itself, to follow the new ones. */
+.document-modal__body--logs {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .document-modal__loading,

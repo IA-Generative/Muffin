@@ -13,8 +13,6 @@ export interface Task {
   collectionName: string | null
   parentId: string | null
   createdAt: string
-  logPreview: string
-  hasMoreLogs: boolean
 }
 
 interface TaskOut {
@@ -27,8 +25,6 @@ interface TaskOut {
   collection_name: string | null
   parent_id: string | null
   created_at: string
-  log_preview: string
-  has_more_logs: boolean
 }
 
 interface TaskPage {
@@ -49,8 +45,6 @@ function toTask(raw: TaskOut): Task {
     collectionName: raw.collection_name,
     parentId: raw.parent_id,
     createdAt: raw.created_at,
-    logPreview: raw.log_preview,
-    hasMoreLogs: raw.has_more_logs,
   }
 }
 
@@ -64,8 +58,9 @@ const page = ref(1)
 const pageCount = ref(1)
 const totalTasks = ref(0)
 
-async function fetchTasks() {
-  isLoading.value = true
+// `quiet`: a refresh in the background (a running task's status), without the loading state.
+async function fetchTasks({ quiet = false } = {}) {
+  if (!quiet) isLoading.value = true
   error.value = null
   try {
     const response = await fetch(`${API_BASE_URL}/api/tasks?page=${page.value}&page_size=${PAGE_SIZE}`, {
@@ -98,13 +93,6 @@ async function revokeTask(id: string) {
   }
 }
 
-async function fetchTaskLogs(id: string): Promise<string> {
-  const response = await fetch(`${API_BASE_URL}/api/tasks/${id}/logs`, { credentials: 'include' })
-  if (!response.ok) throw new Error(`${response.status}`)
-  const body: { logs: string } = await response.json()
-  return body.logs
-}
-
 export function useTasks() {
-  return { tasks, isLoading, error, page, pageCount, totalTasks, fetchTasks, revokeTask, fetchTaskLogs }
+  return { tasks, isLoading, error, page, pageCount, totalTasks, fetchTasks, revokeTask }
 }

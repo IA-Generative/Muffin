@@ -144,7 +144,7 @@ app/
   celery_app.py      app Celery (queue, nom de la tâche - doit matcher backend/app/core/tasks.py)
   storage.py         client S3 (RustFS) : lecture de la source, écriture du brouillon
   backend_client.py  client HTTP vers les endpoints /internal/* du backend
-  task_logging.py    capture les logs loguru d'un job et les renvoie au backend
+  task_logging.py    loguru partout, et les logs de chaque job envoyés au backend en direct (#305)
   config.py          Settings (voir docs/environment-variables.md)
 ```
 
