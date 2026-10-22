@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useCollections } from '../composables/useCollections'
 import { usePagination } from '../composables/usePagination'
 import type { Collection, EvaluationResult } from '../types/collection'
@@ -40,16 +40,26 @@ async function toggleExpand(runId: string) {
   }
 }
 
-// The run's promptfoo report, served by the backend (every access is checked) and
-// displayed in a fully sandboxed iframe: the HTML comes from promptfoo, so it gets no
-// scripts, no same-origin rights, nothing.
-const reportRunId = ref<string>()
+// The run's promptfoo report is served by the backend (every access is checked) and
+// opened in a dedicated browser tab.
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
-const reportUrl = computed(() =>
-  reportRunId.value
-    ? `${API_BASE_URL}/api/collections/${props.collection.id}/evaluations/${reportRunId.value}/report`
-    : '',
-)
+
+// "Télécharger le rapport" opens a small menu to pick the format (HTML or JSON).
+// Only one run's menu is open at a time.
+const downloadMenuRunId = ref<string>()
+
+function toggleDownloadMenu(runId: string) {
+  downloadMenuRunId.value = downloadMenuRunId.value === runId ? undefined : runId
+}
+
+function onDocumentClick(event: MouseEvent) {
+  if (downloadMenuRunId.value && !(event.target as HTMLElement).closest('.eval-tab__download')) {
+    downloadMenuRunId.value = undefined
+  }
+}
+
+onMounted(() => document.addEventListener('click', onDocumentClick))
+onUnmounted(() => document.removeEventListener('click', onDocumentClick))
 
 const evaluableCount = computed(() => props.collection.qaPairs.filter((pair) => pair.source).length)
 const skippedCount = computed(() => props.collection.qaPairs.length - evaluableCount.value)
@@ -187,23 +197,57 @@ const goldenCount = computed(() => props.collection.qaPairs.filter((pair) => pai
         </div>
 
         <div v-if="run.hasArtifacts" class="eval-tab__artifacts">
-          <button type="button" class="fr-btn fr-btn--sm fr-btn--tertiary" @click="reportRunId = run.id">
-            Voir le rapport
-          </button>
           <a
-            class="fr-link fr-link--download"
-            :href="`${API_BASE_URL}/api/collections/${collection.id}/evaluations/${run.id}/report?download=1`"
-            download
+            class="fr-btn fr-btn--sm fr-btn--tertiary"
+            :href="`${API_BASE_URL}/api/collections/${collection.id}/evaluations/${run.id}/report`"
+            target="_blank"
+            rel="noopener"
           >
-            Rapport HTML
+            Ouvrir le rapport détaillé dans un onglet
           </a>
-          <a
-            class="fr-link fr-link--download"
-            :href="`${API_BASE_URL}/api/collections/${collection.id}/evaluations/${run.id}/results.json`"
-            download
-          >
-            results.json
-          </a>
+          <div class="eval-tab__download">
+            <button
+              type="button"
+              class="fr-btn fr-btn--sm fr-btn--tertiary eval-tab__download-btn"
+              :aria-expanded="downloadMenuRunId === run.id"
+              aria-haspopup="menu"
+              @click="toggleDownloadMenu(run.id)"
+            >
+              Télécharger le rapport
+              <svg
+                viewBox="0 0 24 24"
+                width="14"
+                height="14"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                :style="{ transform: downloadMenuRunId === run.id ? 'rotate(180deg)' : 'none' }"
+                aria-hidden="true"
+              >
+                <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+              </svg>
+            </button>
+            <div v-if="downloadMenuRunId === run.id" class="eval-tab__download-menu" role="menu">
+              <a
+                class="eval-tab__download-item"
+                role="menuitem"
+                :href="`${API_BASE_URL}/api/collections/${collection.id}/evaluations/${run.id}/report?download=1`"
+                download
+                @click="downloadMenuRunId = undefined"
+              >
+                Rapport HTML
+              </a>
+              <a
+                class="eval-tab__download-item"
+                role="menuitem"
+                :href="`${API_BASE_URL}/api/collections/${collection.id}/evaluations/${run.id}/results.json`"
+                download
+                @click="downloadMenuRunId = undefined"
+              >
+                Rapport JSON
+              </a>
+            </div>
+          </div>
         </div>
 
         <div v-if="expandedRunId === run.id" class="eval-tab__results">
@@ -249,31 +293,6 @@ const goldenCount = computed(() => props.collection.qaPairs.filter((pair) => pai
     <p v-else class="eval-tab__empty">Aucune évaluation lancée pour le moment.</p>
 
     <PaginationControls v-model:page="page" :page-count="pageCount" />
-
-    <div v-if="reportRunId" class="eval-tab__modal-overlay" @click.self="reportRunId = undefined">
-      <div class="eval-tab__modal">
-        <div class="eval-tab__modal-header">
-          <p class="eval-tab__modal-title">Rapport d'évaluation</p>
-          <a class="fr-link fr-link--sm" :href="reportUrl" target="_blank" rel="noopener">
-            Ouvrir dans un onglet
-          </a>
-          <button
-            type="button"
-            class="fr-btn fr-btn--tertiary-no-outline fr-btn--sm"
-            title="Fermer le rapport"
-            @click="reportRunId = undefined"
-          >
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-        <!-- The report is self-contained promptfoo HTML (inline JS for sorting/filtering):
-             allow-scripts alone renders it, and without allow-same-origin the opaque-origin
-             document can't touch the app's session. -->
-        <iframe :src="reportUrl" class="eval-tab__modal-frame" sandbox="allow-scripts" title="Rapport d'évaluation" />
-      </div>
-    </div>
   </div>
 </template>
 
@@ -437,6 +456,42 @@ const goldenCount = computed(() => props.collection.qaPairs.filter((pair) => pai
   font-size: 0.8125rem;
 }
 
+.eval-tab__download {
+  position: relative;
+  display: inline-flex;
+}
+
+.eval-tab__download-btn {
+  gap: 0.5rem;
+}
+
+.eval-tab__download-menu {
+  position: absolute;
+  top: calc(100% + 0.25rem);
+  left: 0;
+  z-index: 100;
+  min-width: max-content;
+  padding: 0.25rem;
+  background: var(--background-default-grey);
+  border: 1px solid var(--border-default-grey);
+  border-radius: 0.5rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.eval-tab__download-item {
+  display: block;
+  padding: 0.5rem 0.625rem;
+  border-radius: 0.375rem;
+  color: var(--text-default-grey);
+  font-size: 0.8125rem;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.eval-tab__download-item:hover {
+  background: var(--background-alt-grey-hover);
+}
+
 .eval-tab__results {
   display: flex;
   flex-direction: column;
@@ -555,47 +610,5 @@ const goldenCount = computed(() => props.collection.qaPairs.filter((pair) => pai
 .eval-tab__progress-detail {
   font-size: 0.75rem;
   color: var(--text-mention-grey);
-}
-
-.eval-tab__modal-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 1000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 2rem;
-  background: rgba(0, 0, 0, 0.5);
-}
-
-.eval-tab__modal {
-  display: flex;
-  flex-direction: column;
-  width: min(56rem, 100%);
-  height: min(48rem, 100%);
-  background: var(--background-default-grey);
-  border-radius: 0.5rem;
-  overflow: hidden;
-}
-
-.eval-tab__modal-header {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid var(--border-default-grey);
-}
-
-.eval-tab__modal-title {
-  margin: 0;
-  font-size: 0.875rem;
-  font-weight: 700;
-  flex: 1;
-}
-
-.eval-tab__modal-frame {
-  flex: 1;
-  width: 100%;
-  border: none;
 }
 </style>
