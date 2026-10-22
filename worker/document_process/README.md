@@ -97,6 +97,28 @@ Tout passe par loguru (`app/task_logging.py`, le même module dans chaque worker
 - Le beat purge chaque heure les lignes plus vieilles que `TASK_LOG_RETENTION_DAYS` (backend,
   7 jours).
 
+## Révocation d'une tâche
+
+Révoquer une tâche (bouton « Révoquer », annulation d'un run) l'arrête pour de bon, quelle que soit sa
+situation. Celery seul ne suffit pas : son `revoke` est une diffusion aux workers présents à cet
+instant, gardée en mémoire, et un kill que seul un pool prefork sait faire.
+
+- Le backend (`revoke_tasks`) laisse un drapeau dans Redis (`muffin:revoked:<id>`), écrit l'état
+  `REVOKED` dans le backend de résultats, et diffuse le `revoke` (avec `terminate`). La révocation d'une
+  tâche s'étend à toutes celles qu'elle a lancées encore actives, et un document en cours de traitement
+  passe en erreur « Traitement annulé. ».
+- Chaque worker (`app/task_revocation.py`, la même classe `RevocableTask` dans les quatre) regarde ce
+  drapeau au démarrage de chaque tâche et l'abandonne s'il est posé. C'est ce qui arrête une tâche qui
+  attendait dans la queue quand un pod démarre (déploiement, KEDA), ou qui est redistribuée par Redis
+  après la mort de son worker.
+- Le pod d'enrichissement tourne en threads, où Celery ne peut pas tuer une tâche : `raise_if_revoked`
+  est appelé avant chaque appel LLM et chaque embedding, et une tâche révoquée s'y arrête (`TaskRevoked`,
+  un `Ignore` : ce n'est pas un échec du document).
+
+Si un worker tombe en pleine tâche, la tâche reste « en cours » : avec `acks_late`, Redis la redistribue
+à un autre worker une fois `BROKER_VISIBILITY_TIMEOUT_SECONDS` passé (4 h), puis dans les ~100 s qui
+suivent. Avant cela, la révoquer la fait passer à « révoquée » tout de suite, et elle ne sera pas rejouée.
+
 ## Limites de temps (#294)
 
 Aucune tâche n'est tuée parce qu'elle est grosse : il n'y a plus de limite dure (l'ancienne,

@@ -17,6 +17,7 @@ from app import reuse
 from app.celery_app import celery_app
 from app.config import settings
 from app.tabular.detect import detect_tabular
+from app.task_revocation import TaskRevoked
 from app.tasks import _shared
 
 # Importé ici pour que ``_spawn(chunk_document, ...)`` resolve l'objet tâche
@@ -186,6 +187,8 @@ def process_document(self, document_id: str) -> None:
             _extract_file(document)
             _shared.backend_client.update_status(document_id, status="indexing", progress=50)
             _spawn_chunking(document, self.request.id)
+    except TaskRevoked:
+        raise
     except Exception as error:
         _shared.backend_client.update_status(document_id, status="error")
         _shared._fail(document_id, "extract content", error)

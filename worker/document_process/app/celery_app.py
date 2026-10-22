@@ -4,8 +4,11 @@ from kombu import Exchange, Queue
 
 from app import task_logging  # noqa: F401 - loguru everywhere, and each task's lines to the backend (#305)
 from app.config import settings
+from app.task_revocation import RevocableTask
 
-celery_app = Celery("muffin_document_process", broker=settings.REDIS_URL, backend=settings.REDIS_URL)
+celery_app = Celery(
+    "muffin_document_process", broker=settings.REDIS_URL, backend=settings.REDIS_URL, task_cls=RevocableTask
+)
 
 # Which queue - so which pod - runs each task (#291). Extraction is CPU-bound and runs a few at a time;
 # enrichment mostly waits for the embeddings/LLM API and runs many at once; an import or a rebuild is

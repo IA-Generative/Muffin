@@ -108,20 +108,116 @@ async def test_list_tasks_is_scoped_to_owner(client):
     assert body["total"] == 0
 
 
+async def _add_children(client, document_id, collection_id, count=2, parent_celery_id="celery-abc"):
+    """Children of the first task, as the pipeline records them (chunk_document, then its windows)."""
+    from app.repositories.task_repository import TaskRepository
+
+    async with async_session_factory() as session:
+        repo = TaskRepository(session)
+        root = await repo.get_by_celery_id(parent_celery_id)
+        for i in range(count):
+            await repo.create(
+                f"celery-child-{i}",
+                "app.tasks.chunk_document",
+                "dev-user",
+                document_id=uuid.UUID(document_id),
+                collection_id=uuid.UUID(collection_id),
+                parent_id=root.id,
+            )
+        await session.commit()
+
+
 async def test_revoke_task(client):
     _, document_id = await _create_document(client)
 
     with (
-        patch("app.services.task_service.get_task_status", return_value="REVOKED"),
-        patch("app.services.task_service.revoke_task") as mock_revoke,
+        patch("app.services.task_service.get_task_status", return_value="STARTED"),
+        patch("app.services.task_service.active_task_ids", return_value=["celery-abc"]),
+        patch("app.services.task_service.revoke_tasks") as mock_revoke,
     ):
         list_response = await client.get("/api/tasks")
         task_id = list_response.json()["items"][0]["id"]
         response = await client.post(f"/api/tasks/{task_id}/revoke")
 
     assert response.status_code == 200
+    # Told as it is, not as the worker will report it a few seconds later.
     assert response.json()["status"] == "REVOKED"
-    mock_revoke.assert_called_once_with("celery-abc")
+    mock_revoke.assert_called_once_with(["celery-abc"])
+
+
+async def test_revoking_a_task_revokes_the_tasks_it_started_that_are_still_active(client):
+    collection_id, document_id = await _create_document(client)
+    await _add_children(client, document_id, collection_id, count=3)
+
+    def active(ids):
+        # The root and one child are still going; the other children are over.
+        return [task_id for task_id in ids if task_id in ("celery-abc", "celery-child-1")]
+
+    with (
+        patch("app.services.task_service.get_task_status", return_value="STARTED"),
+        patch("app.services.task_service.active_task_ids", side_effect=active),
+        patch("app.services.task_service.revoke_tasks") as mock_revoke,
+    ):
+        task_id = (await client.get("/api/tasks")).json()["items"][0]["id"]
+        await client.post(f"/api/tasks/{task_id}/revoke")
+
+    assert sorted(mock_revoke.call_args.args[0]) == ["celery-abc", "celery-child-1"]
+
+
+async def test_revoking_a_task_that_is_over_leaves_it_as_it_ended(client):
+    _, document_id = await _create_document(client)
+
+    with (
+        patch("app.services.task_service.get_task_status", return_value="SUCCESS"),
+        patch("app.services.task_service.active_task_ids", return_value=[]),
+        patch("app.services.task_service.revoke_tasks") as mock_revoke,
+    ):
+        task_id = (await client.get("/api/tasks")).json()["items"][0]["id"]
+        response = await client.post(f"/api/tasks/{task_id}/revoke")
+
+    assert response.json()["status"] == "SUCCESS"
+    mock_revoke.assert_called_once_with([])
+
+
+async def _document_state(document_id: str) -> tuple[str, str | None]:
+    from app.models.document import Document
+
+    async with async_session_factory() as session:
+        document = await session.get(Document, uuid.UUID(document_id))
+        return document.status, document.error
+
+
+async def test_revoking_the_processing_of_a_document_marks_it_as_cancelled(client):
+    _, document_id = await _create_document(client)  # a new document is pending
+
+    with (
+        patch("app.services.task_service.get_task_status", return_value="STARTED"),
+        patch("app.services.task_service.active_task_ids", return_value=["celery-abc"]),
+        patch("app.services.task_service.revoke_tasks"),
+    ):
+        task_id = (await client.get("/api/tasks")).json()["items"][0]["id"]
+        await client.post(f"/api/tasks/{task_id}/revoke")
+
+    assert await _document_state(document_id) == ("error", "Traitement annulé.")
+
+
+async def test_revoking_a_task_of_a_document_already_indexed_leaves_the_document_alone(client):
+    from app.models.document import Document, DocumentStatus
+
+    _, document_id = await _create_document(client)
+    async with async_session_factory() as session:
+        (await session.get(Document, uuid.UUID(document_id))).status = DocumentStatus.INDEXED
+        await session.commit()
+
+    with (
+        patch("app.services.task_service.get_task_status", return_value="STARTED"),
+        patch("app.services.task_service.active_task_ids", return_value=["celery-abc"]),
+        patch("app.services.task_service.revoke_tasks"),
+    ):
+        task_id = (await client.get("/api/tasks")).json()["items"][0]["id"]
+        await client.post(f"/api/tasks/{task_id}/revoke")
+
+    assert await _document_state(document_id) == ("indexed", None)
 
 
 async def test_revoke_unknown_task_returns_404(client):

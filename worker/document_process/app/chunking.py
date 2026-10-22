@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from loguru import logger
 
+from app.task_revocation import TaskRevoked
 from app.windows import sliding_windows
 
 TOKENS_PER_CHAR = 0.25  # rough estimate, good enough until a real tokenizer is wired in
@@ -127,6 +128,8 @@ def _chunk_llm(
         """None when the model failed on the window."""
         try:
             return _valid_starts(chunk_starts([paragraph.text for paragraph in paragraphs]), len(paragraphs))
+        except TaskRevoked:
+            raise
         except Exception as error:
             logger.warning(f"LLM chunking failed on pages {paragraphs[0].page_start}+, cut by paragraph: {error}")
             return None
