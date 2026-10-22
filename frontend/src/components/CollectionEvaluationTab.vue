@@ -81,7 +81,8 @@ const goldenCount = computed(() => props.collection.qaPairs.filter((pair) => pai
   <div>
     <p class="eval-tab__intro">
       Mesure la qualité des réponses générées : chaque question-réponse de la collection est posée au pipeline, puis un
-      juge (modèle d'évaluation) note la factualité de la réponse générée face à la réponse attendue.
+      juge (modèle d'évaluation) note la factualité de la réponse générée face à la réponse attendue (en dessous de 0,7,
+      la paire est signalée en rouge dans le rapport).
     </p>
     <p class="eval-tab__intro">
       Les <strong>questions de test</strong> ({{ goldenCount }}) sont écrites par une personne et ne sont dans aucun
@@ -253,6 +254,9 @@ const goldenCount = computed(() => props.collection.qaPairs.filter((pair) => pai
       <div class="eval-tab__modal">
         <div class="eval-tab__modal-header">
           <p class="eval-tab__modal-title">Rapport d'évaluation</p>
+          <a class="fr-link fr-link--sm" :href="reportUrl" target="_blank" rel="noopener">
+            Ouvrir dans un onglet
+          </a>
           <button
             type="button"
             class="fr-btn fr-btn--tertiary-no-outline fr-btn--sm"
@@ -264,9 +268,10 @@ const goldenCount = computed(() => props.collection.qaPairs.filter((pair) => pai
             </svg>
           </button>
         </div>
-        <!-- Fully sandboxed: the report is promptfoo-generated HTML, it gets no scripts
-             and no same-origin rights - it is only meant to be read. -->
-        <iframe :src="reportUrl" class="eval-tab__modal-frame" sandbox="" title="Rapport d'évaluation" />
+        <!-- The report is self-contained promptfoo HTML (inline JS for sorting/filtering):
+             allow-scripts alone renders it, and without allow-same-origin the opaque-origin
+             document can't touch the app's session. -->
+        <iframe :src="reportUrl" class="eval-tab__modal-frame" sandbox="allow-scripts" title="Rapport d'évaluation" />
       </div>
     </div>
   </div>
@@ -576,7 +581,7 @@ const goldenCount = computed(() => props.collection.qaPairs.filter((pair) => pai
 .eval-tab__modal-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 1rem;
   padding: 0.5rem 0.75rem;
   border-bottom: 1px solid var(--border-default-grey);
 }
@@ -585,6 +590,7 @@ const goldenCount = computed(() => props.collection.qaPairs.filter((pair) => pai
   margin: 0;
   font-size: 0.875rem;
   font-weight: 700;
+  flex: 1;
 }
 
 .eval-tab__modal-frame {

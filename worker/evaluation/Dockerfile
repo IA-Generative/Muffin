@@ -33,10 +33,13 @@ WORKDIR /app
 COPY --from=builder --chown=worker:worker /app/.venv /app/.venv
 COPY --from=builder --chown=worker:worker /app/app /app/app
 COPY --from=promptfoo /usr/local/bin/node /usr/local/bin/node
-COPY --from=promptfoo /usr/local/bin/promptfoo /usr/local/bin/promptfoo
 COPY --from=promptfoo /usr/local/lib/node_modules /usr/local/lib/node_modules
+# npm's bin is a relative symlink into the package - COPY would dereference it into a
+# plain file whose relative imports then resolve next to the bin and fail
+# (ERR_MODULE_NOT_FOUND on its sibling modules). Recreate the symlink instead.
+RUN ln -s ../lib/node_modules/promptfoo/dist/src/entrypoint.js /usr/local/bin/promptfoo
 USER worker
 ENV PATH="/app/.venv/bin:/usr/local/bin:$PATH"
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-  CMD celery -A app.celery_app inspect ping -d celery@$$HOSTNAME || exit 1
+  CMD celery -A app.celery_app inspect ping -d celery@$HOSTNAME || exit 1
 CMD ["celery", "-A", "app.celery_app", "worker", "--loglevel=info"]
