@@ -104,6 +104,18 @@ class ImportProcessingQueue:
         await self.db.commit()
         await self.release(import_id)
 
+    async def requeue(self, document_id: uuid.UUID) -> uuid.UUID | None:
+        """A document of an import that is processed again waits for its turn in the window like the first
+        time: returns its import, or None for a document of no import. Not committed - call `release` once
+        it is."""
+        entry = await self.db.get(ImportDocument, document_id)
+        if entry is None:
+            return None
+        entry.released_at = None
+        entry.extraction_done_at = None
+        await self.db.flush()
+        return entry.import_id
+
     async def import_of(self, document_id: uuid.UUID) -> uuid.UUID | None:
         """The import a document belongs to - asked before the document is deleted, which erases it."""
         entry = await self.db.get(ImportDocument, document_id)

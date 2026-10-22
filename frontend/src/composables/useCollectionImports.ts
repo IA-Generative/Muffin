@@ -274,6 +274,22 @@ async function decideAttachment(
   return updated
 }
 
+// Relaunches the documents of the import that ended in error (#340): they wait for their turn again.
+// Resolves to how many - null when it failed.
+async function reprocessFailed(importId: string): Promise<number | null> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/collection-imports/${importId}/reprocess-failed`, {
+      method: 'POST',
+      credentials: 'include',
+    })
+    if (!response.ok) return null
+    const body: { reprocessed: number } = await response.json()
+    return body.reprocessed
+  } catch {
+    return null
+  }
+}
+
 export function useCollectionImports() {
   return {
     imports,
@@ -285,5 +301,6 @@ export function useCollectionImports() {
     loadConversationImports,
     fetchAwaitingAttachment,
     decideAttachment,
+    reprocessFailed,
   }
 }

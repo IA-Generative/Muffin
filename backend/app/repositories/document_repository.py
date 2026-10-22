@@ -20,6 +20,7 @@ from app.models.document import (
 )
 from app.models.document_revision import DocumentRevision
 from app.models.document_tabular_profile import DocumentTabularProfile
+from app.models.import_document import ImportDocument
 
 
 class DocumentRepository:
@@ -134,6 +135,26 @@ class DocumentRepository:
             .where(Document.collection_id == collection_id)
             .options(selectinload(Document.suggested_collection))
             .order_by(Document.created_at)
+        )
+        return result.scalars().all()
+
+    async def list_failed(self, collection_ids: Sequence[uuid.UUID]) -> Sequence[Document]:
+        """The documents of these collections whose processing ended in error (or was cancelled), oldest
+        first - what a relaunch in bulk takes up again."""
+        result = await self.db.execute(
+            select(Document)
+            .where(Document.collection_id.in_(collection_ids), Document.status == DocumentStatus.ERROR)
+            .order_by(Document.created_at, Document.id)
+        )
+        return result.scalars().all()
+
+    async def list_failed_of_import(self, import_id: uuid.UUID) -> Sequence[Document]:
+        """Same, for the documents a ZIP import created."""
+        result = await self.db.execute(
+            select(Document)
+            .join(ImportDocument, ImportDocument.document_id == Document.id)
+            .where(ImportDocument.import_id == import_id, Document.status == DocumentStatus.ERROR)
+            .order_by(Document.created_at, Document.id)
         )
         return result.scalars().all()
 

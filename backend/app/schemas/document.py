@@ -246,3 +246,9 @@ class UrlFetchReportOut(BaseModel):
 
 # DocumentUrlCreate refers to RefreshSchedule, defined after it.
 DocumentUrlCreate.model_rebuild()
+
+
+class ReprocessedOut(BaseModel):
+    """How many documents in error were relaunched (#340)."""
+
+    reprocessed: int

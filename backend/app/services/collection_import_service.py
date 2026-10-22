@@ -145,6 +145,13 @@ class CollectionImportService:
         await self.db.refresh(collection_import, attribute_names=["created_at"])
         return await self._present(collection_import)
 
+    async def reprocess_failed(self, import_id: uuid.UUID, user: RequestContext) -> int:
+        """The user relaunches the documents of the import that ended in error (#340): they wait for their
+        turn in the import's window again. Returns how many."""
+        await self._get_owned(import_id, user)
+        documents = await self.documents.documents.list_failed_of_import(import_id)
+        return await self.documents.relaunch(documents, user.user_id)
+
     async def get(self, import_id: uuid.UUID, user: RequestContext) -> CollectionImportOut:
         return await self._present(await self._get_owned(import_id, user))
 
