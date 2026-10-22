@@ -2,7 +2,7 @@ import enum
 import uuid
 from typing import Any
 
-from sqlalchemy import Boolean, Enum, Float, ForeignKey, String, Text
+from sqlalchemy import Boolean, Enum, Float, ForeignKey, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -49,6 +49,19 @@ class CollectionImport(UUIDMixin, TimestampMixin, Base):
     # {"collections_created": int, "documents_created": int, "skipped": [{"path", "reason"}]}
     summary: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # A big archive is read in batches of files, by tasks of their own (#334): the batches announced, the
+    # ones done, and what each of them reported - {"documents_created", "skipped"}, plus the planner's own
+    # part under "_plan". The summary is made of them when the last batch is done. Locked while a batch
+    # reports, as they finish at the same time.
+    batches_expected: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    batches_done: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    batch_results: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
 
     # Attach suggestion (#223), only for an archive dropped with no place of its own (a
     # conversation, the "Fichiers à ranger" page) - one dropped into a collection already went

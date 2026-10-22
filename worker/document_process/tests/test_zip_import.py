@@ -10,6 +10,7 @@ from celery.exceptions import SoftTimeLimitExceeded
 
 from app import task_logging, tasks
 from app.config import settings
+from app.storage import RangeReader
 from app.zip_import import (
     ArchiveRejectedError,
     MemberSkippedError,
@@ -187,21 +188,85 @@ class TestExtractMember:
             extract_member(archive, archive.getinfo("doc.pdf"), cap=10_000, sink=io.BytesIO())
 
 
-class TestImportTask:
-    def _run(self, monkeypatch, archive_bytes: bytes, add_document=None):
-        backend = MagicMock()
-        backend.is_imported_duplicate.return_value = False
-        if add_document is not None:
-            backend.add_imported_document.side_effect = add_document
-        backend.begin_collection_import.return_value = {"archive_key": "imports/i.zip", "root_collection_id": "root"}
+class _FakeStorage:
+    """RustFS as the import uses it: the archive read by ranges, the plan stored beside it, the files streamed."""
+
+    def __init__(self, archive: bytes) -> None:
+        self.objects = {"imports/i.zip": archive}
+        self.uploaded: dict[str, bytes] = {}
+        self.put_object = MagicMock(
+            side_effect=lambda key, data, content_type=None: self.objects.__setitem__(key, data)
+        )
+        self.upload_fileobj = MagicMock(
+            side_effect=lambda key, fileobj, content_type: self.uploaded.__setitem__(key, fileobj.read())
+        )
+
+    def open_seekable(self, key: str):
+        return io.BytesIO(self.objects[key])
+
+    def get_object(self, key: str) -> bytes:
+        return self.objects[key]
+
+
+class _FakeBackend(MagicMock):
+    """The backend's bookkeeping of the batches of an import, as the real one does it (#334)."""
+
+    def start(self, root: str = "root") -> "_FakeBackend":
+        self.expected, self.done, self.results, self.status = [], [], {}, "running"
+        self.begin_collection_import.return_value = {"archive_key": "imports/i.zip", "root_collection_id": root}
+        self.is_imported_duplicate.return_value = False
         created = iter(f"col-{i}" for i in range(100))
-        backend.create_imported_collection.side_effect = lambda import_id, parent, name: next(created)
-        storage = MagicMock()
-        storage.download_fileobj.side_effect = lambda key, fileobj: fileobj.write(archive_bytes)
+        self.create_imported_collection.side_effect = lambda import_id, parent, name: next(created)
+        self.begin_import_batches.side_effect = self._begin
+        self.import_batch_done.side_effect = self._batch_done
+        return self
+
+    def _begin(self, import_id, expected, plan):
+        self.expected, self.done, self.results = list(expected), [], {"_plan": plan}
+
+    def _batch_done(self, import_id, key, result):
+        was_complete = set(self.expected) <= set(self.done)
+        if key not in self.done:
+            self.done.append(key)
+            self.results[key] = result
+        complete = set(self.expected) <= set(self.done)
+        completed_now = complete and not was_complete
+        summary = None
+        if completed_now:
+            plan = self.results["_plan"]
+            summary = {
+                "collections_created": plan["collections_created"],
+                "documents_created": sum(self.results[k]["documents_created"] for k in self.expected),
+                "skipped": [*plan["skipped"], *(item for k in self.expected for item in self.results[k]["skipped"])],
+            }
+        return {
+            "status": self.status,
+            "done": len(self.done),
+            "expected": len(self.expected),
+            "completed_now": completed_now,
+            "summary": summary,
+        }
+
+
+class TestImportTask:
+    def _run(self, monkeypatch, archive_bytes: bytes, add_document=None, batch_files: int | None = None):
+        """The import, with the batches it starts run one after the other as a queue would."""
+        backend, storage = _FakeBackend().start(), _FakeStorage(archive_bytes)
+        backend.add_imported_document.side_effect = add_document or (lambda *args: f"doc-{args[2]}")
         monkeypatch.setattr(tasks._shared, "backend_client", backend)
         monkeypatch.setattr(tasks._shared, "storage", storage)
         monkeypatch.setattr(task_logging, "backend_client", MagicMock())
+        if batch_files is not None:
+            monkeypatch.setattr(settings, "IMPORT_BATCH_FILES", batch_files)
+        waiting = []
+        monkeypatch.setattr(tasks.import_zip_batch, "apply_async", lambda args: waiting.append(args[0]))
+        backend.waiting = waiting
         tasks.import_zip("import-1")
+        backend.started = []
+        while waiting:
+            payload = waiting.pop(0)
+            backend.started.append(payload["batch"])
+            tasks.import_zip_batch(payload)
         return backend, storage
 
     def test_recreates_the_tree_and_reports_a_summary(self, monkeypatch):
@@ -219,6 +284,46 @@ class TestImportTask:
         assert status == "completed"
         assert summary["collections_created"] == 2 and summary["documents_created"] == 3
         assert summary["skipped"] == [{"path": "a/run.exe", "reason": "type de fichier non pris en charge"}]
+
+    def test_a_small_archive_is_read_by_the_task_itself_in_one_batch(self, monkeypatch):
+        backend, _ = self._run(monkeypatch, _zip({"a.pdf": b"%PDF a", "b.pdf": b"%PDF b"}))
+
+        assert backend.started == []
+        assert backend.begin_import_batches.call_args.args[1] == ["batch:0"]
+        assert backend.finish_collection_import.call_count == 1
+
+    def test_a_big_archive_is_read_by_batches_a_window_of_them_at_a_time(self, monkeypatch):
+        monkeypatch.setattr(settings, "IMPORT_WINDOW", 2)
+        archive = _zip({f"d{n % 3}/f{n}.pdf": f"%PDF {n}".encode() for n in range(11)})
+
+        backend, storage = self._run(monkeypatch, archive, batch_files=2)
+
+        assert backend.begin_import_batches.call_args.args[1] == [f"batch:{n}" for n in range(6)]
+        # The planner starts the window (0 and 1), and each batch that ends starts the one after its
+        # window: 0 starts 2, 1 starts 3, 2 starts 4, 3 starts 5.
+        assert backend.started == [0, 1, 2, 3, 4, 5]
+        assert backend.finish_collection_import.call_count == 1
+        status, summary = backend.finish_collection_import.call_args.args[1:3]
+        assert status == "completed" and summary["documents_created"] == 11 and summary["collections_created"] == 3
+        assert len(storage.uploaded) == 11
+        # The plan is stored beside the archive, for the batches to read their files from.
+        assert "imports/i.zip.plan.json" in storage.objects
+
+    def test_only_the_window_is_started_by_the_planner(self, monkeypatch):
+        monkeypatch.setattr(settings, "IMPORT_WINDOW", 3)
+        archive = _zip({f"f{n}.pdf": f"%PDF {n}".encode() for n in range(10)})
+        backend, storage = _FakeBackend().start(), _FakeStorage(archive)
+        monkeypatch.setattr(tasks._shared, "backend_client", backend)
+        monkeypatch.setattr(tasks._shared, "storage", storage)
+        monkeypatch.setattr(task_logging, "backend_client", MagicMock())
+        monkeypatch.setattr(settings, "IMPORT_BATCH_FILES", 2)
+        started = []
+        monkeypatch.setattr(tasks.import_zip_batch, "apply_async", lambda args: started.append(args[0]["batch"]))
+
+        tasks.import_zip("import-1")
+
+        assert started == [0, 1, 2]
+        backend.finish_collection_import.assert_not_called()
 
     def test_a_corrupted_archive_fails_cleanly(self, monkeypatch):
         backend, _ = self._run(monkeypatch, b"not a zip at all")
@@ -246,9 +351,48 @@ class TestImportTask:
         assert status == "failed" and "2 h" in error
         assert len(added) == 1
 
+    def test_a_batch_that_fails_ends_the_import_as_failed_and_starts_no_more(self, monkeypatch):
+        archive = _zip({f"f{n}.pdf": f"%PDF {n}".encode() for n in range(8)})
+
+        def add_document(*args):
+            if args[2] == "f2.pdf":
+                raise RuntimeError("backend down")
+            return "doc"
+
+        with pytest.raises(RuntimeError):
+            self._run(monkeypatch, archive, add_document=add_document, batch_files=2)
+
+        backend = tasks._shared.backend_client
+        status, summary, error = backend.finish_collection_import.call_args.args[1:4]
+        # What this batch had done before failing - f2, the first it read, raised: nothing - is sent; what
+        # the other batches reported is already at the backend.
+        assert status == "failed" and "erreur inattendue" in error
+        assert summary == {"documents_created": 0, "skipped": []}
+
+    def test_a_batch_of_an_import_that_failed_meanwhile_starts_nothing(self, monkeypatch):
+        archive = _zip({f"f{n}.pdf": f"%PDF {n}".encode() for n in range(6)})
+        monkeypatch.setattr(settings, "IMPORT_WINDOW", 1)
+        backend, storage = _FakeBackend().start(), _FakeStorage(archive)
+        backend.add_imported_document.side_effect = lambda *args: "doc"
+        monkeypatch.setattr(tasks._shared, "backend_client", backend)
+        monkeypatch.setattr(tasks._shared, "storage", storage)
+        monkeypatch.setattr(task_logging, "backend_client", MagicMock())
+        monkeypatch.setattr(settings, "IMPORT_BATCH_FILES", 2)
+        waiting = []
+        monkeypatch.setattr(tasks.import_zip_batch, "apply_async", lambda args: waiting.append(args[0]))
+        tasks.import_zip("import-1")
+        assert [payload["batch"] for payload in waiting] == [0]
+        backend.status = "failed"
+
+        tasks.import_zip_batch(waiting.pop())
+
+        assert waiting == []
+
     def test_an_import_is_not_killed_for_being_long(self):
         assert tasks.import_zip.time_limit is None
         assert tasks.import_zip.soft_time_limit == settings.IMPORT_SOFT_TIME_LIMIT_SECONDS
+        assert tasks.import_zip_batch.time_limit is None
+        assert tasks.import_zip_batch.soft_time_limit == settings.IMPORT_SOFT_TIME_LIMIT_SECONDS
 
     def test_each_file_is_registered_with_the_hash_of_its_bytes(self, monkeypatch):
         archive = _zip({"a.pdf": b"%PDF a", "dir/b.md": b"# b"})
@@ -265,25 +409,34 @@ class TestImportTask:
         """Asked by hash before the upload (#300), so a duplicate costs neither storage nor processing."""
         archive = _zip({"new.pdf": b"%PDF new", "copy.pdf": b"%PDF already there"})
         already = hashlib.sha256(b"%PDF already there").hexdigest()
+        original = _FakeBackend.start
 
-        backend = MagicMock()
-        backend.begin_collection_import.return_value = {"archive_key": "imports/i.zip", "root_collection_id": "root"}
-        backend.is_imported_duplicate.side_effect = lambda import_id, collection_id, content_hash: (
-            content_hash == already
-        )
-        storage = MagicMock()
-        storage.download_fileobj.side_effect = lambda key, fileobj: fileobj.write(archive)
-        monkeypatch.setattr(tasks._shared, "backend_client", backend)
-        monkeypatch.setattr(tasks._shared, "storage", storage)
-        monkeypatch.setattr(task_logging, "backend_client", MagicMock())
+        def start(self, root="root"):
+            original(self, root)
+            self.is_imported_duplicate.side_effect = lambda import_id, collection_id, content_hash: (
+                content_hash == already
+            )
+            return self
 
-        tasks.import_zip("import-1")
+        monkeypatch.setattr(_FakeBackend, "start", start)
+
+        backend, storage = self._run(monkeypatch, archive)
 
         assert [call.args[2] for call in backend.add_imported_document.call_args_list] == ["new.pdf"]
         assert storage.upload_fileobj.call_count == 1
         summary = backend.finish_collection_import.call_args.args[2]
         assert summary["documents_created"] == 1
         assert summary["skipped"] == [{"path": "copy.pdf", "reason": "déjà présent dans la collection (doublon)"}]
+
+    def test_a_file_registered_meanwhile_by_another_batch_is_skipped_as_a_duplicate(self, monkeypatch):
+        """The backend answers None when it dropped the stored copy: the same file, read by two batches."""
+        archive = _zip({"a.pdf": b"%PDF a", "b.pdf": b"%PDF b"})
+
+        backend, _ = self._run(monkeypatch, archive, add_document=lambda *args: None if args[2] == "b.pdf" else "doc")
+
+        summary = backend.finish_collection_import.call_args.args[2]
+        assert summary["documents_created"] == 1
+        assert summary["skipped"] == [{"path": "b.pdf", "reason": "déjà présent dans la collection (doublon)"}]
 
     def test_a_refused_archive_creates_nothing(self, monkeypatch):
         monkeypatch.setattr(settings, "ZIP_IMPORT_MAX_FILES", 1)
@@ -296,48 +449,35 @@ class TestImportTask:
     def test_files_are_streamed_to_storage_and_never_stored_when_skipped(self, monkeypatch):
         monkeypatch.setattr(settings, "ZIP_IMPORT_MAX_FILE_BYTES", 1000)
         archive = _zip({"small.pdf": b"%PDF small", "big.pdf": b"%PDF" + b"x" * 5000})
-        uploaded = {}
 
-        backend = MagicMock()
-        backend.is_imported_duplicate.return_value = False
-        backend.begin_collection_import.return_value = {"archive_key": "imports/i.zip", "root_collection_id": "root"}
-        storage = MagicMock()
-        storage.download_fileobj.side_effect = lambda key, fileobj: fileobj.write(archive)
-        storage.upload_fileobj.side_effect = lambda key, fileobj, content_type: uploaded.__setitem__(
-            key, fileobj.read()
-        )
-        monkeypatch.setattr(tasks._shared, "backend_client", backend)
-        monkeypatch.setattr(tasks._shared, "storage", storage)
-        monkeypatch.setattr(task_logging, "backend_client", MagicMock())
-
-        tasks.import_zip("import-1")
+        backend, storage = self._run(monkeypatch, archive)
 
         # Streamed with upload_fileobj, whole and from its start - never put_object with bytes in memory.
-        storage.put_object.assert_not_called()
-        assert list(uploaded.values()) == [b"%PDF small"]
+        assert list(storage.uploaded.values()) == [b"%PDF small"]
+        assert all(call.args[0].endswith(".plan.json") for call in storage.put_object.call_args_list)
         summary = backend.finish_collection_import.call_args.args[2]
         assert summary["documents_created"] == 1
         assert summary["skipped"][0]["path"] == "big.pdf"
 
     def test_without_limits_a_large_file_is_imported_whole(self, monkeypatch):
         content = b"%PDF" + os.urandom(5_000_000)  # incompressible: well within the ratio
-        uploaded = {}
-        backend = MagicMock()
-        backend.is_imported_duplicate.return_value = False
-        backend.begin_collection_import.return_value = {"archive_key": "imports/i.zip", "root_collection_id": "root"}
-        storage = MagicMock()
-        storage.download_fileobj.side_effect = lambda key, fileobj: fileobj.write(_zip({"big.pdf": content}))
-        storage.upload_fileobj.side_effect = lambda key, fileobj, content_type: uploaded.__setitem__(
-            key, fileobj.read()
-        )
+
+        backend, storage = self._run(monkeypatch, _zip({"big.pdf": content}))
+
+        assert list(storage.uploaded.values()) == [content]
+        assert backend.finish_collection_import.call_args.args[2]["skipped"] == []
+
+    def test_the_archive_is_read_by_ranges_never_downloaded(self, monkeypatch):
+        backend, storage = _FakeBackend().start(), _FakeStorage(_zip({"a.pdf": b"%PDF a"}))
+        storage.download_fileobj = MagicMock()
+        backend.add_imported_document.side_effect = lambda *args: "doc"
         monkeypatch.setattr(tasks._shared, "backend_client", backend)
         monkeypatch.setattr(tasks._shared, "storage", storage)
         monkeypatch.setattr(task_logging, "backend_client", MagicMock())
 
         tasks.import_zip("import-1")
 
-        assert list(uploaded.values()) == [content]
-        assert backend.finish_collection_import.call_args.args[2]["skipped"] == []
+        storage.download_fileobj.assert_not_called()
 
     def test_an_archive_announcing_too_many_entries_is_refused_before_its_directory_is_read(self, monkeypatch):
         monkeypatch.setattr(settings, "ZIP_IMPORT_MAX_FILES", 1)  # so at most 10 entries
@@ -356,6 +496,50 @@ class TestImportTask:
         assert status == "failed" and "11 entrées" in error
         assert read_directories == []
         backend.create_imported_collection.assert_not_called()
+
+
+class TestRangeReader:
+    def _reader(self, data: bytes, block: int = 7):
+        calls = []
+
+        class Client:
+            def get_object(self, Bucket, Key, Range):  # noqa: N803 - boto3's own names
+                start, end = Range.removeprefix("bytes=").split("-")
+                calls.append((int(start), int(end)))
+                return {"Body": io.BytesIO(data[int(start) : int(end) + 1])}
+
+        return RangeReader(Client(), "bucket", "key", len(data), block_bytes=block), calls
+
+    def test_reads_what_a_file_would_whatever_the_block_size(self):
+        data = bytes(range(100))
+        reader, _ = self._reader(data)
+
+        reader.seek(30)
+        assert reader.read(25) == data[30:55]
+        reader.seek(-10, io.SEEK_END)
+        assert reader.read() == data[90:]
+        reader.seek(0)
+        assert reader.read(1000) == data
+        assert reader.tell() == 100
+
+    def test_fetches_by_ranges_and_not_again_what_it_holds(self):
+        reader, calls = self._reader(bytes(range(100)), block=20)
+
+        reader.seek(10)
+        reader.read(5)
+        reader.read(4)
+
+        assert calls == [(10, 29)]
+
+    def test_zipfile_reads_an_archive_through_it(self):
+        content = os.urandom(50_000)
+        archive = _zip({"a/b.pdf": content, "c.txt": b"hello"})
+        reader, calls = self._reader(archive, block=4096)
+
+        with zipfile.ZipFile(reader) as zipped:
+            assert zipped.read("a/b.pdf") == content
+            assert zipped.read("c.txt") == b"hello"
+        assert all(end - start < 4096 for start, end in calls)
 
 
 class TestCountEntries:

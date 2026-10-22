@@ -75,6 +75,10 @@ class WorkerSettings(BaseSettings):
     # file over ZIP_IMPORT_MAX_FILE_BYTES, compressed more than ZIP_IMPORT_MAX_RATIO times, or more
     # than ZIP_IMPORT_MAX_DEPTH folders deep is skipped and listed in the summary. Only the ratio is set
     # by default: it is what stops a zip bomb, and a real file is never compressed that much.
+    # A big ZIP is read in batches of IMPORT_BATCH_FILES files, each by a task of its own (import_zip_batch),
+    # IMPORT_WINDOW of them at a time: a batch that ends starts the next (#334).
+    IMPORT_BATCH_FILES: int = 50
+    IMPORT_WINDOW: int = 4
     ZIP_IMPORT_MAX_FILES: int | None = None
     ZIP_IMPORT_MAX_TOTAL_BYTES: int | None = None
     ZIP_IMPORT_MAX_FILE_BYTES: int | None = None

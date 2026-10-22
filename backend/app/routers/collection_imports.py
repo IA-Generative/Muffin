@@ -12,11 +12,15 @@ from app.schemas.collection_import import (
     CollectionImportInternalOut,
     CollectionImportOut,
     CollectionImportResult,
+    ImportBatchDone,
+    ImportBatchDoneOut,
+    ImportBatchesBegin,
     ImportedCollectionCreate,
     ImportedCollectionOut,
     ImportedDocumentCheck,
     ImportedDocumentCheckOut,
     ImportedDocumentCreate,
+    ImportedDocumentOut,
 )
 from app.services.collection_hierarchy_service import HierarchyError
 from app.services.collection_import_service import (
@@ -190,10 +194,11 @@ async def check_imported_document(
     "/collection-imports/{import_id}/documents",
     summary="Record a file of the ZIP, already stored in RustFS, as a document and queue it",
     status_code=status.HTTP_201_CREATED,
+    response_model=ImportedDocumentOut,
 )
 async def add_imported_document(
     import_id: uuid.UUID, body: ImportedDocumentCreate, service: ServiceDep
-) -> dict[str, str]:
+) -> ImportedDocumentOut:
     try:
         document_id = await service.add_document(
             import_id, body.collection_id, body.name, body.storage_key, body.content_hash
@@ -202,7 +207,34 @@ async def add_imported_document(
         raise _NOT_FOUND from error
     except ImportTargetError as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Not a collection of this import") from error
-    return {"id": str(document_id)}
+    return ImportedDocumentOut(id=document_id, duplicate=document_id is None)
+
+
+@internal_router.post(
+    "/collection-imports/{import_id}/batches/begin",
+    summary="A big archive is read in batches of files (#334): announce them, with the planner's part of the summary",
+)
+async def begin_import_batches(import_id: uuid.UUID, body: ImportBatchesBegin, service: ServiceDep) -> dict[str, str]:
+    try:
+        await service.begin_batches(import_id, body.expected, body.plan)
+    except CollectionImportNotFoundError as error:
+        raise _NOT_FOUND from error
+    return {"status": "ok"}
+
+
+@internal_router.post(
+    "/collection-imports/{import_id}/batches/{key}/done",
+    summary="A batch of files of the ZIP is done: answers where the import is, and - for the one batch that "
+    "completed it - the summary of the whole",
+    response_model=ImportBatchDoneOut,
+)
+async def import_batch_done(
+    import_id: uuid.UUID, key: str, body: ImportBatchDone, service: ServiceDep
+) -> ImportBatchDoneOut:
+    try:
+        return await service.batch_done(import_id, key, body)
+    except CollectionImportNotFoundError as error:
+        raise _NOT_FOUND from error
 
 
 @internal_router.put("/collection-imports/{import_id}/result", summary="Report how an import ended")

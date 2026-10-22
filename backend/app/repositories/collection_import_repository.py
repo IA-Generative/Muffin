@@ -27,6 +27,17 @@ class CollectionImportRepository:
         """No owner check - internal/worker use only."""
         return await self.db.get(CollectionImport, import_id)
 
+    async def get_locked(self, import_id: uuid.UUID) -> CollectionImport | None:
+        """Locked until the end of the transaction: the batches of a big import report as they finish, at
+        the same time, and a read-modify-write of what they report would lose some."""
+        result = await self.db.execute(
+            select(CollectionImport)
+            .where(CollectionImport.id == import_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        return result.scalar_one_or_none()
+
     async def list_for_owner(
         self, owner_id: str, *, conversation_id: uuid.UUID | None = None, awaiting_attachment: bool = False
     ) -> Sequence[CollectionImport]:
