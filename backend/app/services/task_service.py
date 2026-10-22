@@ -15,6 +15,7 @@ from app.repositories.task_log_repository import TaskLogRepository, levels_from
 from app.repositories.task_repository import TaskRepository
 from app.schemas.pagination import Page, PaginationParams
 from app.schemas.task import TaskLogEntryOut, TaskLogsOut, TaskOut
+from app.services.import_processing_queue import ImportProcessingQueue
 
 # The most log lines one request returns: a reader behind by more asks again (`has_more`).
 LOG_PAGE_SIZE = 500
@@ -60,12 +61,16 @@ class TaskService:
         return self._to_out(task, status="REVOKED" if task.celery_task_id in active else None)
 
     async def _cancel_processing(self, revoked: Iterable[Task]) -> None:
-        for document_id in {item.document_id for item in revoked if item.document_id is not None}:
+        document_ids = {item.document_id for item in revoked if item.document_id is not None}
+        for document_id in document_ids:
             document = await self.documents.get(document_id)
             if document is not None and document.status in (DocumentStatus.PENDING, DocumentStatus.INDEXING):
                 await self.documents.update_status(document, DocumentStatus.ERROR, progress=None, summary=None)
                 await self.documents.set_error(document, "Traitement annulé.")
         await self.db.commit()
+        # Their places in the window of their import (#335) go to the next documents.
+        for document_id in document_ids:
+            await ImportProcessingQueue(self.db).finish(document_id)
 
     async def get_logs(
         self, task_id: uuid.UUID, user: RequestContext, *, after: int = 0, min_level: str | None = None

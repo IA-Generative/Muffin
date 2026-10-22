@@ -46,6 +46,7 @@ from app.tasks.collection import (  # noqa: F401
 
 # --- Task modules (order matters for circular imports) ---
 from app.tasks.extract import extract_entities_window  # noqa: F401
+from app.tasks.import_queue import release_import_queue  # noqa: F401
 from app.tasks.import_zip import import_zip  # noqa: F401
 from app.tasks.process import (  # noqa: F401
     _process_file,
@@ -88,6 +89,7 @@ __all__ = [
     "update_collection_tags",
     "rollup_collection_description",
     "import_zip",
+    "release_import_queue",
     "generate_collection_qa",
     "scan_url_refresh",
     "refresh_url_document",

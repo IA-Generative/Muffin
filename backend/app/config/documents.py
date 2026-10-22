@@ -11,4 +11,13 @@ class DocumentSettings(BaseSettings):
     # store, never held whole in memory, whatever its size.
     DOCUMENT_MAX_UPLOAD_BYTES: int | None = None
 
+    # A ZIP import (#335) has at most this many of its documents being extracted at a time: the others wait,
+    # not in the queue, and the end of an extraction releases the next one. So an archive of 2000 files
+    # never fills the queue, and several imports - and the uploads of everyone else - share the pod.
+    IMPORT_PROCESSING_WINDOW: int = 4
+    # A document released but not extracted after this long stops holding its place: a task lost on the way
+    # (queue flushed, worker killed for good) must not block its import for ever. The worker's own task
+    # limits are shorter than this.
+    IMPORT_SLOT_TIMEOUT_SECONDS: int = 4 * 60 * 60
+
     model_config = SettingsConfigDict(case_sensitive=True, env_file=(".env", ".env.local"), extra="ignore")

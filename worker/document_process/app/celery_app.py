@@ -21,6 +21,7 @@ _EXTRACTION_TASKS = (
     "app.tasks.refresh_url_document",
     "app.tasks.scan_url_refresh",
     "app.tasks.purge_task_logs",
+    "app.tasks.release_import_queue",
 )
 _ENRICHMENT_TASKS = (
     "app.tasks.chunk_document",
@@ -79,6 +80,12 @@ celery_app.conf.update(
         "scan-url-refresh": {
             "task": "app.tasks.scan_url_refresh",
             "schedule": crontab(minute=settings.URL_REFRESH_SCAN_MINUTES),
+            "options": {"queue": settings.EXTRACTION_QUEUE_NAME},
+        },
+        # The windows of the ZIP imports (#335): what the end of an extraction did not release.
+        "release-import-queue": {
+            "task": "app.tasks.release_import_queue",
+            "schedule": crontab(minute="*/5"),
             "options": {"queue": settings.EXTRACTION_QUEUE_NAME},
         },
         # The task log lines past their retention (#305), once an hour.
