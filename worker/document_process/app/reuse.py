@@ -60,7 +60,14 @@ def _base(stage: str, content_hash: str) -> dict[str, Any]:
 
 def extraction(content_hash: str) -> str:
     return _digest(
-        {**_base(EXTRACTION, content_hash), "ocr": worker_settings.OCR_LANGUAGE, "parser": _parser_version()}
+        {
+            **_base(EXTRACTION, content_hash),
+            "ocr": worker_settings.OCR_LANGUAGE,
+            "parser": _parser_version(),
+            # A long PDF is parsed range by range, and what liteparse does across pages (repeated headers
+            # and footers) sees one range: another range size can read the pages differently.
+            "range": worker_settings.PARSE_RANGE_PAGES,
+        }
     )
 
 

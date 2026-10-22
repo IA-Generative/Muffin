@@ -9,7 +9,7 @@ from app.models.document import Document
 from app.models.document_stage import PipelineStage
 from app.repositories.collection_repository import CollectionRepository
 from app.repositories.document_repository import DocumentRepository
-from app.repositories.document_stage_repository import WHOLE, DocumentStageRepository
+from app.repositories.document_stage_repository import WHOLE, DocumentStageRepository, StageProgress
 from app.repositories.entity_repository import EntityRepository
 from app.repositories.qa_pair_repository import QaPairRepository
 from app.services import vector_store
@@ -85,9 +85,10 @@ class ResultReuse:
         logger.info(f"Reused the {stage.value} of document {source.id} for document {document_id}")
         return True
 
-    async def mark_done(self, document_id: uuid.UUID, stage: PipelineStage, key: str = WHOLE) -> None:
-        await self.stages.mark_done(document_id, stage.value, key)
+    async def mark_done(self, document_id: uuid.UUID, stage: PipelineStage, key: str = WHOLE) -> StageProgress:
+        progress = await self.stages.mark_done(document_id, stage.value, key)
         await self.db.commit()
+        return progress
 
     # -- what each stage copies ---------------------------------------------------------------------
 

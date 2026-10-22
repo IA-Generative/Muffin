@@ -119,14 +119,26 @@ Si un worker tombe en pleine tâche, la tâche reste « en cours » : avec `acks
 à un autre worker une fois `BROKER_VISIBILITY_TIMEOUT_SECONDS` passé (4 h), puis dans les ~100 s qui
 suivent. Avant cela, la révoquer la fait passer à « révoquée » tout de suite, et elle ne sera pas rejouée.
 
+## Extraction d'un long PDF (#331)
+
+Un PDF de plus de `PARSE_RANGE_PAGES` pages (25) n'est pas parsé d'un bloc. `process_document` compte ses
+pages, annonce les plages comme les morceaux attendus du stage `extraction` (`document_stages`) et lance
+les `PARSE_WINDOW` (4) premières tâches `parse_page_range`. Chacune parse sa plage (`target_pages`), écrit
+ses pages, marque son morceau fait - le backend répond où en est le stage, de façon atomique (ligne
+verrouillée) - et logge l'avancement avec une estimation du temps restant. Elle lance ensuite la plage
+suivante de sa fenêtre : la file ne contient jamais plus de `PARSE_WINDOW` plages du document. La plage qui
+complète le stage (`completed_now`, vrai pour une seule) lance le chunking. Une plage en échec met le
+document en erreur et arrête la fenêtre ; une tâche révoquée ne lance pas la suivante. Les autres formats
+(Office, images) et les PDF courts restent une seule tâche.
+
 ## Limites de temps (#294)
 
 Aucune tâche n'est tuée parce qu'elle est grosse : il n'y a plus de limite dure (l'ancienne,
 `task_time_limit=300`, tuait un gros OCR ou un import ZIP en plein milieu, le laissant « en cours »).
 Ce qui peut bloquer est borné là où ça se passe :
 
-- **OCR** : le parseur tourne dans un processus à lui, avec un délai (`OCR_PARSE_TIMEOUT_SECONDS`). Passé
-  ce délai, il est tué et remplacé, et la tâche échoue proprement : le document passe en erreur.
+- **OCR** : le parseur tourne dans un processus à lui, avec un délai (`OCR_PARSE_TIMEOUT_SECONDS`) - par
+  plage de pages pour un long PDF (voir ci-dessous). Passé ce délai, il est tué et remplacé, et la tâche échoue proprement : le document passe en erreur.
 - **Appels backend, S3, URL** : délais explicites (client backend 60 s, S3 10 s / 60 s, URL 120 s).
 - **Toute tâche** : une limite *souple* (`TASK_SOFT_TIME_LIMIT_SECONDS`), filet de sécurité large - une
   exception levée dans la tâche, qui échoue et rend compte. Seuls les pods en prefork l'appliquent.

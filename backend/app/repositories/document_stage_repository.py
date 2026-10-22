@@ -1,5 +1,6 @@
 import uuid
 from datetime import UTC, datetime
+from typing import NamedTuple
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,6 +10,17 @@ from app.models.document_stage import DocumentStage
 
 # The piece a stage that is not run in pieces is done with.
 WHOLE = "_"
+
+
+class StageProgress(NamedTuple):
+    """Where a stage is once a piece of it is done: how many of the pieces it announced, whether it is
+    complete, and whether this very piece is what completed it - true for exactly one of the pieces that
+    finish concurrently, which makes it the one to carry on with what comes after the stage."""
+
+    done: int
+    expected: int
+    complete: bool
+    completed_now: bool
 
 
 class DocumentStageRepository:
@@ -30,20 +42,27 @@ class DocumentStageRepository:
         await self.db.flush()
         return row
 
-    async def mark_done(self, document_id: uuid.UUID, stage: str, key: str = WHOLE) -> bool:
+    async def mark_done(self, document_id: uuid.UUID, stage: str, key: str = WHOLE) -> StageProgress:
         """A piece of the stage is done; the stage is complete once every piece it announced is. A
-        stage nobody began (the worker could not fingerprint it) is left alone. Locked: the pieces are
-        tasks finishing at the same time, and a read-modify-write of the list would lose one."""
+        stage nobody began (the worker could not fingerprint it) is left alone: no piece announced, none
+        done. Locked: the pieces are tasks finishing at the same time, and a read-modify-write of the
+        list would lose one."""
         row = await self._locked(document_id, stage)
         if row is None:
-            return False
+            return StageProgress(done=0, expected=0, complete=False, completed_now=False)
         if key not in row.done:
             row.done = [*row.done, key]
+        was_complete = row.completed_at is not None
         required = set(row.expected) or {WHOLE}
-        if row.completed_at is None and required <= set(row.done):
+        if not was_complete and required <= set(row.done):
             row.completed_at = datetime.now(UTC)
         await self.db.flush()
-        return row.completed_at is not None
+        return StageProgress(
+            done=len(required & set(row.done)),
+            expected=len(row.expected),
+            complete=row.completed_at is not None,
+            completed_now=not was_complete and row.completed_at is not None,
+        )
 
     async def complete(self, row: DocumentStage, source_document_id: uuid.UUID) -> None:
         """The stage was copied from another document, whole."""

@@ -101,6 +101,7 @@ def test_a_url_serving_a_file_is_stored_and_processed_like_an_upload(backend, mo
     storage.get_object.return_value = pdf.data
     parse = MagicMock(return_value=SimpleNamespace(pages=[SimpleNamespace(page_num=1, text="Texte")], screenshots=[]))
     monkeypatch.setattr(tasks._shared, "parse_file", parse)
+    monkeypatch.setattr(tasks._shared, "count_pages", lambda data: 1)
     backend.get_document.return_value = {**URL_DOCUMENT, "storage_key": None}
 
     tasks.process_document("doc-1")

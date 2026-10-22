@@ -22,6 +22,7 @@ from app.schemas.internal_pipeline import (
     StageBegin,
     StageBeginOut,
     StageDone,
+    StageDoneOut,
     TabularProfileCreate,
 )
 from app.services.document_service import DocumentNotFoundError, DocumentService
@@ -228,10 +229,12 @@ async def begin_stage(
 @router.post(
     "/documents/{document_id}/stages/{stage}/done",
     summary="The worker computed a stage (or a piece of it): once every piece is done the stage can be "
-    "reused by another document of the same file",
+    "reused by another document of the same file. Answers where the stage is, and whether this piece is the "
+    "one that completed it - the fan-in of a stage run in pieces",
+    response_model=StageDoneOut,
 )
 async def stage_done(
     document_id: uuid.UUID, stage: PipelineStage, body: StageDone, db: Annotated[AsyncSession, Depends(get_db)]
-) -> dict[str, str]:
-    await ResultReuse(db).mark_done(document_id, stage, body.key)
-    return {"status": "ok"}
+) -> StageDoneOut:
+    progress = await ResultReuse(db).mark_done(document_id, stage, body.key)
+    return StageDoneOut(**progress._asdict())

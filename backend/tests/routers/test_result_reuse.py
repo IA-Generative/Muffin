@@ -235,6 +235,39 @@ async def test_a_stage_the_worker_computed_becomes_reusable_once_it_says_it_is_d
     assert await _begin(client, third, PipelineStage.SUMMARY) is True
 
 
+async def test_a_stage_run_in_pieces_says_where_it_is_and_which_piece_completed_it(client, index):
+    """The fan-in of the extraction of a long document: its ranges of pages finish at the same time, and
+    exactly one of them is told that it completed the stage."""
+    document_id = await _document(await _collection())
+    pieces = ["pages:1-25", "pages:26-50", "pages:51-60"]
+    await _begin(client, document_id, PipelineStage.EXTRACTION, expected=pieces)
+
+    async def done(piece):
+        response = await client.post(
+            f"/api/internal/documents/{document_id}/stages/extraction/done", headers=_headers(), json={"key": piece}
+        )
+        assert response.status_code == 200
+        return response.json()
+
+    assert await done(pieces[1]) == {"done": 1, "expected": 3, "complete": False, "completed_now": False}
+    # A piece done twice (its task ran again) counts once.
+    assert await done(pieces[1]) == {"done": 1, "expected": 3, "complete": False, "completed_now": False}
+    assert await done(pieces[0]) == {"done": 2, "expected": 3, "complete": False, "completed_now": False}
+    assert await done(pieces[2]) == {"done": 3, "expected": 3, "complete": True, "completed_now": True}
+    # Complete already: a piece run again is not the one that completed it.
+    assert await done(pieces[2]) == {"done": 3, "expected": 3, "complete": True, "completed_now": False}
+
+
+async def test_a_stage_nobody_began_has_no_pieces_to_say_where_it_is(client, index):
+    document_id = await _document(await _collection())
+
+    response = await client.post(
+        f"/api/internal/documents/{document_id}/stages/extraction/done", headers=_headers(), json={"key": "pages:1-2"}
+    )
+
+    assert response.json() == {"done": 0, "expected": 0, "complete": False, "completed_now": False}
+
+
 @pytest.mark.parametrize("case", ["another fingerprint", "another file", "source incomplete", "no hash"])
 async def test_a_stage_is_only_reused_from_the_same_file_under_the_same_fingerprint(client, index, case):
     source_collection = await _collection()
