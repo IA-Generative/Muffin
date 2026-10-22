@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.26.0](https://github.com/IA-Generative/Muffin/compare/v0.25.0...v0.26.0) (2026-10-22)
+
+
+### Features
+
+* **documents:** relaunch the indexing of documents that ended in error, one by one or in bulk ([8389509](https://github.com/IA-Generative/Muffin/commit/8389509c5a7f9bf94d512d0171a7b2eeea43089b)), closes [#340](https://github.com/IA-Generative/Muffin/issues/340)
+
 ## [0.26.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.25.0...v0.26.0-rc) (2026-10-22)
 
 
