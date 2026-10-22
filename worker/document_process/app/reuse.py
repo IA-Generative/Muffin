@@ -82,6 +82,16 @@ def chunks(content_hash: str, collection_settings: dict[str, Any]) -> str:
             "slide": windows["chunking_slide_pages"],
             # The vectors are part of this stage, and a vector is only valid in its own model's index.
             "embedding_model": collection_settings["embedding_model"],
+            # Cut by a model, the chunks are that model's, under those instructions. Only then: the
+            # fingerprints of the other strategies stay what they were.
+            **(
+                {
+                    "model": _shared._model_for(collection_settings, "chunking"),
+                    "instructions": collection_settings["instructions"].get("chunking", ""),
+                }
+                if collection_settings["chunking_strategy"] == "llm"
+                else {}
+            ),
         }
     )
 

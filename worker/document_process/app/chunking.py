@@ -1,5 +1,8 @@
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
+
+from loguru import logger
 
 from app.windows import sliding_windows
 
@@ -100,6 +103,46 @@ def _chunk_semantic(pages: list[PageText], window_pages: int, slide_pages: int) 
     return chunks
 
 
+# Given a window's paragraphs, in order, the indices of those a new chunk starts at - what the LLM decides.
+ChunkStarts = Callable[[list[str]], list[int]]
+
+
+def _chunk_llm(pages: list[PageText], window_pages: int, chunk_starts: ChunkStarts) -> list[Chunk]:
+    """An LLM decides where the chunks of each window of pages begin - windows side by side, so that no
+    text lands in two chunks. It only picks among the window's paragraphs, never rewrites them: a chunk
+    is always the document's own text, consecutive paragraphs joined. A window it fails on (an error,
+    an answer that isn't a list of paragraph indices) is cut by paragraph instead."""
+    chunks: list[Chunk] = []
+    window_pages = max(window_pages, 1)
+    for start in range(0, len(pages), window_pages):
+        paragraphs = _chunk_paragraphs(pages[start : start + window_pages])
+        if not paragraphs:
+            continue
+        try:
+            starts = _valid_starts(chunk_starts([paragraph.text for paragraph in paragraphs]), len(paragraphs))
+        except Exception as error:
+            logger.warning(f"LLM chunking failed on pages {pages[start].page_number}+, cut by paragraph: {error}")
+            starts = list(range(len(paragraphs)))
+        for first, end in zip(starts, [*starts[1:], len(paragraphs)], strict=True):
+            group = paragraphs[first:end]
+            chunks.append(
+                Chunk(
+                    text="\n\n".join(paragraph.text for paragraph in group),
+                    page_start=group[0].page_start,
+                    page_end=group[-1].page_end,
+                )
+            )
+    return chunks
+
+
+def _valid_starts(starts: list[int], count: int) -> list[int]:
+    """The indices sorted and deduplicated, the first paragraph always one. Refused when not indices of
+    the window's paragraphs: then the model didn't do what it was asked, nothing it says is trusted."""
+    if not isinstance(starts, list) or not all(isinstance(index, int) and 0 <= index < count for index in starts):
+        raise ValueError(f"not a list of paragraph indices between 0 and {count - 1}: {starts!r}")
+    return sorted({0, *starts})
+
+
 def chunk_pages(
     pages: list[PageText],
     strategy: str,
@@ -107,13 +150,16 @@ def chunk_pages(
     chunk_overlap: int,
     window_pages: int,
     slide_pages: int,
+    chunk_starts: ChunkStarts | None = None,
 ) -> list[Chunk]:
+    """`chunk_starts`: how the "llm" strategy asks the model - without one (no model available), the
+    document is cut by paragraph."""
     if not pages:
         return []
     if strategy == "fixed":
         return _chunk_fixed(pages, chunk_size, chunk_overlap)
     if strategy == "semantic":
         return _chunk_semantic(pages, window_pages, slide_pages)
-    # "paragraph" and "llm" (a real LLM-driven splitter isn't implemented
-    # yet) both fall back to plain paragraph splitting.
+    if strategy == "llm" and chunk_starts is not None:
+        return _chunk_llm(pages, window_pages, chunk_starts)
     return _chunk_paragraphs(pages)
