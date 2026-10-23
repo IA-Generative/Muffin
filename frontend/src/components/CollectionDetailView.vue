@@ -390,7 +390,7 @@ function confirmDelete() {
           class="collection-detail__tab"
           :class="{ 'collection-detail__tab--active': activeTab === tab.key }"
           :disabled="tab.key !== 'settings' && !isReady"
-          :title="tab.key !== 'settings' && !isReady ? 'Nommez la collection et enregistrez ses paramètres d\'abord' : undefined"
+          :title="tab.key !== 'settings' && !isReady ? 'Nommez la collection et terminez sa configuration d\'abord' : undefined"
           @click="selectTab(tab.key)"
         >
           {{ tab.label }}
@@ -402,7 +402,7 @@ function confirmDelete() {
             class="collection-detail__tab"
             :class="{ 'collection-detail__tab--active': isAdvancedTabActive }"
             :disabled="!isReady"
-            :title="!isReady ? 'Nommez la collection et enregistrez ses paramètres d\'abord' : undefined"
+            :title="!isReady ? 'Nommez la collection et terminez sa configuration d\'abord' : undefined"
             :aria-expanded="showAdvancedMenu"
             aria-haspopup="true"
             @click="showAdvancedMenu = !showAdvancedMenu"
@@ -430,8 +430,8 @@ function confirmDelete() {
       </nav>
 
       <p v-if="!isReady" class="collection-detail__gate-hint">
-        Donnez un nom à cette collection et enregistrez ses paramètres de découpage et de modèle d'embedding
-        avant d'ajouter des documents.
+        Donnez un nom à cette collection et suivez l'assistant de configuration ci-dessous avant d'ajouter des
+        documents.
       </p>
 
       <div class="collection-detail__panel">

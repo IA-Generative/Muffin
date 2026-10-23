@@ -1,1333 +1,578 @@
-<script setup lang="ts">
-import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
-import { useCollections } from '../composables/useCollections'
-import { useCurrentUser } from '../composables/useCurrentUser'
-import { useEmbeddingModels } from '../composables/useEmbeddingModels'
-import { useModels } from '../composables/useModels'
-import type {
-  ChunkingSettings,
-  Collection,
-  GenerationModels,
-  IndexingEstimate,
-  PipelineWindows,
-  ShareSubjectType,
-} from '../types/collection'
-import {
-  draftFromSettings,
-  READ_EVERYTHING,
-  setSeparateEnds,
-  toPayload,
-  validateLongDocuments,
-  type LongDocumentsDraft,
-  type LongDocumentsField,
-} from '../utils/longDocuments'
+<script lang="ts">
+import type { SettingsDraft } from '../utils/settingsDraft'
 
-const props = defineProps<{
-  collection: Collection
-}>()
+// Un brouillon modifié survit au changement d'onglet : l'onglet est démonté, pas la collection.
+const pendingDrafts = new Map<string, SettingsDraft>()
+</script>
+
+<script setup lang="ts">
+// L'onglet Paramètres d'une collection. Une collection qui n'a jamais été configurée passe d'abord par l'assistant
+// (profil, modèles, récapitulatif). Ensuite les réglages sont groupés par ce qu'ils font, repliés avec leur état en
+// une ligne, les réglages techniques cachés dans « Réglages avancés », et enregistrés d'un seul bouton.
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import '../assets/settings-form.css'
+import { useCollections } from '../composables/useCollections'
+import { useEmbeddingModels } from '../composables/useEmbeddingModels'
+import type { Collection } from '../types/collection'
+import { applyProfile, detectProfile, profileById, type Profile } from '../utils/collectionProfiles'
+import {
+  assignDraft,
+  changedSections,
+  cloneDraft,
+  commonModel,
+  confirmations,
+  draftFromCollection,
+  SECTION_LABELS,
+  setCommonModel,
+  toPatch,
+  validateSettings,
+  type SettingsErrors,
+  type SettingsSection as SectionKey,
+} from '../utils/settingsDraft'
+import { chunkingSummary, longDocsSummary, stepSummary } from '../utils/settingsSummary'
+import CollectionAccessSettings from './CollectionAccessSettings.vue'
+import CollectionSetupWizard from './CollectionSetupWizard.vue'
+import LongDocumentsFields from './LongDocumentsFields.vue'
+import ModelSelect from './ModelSelect.vue'
+import ProfilePicker from './ProfilePicker.vue'
+import SettingsField from './SettingsField.vue'
+import SettingsSection from './SettingsSection.vue'
+
+const props = defineProps<{ collection: Collection }>()
 
 const {
-  updateChunkingSettings,
-  updateEmbeddingModel,
-  updateGenerationModel,
-  updatePipelineWindows,
-  saveLongDocuments,
-  estimateIndexing,
+  hasSavedSettings,
+  saveCollectionSettings,
   reindexCollection,
   indexRebuilds,
   indexRebuildError,
   finalizeIndexRebuild,
   rollbackIndexRebuild,
-  updateInstructionField,
-  markSettingsSaved,
-  updateVisibility,
-  createShare,
-  deleteShare,
-  shareError,
 } = useCollections()
-const { models: embeddingModels, isLoading: isLoadingEmbeddingModels, error: embeddingModelsError } =
-  useEmbeddingModels()
-const { models: chatModels, isLoading: isLoadingChatModels, error: chatModelsError } = useModels()
+const { models: embeddingModels, isLoading: isLoadingEmbeddingModels, error: embeddingModelsError } = useEmbeddingModels()
+
+// -- le brouillon ------------------------------------------------------------------------------------------------
+
+const saved = computed(() => draftFromCollection(props.collection))
+
+const draft = reactive<SettingsDraft>(cloneDraft(saved.value))
+function load(collectionId: string) {
+  assignDraft(draft, pendingDrafts.get(collectionId) ?? saved.value)
+  pendingDrafts.delete(collectionId)
+}
+load(props.collection.id)
+
+watch(
+  () => props.collection.id,
+  (_, previous) => {
+    if (previous && changed.value.length) pendingDrafts.set(previous, cloneDraft(draft))
+    load(props.collection.id)
+    configured.value = hasSavedSettings(props.collection.id)
+    saveError.value = null
+  },
+)
+// Les réglages enregistrés changent (enregistrement, réindexation…) : un brouillon intact les suit, un brouillon
+// modifié garde ce qui a été saisi.
+watch(saved, (now, before) => {
+  if (!changedSections(draft, before).length) assignDraft(draft, now)
+})
+onBeforeUnmount(() => {
+  if (changed.value.length) pendingDrafts.set(props.collection.id, cloneDraft(draft))
+})
+
+const changed = computed(() => changedSections(draft, saved.value))
+const errors = computed<SettingsErrors>(() => validateSettings(draft))
+const hasErrors = computed(() => Object.keys(errors.value).length > 0)
+
+const SECTION_FIELDS: Record<SectionKey, (keyof SettingsErrors)[]> = {
+  embedding: [],
+  chunking: ['chunkSize', 'chunkOverlap', 'chunkingWindowPages', 'chunkingSlidePages'],
+  summary: ['summaryPagesPerMap'],
+  qa: ['qaWindowPages', 'qaSlidePages', 'qaQuestionsPerWindow', 'collectionQaCount'],
+  extraction: ['extractionWindowPages', 'extractionSlidePages'],
+  tagging: [],
+  longDocs: [
+    'samplingMinPages',
+    'summaryPercent',
+    'summaryHeadPercent',
+    'summaryTailPercent',
+    'summaryPageRanges',
+    'qaMaxQuestions',
+    'extractionPercent',
+    'extractionMaxWindows',
+  ],
+}
+const invalid = computed(
+  () =>
+    Object.fromEntries(
+      (Object.keys(SECTION_FIELDS) as SectionKey[]).map((section) => [
+        section,
+        SECTION_FIELDS[section].some((field) => errors.value[field]),
+      ]),
+    ) as Record<SectionKey, boolean>,
+)
+const isChanged = (section: SectionKey) => changed.value.includes(section)
+
+// -- première configuration ---------------------------------------------------------------------------------------
+
+const configured = ref(hasSavedSettings(props.collection.id))
+
+// -- profil, modèle commun ---------------------------------------------------------------------------------------
+
+const selectedProfile = computed(() => detectProfile(draft))
+const profileSummary = computed(() =>
+  selectedProfile.value ? profileById(selectedProfile.value).label : 'Personnalisé (réglé à la main)',
+)
+function chooseProfile(profile: Profile) {
+  applyProfile(draft, profile)
+}
+
+const generationModel = computed({
+  get: () => commonModel(draft.models) ?? '',
+  set: (value: string) => setCommonModel(draft.models, value),
+})
+const modelsDiffer = computed(() => commonModel(draft.models) === null)
+
+// -- enregistrement ----------------------------------------------------------------------------------------------
+
+const saving = ref(false)
+const saveError = ref<string | null>(null)
+const justSaved = ref(false)
+
+async function save() {
+  justSaved.value = false
+  if (hasErrors.value || !changed.value.length) return
+  const warnings = confirmations(draft, saved.value)
+  if (warnings.length && !confirm(`${warnings.join('\n')}\n\nEnregistrer quand même ?`)) return
+  saving.value = true
+  saveError.value = await saveCollectionSettings(props.collection.id, toPatch(draft, saved.value))
+  saving.value = false
+  justSaved.value = saveError.value === null
+}
+
+function discard() {
+  assignDraft(draft, saved.value)
+  saveError.value = null
+}
+
+watch(
+  () => changed.value.length,
+  () => {
+    justSaved.value = false
+  },
+)
+
+const changedLabels = computed(() => changed.value.map((section) => SECTION_LABELS[section]).join(', '))
+const invalidLabels = computed(() =>
+  (Object.keys(invalid.value) as SectionKey[])
+    .filter((section) => invalid.value[section])
+    .map((section) => SECTION_LABELS[section])
+    .join(', '),
+)
+
+// -- réindexation ------------------------------------------------------------------------------------------------
 
 const indexRebuild = computed(() => indexRebuilds.value[props.collection.id] ?? null)
 
-const chunkingForm = reactive<ChunkingSettings>({ ...props.collection.chunkingSettings })
-const chunkingInstructions = ref(props.collection.instructions.chunking)
-const embeddingModelDraft = ref(props.collection.embeddingModel)
-const qaInstructions = ref(props.collection.instructions.qa)
-const extractionInstructions = ref(props.collection.instructions.extraction)
-const taggingInstructions = ref(props.collection.instructions.tagging)
-const summaryInstructions = ref(props.collection.instructions.summary)
-
-// One shared object for every sliding-window param: they all live in the
-// same pipeline_windows blob on the backend anyway.
-const windowsForm = reactive<PipelineWindows>({ ...props.collection.pipelineWindows })
-
-// Falls back to the first available chat model until the user has picked
-// one explicitly for this step.
-function modelDraftFor(field: keyof GenerationModels) {
-  return ref(props.collection.generationModels[field] ?? chatModels.value[0]?.id ?? '')
-}
-const chunkingModelDraft = modelDraftFor('chunking')
-const qaModelDraft = modelDraftFor('qa')
-const extractionModelDraft = modelDraftFor('extraction')
-const taggingModelDraft = modelDraftFor('tagging')
-const summaryModelDraft = modelDraftFor('summary')
-
-const noModelsAvailable = computed(() => !isLoadingChatModels.value && chatModels.value.length === 0)
-
-watch(
-  () => props.collection.id,
-  () => {
-    Object.assign(chunkingForm, props.collection.chunkingSettings)
-    Object.assign(windowsForm, props.collection.pipelineWindows)
-    Object.assign(longDocs, draftFromSettings(props.collection.pipelineWindows))
-    longDocsSaveError.value = null
-    longDocsSaved.value = false
-    chunkingInstructions.value = props.collection.instructions.chunking
-    embeddingModelDraft.value = props.collection.embeddingModel
-    qaInstructions.value = props.collection.instructions.qa
-    extractionInstructions.value = props.collection.instructions.extraction
-    taggingInstructions.value = props.collection.instructions.tagging
-    summaryInstructions.value = props.collection.instructions.summary
-    chunkingModelDraft.value = props.collection.generationModels.chunking ?? chatModels.value[0]?.id ?? ''
-    qaModelDraft.value = props.collection.generationModels.qa ?? chatModels.value[0]?.id ?? ''
-    extractionModelDraft.value = props.collection.generationModels.extraction ?? chatModels.value[0]?.id ?? ''
-    taggingModelDraft.value = props.collection.generationModels.tagging ?? chatModels.value[0]?.id ?? ''
-    summaryModelDraft.value = props.collection.generationModels.summary ?? chatModels.value[0]?.id ?? ''
-  },
-)
-
-// Chaque section se sauvegarde séparément et demande sa propre confirmation :
-// ce n'est pas juste un champ de formulaire, ça affecte la façon dont les
-// documents déjà indexés sont interprétés.
-function saveChunking() {
-  if (!confirm('Confirmer la modification des paramètres de découpage ? Cela peut nécessiter une réindexation.')) {
-    return
-  }
-  updateChunkingSettings(props.collection.id, { ...chunkingForm })
-  updateInstructionField(props.collection.id, 'chunking', chunkingInstructions.value)
-  if (chunkingForm.strategy === 'llm' && chunkingModelDraft.value) {
-    updateGenerationModel(props.collection.id, 'chunking', chunkingModelDraft.value)
-  }
-  if (chunkingForm.strategy === 'semantic') {
-    updatePipelineWindows(props.collection.id, {
-      chunkingWindowPages: windowsForm.chunkingWindowPages,
-      chunkingSlidePages: windowsForm.chunkingSlidePages,
-    })
-  }
-  markSettingsSaved(props.collection.id)
-}
-
-function saveEmbeddingModel() {
-  if (
-    !confirm(
-      "Confirmer le changement de modèle d'embedding ? Les documents déjà indexés devront être réindexés.",
-    )
-  ) {
-    return
-  }
-  updateEmbeddingModel(props.collection.id, embeddingModelDraft.value)
-  markSettingsSaved(props.collection.id)
-}
-
-function saveQa() {
-  updateInstructionField(props.collection.id, 'qa', qaInstructions.value)
-  if (qaModelDraft.value) updateGenerationModel(props.collection.id, 'qa', qaModelDraft.value)
-  updatePipelineWindows(props.collection.id, {
-    qaWindowPages: windowsForm.qaWindowPages,
-    qaSlidePages: windowsForm.qaSlidePages,
-    qaQuestionsPerWindow: windowsForm.qaQuestionsPerWindow,
-    collectionQaCount: windowsForm.collectionQaCount,
-  })
-}
-
-function saveExtraction() {
-  updateInstructionField(props.collection.id, 'extraction', extractionInstructions.value)
-  if (extractionModelDraft.value) updateGenerationModel(props.collection.id, 'extraction', extractionModelDraft.value)
-  updatePipelineWindows(props.collection.id, {
-    extractionWindowPages: windowsForm.extractionWindowPages,
-    extractionSlidePages: windowsForm.extractionSlidePages,
-  })
-}
-
-function saveTagging() {
-  updateInstructionField(props.collection.id, 'tagging', taggingInstructions.value)
-  if (taggingModelDraft.value) updateGenerationModel(props.collection.id, 'tagging', taggingModelDraft.value)
-}
-
-function saveSummary() {
-  updateInstructionField(props.collection.id, 'summary', summaryInstructions.value)
-  if (summaryModelDraft.value) updateGenerationModel(props.collection.id, 'summary', summaryModelDraft.value)
-  updatePipelineWindows(props.collection.id, { summaryPagesPerMap: windowsForm.summaryPagesPerMap })
-}
-
-// Longs documents (#372) : un brouillon propre à la section, enregistré d'un bloc et validé à la saisie.
-const longDocs = reactive<LongDocumentsDraft>(draftFromSettings(props.collection.pipelineWindows))
-const longDocsErrors = computed(() => validateLongDocuments(longDocs))
-const longDocsInvalid = computed(() => Object.keys(longDocsErrors.value).length > 0)
-const longDocsSaveError = ref<string | null>(null)
-const longDocsSaved = ref(false)
-
-// Les saisies effacées ('') ne sont pas des nombres : le champ est signalé, rien n'est envoyé.
-function errorId(field: LongDocumentsField) {
-  return longDocsErrors.value[field] ? `long-docs-${field}-error` : undefined
-}
-
-async function saveLongDocs() {
-  longDocsSaved.value = false
-  if (longDocsInvalid.value) return
-  longDocsSaveError.value = await saveLongDocuments(props.collection.id, toPayload(longDocs))
-  longDocsSaved.value = longDocsSaveError.value === null
-}
-
-watch(longDocs, () => {
-  longDocsSaved.value = false
-})
-
-// Ce que ces réglages coûteraient : le backend calcule, avec ceux qui sont saisis (pas besoin d'enregistrer), puis
-// avec « tout est lu » pour dire ce qui est économisé.
-const estimatePages = ref<number | ''>(900)
-const estimateState = reactive<{ draft: IndexingEstimate | null; full: IndexingEstimate | null; error: string | null }>({
-  draft: null,
-  full: null,
-  error: null,
-})
-const estimatePagesInvalid = computed(
-  () =>
-    estimatePages.value === '' ||
-    !Number.isInteger(estimatePages.value) ||
-    estimatePages.value < 1 ||
-    estimatePages.value > 100000,
-)
-let estimateTimer: ReturnType<typeof setTimeout> | undefined
-let estimateRequest = 0
-
-async function refreshEstimate() {
-  if (longDocsInvalid.value || estimatePagesInvalid.value) return
-  const request = ++estimateRequest
-  const pages = estimatePages.value as number
-  const draft = toPayload(longDocs)
-  const [withDraft, withEverything] = await Promise.all([
-    estimateIndexing(props.collection.id, pages, draft),
-    estimateIndexing(props.collection.id, pages, { ...draft, ...READ_EVERYTHING }),
-  ])
-  if (request !== estimateRequest) return
-  if ('error' in withDraft) {
-    estimateState.error = withDraft.error
-    return
-  }
-  estimateState.error = null
-  estimateState.draft = withDraft.estimate
-  estimateState.full = 'estimate' in withEverything ? withEverything.estimate : null
-}
-
-watch(
-  [longDocs, estimatePages, () => props.collection.id, () => props.collection.chunkingSettings.strategy],
-  () => {
-    clearTimeout(estimateTimer)
-    estimateTimer = setTimeout(refreshEstimate, 300)
-  },
-  { immediate: true },
-)
-onBeforeUnmount(() => clearTimeout(estimateTimer))
-
-const ESTIMATE_STEPS: { key: string; label: string }[] = [
-  { key: 'summary', label: 'Résumé' },
-  { key: 'qa', label: 'Questions-réponses' },
-  { key: 'entities', label: 'Entités et relations' },
-  { key: 'chunking', label: 'Découpage par le modèle' },
-  { key: 'tagging', label: 'Tags' },
-]
-const estimateSteps = computed(() =>
-  estimateState.draft
-    ? ESTIMATE_STEPS.filter((step) => (estimateState.draft?.chat[step.key] ?? 0) > 0).map((step) => ({
-        ...step,
-        calls: estimateState.draft?.chat[step.key] ?? 0,
-      }))
-    : [],
-)
-const estimateEmbeddings = computed(() =>
-  estimateState.draft ? Object.values(estimateState.draft.embeddings).reduce((sum, value) => sum + value, 0) : 0,
-)
-const showSeparateEnds = computed({
-  get: () => longDocs.separateEnds,
-  set: (value: boolean) => setSeparateEnds(longDocs, value),
-})
-
-const STRATEGY_HINT: Record<ChunkingSettings['strategy'], string> = {
-  paragraph: 'Découpe le texte à chaque paragraphe. Simple et robuste pour des documents bien structurés.',
-  fixed: 'Découpe en blocs de taille fixe, sans tenir compte de la structure du texte.',
-  semantic:
-    'Regroupe les phrases par similarité de sens avant de découper : la taille des chunks en résulte, elle ne se règle pas.',
-  llm: "Un LLM lit le document et décide lui-même où découper, guidé par les instructions ci-dessous. La taille en résulte, elle ne se règle pas. Sans modèle disponible, le découpage se fait par paragraphe.",
-}
-
-// Le chevauchement (tokens répétés d'un chunk à l'autre) n'a de sens que
-// quand le découpage suit une grille fixe ; sémantique et LLM choisissent
-// déjà leurs frontières pour préserver le sens, un chevauchement forcé n'y
-// ajoute rien.
-const showChunkSize = () => chunkingForm.strategy === 'paragraph' || chunkingForm.strategy === 'fixed'
-
-const visibilityDraft = ref(props.collection.visibility)
-watch(
-  () => props.collection.id,
-  () => {
-    visibilityDraft.value = props.collection.visibility
-  },
-)
-
-function saveVisibility() {
-  if (visibilityDraft.value === props.collection.visibility) return
-  if (
-    visibilityDraft.value === 'public' &&
-    !confirm(
-      'Rendre cette collection publique la rend visible et cherchable par tous les utilisateurs authentifiés. Confirmer ?',
-    )
-  ) {
-    visibilityDraft.value = props.collection.visibility
-    return
-  }
-  updateVisibility(props.collection.id, visibilityDraft.value)
-}
-
-const shareSubjectType = ref<ShareSubjectType>('user')
-const shareIdentifier = ref('')
-
-// Les groupes de l'utilisateur sont proposés en liste ; « Autre groupe » garde la saisie libre
-// pour un groupe dont il n'est pas membre.
-const { user: currentUser } = useCurrentUser()
-const myGroups = computed(() => currentUser.value?.groups ?? [])
-const OTHER_GROUP = '__other__'
-const groupChoice = ref(OTHER_GROUP)
-const isFreeGroup = computed(() => myGroups.value.length === 0 || groupChoice.value === OTHER_GROUP)
-
-watch(
-  [shareSubjectType, myGroups],
-  () => {
-    if (shareSubjectType.value === 'group' && !myGroups.value.includes(groupChoice.value)) {
-      groupChoice.value = myGroups.value[0] ?? OTHER_GROUP
-    }
-  },
-  { immediate: true },
-)
-
-const shareTarget = computed(() =>
-  shareSubjectType.value === 'group' && !isFreeGroup.value ? groupChoice.value : shareIdentifier.value.trim(),
-)
-
-function submitShare() {
-  if (!shareTarget.value) return
-  createShare(props.collection.id, shareSubjectType.value, shareTarget.value)
-  shareIdentifier.value = ''
-}
-
-const SHARE_STATUS_LABEL: Record<'pending' | 'active', string> = { pending: 'En attente', active: 'Actif' }
-
-// Une section à la fois, en carrousel. « Obligatoire » = étape que le pipeline d'indexation
-// exécute toujours ; visibilité et partages ne concernent que l'accès à la collection.
-const STEPS = [
-  { key: 'summary', label: 'Résumé', required: true, hint: 'Comment chaque document est résumé à son indexation.' },
-  { key: 'chunking', label: 'Découpage', required: true, hint: 'Comment les documents sont découpés en morceaux (chunks) pour la recherche.' },
-  { key: 'embedding', label: "Modèle d'embedding", required: true, hint: 'Le modèle qui transforme les chunks en vecteurs pour la recherche sémantique.' },
-  { key: 'qa', label: 'Questions-réponses', required: true, hint: 'La génération de questions-réponses à partir des documents.' },
-  { key: 'extraction', label: 'Extraction', required: true, hint: "L'extraction des entités et de leurs relations dans les documents." },
-  { key: 'tagging', label: 'Tags automatiques', required: true, hint: 'Les tags ajoutés automatiquement à chaque document.' },
-  { key: 'longdocs', label: 'Longs documents', required: true, hint: "Ce que le résumé, les questions et les entités lisent d'un document de plusieurs centaines de pages." },
-  { key: 'visibility', label: 'Visibilité', required: false, hint: 'Rendre la collection publique pour tous les utilisateurs connectés.' },
-  { key: 'shares', label: 'Partages', required: false, hint: 'Inviter des personnes ou des groupes à consulter la collection.' },
-] as const
-type Step = (typeof STEPS)[number]
-type StepKey = Step['key']
-
-const stepIndex = ref(0)
-const currentStep = computed<StepKey>(() => STEPS[stepIndex.value].key)
-const previousStep = computed(() => STEPS[stepIndex.value - 1])
-const nextStep = computed(() => STEPS[stepIndex.value + 1])
-
-watch(
-  () => props.collection.id,
-  () => {
-    stepIndex.value = 0
-  },
-)
-
-function requirementLabel(required: boolean) {
-  return required ? 'Obligatoire' : 'Facultatif'
-}
-
-const REQUIREMENT_HINT = {
-  required: "Obligatoire : étape toujours exécutée par le pipeline d'indexation.",
-  optional: "Facultatif : ne concerne que l'accès à la collection, pas son indexation.",
-}
-
-function requirementHint(required: boolean) {
-  return required ? REQUIREMENT_HINT.required : REQUIREMENT_HINT.optional
-}
-
-function stepTooltipTitle(step: Step) {
-  return `${step.label} · ${requirementLabel(step.required)}`
-}
+const STRATEGY_HINT = {
+  llm: "Le modèle lit le document et décide lui-même où couper, guidé par vos consignes. Sans modèle disponible, le découpage se fait par paragraphe.",
+  paragraph: 'Coupe le texte à chaque paragraphe. Simple et robuste pour des documents bien structurés.',
+  fixed: 'Coupe en blocs de taille fixe, sans tenir compte de la structure du texte.',
+  semantic: 'Regroupe les phrases par similarité de sens avant de couper : la taille des chunks en résulte, elle ne se règle pas.',
+} as const
 </script>
 
 <template>
   <div class="settings-tab">
-    <nav class="settings-tab__steps" aria-label="Sections des paramètres">
-      <button
-        v-for="(step, index) in STEPS"
-        :key="step.key"
-        type="button"
-        class="settings-tab__step"
-        :class="{ 'settings-tab__step--active': index === stepIndex }"
-        :aria-current="index === stepIndex ? 'step' : undefined"
-        @click="stepIndex = index"
-      >
-        <span class="settings-tab__step-number">{{ index + 1 }}</span>
-        <span class="settings-tab__step-label">{{ step.label }}</span>
-        <span
-          class="settings-tab__dot"
-          :class="`settings-tab__dot--${step.required ? 'required' : 'optional'}`"
-          :aria-label="requirementLabel(step.required)"
-        />
-        <span class="settings-tab__tooltip settings-tab__tooltip--below" role="tooltip">
-          <strong>{{ stepTooltipTitle(step) }}</strong>
-          {{ step.hint }}
-        </span>
-      </button>
-    </nav>
-    <p class="settings-tab__legend">
-      <span class="settings-tab__dot settings-tab__dot--required" aria-hidden="true" />
-      Obligatoire : étape du pipeline d'indexation
-      <span class="settings-tab__dot settings-tab__dot--optional" aria-hidden="true" />
-      Facultatif : accès à la collection
-    </p>
+    <CollectionSetupWizard
+      v-if="!configured"
+      :collection="collection"
+      :draft="draft"
+      :saved="saved"
+      @done="configured = true"
+    />
 
-    <form v-show="currentStep === 'summary'" class="settings-tab__section" @submit.prevent="saveSummary">
-      <div class="settings-tab__header">
-        <span class="settings-tab__icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              d="M9 12h6m-6 4h4m-7 4h10a2 2 0 0 0 2-2V8.5L13.5 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2Z"
-            />
-          </svg>
-        </span>
-        <h3 class="settings-tab__title">Résumé</h3>
-        <span
-          class="settings-tab__requirement"
-          :class="`settings-tab__requirement--${STEPS[stepIndex].required ? 'required' : 'optional'}`"
-          :title="requirementHint(STEPS[stepIndex].required)"
-        >
-          {{ requirementLabel(STEPS[stepIndex].required) }}
-        </span>
-      </div>
+    <template v-else>
+      <p class="settings-tab__intro">
+        Ouvrez une section pour la régler. Les réglages techniques sont dans « Réglages avancés » : les valeurs par
+        défaut conviennent à la plupart des collections. Rien n'est appliqué avant d'avoir cliqué sur « Enregistrer ».
+      </p>
 
-      <div class="settings-tab__body">
-        <div class="settings-tab__field">
-          <label for="instructions-summary">Instructions</label>
-          <textarea
-            id="instructions-summary"
-            v-model="summaryInstructions"
-            rows="2"
-            placeholder="Ex. Rédiger un résumé factuel de 5 lignes maximum, sans jugement."
+      <section class="settings-tab__group" aria-labelledby="group-profile">
+        <h3 id="group-profile" class="settings-tab__group-title">Profil</h3>
+        <SettingsSection title="Rapide, équilibré ou précis ?" :summary="profileSummary">
+          <ProfilePicker
+            :selected="selectedProfile"
+            :collection-id="collection.id"
+            :long-docs="draft.longDocs"
+            group-name="settings-profile"
+            @choose="chooseProfile"
           />
-        </div>
-        <div class="settings-tab__field">
-          <label for="summary-pages-per-map">Pages par lot (map)</label>
-          <input
-            id="summary-pages-per-map"
-            v-model.number="windowsForm.summaryPagesPerMap"
-            type="number"
-            min="1"
-            max="50"
-          />
-          <p class="settings-tab__hint">
-            Le résumé se fait en map-reduce : chaque lot de N pages est résumé séparément (map), puis ces résumés
-            partiels sont combinés (reduce).
-          </p>
-        </div>
-        <div class="settings-tab__field">
-          <label for="model-summary">Modèle</label>
-          <select id="model-summary" v-model="summaryModelDraft" class="fr-select" :disabled="isLoadingChatModels">
-            <option v-for="model in chatModels" :key="model.id" :value="model.id">{{ model.id }}</option>
-          </select>
-          <p v-if="chatModelsError" class="settings-tab__hint">{{ chatModelsError }}</p>
-          <p v-else-if="noModelsAvailable" class="settings-tab__hint">Aucun modèle disponible.</p>
-        </div>
-      </div>
+        </SettingsSection>
+      </section>
 
-      <div class="settings-tab__footer">
-        <button type="submit" class="fr-btn fr-btn--sm">Enregistrer</button>
-      </div>
-    </form>
+      <section class="settings-tab__group" aria-labelledby="group-read">
+        <h3 id="group-read" class="settings-tab__group-title">Lire et retrouver les documents</h3>
 
-    <form v-show="currentStep === 'chunking'" class="settings-tab__section" @submit.prevent="saveChunking">
-      <div class="settings-tab__header">
-        <span class="settings-tab__icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              d="M3.75 3.75h6v6h-6v-6Zm10.5 0h6v6h-6v-6Zm-10.5 10.5h6v6h-6v-6Zm10.5 0h6v6h-6v-6Z"
-            />
-          </svg>
-        </span>
-        <h3 class="settings-tab__title">Découpage (chunking)</h3>
-        <span
-          class="settings-tab__requirement"
-          :class="`settings-tab__requirement--${STEPS[stepIndex].required ? 'required' : 'optional'}`"
-          :title="requirementHint(STEPS[stepIndex].required)"
+        <SettingsSection
+          title="Découpage"
+          :summary="chunkingSummary(draft)"
+          :changed="isChanged('chunking')"
+          :invalid="invalid.chunking"
+          :force-open="invalid.chunking"
         >
-          {{ requirementLabel(STEPS[stepIndex].required) }}
-        </span>
-      </div>
-
-      <div class="settings-tab__body">
-        <div class="settings-tab__field">
-          <label for="chunk-strategy">Stratégie de découpage</label>
-          <select id="chunk-strategy" v-model="chunkingForm.strategy" class="fr-select">
-            <option value="llm">Par LLM (par défaut)</option>
-            <option value="paragraph">Par paragraphe</option>
-            <option value="fixed">Taille fixe</option>
-            <option value="semantic">Sémantique</option>
-          </select>
-          <p class="settings-tab__hint">{{ STRATEGY_HINT[chunkingForm.strategy] }}</p>
-        </div>
-
-        <div v-if="showChunkSize()" class="settings-tab__field">
-          <label for="chunk-size">Taille des chunks (tokens)</label>
-          <input id="chunk-size" v-model.number="chunkingForm.chunkSize" type="number" min="64" max="4096" />
-        </div>
-
-        <div v-if="showChunkSize()" class="settings-tab__field">
-          <label for="chunk-overlap">Chevauchement (tokens)</label>
-          <input id="chunk-overlap" v-model.number="chunkingForm.chunkOverlap" type="number" min="0" max="512" />
-          <p class="settings-tab__hint">
-            Nombre de tokens répétés entre deux chunks consécutifs, pour ne pas perdre le contexte à la coupure.
+          <p class="sf-hint">
+            Les documents sont découpés en passages (chunks) dans lesquels la recherche retrouve les réponses.
           </p>
-        </div>
-
-        <div class="settings-tab__field">
-          <label for="instructions-chunking">
-            Instructions de découpage{{ chunkingForm.strategy === 'llm' ? ' (utilisées par le LLM)' : '' }}
-          </label>
-          <textarea
+          <SettingsField id="chunk-strategy" label="Comment couper les documents" :hint="STRATEGY_HINT[draft.chunking.strategy]">
+            <template #default="{ id, describedby }">
+              <select :id="id" v-model="draft.chunking.strategy" class="fr-select" :aria-describedby="describedby">
+                <option value="llm">Par le modèle (par défaut)</option>
+                <option value="paragraph">Par paragraphe</option>
+                <option value="fixed">Taille fixe</option>
+                <option value="semantic">Sémantique</option>
+              </select>
+            </template>
+          </SettingsField>
+          <SettingsField
+            v-if="draft.chunking.strategy === 'llm'"
             id="instructions-chunking"
-            v-model="chunkingInstructions"
-            rows="2"
-            placeholder="Ex. Ne jamais couper une clause juridique en deux chunks."
-          />
-        </div>
-
-        <div v-if="chunkingForm.strategy === 'llm'" class="settings-tab__field">
-          <label for="model-chunking">Modèle utilisé pour le découpage</label>
-          <select id="model-chunking" v-model="chunkingModelDraft" class="fr-select" :disabled="isLoadingChatModels">
-            <option v-for="model in chatModels" :key="model.id" :value="model.id">{{ model.id }}</option>
-          </select>
-          <p v-if="chatModelsError" class="settings-tab__hint">{{ chatModelsError }}</p>
-          <p v-else-if="noModelsAvailable" class="settings-tab__hint">Aucun modèle disponible.</p>
-        </div>
-
-        <template v-if="chunkingForm.strategy === 'semantic'">
-          <div class="settings-tab__field">
-            <label for="chunking-window-pages">Fenêtre de pages</label>
-            <input
-              id="chunking-window-pages"
-              v-model.number="windowsForm.chunkingWindowPages"
-              type="number"
-              min="1"
-              max="20"
-            />
-          </div>
-          <div class="settings-tab__field">
-            <label for="chunking-slide-pages">Pas de la fenêtre glissante</label>
-            <input
-              id="chunking-slide-pages"
-              v-model.number="windowsForm.chunkingSlidePages"
-              type="number"
-              min="1"
-              max="20"
-            />
-            <p class="settings-tab__hint">
-              La fenêtre avance de ce nombre de pages à chaque étape ; un pas plus petit que la fenêtre crée un
-              chevauchement entre deux fenêtres consécutives.
-            </p>
-          </div>
-        </template>
-      </div>
-
-      <div class="settings-tab__footer">
-        <button type="submit" class="fr-btn fr-btn--sm">Enregistrer</button>
-      </div>
-    </form>
-
-    <form v-show="currentStep === 'embedding'" class="settings-tab__section" @submit.prevent="saveEmbeddingModel">
-      <div class="settings-tab__header">
-        <span class="settings-tab__icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              d="m21 7.5-9-5.25L3 7.5m18 0-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9"
-            />
-          </svg>
-        </span>
-        <h3 class="settings-tab__title">Modèle d'embedding</h3>
-        <span
-          class="settings-tab__requirement"
-          :class="`settings-tab__requirement--${STEPS[stepIndex].required ? 'required' : 'optional'}`"
-          :title="requirementHint(STEPS[stepIndex].required)"
-        >
-          {{ requirementLabel(STEPS[stepIndex].required) }}
-        </span>
-      </div>
-
-      <div class="settings-tab__body">
-        <div class="settings-tab__field">
-          <label for="embedding-model">Modèle</label>
-          <select
-            id="embedding-model"
-            v-model="embeddingModelDraft"
-            class="fr-select"
-            :disabled="isLoadingEmbeddingModels"
+            label="Consignes de découpage"
+            optional
           >
-            <option
-              v-if="embeddingModelDraft && !embeddingModels.some((model) => model.id === embeddingModelDraft)"
-              :value="embeddingModelDraft"
-            >
-              {{ embeddingModelDraft }}
-            </option>
-            <option v-for="model in embeddingModels" :key="model.id" :value="model.id">{{ model.id }}</option>
-          </select>
-          <p v-if="embeddingModelsError" class="settings-tab__hint">{{ embeddingModelsError }}</p>
-          <p class="settings-tab__hint">
-            Changer de modèle rend les vecteurs déjà calculés incompatibles : l'index doit être reconstruit. La
-            recherche continue d'utiliser l'index actuel pendant la reconstruction, jusqu'à la bascule.
-          </p>
-        </div>
-
-        <div v-if="indexRebuild?.status === 'building'" class="settings-tab__reindex" role="status">
-          <span>
-            Réindexation en cours avec « {{ indexRebuild.targetModel }} » ({{ indexRebuild.donePoints }} /
-            {{ indexRebuild.totalPoints }}). La recherche continue d'utiliser l'index actuel
-            (« {{ indexRebuild.previousModel }} ») jusqu'à la bascule.
-          </span>
-          <progress :max="indexRebuild.totalPoints || 1" :value="indexRebuild.donePoints"></progress>
-        </div>
-
-        <div v-else-if="indexRebuild?.status === 'swapped'" class="settings-tab__reindex" role="status">
-          <span>
-            Le nouvel index (« {{ indexRebuild.targetModel }} ») est actif. L'ancien est conservé : validez la
-            bascule pour le supprimer, ou revenez à l'ancien index.
-          </span>
-          <div class="settings-tab__reindex-actions">
-            <button type="button" class="fr-btn fr-btn--sm" @click="finalizeIndexRebuild(collection.id)">
-              Valider la bascule
-            </button>
-            <button
-              type="button"
-              class="fr-btn fr-btn--sm fr-btn--secondary"
-              @click="rollbackIndexRebuild(collection.id)"
-            >
-              Revenir à l'ancien index
-            </button>
-          </div>
-        </div>
-
-        <div v-if="collection.reindexRequired && indexRebuild?.status !== 'building'" class="settings-tab__reindex">
-          <span>
-            Le modèle d'embedding a changé : l'index contient encore les vecteurs de
-            « {{ collection.indexEmbeddingModel ?? collection.embeddingModel }} » et reste utilisé pour la recherche
-            tant qu'il n'est pas reconstruit avec « {{ collection.embeddingModel }} ».
-          </span>
-          <span v-if="indexRebuild?.status === 'failed'">
-            La dernière réindexation a échoué : {{ indexRebuild.error }}
-          </span>
-          <button type="button" class="fr-btn fr-btn--sm fr-btn--secondary" @click="reindexCollection(collection.id)">
-            Réindexer maintenant
-          </button>
-        </div>
-        <p v-if="indexRebuildError" class="settings-tab__hint" role="alert">{{ indexRebuildError }}</p>
-      </div>
-
-      <div class="settings-tab__footer">
-        <button type="submit" class="fr-btn fr-btn--sm">Enregistrer</button>
-      </div>
-    </form>
-
-    <form v-show="currentStep === 'qa'" class="settings-tab__section" @submit.prevent="saveQa">
-      <div class="settings-tab__header">
-        <span class="settings-tab__icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              d="M8.25 15.75a4.5 4.5 0 0 1-1.41-8.775 5.25 5.25 0 0 1 10.233-2.33 3 3 0 0 1 3.758 3.848A3.75 3.75 0 0 1 18.75 15.75h-1.5M8.25 15.75h7.5m-7.5 0-1.5 3.75m9-3.75 1.5 3.75"
-            />
-          </svg>
-        </span>
-        <h3 class="settings-tab__title">Questions-réponses</h3>
-        <span
-          class="settings-tab__requirement"
-          :class="`settings-tab__requirement--${STEPS[stepIndex].required ? 'required' : 'optional'}`"
-          :title="requirementHint(STEPS[stepIndex].required)"
-        >
-          {{ requirementLabel(STEPS[stepIndex].required) }}
-        </span>
-      </div>
-
-      <div class="settings-tab__body">
-        <div class="settings-tab__field">
-          <label for="instructions-qa">Instructions</label>
-          <textarea
-            id="instructions-qa"
-            v-model="qaInstructions"
-            rows="2"
-            placeholder="Ex. Formuler des questions courtes, au tutoiement, orientées agents publics."
-          />
-        </div>
-        <div class="settings-tab__field">
-          <label for="qa-window-pages">Fenêtre de pages (contexte)</label>
-          <input id="qa-window-pages" v-model.number="windowsForm.qaWindowPages" type="number" min="1" max="20" />
-          <p class="settings-tab__hint">Nombre de pages fournies en contexte pour générer des questions.</p>
-        </div>
-        <div class="settings-tab__field">
-          <label for="qa-slide-pages">Pas de la fenêtre glissante</label>
-          <input id="qa-slide-pages" v-model.number="windowsForm.qaSlidePages" type="number" min="1" max="20" />
-        </div>
-        <div class="settings-tab__field">
-          <label for="qa-questions-per-window">Questions générées par fenêtre (k)</label>
-          <input
-            id="qa-questions-per-window"
-            v-model.number="windowsForm.qaQuestionsPerWindow"
-            type="number"
-            min="1"
-            max="20"
-          />
-        </div>
-        <div class="settings-tab__field">
-          <label for="model-qa">Modèle</label>
-          <select id="model-qa" v-model="qaModelDraft" class="fr-select" :disabled="isLoadingChatModels">
-            <option v-for="model in chatModels" :key="model.id" :value="model.id">{{ model.id }}</option>
-          </select>
-          <p v-if="chatModelsError" class="settings-tab__hint">{{ chatModelsError }}</p>
-          <p v-else-if="noModelsAvailable" class="settings-tab__hint">Aucun modèle disponible.</p>
-        </div>
-        <div class="settings-tab__field">
-          <label for="collection-qa-count">QA générées pour la collection</label>
-          <input
-            id="collection-qa-count"
-            v-model.number="windowsForm.collectionQaCount"
-            type="number"
-            min="1"
-            max="20"
-          />
-          <p class="settings-tab__hint">
-            Nombre de questions-réponses générées à partir de la description de la collection (pas liées à un
-            document), à chaque fois que la description change.
-          </p>
-        </div>
-      </div>
-
-      <div class="settings-tab__footer">
-        <button type="submit" class="fr-btn fr-btn--sm">Enregistrer</button>
-      </div>
-    </form>
-
-    <form v-show="currentStep === 'extraction'" class="settings-tab__section" @submit.prevent="saveExtraction">
-      <div class="settings-tab__header">
-        <span class="settings-tab__icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244"
-            />
-          </svg>
-        </span>
-        <h3 class="settings-tab__title">Extraction d'entités et relations</h3>
-        <span
-          class="settings-tab__requirement"
-          :class="`settings-tab__requirement--${STEPS[stepIndex].required ? 'required' : 'optional'}`"
-          :title="requirementHint(STEPS[stepIndex].required)"
-        >
-          {{ requirementLabel(STEPS[stepIndex].required) }}
-        </span>
-      </div>
-
-      <div class="settings-tab__body">
-        <div class="settings-tab__field">
-          <label for="instructions-extraction">Instructions</label>
-          <textarea
-            id="instructions-extraction"
-            v-model="extractionInstructions"
-            rows="2"
-            placeholder="Ex. Prioriser les entités de type organisation et ignorer les dates relatives."
-          />
-        </div>
-        <div class="settings-tab__field">
-          <label for="extraction-window-pages">Fenêtre de pages (contexte)</label>
-          <input
-            id="extraction-window-pages"
-            v-model.number="windowsForm.extractionWindowPages"
-            type="number"
-            min="1"
-            max="20"
-          />
-        </div>
-        <div class="settings-tab__field">
-          <label for="extraction-slide-pages">Pas de la fenêtre glissante</label>
-          <input
-            id="extraction-slide-pages"
-            v-model.number="windowsForm.extractionSlidePages"
-            type="number"
-            min="1"
-            max="20"
-          />
-        </div>
-        <div class="settings-tab__field">
-          <label for="model-extraction">Modèle</label>
-          <select
-            id="model-extraction"
-            v-model="extractionModelDraft"
-            class="fr-select"
-            :disabled="isLoadingChatModels"
-          >
-            <option v-for="model in chatModels" :key="model.id" :value="model.id">{{ model.id }}</option>
-          </select>
-          <p v-if="chatModelsError" class="settings-tab__hint">{{ chatModelsError }}</p>
-          <p v-else-if="noModelsAvailable" class="settings-tab__hint">Aucun modèle disponible.</p>
-        </div>
-      </div>
-
-      <div class="settings-tab__footer">
-        <button type="submit" class="fr-btn fr-btn--sm">Enregistrer</button>
-      </div>
-    </form>
-
-    <form v-show="currentStep === 'tagging'" class="settings-tab__section" @submit.prevent="saveTagging">
-      <div class="settings-tab__header">
-        <span class="settings-tab__icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              d="M9.568 3H5.25A2.25 2.25 0 0 0 3 5.25v4.318c0 .597.237 1.169.659 1.591l9.581 9.581c.699.699 1.83.699 2.53 0l7.409-7.409a1.789 1.789 0 0 0 0-2.53L13.16 3.66A2.25 2.25 0 0 0 11.568 3Z"
-            />
-            <path stroke-linecap="round" stroke-linejoin="round" d="M6 6h.008v.008H6V6Z" />
-          </svg>
-        </span>
-        <h3 class="settings-tab__title">Tags automatiques</h3>
-        <span
-          class="settings-tab__requirement"
-          :class="`settings-tab__requirement--${STEPS[stepIndex].required ? 'required' : 'optional'}`"
-          :title="requirementHint(STEPS[stepIndex].required)"
-        >
-          {{ requirementLabel(STEPS[stepIndex].required) }}
-        </span>
-      </div>
-
-      <div class="settings-tab__body">
-        <div class="settings-tab__field">
-          <label for="instructions-tagging">Instructions</label>
-          <textarea
-            id="instructions-tagging"
-            v-model="taggingInstructions"
-            rows="2"
-            placeholder="Ex. Toujours ajouter un tag par direction métier citée dans le document."
-          />
-        </div>
-        <div class="settings-tab__field">
-          <label for="model-tagging">Modèle</label>
-          <select id="model-tagging" v-model="taggingModelDraft" class="fr-select" :disabled="isLoadingChatModels">
-            <option v-for="model in chatModels" :key="model.id" :value="model.id">{{ model.id }}</option>
-          </select>
-          <p v-if="chatModelsError" class="settings-tab__hint">{{ chatModelsError }}</p>
-          <p v-else-if="noModelsAvailable" class="settings-tab__hint">Aucun modèle disponible.</p>
-        </div>
-      </div>
-
-      <div class="settings-tab__footer">
-        <button type="submit" class="fr-btn fr-btn--sm">Enregistrer</button>
-      </div>
-    </form>
-
-    <form
-      v-show="currentStep === 'longdocs'"
-      class="settings-tab__section"
-      novalidate
-      @submit.prevent="saveLongDocs"
-    >
-      <div class="settings-tab__header">
-        <span class="settings-tab__icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              d="M8 7h8M8 11h8M8 15h5M6 3h9l4 4v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"
-            />
-          </svg>
-        </span>
-        <h3 class="settings-tab__title">Longs documents</h3>
-        <span
-          class="settings-tab__requirement"
-          :class="`settings-tab__requirement--${STEPS[stepIndex].required ? 'required' : 'optional'}`"
-          :title="requirementHint(STEPS[stepIndex].required)"
-        >
-          {{ requirementLabel(STEPS[stepIndex].required) }}
-        </span>
-      </div>
-
-      <div class="settings-tab__body">
-        <p class="settings-tab__hint">
-          Au-delà d'un certain nombre de pages, le résumé, les questions et les entités peuvent ne lire qu'une partie du
-          document pour limiter les appels au modèle. Par défaut, tout est lu, comme avant.
-        </p>
-
-        <div class="settings-tab__field">
-          <label for="long-docs-min-pages">À partir de combien de pages (seuil)</label>
-          <input
-            id="long-docs-min-pages"
-            v-model.number="longDocs.samplingMinPages"
-            type="number"
-            min="1"
-            :aria-invalid="longDocsErrors.samplingMinPages ? 'true' : undefined"
-            :aria-describedby="`long-docs-min-pages-hint ${errorId('samplingMinPages') ?? ''}`.trim()"
-          />
-          <p id="long-docs-min-pages-hint" class="settings-tab__hint">
-            En deçà, tout le document est traité comme avant, quels que soient les réglages ci-dessous.
-          </p>
-          <p
-            v-if="longDocsErrors.samplingMinPages"
-            id="long-docs-samplingMinPages-error"
-            class="settings-tab__hint settings-tab__hint--error"
-          >
-            {{ longDocsErrors.samplingMinPages }}
-          </p>
-        </div>
-
-        <fieldset class="fr-fieldset settings-tab__group" aria-describedby="long-docs-summary-hint">
-          <legend class="fr-fieldset__legend settings-tab__legend">Résumé</legend>
-          <div class="fr-fieldset__element">
-            <div class="fr-radio-group fr-radio-group--sm">
-              <input id="long-docs-summary-all" v-model="longDocs.summaryMode" type="radio" value="all" name="long-docs-summary-mode" />
-              <label class="fr-label" for="long-docs-summary-all">Tout le document</label>
-            </div>
-          </div>
-          <div class="fr-fieldset__element">
-            <div class="fr-radio-group fr-radio-group--sm">
-              <input
-                id="long-docs-summary-percent"
-                v-model="longDocs.summaryMode"
-                type="radio"
-                value="percent"
-                name="long-docs-summary-mode"
+            <template #default="{ id }">
+              <textarea
+                :id="id"
+                v-model="draft.instructions.chunking"
+                rows="2"
+                placeholder="Ex. Ne jamais couper une clause juridique en deux chunks."
               />
-              <label class="fr-label" for="long-docs-summary-percent">Une partie du document</label>
-            </div>
-          </div>
-          <div class="fr-fieldset__element">
-            <div class="fr-radio-group fr-radio-group--sm">
-              <input
-                id="long-docs-summary-pages"
-                v-model="longDocs.summaryMode"
-                type="radio"
-                value="pages"
-                name="long-docs-summary-mode"
-              />
-              <label class="fr-label" for="long-docs-summary-pages">Des pages précises</label>
-            </div>
-          </div>
-
-          <div v-if="longDocs.summaryMode === 'percent'" class="settings-tab__field">
-            <template v-if="!longDocs.separateEnds">
-              <label for="long-docs-summary-percent-value">Part du document lue (%)</label>
-              <input
-                id="long-docs-summary-percent-value"
-                v-model.number="longDocs.summaryPercent"
-                type="number"
-                min="1"
-                max="100"
-                :aria-invalid="longDocsErrors.summaryPercent ? 'true' : undefined"
-                :aria-describedby="`long-docs-summary-hint ${errorId('summaryPercent') ?? ''}`.trim()"
-              />
-              <p class="settings-tab__hint">Répartie moitié au début, moitié à la fin du document.</p>
-              <p
-                v-if="longDocsErrors.summaryPercent"
-                id="long-docs-summaryPercent-error"
-                class="settings-tab__hint settings-tab__hint--error"
-              >
-                {{ longDocsErrors.summaryPercent }}
-              </p>
             </template>
-            <template v-else>
-              <label for="long-docs-summary-head">Début du document lu (%)</label>
-              <input
-                id="long-docs-summary-head"
-                v-model.number="longDocs.summaryHeadPercent"
-                type="number"
-                min="0"
-                max="100"
-                :aria-invalid="longDocsErrors.summaryHeadPercent ? 'true' : undefined"
-                :aria-describedby="errorId('summaryHeadPercent')"
-              />
-              <p v-if="longDocsErrors.summaryHeadPercent" id="long-docs-summaryHeadPercent-error" class="settings-tab__hint settings-tab__hint--error">
-                {{ longDocsErrors.summaryHeadPercent }}
-              </p>
-              <label for="long-docs-summary-tail">Fin du document lue (%)</label>
-              <input
-                id="long-docs-summary-tail"
-                v-model.number="longDocs.summaryTailPercent"
-                type="number"
-                min="0"
-                max="100"
-                :aria-invalid="longDocsErrors.summaryTailPercent ? 'true' : undefined"
-                :aria-describedby="errorId('summaryTailPercent')"
-              />
-              <p
-                v-if="longDocsErrors.summaryTailPercent"
-                id="long-docs-summaryTailPercent-error"
-                class="settings-tab__hint settings-tab__hint--error"
+          </SettingsField>
+
+          <template #advanced>
+            <div v-if="draft.chunking.strategy === 'paragraph' || draft.chunking.strategy === 'fixed'" class="sf-grid">
+              <SettingsField id="chunk-size" label="Taille des chunks (tokens)" :error="errors.chunkSize" short>
+                <template #default="{ id, describedby, invalid: isInvalid }">
+                  <input :id="id" v-model.number="draft.chunking.chunkSize" type="number" min="64" max="4096" :aria-describedby="describedby" :aria-invalid="isInvalid" />
+                </template>
+              </SettingsField>
+              <SettingsField
+                id="chunk-overlap"
+                label="Chevauchement (tokens)"
+                hint="Tokens répétés entre deux chunks consécutifs, pour ne pas perdre le contexte à la coupure."
+                :error="errors.chunkOverlap"
+                short
               >
-                {{ longDocsErrors.summaryTailPercent }}
-              </p>
-            </template>
-            <div class="fr-checkbox-group fr-checkbox-group--sm">
-              <input id="long-docs-separate" v-model="showSeparateEnds" type="checkbox" />
-              <label class="fr-label" for="long-docs-separate">Régler le début et la fin séparément</label>
+                <template #default="{ id, describedby, invalid: isInvalid }">
+                  <input :id="id" v-model.number="draft.chunking.chunkOverlap" type="number" min="0" max="512" :aria-describedby="describedby" :aria-invalid="isInvalid" />
+                </template>
+              </SettingsField>
             </div>
-          </div>
-
-          <div v-if="longDocs.summaryMode === 'pages'" class="settings-tab__field">
-            <label for="long-docs-summary-ranges">Pages lues</label>
-            <input
-              id="long-docs-summary-ranges"
-              v-model="longDocs.summaryPageRanges"
-              type="text"
-              inputmode="numeric"
-              placeholder="1-5, 40-45, 90-"
-              :aria-invalid="longDocsErrors.summaryPageRanges ? 'true' : undefined"
-              :aria-describedby="`long-docs-summary-ranges-hint ${errorId('summaryPageRanges') ?? ''}`.trim()"
-            />
-            <p id="long-docs-summary-ranges-hint" class="settings-tab__hint">
-              Des pages ou des plages séparées par des virgules ; « 90- » va jusqu'à la fin.
-            </p>
-            <p
-              v-if="longDocsErrors.summaryPageRanges"
-              id="long-docs-summaryPageRanges-error"
-              class="settings-tab__hint settings-tab__hint--error"
-            >
-              {{ longDocsErrors.summaryPageRanges }}
-            </p>
-          </div>
-          <p id="long-docs-summary-hint" class="settings-tab__hint">
-            Un résumé partiel ne dit rien des pages non lues : il le signale, et l'assistant ne s'en sert pas pour
-            répondre sur un détail qu'elles pourraient ne pas couvrir.
-          </p>
-        </fieldset>
-
-        <div class="settings-tab__field">
-          <label for="long-docs-qa-max">Nombre maximum de questions par document</label>
-          <input
-            id="long-docs-qa-max"
-            v-model.number="longDocs.qaMaxQuestions"
-            type="number"
-            min="1"
-            placeholder="Illimité"
-            :aria-invalid="longDocsErrors.qaMaxQuestions ? 'true' : undefined"
-            :aria-describedby="`long-docs-qa-hint ${errorId('qaMaxQuestions') ?? ''}`.trim()"
-          />
-          <p id="long-docs-qa-hint" class="settings-tab__hint">
-            Vide : pas de plafond. Les questions sont posées sur des pages tirées sur tout le document, jamais plus que
-            ce nombre (parfois moins). Avec moins de questions, une question posée a moins de chances de retomber sur
-            une question déjà générée.
-          </p>
-          <p
-            v-if="longDocsErrors.qaMaxQuestions"
-            id="long-docs-qaMaxQuestions-error"
-            class="settings-tab__hint settings-tab__hint--error"
-          >
-            {{ longDocsErrors.qaMaxQuestions }}
-          </p>
-        </div>
-
-        <fieldset class="fr-fieldset settings-tab__group" aria-describedby="long-docs-entities-hint">
-          <legend class="fr-fieldset__legend settings-tab__legend">Entités et relations</legend>
-          <div class="settings-tab__field">
-            <label for="long-docs-entities-percent">Part du document analysée (%)</label>
-            <input
-              id="long-docs-entities-percent"
-              v-model.number="longDocs.extractionPercent"
-              type="number"
-              min="1"
-              max="100"
-              :aria-invalid="longDocsErrors.extractionPercent ? 'true' : undefined"
-              :aria-describedby="errorId('extractionPercent')"
-            />
-            <p
-              v-if="longDocsErrors.extractionPercent"
-              id="long-docs-extractionPercent-error"
-              class="settings-tab__hint settings-tab__hint--error"
-            >
-              {{ longDocsErrors.extractionPercent }}
-            </p>
-          </div>
-          <div class="settings-tab__field">
-            <label for="long-docs-entities-max">Nombre maximum de fenêtres analysées (facultatif)</label>
-            <input
-              id="long-docs-entities-max"
-              v-model.number="longDocs.extractionMaxWindows"
-              type="number"
-              min="1"
-              placeholder="Illimité"
-              :aria-invalid="longDocsErrors.extractionMaxWindows ? 'true' : undefined"
-              :aria-describedby="errorId('extractionMaxWindows')"
-            />
-            <p
-              v-if="longDocsErrors.extractionMaxWindows"
-              id="long-docs-extractionMaxWindows-error"
-              class="settings-tab__hint settings-tab__hint--error"
-            >
-              {{ longDocsErrors.extractionMaxWindows }}
-            </p>
-          </div>
-          <p id="long-docs-entities-hint" class="settings-tab__hint">
-            Les entités et relations ne sont extraites que d'un échantillon des pages : le graphe est plus pauvre qu'en
-            lisant tout.
-          </p>
-        </fieldset>
-
-        <p class="settings-tab__hint">
-          Découpage : les chunks couvrent toujours tout le document, rien à régler ici.
-        </p>
-
-        <div class="settings-tab__estimate" aria-live="polite">
-          <div class="settings-tab__field">
-            <label for="long-docs-estimate-pages">Estimer pour un document de (pages)</label>
-            <input
-              id="long-docs-estimate-pages"
-              v-model.number="estimatePages"
-              type="number"
-              min="1"
-              max="100000"
-              :aria-invalid="estimatePagesInvalid ? 'true' : undefined"
-            />
-          </div>
-          <p v-if="longDocsInvalid || estimatePagesInvalid" class="settings-tab__hint">
-            Corriger les champs signalés pour voir l'estimation.
-          </p>
-          <p v-else-if="estimateState.error" class="settings-tab__hint settings-tab__hint--error">
-            {{ estimateState.error }}
-          </p>
-          <template v-else-if="estimateState.draft">
-            <p class="settings-tab__estimate-total">
-              Environ <strong>{{ estimateState.draft.chat.total }} appels</strong> au modèle pour un document de
-              {{ estimateState.draft.pages }} pages<template
-                v-if="estimateState.full && estimateState.full.chat.total !== estimateState.draft.chat.total"
+            <div v-if="draft.chunking.strategy === 'semantic'" class="sf-grid">
+              <SettingsField id="chunking-window-pages" label="Pages lues à la fois" :error="errors.chunkingWindowPages" short>
+                <template #default="{ id, describedby, invalid: isInvalid }">
+                  <input :id="id" v-model.number="draft.windows.chunkingWindowPages" type="number" min="1" max="20" :aria-describedby="describedby" :aria-invalid="isInvalid" />
+                </template>
+              </SettingsField>
+              <SettingsField
+                id="chunking-slide-pages"
+                label="Avancée entre deux lectures (pages)"
+                hint="Plus petite que les pages lues à la fois, les lectures se recouvrent."
+                :error="errors.chunkingSlidePages"
+                short
               >
-                (au lieu de {{ estimateState.full.chat.total }} en lisant tout)</template
-              >.
-            </p>
-            <p v-if="!estimateState.draft.sampled" class="settings-tab__hint">
-              Ce document n'atteint pas le seuil : tout est lu, comme avant.
-            </p>
-            <ul class="settings-tab__estimate-steps">
-              <li v-for="step in estimateSteps" :key="step.key">{{ step.label }} : {{ step.calls }}</li>
-            </ul>
-            <p class="settings-tab__hint">
-              À part : {{ estimateEmbeddings }} appels au modèle d'embedding (le résumé, et une par question) ; le
-              découpage et les passages en ajoutent selon leur taille.
+                <template #default="{ id, describedby, invalid: isInvalid }">
+                  <input :id="id" v-model.number="draft.windows.chunkingSlidePages" type="number" min="1" max="20" :aria-describedby="describedby" :aria-invalid="isInvalid" />
+                </template>
+              </SettingsField>
+            </div>
+            <SettingsField v-if="draft.chunking.strategy === 'llm'" id="model-chunking" label="Modèle utilisé pour le découpage">
+              <template #default="{ id }"><ModelSelect :id="id" v-model="draft.models.chunking" /></template>
+            </SettingsField>
+            <p v-if="draft.chunking.strategy === 'llm' || draft.chunking.strategy === 'fixed' || draft.chunking.strategy === 'paragraph'" class="sf-hint">
+              <template v-if="draft.chunking.strategy === 'llm'">Le modèle choisit lui-même la taille des chunks.</template>
+              <template v-else>Les pages lues à la fois ne concernent que le découpage sémantique.</template>
             </p>
           </template>
-        </div>
-      </div>
+        </SettingsSection>
 
-      <div class="settings-tab__footer">
-        <p v-if="longDocsSaveError" class="settings-tab__hint settings-tab__hint--error" role="alert">
-          {{ longDocsSaveError }}
-        </p>
-        <p v-else-if="longDocsSaved" class="settings-tab__hint" role="status">Réglages enregistrés.</p>
-        <button type="submit" class="fr-btn fr-btn--sm" :disabled="longDocsInvalid">Enregistrer</button>
-      </div>
-    </form>
-
-    <form v-show="currentStep === 'visibility'" class="settings-tab__section" @submit.prevent="saveVisibility">
-      <div class="settings-tab__header">
-        <span class="settings-tab__icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"
-            />
-            <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-          </svg>
-        </span>
-        <h3 class="settings-tab__title">Visibilité</h3>
-        <span
-          class="settings-tab__requirement"
-          :class="`settings-tab__requirement--${STEPS[stepIndex].required ? 'required' : 'optional'}`"
-          :title="requirementHint(STEPS[stepIndex].required)"
+        <SettingsSection
+          title="Modèle d'embedding"
+          :summary="draft.embeddingModel || 'Non choisi'"
+          :changed="isChanged('embedding')"
         >
-          {{ requirementLabel(STEPS[stepIndex].required) }}
-        </span>
-      </div>
+          <SettingsField
+            id="embedding-model"
+            label="Modèle d'embedding"
+            hint="Il sert à retrouver les passages qui répondent à une question. Changer de modèle rend les vecteurs déjà calculés incompatibles : l'index doit être reconstruit. La recherche continue d'utiliser l'index actuel jusqu'à la bascule."
+            :error="embeddingModelsError ?? undefined"
+          >
+            <template #default="{ id, describedby }">
+              <select
+                :id="id"
+                v-model="draft.embeddingModel"
+                class="fr-select"
+                :disabled="isLoadingEmbeddingModels"
+                :aria-describedby="describedby"
+              >
+                <option
+                  v-if="draft.embeddingModel && !embeddingModels.some((model) => model.id === draft.embeddingModel)"
+                  :value="draft.embeddingModel"
+                >
+                  {{ draft.embeddingModel }}
+                </option>
+                <option v-for="model in embeddingModels" :key="model.id" :value="model.id">{{ model.id }}</option>
+              </select>
+            </template>
+          </SettingsField>
 
-      <div class="settings-tab__body">
-        <div class="settings-tab__field">
-          <label for="visibility">Visibilité de la collection</label>
-          <select id="visibility" v-model="visibilityDraft" class="fr-select">
-            <option value="private">Privée (owner et personnes/groupes invités)</option>
-            <option value="public">Publique (tous les utilisateurs authentifiés)</option>
-          </select>
-          <p class="settings-tab__hint">
-            Une collection publique est visible et cherchable par n'importe quel utilisateur authentifié, en
-            lecture seule. Ses sous-collections le sont aussi.
-          </p>
-          <p v-if="collection.inheritedPublicFrom && collection.visibility === 'private'" class="settings-tab__hint settings-tab__hint--inherited">
-            Cette collection est tout de même publique, car sa collection parente « {{ collection.inheritedPublicFrom.name }} »
-            l'est.
-          </p>
-        </div>
-      </div>
+          <div v-if="indexRebuild?.status === 'building'" class="sf-callout" role="status">
+            <p>
+              Réindexation en cours avec « {{ indexRebuild.targetModel }} » ({{ indexRebuild.donePoints }} /
+              {{ indexRebuild.totalPoints }}). La recherche continue d'utiliser l'index actuel
+              (« {{ indexRebuild.previousModel }} ») jusqu'à la bascule.
+            </p>
+            <progress :max="indexRebuild.totalPoints || 1" :value="indexRebuild.donePoints"></progress>
+          </div>
 
-      <div class="settings-tab__footer">
-        <button type="submit" class="fr-btn fr-btn--sm">Enregistrer</button>
-      </div>
-    </form>
-
-    <form v-show="currentStep === 'shares'" class="settings-tab__section" @submit.prevent="submitShare">
-      <div class="settings-tab__header">
-        <span class="settings-tab__icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z"
-            />
-          </svg>
-        </span>
-        <h3 class="settings-tab__title">Partages</h3>
-        <span
-          class="settings-tab__requirement"
-          :class="`settings-tab__requirement--${STEPS[stepIndex].required ? 'required' : 'optional'}`"
-          :title="requirementHint(STEPS[stepIndex].required)"
-        >
-          {{ requirementLabel(STEPS[stepIndex].required) }}
-        </span>
-      </div>
-
-      <div class="settings-tab__body">
-        <div class="settings-tab__field">
-          <label for="share-subject-type">Inviter un utilisateur ou un groupe</label>
-          <div class="settings-tab__share-form">
-            <select
-              id="share-subject-type"
-              v-model="shareSubjectType"
-              class="fr-select"
-              aria-label="Type de destinataire"
-            >
-              <option value="user">Email</option>
-              <option value="group">Groupe Keycloak</option>
-            </select>
-            <select
-              v-if="shareSubjectType === 'group' && myGroups.length"
-              id="share-group"
-              v-model="groupChoice"
-              class="fr-select"
-              aria-label="Groupe"
-            >
-              <optgroup label="Vos groupes">
-                <option v-for="group in myGroups" :key="group" :value="group">{{ group }}</option>
-              </optgroup>
-              <option :value="OTHER_GROUP">Autre groupe (saisie libre)…</option>
-            </select>
-            <div class="settings-tab__share-form-row">
-              <input
-                v-if="shareSubjectType === 'user' || isFreeGroup"
-                id="share-identifier"
-                v-model="shareIdentifier"
-                type="text"
-                :placeholder="shareSubjectType === 'user' ? 'personne@exemple.fr' : '/nom-du-groupe'"
-              />
-              <button type="submit" class="fr-btn fr-btn--sm" :disabled="!shareTarget">Inviter</button>
+          <div v-else-if="indexRebuild?.status === 'swapped'" class="sf-callout" role="status">
+            <p>
+              Le nouvel index (« {{ indexRebuild.targetModel }} ») est actif. L'ancien est conservé : validez la
+              bascule pour le supprimer, ou revenez à l'ancien index.
+            </p>
+            <div class="sf-actions">
+              <button type="button" class="fr-btn fr-btn--sm" @click="finalizeIndexRebuild(collection.id)">
+                Valider la bascule
+              </button>
+              <button type="button" class="fr-btn fr-btn--sm fr-btn--secondary" @click="rollbackIndexRebuild(collection.id)">
+                Revenir à l'ancien index
+              </button>
             </div>
           </div>
-          <p class="settings-tab__hint">
-            Aucune vérification n'est faite ici : l'invitation est créée et s'activera automatiquement à la
-            prochaine connexion de la personne ou d'un membre du groupe. Un partage s'applique aussi aux
-            sous-collections.
-          </p>
-          <p v-if="shareError" class="settings-tab__hint settings-tab__hint--error">{{ shareError }}</p>
+
+          <div v-if="collection.reindexRequired && indexRebuild?.status !== 'building'" class="sf-callout sf-callout--warning">
+            <p>
+              Le modèle d'embedding a changé : l'index contient encore les vecteurs de
+              « {{ collection.indexEmbeddingModel ?? collection.embeddingModel }} » et reste utilisé pour la recherche
+              tant qu'il n'est pas reconstruit avec « {{ collection.embeddingModel }} ».
+            </p>
+            <p v-if="indexRebuild?.status === 'failed'">La dernière réindexation a échoué : {{ indexRebuild.error }}</p>
+            <div class="sf-actions">
+              <button type="button" class="fr-btn fr-btn--sm fr-btn--secondary" @click="reindexCollection(collection.id)">
+                Réindexer maintenant
+              </button>
+            </div>
+          </div>
+          <p v-if="indexRebuildError" class="sf-error" role="alert">{{ indexRebuildError }}</p>
+        </SettingsSection>
+      </section>
+
+      <section class="settings-tab__group" aria-labelledby="group-enrich">
+        <h3 id="group-enrich" class="settings-tab__group-title">Ce que l'IA ajoute à chaque document</h3>
+        <div class="settings-tab__common-model">
+          <SettingsField
+            id="model-all"
+            label="Modèle de génération"
+            hint="Le même pour toutes les étapes ci-dessous. Un modèle différent par étape se choisit dans leurs réglages avancés."
+          >
+            <template #default="{ id, describedby }">
+              <ModelSelect :id="id" v-model="generationModel" :describedby="describedby" :mixed="modelsDiffer" />
+            </template>
+          </SettingsField>
         </div>
 
-        <ul v-if="collection.shares.length" class="settings-tab__share-list">
-          <li v-for="share in collection.shares" :key="share.id" class="settings-tab__share-row">
-            <span class="settings-tab__share-hint">{{ share.displayHint }}</span>
-            <span v-if="share.inheritedFrom" class="settings-tab__share-inherited">
-              Hérité de « {{ share.inheritedFrom.name }} »
-            </span>
-            <span
-              class="settings-tab__share-status"
-              :class="`settings-tab__share-status--${share.status}`"
+        <SettingsSection
+          title="Résumé"
+          :summary="stepSummary(draft, 'summary')"
+          :changed="isChanged('summary')"
+          :invalid="invalid.summary"
+          :force-open="invalid.summary"
+        >
+          <p class="sf-hint">Chaque document reçoit un résumé, que l'assistant utilise pour savoir de quoi il parle.</p>
+          <SettingsField id="instructions-summary" label="Consignes pour le résumé" optional>
+            <template #default="{ id }">
+              <textarea
+                :id="id"
+                v-model="draft.instructions.summary"
+                rows="2"
+                placeholder="Ex. Rédiger un résumé factuel de 5 lignes maximum, sans jugement."
+              />
+            </template>
+          </SettingsField>
+          <template #advanced>
+            <SettingsField id="model-summary" label="Modèle pour le résumé">
+              <template #default="{ id }"><ModelSelect :id="id" v-model="draft.models.summary" /></template>
+            </SettingsField>
+            <SettingsField
+              id="summary-pages-per-map"
+              label="Pages résumées ensemble"
+              hint="Le résumé se fait par lots de pages, puis les résumés partiels sont assemblés. Un lot plus grand fait moins d'appels, mais des résumés moins détaillés."
+              :error="errors.summaryPagesPerMap"
+              short
             >
-              {{ SHARE_STATUS_LABEL[share.status] }}
-            </span>
-            <button
-              v-if="!share.inheritedFrom"
-              type="button"
-              class="fr-btn fr-btn--sm fr-btn--tertiary-no-outline"
-              :aria-label="`Révoquer ce partage`"
-              @click="deleteShare(collection.id, share.id)"
-            >
-              Révoquer
-            </button>
-          </li>
-        </ul>
-        <p v-else class="settings-tab__hint">Aucun partage sur cette collection.</p>
-      </div>
-    </form>
+              <template #default="{ id, describedby, invalid: isInvalid }">
+                <input :id="id" v-model.number="draft.windows.summaryPagesPerMap" type="number" min="1" max="50" :aria-describedby="describedby" :aria-invalid="isInvalid" />
+              </template>
+            </SettingsField>
+          </template>
+        </SettingsSection>
 
-    <div class="settings-tab__pager">
-      <button
-        v-if="previousStep"
-        type="button"
-        class="settings-tab__pager-button"
-        @click="stepIndex--"
-      >
-        <span aria-hidden="true">←</span>
-        <span class="settings-tab__pager-label">{{ previousStep.label }}</span>
-        <span
-          class="settings-tab__dot"
-          :class="`settings-tab__dot--${previousStep.required ? 'required' : 'optional'}`"
-          :aria-label="requirementLabel(previousStep.required)"
-        />
-        <span class="settings-tab__tooltip" role="tooltip">
-          <strong>Section précédente : {{ stepTooltipTitle(previousStep) }}</strong>
-          {{ previousStep.hint }}
-        </span>
-      </button>
-      <span class="settings-tab__pager-position">{{ stepIndex + 1 }} / {{ STEPS.length }}</span>
-      <button
-        v-if="nextStep"
-        type="button"
-        class="settings-tab__pager-button settings-tab__pager-button--next"
-        @click="stepIndex++"
-      >
-        <span
-          class="settings-tab__dot"
-          :class="`settings-tab__dot--${nextStep.required ? 'required' : 'optional'}`"
-          :aria-label="requirementLabel(nextStep.required)"
-        />
-        <span class="settings-tab__pager-label">{{ nextStep.label }}</span>
-        <span aria-hidden="true">→</span>
-        <span class="settings-tab__tooltip settings-tab__tooltip--end" role="tooltip">
-          <strong>Section suivante : {{ stepTooltipTitle(nextStep) }}</strong>
-          {{ nextStep.hint }}
-        </span>
-      </button>
-    </div>
+        <SettingsSection
+          title="Questions-réponses"
+          :summary="stepSummary(draft, 'qa')"
+          :changed="isChanged('qa')"
+          :invalid="invalid.qa"
+          :force-open="invalid.qa"
+        >
+          <p class="sf-hint">
+            Des questions-réponses sont générées à partir des documents : elles servent de réponses toutes prêtes et
+            à évaluer la qualité de la recherche.
+          </p>
+          <SettingsField id="instructions-qa" label="Consignes pour les questions" optional>
+            <template #default="{ id }">
+              <textarea
+                :id="id"
+                v-model="draft.instructions.qa"
+                rows="2"
+                placeholder="Ex. Formuler des questions courtes, orientées agents publics."
+              />
+            </template>
+          </SettingsField>
+          <template #advanced>
+            <SettingsField id="model-qa" label="Modèle pour les questions">
+              <template #default="{ id }"><ModelSelect :id="id" v-model="draft.models.qa" /></template>
+            </SettingsField>
+            <div class="sf-grid">
+              <SettingsField id="qa-window-pages" label="Pages lues à la fois" hint="Les pages fournies au modèle pour écrire des questions." :error="errors.qaWindowPages" short>
+                <template #default="{ id, describedby, invalid: isInvalid }">
+                  <input :id="id" v-model.number="draft.windows.qaWindowPages" type="number" min="1" max="20" :aria-describedby="describedby" :aria-invalid="isInvalid" />
+                </template>
+              </SettingsField>
+              <SettingsField id="qa-slide-pages" label="Avancée entre deux lectures (pages)" hint="Plus petite que les pages lues à la fois, les lectures se recouvrent." :error="errors.qaSlidePages" short>
+                <template #default="{ id, describedby, invalid: isInvalid }">
+                  <input :id="id" v-model.number="draft.windows.qaSlidePages" type="number" min="1" max="20" :aria-describedby="describedby" :aria-invalid="isInvalid" />
+                </template>
+              </SettingsField>
+              <SettingsField id="qa-questions-per-window" label="Questions par lecture" :error="errors.qaQuestionsPerWindow" short>
+                <template #default="{ id, describedby, invalid: isInvalid }">
+                  <input :id="id" v-model.number="draft.windows.qaQuestionsPerWindow" type="number" min="1" max="20" :aria-describedby="describedby" :aria-invalid="isInvalid" />
+                </template>
+              </SettingsField>
+              <SettingsField
+                id="collection-qa-count"
+                label="Questions sur la description de la collection"
+                hint="Générées à partir de la description (pas d'un document), à chaque fois qu'elle change."
+                :error="errors.collectionQaCount"
+                short
+              >
+                <template #default="{ id, describedby, invalid: isInvalid }">
+                  <input :id="id" v-model.number="draft.windows.collectionQaCount" type="number" min="1" max="20" :aria-describedby="describedby" :aria-invalid="isInvalid" />
+                </template>
+              </SettingsField>
+            </div>
+          </template>
+        </SettingsSection>
+
+        <SettingsSection
+          title="Entités et relations"
+          :summary="stepSummary(draft, 'extraction')"
+          :changed="isChanged('extraction')"
+          :invalid="invalid.extraction"
+          :force-open="invalid.extraction"
+        >
+          <p class="sf-hint">Les personnes, organisations, lieux… cités dans les documents, et les liens entre eux.</p>
+          <SettingsField id="instructions-extraction" label="Consignes pour l'extraction" optional>
+            <template #default="{ id }">
+              <textarea
+                :id="id"
+                v-model="draft.instructions.extraction"
+                rows="2"
+                placeholder="Ex. Prioriser les entités de type organisation et ignorer les dates relatives."
+              />
+            </template>
+          </SettingsField>
+          <template #advanced>
+            <SettingsField id="model-extraction" label="Modèle pour l'extraction">
+              <template #default="{ id }"><ModelSelect :id="id" v-model="draft.models.extraction" /></template>
+            </SettingsField>
+            <div class="sf-grid">
+              <SettingsField id="extraction-window-pages" label="Pages lues à la fois" :error="errors.extractionWindowPages" short>
+                <template #default="{ id, describedby, invalid: isInvalid }">
+                  <input :id="id" v-model.number="draft.windows.extractionWindowPages" type="number" min="1" max="20" :aria-describedby="describedby" :aria-invalid="isInvalid" />
+                </template>
+              </SettingsField>
+              <SettingsField id="extraction-slide-pages" label="Avancée entre deux lectures (pages)" hint="Plus petite que les pages lues à la fois, les lectures se recouvrent." :error="errors.extractionSlidePages" short>
+                <template #default="{ id, describedby, invalid: isInvalid }">
+                  <input :id="id" v-model.number="draft.windows.extractionSlidePages" type="number" min="1" max="20" :aria-describedby="describedby" :aria-invalid="isInvalid" />
+                </template>
+              </SettingsField>
+            </div>
+          </template>
+        </SettingsSection>
+
+        <SettingsSection title="Tags" :summary="stepSummary(draft, 'tagging')" :changed="isChanged('tagging')">
+          <p class="sf-hint">Des tags sont ajoutés automatiquement à chaque document pour le retrouver.</p>
+          <SettingsField id="instructions-tagging" label="Consignes pour les tags" optional>
+            <template #default="{ id }">
+              <textarea
+                :id="id"
+                v-model="draft.instructions.tagging"
+                rows="2"
+                placeholder="Ex. Utiliser au plus 5 tags, en minuscules, sans accents."
+              />
+            </template>
+          </SettingsField>
+          <template #advanced>
+            <SettingsField id="model-tagging" label="Modèle pour les tags">
+              <template #default="{ id }"><ModelSelect :id="id" v-model="draft.models.tagging" /></template>
+            </SettingsField>
+          </template>
+        </SettingsSection>
+      </section>
+
+      <section class="settings-tab__group" aria-labelledby="group-long">
+        <h3 id="group-long" class="settings-tab__group-title">Documents très longs</h3>
+        <SettingsSection
+          title="Ce qui est lu d'un long document"
+          :summary="longDocsSummary(draft)"
+          :changed="isChanged('longDocs')"
+          :invalid="invalid.longDocs"
+          :force-open="invalid.longDocs"
+        >
+          <LongDocumentsFields
+            :long-docs="draft.longDocs"
+            :errors="errors"
+            :collection-id="collection.id"
+            :chunking-strategy="draft.chunking.strategy"
+          />
+        </SettingsSection>
+      </section>
+
+      <section class="settings-tab__group" aria-labelledby="group-access">
+        <h3 id="group-access" class="settings-tab__group-title">Qui peut y accéder</h3>
+        <p class="sf-hint">Ces deux réglages s'appliquent tout de suite, sans passer par « Enregistrer ».</p>
+        <CollectionAccessSettings :collection="collection" />
+      </section>
+
+      <div class="settings-tab__bar" role="region" aria-label="Enregistrement des paramètres">
+        <p v-if="saveError" class="sf-error" role="alert">{{ saveError }}</p>
+        <p v-else-if="hasErrors" class="sf-error" role="status">Corrigez les champs signalés : {{ invalidLabels }}.</p>
+        <p v-else-if="changed.length" class="settings-tab__bar-text" role="status">
+          Non enregistré : {{ changedLabels }}.
+        </p>
+        <p v-else-if="justSaved" class="settings-tab__bar-text" role="status">Paramètres enregistrés.</p>
+        <p v-else class="settings-tab__bar-text">Aucune modification.</p>
+        <div class="sf-actions">
+          <button type="button" class="fr-btn fr-btn--secondary fr-btn--sm" :disabled="!changed.length || saving" @click="discard">
+            Annuler les modifications
+          </button>
+          <button type="button" class="fr-btn fr-btn--sm" :disabled="!changed.length || hasErrors || saving" @click="save">
+            {{ saving ? 'Enregistrement…' : 'Enregistrer' }}
+          </button>
+        </div>
+      </div>
+    </template>
   </div>
 </template>
 
@@ -1335,424 +580,54 @@ function stepTooltipTitle(step: Step) {
 .settings-tab {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
-  max-width: 48rem;
+  gap: 1.5rem;
 }
 
-/* Wraps instead of scrolling sideways: every step stays in view, lined up
-   with the card below, and their tooltips aren't clipped. */
-.settings-tab__steps {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.375rem;
-}
-
-.settings-tab__step {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 0.375rem;
-  padding: 0.3125rem 0.625rem;
-  border: 1px solid var(--border-default-grey);
-  border-radius: 0.5rem;
-  background: var(--background-default-grey);
-  color: var(--text-default-grey);
-  font: inherit;
-  font-size: 0.8125rem;
-  cursor: pointer;
-}
-
-.settings-tab__step:hover {
-  border-color: var(--border-action-high-blue-france);
-}
-
-.settings-tab__step--active {
-  border-color: var(--border-action-high-blue-france);
-  background: var(--background-alt-blue-france);
-  font-weight: 700;
-}
-
-.settings-tab__step-number {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.25rem;
-  height: 1.25rem;
-  border-radius: 50%;
-  background: var(--background-alt-grey);
-  font-size: 0.6875rem;
-  font-weight: 700;
-}
-
-.settings-tab__step--active .settings-tab__step-number {
-  background: var(--background-action-high-blue-france);
-  color: var(--text-inverted-blue-france);
-}
-
-.settings-tab__requirement {
-  flex-shrink: 0;
-  padding: 0.0625rem 0.5rem;
-  border-radius: 1rem;
-  font-size: 0.6875rem;
-  font-weight: 700;
-}
-
-.settings-tab__requirement--required {
-  background: var(--background-alt-orange-terre-battue, var(--background-alt-grey));
-  color: var(--text-default-grey);
-}
-
-.settings-tab__requirement--optional {
-  background: var(--background-alt-grey);
-  color: var(--text-mention-grey);
-}
-
-.settings-tab__dot {
-  flex-shrink: 0;
-  display: inline-block;
-  width: 0.5rem;
-  height: 0.5rem;
-  border-radius: 50%;
-}
-
-.settings-tab__dot--required {
-  background: var(--background-action-high-orange-terre-battue, #e4794a);
-}
-
-.settings-tab__dot--optional {
-  border: 1px solid var(--border-plain-grey, #929292);
-}
-
-.settings-tab__legend {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.375rem;
-  margin: -0.5rem 0 0;
-  font-size: 0.75rem;
-  color: var(--text-mention-grey);
-}
-
-.settings-tab__legend .settings-tab__dot--optional {
-  margin-left: 0.75rem;
-}
-
-/* Same look as the quality dashboard's tooltips, shown on hover or keyboard focus. */
-.settings-tab__tooltip {
-  position: absolute;
-  bottom: calc(100% + 0.5rem);
-  left: 0;
-  z-index: 10;
-  display: flex;
-  flex-direction: column;
-  gap: 0.125rem;
-  width: max-content;
-  max-width: 18rem;
-  padding: 0.5rem 0.75rem;
-  background: var(--text-default-grey, #1e1e1e);
-  color: #fff;
-  font-size: 0.75rem;
-  font-weight: 400;
-  line-height: 1.4;
-  text-align: left;
-  white-space: normal;
-  border-radius: 0.375rem;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.15s ease;
-}
-
-.settings-tab__tooltip--below {
-  top: calc(100% + 0.5rem);
-  bottom: auto;
-}
-
-.settings-tab__tooltip--end {
-  left: auto;
-  right: 0;
-}
-
-.settings-tab__step:hover .settings-tab__tooltip,
-.settings-tab__step:focus-visible .settings-tab__tooltip,
-.settings-tab__pager-button:hover .settings-tab__tooltip,
-.settings-tab__pager-button:focus-visible .settings-tab__tooltip {
-  opacity: 1;
-}
-
-.settings-tab__pager {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.settings-tab__pager-button {
-  position: relative;
-  justify-self: start;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.375rem;
-  max-width: 100%;
-  min-width: 0;
-  padding: 0.3125rem 0.75rem;
-  border: 1px solid var(--border-default-grey);
-  border-radius: 0.5rem;
-  background: var(--background-default-grey);
-  color: var(--text-action-high-blue-france);
-  font: inherit;
-  font-size: 0.8125rem;
-  cursor: pointer;
-}
-
-.settings-tab__pager-button:hover {
-  border-color: var(--border-action-high-blue-france);
-  background: var(--background-alt-blue-france);
-}
-
-.settings-tab__pager-button--next {
-  grid-column: 3;
-  justify-self: end;
-}
-
-.settings-tab__pager-label {
-  min-width: 0;
-  font-weight: 700;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.settings-tab__pager-position {
-  grid-column: 2;
-  font-size: 0.8125rem;
-  color: var(--text-mention-grey);
-}
-
-/* Fixed height + internal scroll: the pager below stays in place from one
-   section to the next, only a section's own body scrolls if it overflows. */
-.settings-tab__section {
-  display: flex;
-  flex-direction: column;
-  height: 30rem;
-  border: 1px solid var(--border-default-grey);
-  border-radius: 1rem;
-  background: var(--background-default-grey);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
-  transition: box-shadow 0.15s ease, border-color 0.15s ease;
-  overflow: hidden;
-}
-
-.settings-tab__header {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: 0.625rem;
-  height: 3.75rem;
-  padding: 0 1.25rem;
-  border-bottom: 1px solid var(--border-default-grey);
-}
-
-.settings-tab__header .settings-tab__requirement {
-  margin-left: auto;
-}
-
-.settings-tab__icon {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 2rem;
-  height: 2rem;
-  border-radius: 0.5rem;
-  background: var(--background-alt-blue-france);
-  color: var(--text-action-high-blue-france);
-}
-
-.settings-tab__title {
+.settings-tab__intro {
   margin: 0;
-  font-size: 0.9375rem;
-  font-weight: 700;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.settings-tab__body {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 1.125rem 1.25rem;
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.settings-tab__footer {
-  flex-shrink: 0;
-  padding: 0.875rem 1.25rem;
-  border-top: 1px solid var(--border-default-grey);
-}
-
-.settings-tab__field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.375rem;
-}
-
-.settings-tab__field label {
-  font-size: 0.8125rem;
-  font-weight: 700;
-}
-
-.settings-tab__field input,
-.settings-tab__field textarea {
-  padding: 0.5rem 0.625rem;
-  border-radius: 0.375rem;
-  border: 1px solid var(--border-default-grey);
-  background: var(--background-default-grey);
-  color: var(--text-default-grey);
-  font: inherit;
-  resize: vertical;
-}
-
-.settings-tab__hint {
-  margin: 0;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   color: var(--text-mention-grey);
 }
 
 .settings-tab__group {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.625rem;
+}
+
+.settings-tab__group-title {
   margin: 0;
-  padding: 0;
-  border: 0;
+  font-size: 1.0625rem;
 }
 
-.settings-tab__legend {
-  padding: 0;
-  font-size: 0.8125rem;
-  font-weight: 700;
-}
-
-.settings-tab__estimate {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.75rem 0.875rem;
-  border-radius: 0.5rem;
-  background: var(--background-alt-blue-france);
-}
-
-.settings-tab__estimate-total {
-  margin: 0;
-  font-size: 0.875rem;
-}
-
-.settings-tab__estimate-steps {
-  margin: 0;
-  padding-left: 1.25rem;
-  font-size: 0.8125rem;
-}
-
-.settings-tab__hint--error {
-  color: var(--text-default-error);
-}
-
-.settings-tab__share-form {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.settings-tab__share-form-row {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.settings-tab__share-form input {
-  flex: 1;
-  min-width: 0;
-  padding: 0.5rem 0.625rem;
-  border-radius: 0.375rem;
-  border: 1px solid var(--border-default-grey);
-  background: var(--background-default-grey);
-  color: var(--text-default-grey);
-  font: inherit;
-}
-
-.settings-tab__share-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.settings-tab__share-row {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 0.625rem;
-  border-radius: 0.375rem;
+.settings-tab__common-model {
+  padding: 0.875rem 1rem;
+  border-radius: 0.75rem;
   background: var(--background-alt-grey);
 }
 
-.settings-tab__share-hint {
-  flex: 1;
-  font-size: 0.8125rem;
-  font-family: monospace;
-}
-
-.settings-tab__share-row {
-  flex-wrap: wrap;
-}
-
-/* On its own line under the identifier, so the status and the revoke action keep their place. */
-.settings-tab__share-inherited {
-  flex-basis: 100%;
-  order: 3;
-  font-size: 0.75rem;
-  color: var(--text-mention-grey);
-}
-
-.settings-tab__hint--inherited {
-  color: var(--text-default-info, var(--text-default-grey));
-}
-
-.settings-tab__share-status {
-  flex-shrink: 0;
-  padding: 0.125rem 0.5rem;
-  border-radius: 1rem;
-  font-size: 0.6875rem;
-  font-weight: 700;
-}
-
-.settings-tab__share-status--pending {
-  background: var(--background-alt-orange-terre-battue, var(--background-alt-grey));
-  color: var(--text-default-grey);
-}
-
-.settings-tab__share-status--active {
-  background: var(--background-alt-green-emeraude, var(--background-alt-grey));
-  color: var(--text-default-success, var(--text-default-grey));
-}
-
-.settings-tab__reindex-actions {
+/* Toujours visible : on enregistre sans remonter tout en haut, et on voit d'un coup d'œil ce qui est en attente. */
+.settings-tab__bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border-default-grey);
+  border-radius: 0.75rem;
+  background: var(--background-default-grey);
+  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.08);
 }
 
-.settings-tab__reindex {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.75rem;
-  border-radius: 0.375rem;
-  background: var(--background-alt-orange-terre-battue, var(--background-alt-grey));
-  font-size: 0.8125rem;
+.settings-tab__bar p {
+  margin: 0;
+}
+
+.settings-tab__bar-text {
+  font-size: 0.875rem;
 }
 </style>
