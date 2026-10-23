@@ -4,7 +4,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from app.schemas.question import QuestionAnswer
+from app.schemas.question import Question, QuestionAnswer
 
 
 class RunCreate(BaseModel):
@@ -25,9 +25,10 @@ class RunCreate(BaseModel):
     # this conversation stopped (its RunOut.unexplored_collection_ids), instead of starting
     # again from the top-level collections.
     continue_exploration: bool = False
-    # Answering the questions the assistant asked (#344): the assistant message that holds them, and the
-    # answer to each. The query is the answer as text, which is what the user's message says in the thread.
-    answers_message_id: uuid.UUID | None = None
+    # Answering the questions the assistant asked (#344): the run that asked them (its answer is the message
+    # that holds them), and the answer to each. The query is the answer as text, which is what the user's
+    # message says in the thread.
+    answers_run_id: uuid.UUID | None = None
     answers: list[QuestionAnswer] | None = None
     # False for a run started by a program (MCP, A2A): no one is there to answer a question.
     interactive: bool = True
@@ -64,6 +65,8 @@ class RunOut(BaseModel):
     # Collections the agent selected but whose sub-collections it didn't explore within its budget
     # (#219) - what a follow-up with continue_exploration resumes from. None when nothing was left.
     unexplored_collection_ids: list[str] | None = None
+    # The questions with options the run ended on instead of an answer (#344) - read from its message.
+    questions: list[Question] | None = None
     error: str | None
     created_at: datetime
     updated_at: datetime
