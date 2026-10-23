@@ -13,6 +13,7 @@ import type {
   IndexRebuild,
   FieldStamp,
   GenerationModels,
+  IndexingEstimate,
   PipelineInstructions,
   PipelineWindows,
   QaPair,
@@ -20,6 +21,7 @@ import type {
   Share,
   ShareSubjectType,
 } from '../types/collection'
+import type { LongDocumentsPayload } from '../utils/longDocuments'
 import type { RefreshSchedule } from '../utils/refreshSchedule'
 
 // Backend response is snake_case; the rest of the app uses camelCase.
@@ -61,6 +63,15 @@ interface CollectionOut {
     chunking_window_pages: number
     chunking_slide_pages: number
     collection_qa_count: number
+    sampling_min_pages: number
+    summary_mode: PipelineWindows['summaryMode']
+    summary_percent: number
+    summary_head_percent: number | null
+    summary_tail_percent: number | null
+    summary_page_ranges: string
+    qa_max_questions: number | null
+    extraction_percent: number
+    extraction_max_windows: number | null
   }
 }
 
@@ -75,6 +86,15 @@ function toPipelineWindows(raw: CollectionOut['pipeline_windows']): PipelineWind
     chunkingWindowPages: raw.chunking_window_pages,
     chunkingSlidePages: raw.chunking_slide_pages,
     collectionQaCount: raw.collection_qa_count,
+    samplingMinPages: raw.sampling_min_pages,
+    summaryMode: raw.summary_mode,
+    summaryPercent: raw.summary_percent,
+    summaryHeadPercent: raw.summary_head_percent,
+    summaryTailPercent: raw.summary_tail_percent,
+    summaryPageRanges: raw.summary_page_ranges,
+    qaMaxQuestions: raw.qa_max_questions,
+    extractionPercent: raw.extraction_percent,
+    extractionMaxWindows: raw.extraction_max_windows,
   }
 }
 
@@ -1071,14 +1091,89 @@ const PIPELINE_WINDOW_KEYS: Record<keyof PipelineWindows, string> = {
   chunkingWindowPages: 'chunking_window_pages',
   chunkingSlidePages: 'chunking_slide_pages',
   collectionQaCount: 'collection_qa_count',
+  samplingMinPages: 'sampling_min_pages',
+  summaryMode: 'summary_mode',
+  summaryPercent: 'summary_percent',
+  summaryHeadPercent: 'summary_head_percent',
+  summaryTailPercent: 'summary_tail_percent',
+  summaryPageRanges: 'summary_page_ranges',
+  qaMaxQuestions: 'qa_max_questions',
+  extractionPercent: 'extraction_percent',
+  extractionMaxWindows: 'extraction_max_windows',
 }
 
 async function updatePipelineWindows(collectionId: string, values: Partial<PipelineWindows>) {
-  const pipeline_windows: Record<string, number> = {}
+  const pipeline_windows: Record<string, number | string | null> = {}
   for (const [key, value] of Object.entries(values)) {
     if (value !== undefined) pipeline_windows[PIPELINE_WINDOW_KEYS[key as keyof PipelineWindows]] = value
   }
   await patchSettings(collectionId, { pipeline_windows })
+}
+
+// Le backend refuse les valeurs qui n'ont pas de sens avec un message lisible (422) : on le rend tel quel.
+async function errorOf(response: Response): Promise<string> {
+  try {
+    const body = await response.json()
+    if (typeof body.detail === 'string') return body.detail
+  } catch {
+    // pas de corps lisible : le message générique ci-dessous
+  }
+  return `Le serveur a répondu ${response.status}.`
+}
+
+// Enregistre les réglages des longs documents (#372) ; renvoie le message du refus, ou null une fois enregistré.
+async function saveLongDocuments(collectionId: string, pipeline_windows: LongDocumentsPayload): Promise<string | null> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/collections/${collectionId}/settings`, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pipeline_windows }),
+    })
+    if (!response.ok) return await errorOf(response)
+    replaceCollection(collectionId, toCollection(await response.json()))
+    return null
+  } catch {
+    return 'Les réglages n’ont pas pu être enregistrés : le serveur est inaccessible.'
+  }
+}
+
+interface IndexingEstimateOut {
+  pages: number
+  sampled: boolean
+  chat: Record<string, number>
+  embeddings: Record<string, number>
+  collection_max: number
+}
+
+// Les appels au modèle que coûterait un document de `pages` pages avec ces réglages, tapés et pas encore
+// enregistrés (rien n'est stocké) ; sans réglages, ceux de la collection.
+async function estimateIndexing(
+  collectionId: string,
+  pages: number,
+  pipelineWindows: Partial<LongDocumentsPayload> = {},
+): Promise<{ estimate: IndexingEstimate } | { error: string }> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/collections/${collectionId}/indexing-estimate`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pages, pipeline_windows: pipelineWindows }),
+    })
+    if (!response.ok) return { error: await errorOf(response) }
+    const raw: IndexingEstimateOut = await response.json()
+    return {
+      estimate: {
+        pages: raw.pages,
+        sampled: raw.sampled,
+        chat: raw.chat,
+        embeddings: raw.embeddings,
+        collectionMax: raw.collection_max,
+      },
+    }
+  } catch {
+    return { error: 'L’estimation est indisponible : le serveur est inaccessible.' }
+  }
 }
 
 interface IndexRebuildOut {
@@ -1332,6 +1427,8 @@ export function useCollections() {
     updateEmbeddingModel,
     updateGenerationModel,
     updatePipelineWindows,
+    saveLongDocuments,
+    estimateIndexing,
     reindexCollection,
     indexRebuilds,
     indexRebuildError,
