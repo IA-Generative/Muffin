@@ -92,6 +92,7 @@ class ConversationRepository:
         latency_ms: int | None = None,
         prompt_tokens: int | None = None,
         completion_tokens: int | None = None,
+        questions: list[dict] | None = None,
     ) -> Message:
         message = Message(
             conversation_id=conversation_id,
@@ -101,7 +102,23 @@ class ConversationRepository:
             latency_ms=latency_ms,
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
+            questions=questions,
         )
         self.db.add(message)
         await self.db.flush()
         return message
+
+    async def get_message(self, conversation_id: uuid.UUID, message_id: uuid.UUID) -> Message | None:
+        result = await self.db.execute(
+            select(Message).where(Message.id == message_id, Message.conversation_id == conversation_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_last_message(self, conversation_id: uuid.UUID) -> Message | None:
+        result = await self.db.execute(
+            select(Message)
+            .where(Message.conversation_id == conversation_id)
+            .order_by(Message.created_at.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()

@@ -8,11 +8,13 @@ from app.core.security.factory import RequestContext, get_current_user
 from app.db import get_db
 from app.schemas.document import DocumentOut
 from app.schemas.feedback import FeedbackCreate, FeedbackOut
+from app.schemas.question import InvalidAnswersError
 from app.schemas.run import RunCreate, RunEventOut, RunOut, RunResumeRequest
 from app.services.collection_service import CollectionNotEditableError, CollectionNotFoundError
 from app.services.creation_proposal_service import CreationProposalService, NoPendingCreationError
 from app.services.run_service import (
     ConversationNotFoundError,
+    QuestionsNotAnswerableError,
     RunHasNoAnswerError,
     RunNotFoundError,
     RunNotWaitingError,
@@ -46,6 +48,12 @@ async def create_run(body: RunCreate, user: UserDep, service: ServiceDep) -> Run
         return await service.create_run(user, body)
     except ConversationNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found") from error
+    except QuestionsNotAnswerableError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="There are no questions waiting for an answer here"
+        ) from error
+    except InvalidAnswersError as error:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)) from error
 
 
 @router.get("/runs/{run_id}", summary="Get a run's current status/result", response_model=RunOut)

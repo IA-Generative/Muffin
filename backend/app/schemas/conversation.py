@@ -5,6 +5,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from app.models.feedback import FeedbackValue
+from app.schemas.question import Question, QuestionAnswer
 
 
 class ConversationOut(BaseModel):
@@ -32,6 +33,12 @@ class MessageOut(BaseModel):
     # The sub-collections the run behind this message left unexplored (#219) - restored with the
     # message so its "go further" action survives a page reload.
     unexplored_collection_ids: list[str] | None = None
+    # The questions the assistant asked instead of answering (#344), the user's answer once given, and
+    # whether they were abandoned: the user wrote something else instead of answering. `content` carries
+    # the same questions as text.
+    questions: list[Question] | None = None
+    questions_answer: list[QuestionAnswer] | None = None
+    questions_abandoned: bool = False
     # The feedback value (up/down) the current user left on this message, if any - restored
     # after a page reload so the thumbs-up/down button stays highlighted.
     feedback: FeedbackValue | None = None

@@ -4,6 +4,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from app.schemas.collection import CollectionPathItem
+from app.schemas.question import Question
 
 
 class InternalRunOut(BaseModel):
@@ -24,7 +25,8 @@ class InternalRunOut(BaseModel):
     # Prior turns of this same conversation, oldest first, this run's own (just-inserted) user
     # message excluded - lets the worker resolve a follow-up like "elle parle de quoi ?" against
     # what was actually said before, instead of analyzing it in total isolation.
-    history: list[dict[str, str]]
+    # {role, content}, plus asked=True on an assistant message that asked questions (#344).
+    history: list[dict[str, Any]]
     # Collections explicitly attached via the chat composer's "+" picker - see
     # AgentState.pinned_vdb_ids in the worker.
     pinned_collection_ids: list[str] | None
@@ -42,6 +44,8 @@ class InternalRunOut(BaseModel):
     # previous answer of this conversation left unexplored, to resume the descent from. Never
     # trusted as is - the worker intersects them with the accessible set like anything else.
     resume_from_collection_ids: list[str] | None = None
+    # See Run.interactive (#344).
+    interactive: bool = True
     # Collections already left unexplored when the run was created (#220): the sub-collections a
     # pinned collection couldn't bring along within PINNED_DESCENDANTS_LIMIT. The run's own
     # exploration adds to them, and the union is reported back with the answer.
@@ -84,6 +88,9 @@ class RunResultUpdate(BaseModel):
     edit_proposal: dict[str, Any] | None = None
     # See Run.unexplored_collection_ids (#219).
     unexplored_collection_ids: list[str] | None = None
+    # Questions with options the assistant asks instead of answering (#344): the answer is then the same
+    # questions as text, and they are kept on the message for the interface.
+    questions: list[Question] | None = None
 
 
 class RunErrorUpdate(BaseModel):

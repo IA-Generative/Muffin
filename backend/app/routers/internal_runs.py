@@ -70,6 +70,7 @@ def _to_out(run, history: list[dict[str, str]], resume_from: list[str] | None = 
         user_is_admin=run.user_is_admin,
         resume_from_collection_ids=resume_from,
         unexplored_collection_ids=run.unexplored_collection_ids,
+        interactive=run.interactive,
     )
 
 
@@ -86,7 +87,8 @@ async def get_run(run_id: uuid.UUID, db: Annotated[AsyncSession, Depends(get_db)
     # - AgentService.run() appends it itself, right after this history, as the current question.
     messages = await ConversationRepository(db).list_messages(run.conversation_id)
     history = [
-        {"role": message.role, "content": message.content}
+        # `asked`: questions with options were asked here (#344), which the worker counts to stop asking.
+        {"role": message.role, "content": message.content, "asked": bool(message.questions)}
         for message, *_run_fields in messages
         if message.id != run.message_id
     ][-_HISTORY_LIMIT:]
@@ -158,6 +160,7 @@ async def update_run_result(
         latency_ms=update.latency_ms,
         prompt_tokens=update.prompt_tokens,
         completion_tokens=update.completion_tokens,
+        questions=[question.model_dump() for question in update.questions] if update.questions else None,
     )
     # Materializes the citable subset of update.citations as Source rows, so a feedback on this
     # message later has stable ids to validate/add (see SourceRepository, FeedbackSource) - the
