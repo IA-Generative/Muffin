@@ -327,6 +327,9 @@ onMounted(async () => {
 .source-document-modal__figure {
   position: relative;
   line-height: 0;
+  /* The figure is a grid item beside the page's text: stretched to the height of a long text, it would be
+     taller than the screenshot, and the frames, laid out in percent of the figure, would slide down it. */
+  align-self: start;
 }
 
 /* A cited zone: framed on the page, in percent of the image. */
