@@ -22,6 +22,7 @@ import type {
   ShareSubjectType,
 } from '../types/collection'
 import type { LongDocumentsPayload } from '../utils/longDocuments'
+import type { SettingsPatch } from '../utils/settingsDraft'
 import type { RefreshSchedule } from '../utils/refreshSchedule'
 
 // Backend response is snake_case; the rest of the app uses camelCase.
@@ -1121,16 +1122,18 @@ async function errorOf(response: Response): Promise<string> {
   return `Le serveur a répondu ${response.status}.`
 }
 
-// Enregistre les réglages des longs documents (#372) ; renvoie le message du refus, ou null une fois enregistré.
-async function saveLongDocuments(collectionId: string, pipeline_windows: LongDocumentsPayload): Promise<string | null> {
+// Enregistre tous les réglages d'un coup (une seule requête) ; renvoie le message du refus, ou null une fois
+// enregistré. Les réglages sont alors confirmés : la collection peut recevoir des documents.
+async function saveCollectionSettings(collectionId: string, patch: SettingsPatch): Promise<string | null> {
   try {
     const response = await fetch(`${API_BASE_URL}/api/collections/${collectionId}/settings`, {
       method: 'PATCH',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pipeline_windows }),
+      body: JSON.stringify(patch),
     })
     if (!response.ok) return await errorOf(response)
+    markSettingsSaved(collectionId)
     replaceCollection(collectionId, toCollection(await response.json()))
     return null
   } catch {
@@ -1152,13 +1155,14 @@ async function estimateIndexing(
   collectionId: string,
   pages: number,
   pipelineWindows: Partial<LongDocumentsPayload> = {},
+  chunkingStrategy?: string,
 ): Promise<{ estimate: IndexingEstimate } | { error: string }> {
   try {
     const response = await fetch(`${API_BASE_URL}/api/collections/${collectionId}/indexing-estimate`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pages, pipeline_windows: pipelineWindows }),
+      body: JSON.stringify({ pages, pipeline_windows: pipelineWindows, chunking_strategy: chunkingStrategy }),
     })
     if (!response.ok) return { error: await errorOf(response) }
     const raw: IndexingEstimateOut = await response.json()
@@ -1427,7 +1431,8 @@ export function useCollections() {
     updateEmbeddingModel,
     updateGenerationModel,
     updatePipelineWindows,
-    saveLongDocuments,
+    saveCollectionSettings,
+    hasSavedSettings,
     estimateIndexing,
     reindexCollection,
     indexRebuilds,
