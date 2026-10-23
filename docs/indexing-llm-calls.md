@@ -62,8 +62,19 @@ Une fonction unique dans le backend (`estimate_llm_calls`, `backend/app/core/ind
 (#375) : « environ N appels pour un document de 100 / 900 pages » à côté des champs. Les cas de référence
 (`docs/indexing-llm-calls-cases.json` : pages, réglages → appels) sont vérifiés par le test du backend et par un test du
 worker qui compte les tâches réellement envoyées (`tests/test_llm_call_cases.py`) : le calcul affiché et le travail fait ne
-peuvent pas diverger. Aujourd'hui le worker ne lit que les cas qui parcourent tout le document ; ceux qui en lisent une
-partie le seront avec #374, quand les étapes appliquent les réglages.
+peuvent pas diverger, y compris pour les cas qui ne lisent qu'une partie du document.
+
+## Ce que fait le worker d'un long document
+- **Questions et entités** : les fenêtres lues sont tirées (graine stable, par strates) parmi des fenêtres sans
+  chevauchement, hors fenêtres quasi vides ; le même fichier donne le même tirage. Les paires et entités issues de
+  fenêtres qui ne sont plus lues sont retirées (`POST /api/internal/documents/{id}/windows/prune`), les autres restent.
+  Une fenêtre ne produit jamais plus de questions que demandé, même si le modèle en renvoie davantage : le plafond tient.
+- **Résumé** : chaque plage lue est résumée séparément (un lot ne chevauche jamais deux plages éloignées) puis les
+  résumés partiels sont fusionnés ; le prompt demande de dire que le résumé est partiel. Les pages couvertes sont
+  enregistrées (`documents.summary_pages`).
+- **Agent de recherche** : un résumé partiel est signalé au juge du palier 2 (« partial summary: pages 1-30, 271-300 only »)
+  et ne suffit jamais pour un détail, une section ou un passage que ces pages pourraient ne pas couvrir.
+- **Chunks** : toujours tout le document.
 
 ## Les réglages (`pipeline_windows`, par collection)
 `sampling_min_pages` (100), `summary_mode` (`all` / `percent` / `pages`), `summary_percent` (30), `summary_head_percent` et
