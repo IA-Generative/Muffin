@@ -158,6 +158,9 @@ onMounted(async () => {
       </header>
 
       <div class="source-document-modal__body">
+        <!-- What a caller adds above the page: the navigation between the occurrences of an entity (#352). -->
+        <slot name="extra" />
+
         <section v-if="excerpt" class="source-document-modal__excerpt">
           <h3 class="source-document-modal__section-title">Extrait cité</h3>
           <p class="source-document-modal__excerpt-text">{{ excerpt }}</p>

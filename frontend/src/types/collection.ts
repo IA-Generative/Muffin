@@ -55,6 +55,9 @@ export interface Entity {
   name: string
   type: EntityType
   mentions: number
+  // How many occurrences were found in the text (#352) - what can be opened and framed. 0: the model listed the
+  // entity but its name is nowhere in the text as written. Absent from an older answer of the API.
+  occurrences?: number
 }
 
 export interface Relation {
@@ -62,6 +65,16 @@ export interface Relation {
   from: string
   to: string
   type: string
+  // The sentence that justifies the relation and where it is (#352) - as the API gives it. Absent when it has
+  // none: a relation from before, or one whose sentence was not found in the text.
+  source?: {
+    document_id: string
+    document_name: string
+    page_number: number
+    passage: string
+    start?: number | null
+    end?: number | null
+  } | null
 }
 
 export interface Chunk {
