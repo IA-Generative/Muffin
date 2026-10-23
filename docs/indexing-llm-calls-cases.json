@@ -1,0 +1,131 @@
+{
+  "_comment": "Reference cases of the calls to the chat model that indexing a document costs (#372, docs/indexing-llm-calls.md). Checked by backend/tests/core/test_indexing_cost.py against estimate_llm_calls, and by worker/document_process/tests/test_llm_call_cases.py against the tasks the worker really sends. `windows` overrides the default pipeline windows; `sampling` is true when a case uses the settings that read only a part of a long document.",
+  "cases": [
+    {
+      "name": "10 pages, defaults",
+      "pages": 10,
+      "windows": {},
+      "chunking_strategy": "recursive",
+      "sampling": false,
+      "chat": { "chunking": 0, "summary": 3, "tagging": 1, "qa": 9, "entities": 7, "total": 20 },
+      "embeddings": { "qa_questions": 27 }
+    },
+    {
+      "name": "100 pages, defaults",
+      "pages": 100,
+      "windows": {},
+      "chunking_strategy": "recursive",
+      "sampling": false,
+      "chat": { "chunking": 0, "summary": 21, "tagging": 1, "qa": 99, "entities": 97, "total": 218 },
+      "embeddings": { "qa_questions": 297 }
+    },
+    {
+      "name": "101 pages, defaults",
+      "pages": 101,
+      "windows": {},
+      "chunking_strategy": "recursive",
+      "sampling": false,
+      "chat": { "chunking": 0, "summary": 22, "tagging": 1, "qa": 100, "entities": 98, "total": 221 },
+      "embeddings": { "qa_questions": 300 }
+    },
+    {
+      "name": "900 pages, defaults",
+      "pages": 900,
+      "windows": {},
+      "chunking_strategy": "recursive",
+      "sampling": false,
+      "chat": { "chunking": 0, "summary": 181, "tagging": 1, "qa": 899, "entities": 897, "total": 1978 },
+      "embeddings": { "qa_questions": 2697 }
+    },
+    {
+      "name": "900 pages, defaults, chunking by the model",
+      "pages": 900,
+      "windows": {},
+      "chunking_strategy": "llm",
+      "sampling": false,
+      "chat": { "chunking": 450, "summary": 181, "tagging": 1, "qa": 899, "entities": 897, "total": 2428 },
+      "embeddings": { "qa_questions": 2697 }
+    },
+    {
+      "name": "900 pages, the example of the issue: summary 30 %, 100 questions, 20 % of the entities",
+      "pages": 900,
+      "windows": { "summary_mode": "percent", "summary_percent": 30, "qa_max_questions": 100, "extraction_percent": 20 },
+      "chunking_strategy": "recursive",
+      "sampling": true,
+      "chat": { "chunking": 0, "summary": 55, "tagging": 1, "qa": 33, "entities": 45, "total": 134 },
+      "embeddings": { "qa_questions": 99 }
+    },
+    {
+      "name": "100 pages with the sampling settings: not long enough, nothing is sampled",
+      "pages": 100,
+      "windows": { "summary_mode": "percent", "summary_percent": 30, "qa_max_questions": 100, "extraction_percent": 20 },
+      "chunking_strategy": "recursive",
+      "sampling": false,
+      "chat": { "chunking": 0, "summary": 21, "tagging": 1, "qa": 99, "entities": 97, "total": 218 },
+      "embeddings": { "qa_questions": 297 }
+    },
+    {
+      "name": "101 pages, just over the minimum",
+      "pages": 101,
+      "windows": { "summary_mode": "percent", "summary_percent": 30, "qa_max_questions": 100, "extraction_percent": 20 },
+      "chunking_strategy": "recursive",
+      "sampling": true,
+      "chat": { "chunking": 0, "summary": 8, "tagging": 1, "qa": 33, "entities": 6, "total": 48 },
+      "embeddings": { "qa_questions": 99 }
+    },
+    {
+      "name": "900 pages, a start of 20 % and an end of 10 %",
+      "pages": 900,
+      "windows": { "summary_mode": "percent", "summary_head_percent": 20, "summary_tail_percent": 10 },
+      "chunking_strategy": "recursive",
+      "sampling": true,
+      "chat": { "chunking": 0, "summary": 55, "tagging": 1, "qa": 899, "entities": 897, "total": 1852 },
+      "embeddings": { "qa_questions": 2697 }
+    },
+    {
+      "name": "900 pages, summary of given pages",
+      "pages": 900,
+      "windows": { "summary_mode": "pages", "summary_page_ranges": "1-10, 400-410" },
+      "chunking_strategy": "recursive",
+      "sampling": true,
+      "chat": { "chunking": 0, "summary": 6, "tagging": 1, "qa": 899, "entities": 897, "total": 1803 },
+      "embeddings": { "qa_questions": 2697 }
+    },
+    {
+      "name": "900 pages, a cap under the questions of one window",
+      "pages": 900,
+      "windows": { "qa_max_questions": 2 },
+      "chunking_strategy": "recursive",
+      "sampling": true,
+      "chat": { "chunking": 0, "summary": 181, "tagging": 1, "qa": 1, "entities": 897, "total": 1080 },
+      "embeddings": { "qa_questions": 2 }
+    },
+    {
+      "name": "900 pages, only a cap on the entity windows",
+      "pages": 900,
+      "windows": { "extraction_max_windows": 30 },
+      "chunking_strategy": "recursive",
+      "sampling": true,
+      "chat": { "chunking": 0, "summary": 181, "tagging": 1, "qa": 899, "entities": 30, "total": 1111 },
+      "embeddings": { "qa_questions": 2697 }
+    },
+    {
+      "name": "900 pages, a share of 100 % reads everything",
+      "pages": 900,
+      "windows": { "summary_mode": "percent", "summary_percent": 100 },
+      "chunking_strategy": "recursive",
+      "sampling": false,
+      "chat": { "chunking": 0, "summary": 181, "tagging": 1, "qa": 899, "entities": 897, "total": 1978 },
+      "embeddings": { "qa_questions": 2697 }
+    },
+    {
+      "name": "900 pages, summary pages that are beyond the document read everything",
+      "pages": 900,
+      "windows": { "summary_mode": "pages", "summary_page_ranges": "1000-1100" },
+      "chunking_strategy": "recursive",
+      "sampling": false,
+      "chat": { "chunking": 0, "summary": 181, "tagging": 1, "qa": 899, "entities": 897, "total": 1978 },
+      "embeddings": { "qa_questions": 2697 }
+    }
+  ]
+}

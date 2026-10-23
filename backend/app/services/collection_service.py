@@ -6,6 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import storage
+from app.core.indexing_cost import estimate_llm_calls
 from app.core.security.factory import RequestContext
 from app.core.sharing import (
     hash_identifier,
@@ -32,6 +33,7 @@ from app.schemas.collection import (
     EntityOut,
     GroundednessRunOut,
     GroundednessStatsOut,
+    IndexingEstimateOut,
     PipelineWindowsOut,
     QaPairOut,
     RelationOut,
@@ -229,6 +231,14 @@ class CollectionService:
         # with a server-side onupdate), so nothing on `collection` is expired.
         await self.db.commit()
         return await self._present(collection, user)
+
+    async def indexing_estimate(
+        self, collection_id: uuid.UUID, user: RequestContext, pages: int
+    ) -> IndexingEstimateOut:
+        """What indexing a document of `pages` pages costs in calls to the model, under this collection's settings."""
+        collection = await self._get_accessible(collection_id, user)
+        windows = PipelineWindowsOut(**(collection.settings.pipeline_windows or {})).model_dump()
+        return IndexingEstimateOut(**estimate_llm_calls(pages, windows, collection.settings.chunking_strategy.value))
 
     async def list_qa_pairs(
         self,

@@ -16,6 +16,7 @@ from app.schemas.collection import (
     EntityMentionOut,
     EntityOut,
     GroundednessStatsOut,
+    IndexingEstimateOut,
     QaPairOut,
     RelationOut,
     ShareCreate,
@@ -176,6 +177,24 @@ async def update_collection_settings(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
     except InvalidPipelineWindowsError as error:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)) from error
+
+
+@router.get(
+    "/collections/{collection_id}/indexing-estimate",
+    summary="The calls to the language model that indexing a document of that many pages costs, under the "
+    "collection's settings",
+    response_model=IndexingEstimateOut,
+)
+async def get_indexing_estimate(
+    collection_id: uuid.UUID,
+    user: UserDep,
+    service: ServiceDep,
+    pages: Annotated[int, Query(ge=1, le=100_000)],
+) -> IndexingEstimateOut:
+    try:
+        return await service.indexing_estimate(collection_id, user, pages)
+    except CollectionNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
 
 
 @router.get(
