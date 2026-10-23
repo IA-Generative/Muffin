@@ -11,11 +11,11 @@ dependencies:
 - name: cluster
   repository: https://cloudnative-pg.github.io/charts
   version: 0.8.1
-- name: meilisearch
-  repository: https://meilisearch.github.io/meilisearch-kubernetes
-  version: 0.39.0
+- name: qdrant
+  repository: https://qdrant.github.io/qdrant-helm
+  version: 1.20.0
 - name: searxng
   repository: https://unknowniq.github.io/helm-charts
   version: 0.1.11
-digest: sha256:89140f1a2c65beea57daa83f532f4f62cca00fd6c8a35bd48d189747b3edf404
-generated: "2026-09-20T19:46:01.17298843+02:00"
+digest: sha256:4336b974aeeb26f0153848c82b22d713fe8a0c8966639def786f62a4280164f2
+generated: "2026-10-23T09:02:19.909917914+02:00"
