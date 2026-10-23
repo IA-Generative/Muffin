@@ -62,6 +62,26 @@ export interface CreationProposal {
   documentId?: string
 }
 
+// A multiple-choice question the assistant asked instead of answering (#344), and the user's answer
+// to it: options picked (by label) and/or free text. A question with no options is answered in text only.
+export interface QuestionOption {
+  label: string
+  description: string
+}
+
+export interface AssistantQuestion {
+  question: string
+  // The tab the question gets: a word or two.
+  header: string
+  multiSelect: boolean
+  options: QuestionOption[]
+}
+
+export interface QuestionAnswer {
+  selected: string[]
+  text: string
+}
+
 export interface ChatMessage {
   id: string
   role: 'user' | 'assistant'
@@ -90,6 +110,12 @@ export interface ChatMessage {
   // Collections whose sub-collections the run behind this answer didn't explore (#219, #233) -
   // the latest answer offers to "go further" into them.
   unexploredCollectionIds?: string[]
+  // The questions this message asks instead of answering (#344) - shown as a card to answer. Once the
+  // user answered, `questionsAnswer` holds the answer (the card stays in the thread with it); if they
+  // wrote something else instead, the questions are `questionsAbandoned`.
+  questions?: AssistantQuestion[]
+  questionsAnswer?: QuestionAnswer[]
+  questionsAbandoned?: boolean
 }
 
 export interface ExecutionEvent {

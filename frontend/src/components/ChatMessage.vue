@@ -10,6 +10,7 @@ import { useVoiceOutput } from '../composables/useVoiceOutput'
 import { toPlainText } from '../utils/plainText'
 import ChatCreateProposal from './ChatCreateProposal.vue'
 import ChatEditProposal from './ChatEditProposal.vue'
+import ChatQuestions from './ChatQuestions.vue'
 import FeedbackModal from './FeedbackModal.vue'
 
 const props = defineProps<{
@@ -215,6 +216,8 @@ onBeforeUnmount(() => {
           </div>
           <p class="chat-message__text">{{ renderedContent }}</p>
         </div>
+        <!-- Questions with options (#344): the card says them, and takes the answer. -->
+        <ChatQuestions v-else-if="message.questions?.length" :message="message" />
         <!-- eslint-disable-next-line vue/no-v-html -->
         <div v-else class="chat-message__markdown" v-html="renderedContent" />
       </template>
@@ -231,7 +234,10 @@ onBeforeUnmount(() => {
         {{ sourcesLabel }}
       </button>
 
-      <div v-if="message.role === 'assistant' && !message.pending && !message.error" class="chat-message__actions">
+      <div
+        v-if="message.role === 'assistant' && !message.pending && !message.error && !message.questions?.length"
+        class="chat-message__actions"
+      >
         <button type="button" class="chat-message__action" title="Copier" @click="copyContent">
           <svg
             v-if="!copied"
