@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.31.0](https://github.com/IA-Generative/Muffin/compare/v0.30.0...v0.31.0) (2026-10-23)
+
+
+### Features
+
+* **collections:** estimate the cost of settings that are typed and not saved yet ([#375](https://github.com/IA-Generative/Muffin/issues/375)) ([6f8ddf9](https://github.com/IA-Generative/Muffin/commit/6f8ddf998e0bd62d0fb8b670fc306a2775916ac7))
+* **collections:** the estimate of unsaved settings can take the way the chunks are cut ([24963b1](https://github.com/IA-Generative/Muffin/commit/24963b120b4c585bc0d877a6494c9efb47ba868c))
+* **frontend:** building blocks of the guided settings: fields, collapsible sections, profile cards ([ccaacda](https://github.com/IA-Generative/Muffin/commit/ccaacdad484a5b97ff3f06c5e8362b03c6f0e918))
+* **frontend:** draft, profiles and plain-language summaries of a collection's settings ([f7d71ea](https://github.com/IA-Generative/Muffin/commit/f7d71ea53d896a333f9282cd11e09500905ae3da))
+* **frontend:** flag a partial summary with the pages it covers ([#375](https://github.com/IA-Generative/Muffin/issues/375)) ([12b7cc0](https://github.com/IA-Generative/Muffin/commit/12b7cc0408cc56cfd2cc2a8a7058535cd56e5ab8))
+* **frontend:** guide the settings of a collection with a setup wizard and one save for everything ([a222d75](https://github.com/IA-Generative/Muffin/commit/a222d75357bb7d432080fa1f9fa8235cc6e3f9fa))
+* **frontend:** long documents section in the collection settings, with its estimate ([#375](https://github.com/IA-Generative/Muffin/issues/375)) ([0a9c787](https://github.com/IA-Generative/Muffin/commit/0a9c7874517cd68868ab09c0e1d8a76e4c6635bb))
+* **frontend:** validate the long documents settings and call the estimate ([#375](https://github.com/IA-Generative/Muffin/issues/375)) ([b25501a](https://github.com/IA-Generative/Muffin/commit/b25501a2dcb1cdcba5e16e72ce1f9ed1a88c96e3))
+
 ## [0.30.0](https://github.com/IA-Generative/Muffin/compare/v0.29.1...v0.30.0) (2026-10-23)
 
 
