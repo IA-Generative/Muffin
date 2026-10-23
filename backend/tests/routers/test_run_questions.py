@@ -9,7 +9,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete
 
 from app.core.security import worker_auth
-from app.core.security.factory import get_current_user
+from app.core.security.factory import RequestContext, get_current_user
 from app.db import async_session_factory
 from app.main import app
 from app.models.conversation import Conversation
@@ -52,6 +52,15 @@ async def client():
         await session.execute(delete(Run))
         await session.execute(delete(Conversation))
         await session.commit()
+
+
+def _as_user(user_id: str):
+    def override() -> RequestContext:
+        return RequestContext(
+            user_id=user_id, email=f"{user_id}@example.com", roles=["user"], is_admin=False, groups=[]
+        )
+
+    return override
 
 
 async def _run(client, query: str, **extra) -> dict:
@@ -287,3 +296,44 @@ async def test_a_run_that_ended_on_questions_reports_them_with_its_status(client
     body = (await client.get(f"/api/runs/{run['id']}")).json()
 
     assert [question["header"] for question in body["questions"]] == ["Période", "Services"]
+
+
+async def test_the_answer_goes_on_with_the_collections_and_web_search_of_the_run_that_asked(client):
+    collection_id = str(uuid.uuid4())
+    run = await _run(client, "Combien de congés ?", collection_ids=[collection_id], web_search_enabled=True)
+    await _ask(client, run)
+    assistant = (await _messages(client, run["conversation_id"]))[1]
+
+    answer = await _run(
+        client,
+        "r",
+        conversation_id=run["conversation_id"],
+        answers_run_id=assistant["run_id"],
+        answers=[{"selected": ["2024"]}, {"selected": ["RH"]}],
+    )
+
+    async with async_session_factory() as session:
+        stored = await session.get(Run, uuid.UUID(answer["id"]))
+    assert stored.pinned_collection_ids == [collection_id]
+    assert stored.web_search_enabled is True
+
+
+async def test_questions_asked_to_someone_else_cannot_be_answered(client):
+    app.dependency_overrides[get_current_user] = _as_user("owner")
+    run = await _run(client, "Combien de congés ?")
+    await _ask(client, run)
+    assistant = (await _messages(client, run["conversation_id"]))[1]
+
+    app.dependency_overrides[get_current_user] = _as_user("someone-else")
+    with patch("app.services.run_service.enqueue_run_agent", return_value="celery-x"):
+        response = await client.post(
+            "/api/runs",
+            json={
+                "query": "x",
+                "conversation_id": run["conversation_id"],
+                "answers_run_id": assistant["run_id"],
+                "answers": [{"selected": ["2024"]}, {"selected": ["RH"]}],
+            },
+        )
+
+    assert response.status_code == 404  # the conversation is not theirs

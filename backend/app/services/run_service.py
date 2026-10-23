@@ -7,7 +7,7 @@ from app.core.security.factory import RequestContext
 from app.core.tasks import enqueue_resume_agent, enqueue_run_agent, revoke_tasks
 from app.models.feedback import FeedbackSourceRole
 from app.models.message import MessageRole
-from app.models.run import RunStatus
+from app.models.run import Run, RunStatus
 from app.repositories.collection_hierarchy_repository import CollectionHierarchyRepository
 from app.repositories.collection_import_repository import CollectionImportRepository
 from app.repositories.collection_repository import CollectionRepository
@@ -67,8 +67,8 @@ class RunService:
         else:
             conversation = await self.conversations.create(user.user_id, title=body.query[:80])
 
-        if body.answers_run_id is not None:
-            await self._record_answers(conversation.id, body)
+        # An answer goes on from the run that asked (#344): same collections, same web-search choice.
+        asked = await self._record_answers(user, conversation.id, body) if body.answers_run_id is not None else None
 
         # The run's strong link is to this message, not directly to the
         # conversation - see app/models/run.py.
@@ -81,7 +81,10 @@ class RunService:
         # Collections created from ZIPs dropped into this conversation (#223) are pinned like its
         # temporary collection below - but before resolving, so their sub-collections come along.
         imported_ids = await self.imports.root_collection_ids_for_conversation(conversation.id)
-        requested_ids = list(dict.fromkeys([*(body.collection_ids or []), *imported_ids]))
+        inherited_ids = (
+            [uuid.UUID(collection_id) for collection_id in (asked.pinned_collection_ids or [])] if asked else []
+        )
+        requested_ids = list(dict.fromkeys([*(body.collection_ids or inherited_ids), *imported_ids]))
         collection_ids, unexplored_ids = await self._resolve_pinned(requested_ids, user, body.include_descendants)
         temp_collection = await self.collections.get_temporary_for_conversation(conversation.id)
         if temp_collection is not None and temp_collection.id not in collection_ids:
@@ -94,7 +97,7 @@ class RunService:
             conversation.id,
             collection_ids,
             user.groups,
-            body.web_search_enabled,
+            body.web_search_enabled or bool(asked and asked.web_search_enabled),
             user_is_admin=user.is_admin,
             user_display=_uploader_display(user),
             continue_exploration=body.continue_exploration,
@@ -114,14 +117,16 @@ class RunService:
         await self.db.refresh(run, attribute_names=["created_at", "updated_at"])
         return self._to_out(run)
 
-    async def _record_answers(self, conversation_id: uuid.UUID, body: RunCreate) -> None:
+    async def _record_answers(self, user: RequestContext, conversation_id: uuid.UUID, body: RunCreate) -> Run:
         """Keeps the user's answers on the message of the run that asked the questions (#344), so the card shows them
         in the thread. Only the last message of the thread can be answered: writing anything else after it
         abandoned its questions."""
+        asked = await self.runs.get(body.answers_run_id, user.user_id)
         message = await self.conversations.get_assistant_message_by_run_id(body.answers_run_id)
         last = await self.conversations.get_last_message(conversation_id)
         if (
-            message is None
+            asked is None
+            or message is None
             or message.conversation_id != conversation_id
             or not message.questions
             or message.questions_answer is not None
@@ -131,6 +136,7 @@ class RunService:
             raise QuestionsNotAnswerableError(str(body.answers_run_id))
         answers = validate_answers(message.questions, body.answers or [])
         message.questions_answer = [answer.model_dump() for answer in answers]
+        return asked
 
     async def _resolve_pinned(
         self, collection_ids: list[uuid.UUID], user: RequestContext, include_descendants: bool
