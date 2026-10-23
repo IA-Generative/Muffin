@@ -105,6 +105,15 @@ class SearchRequest(BaseModel):
     include_descendants: bool = False
 
 
+class QaSourceOut(BaseModel):
+    document_id: uuid.UUID
+    document_name: str
+    page_number: int
+    passage: str
+    start: int | None = None
+    end: int | None = None
+
+
 class QaSearchResultOut(BaseModel):
     qa_pair_id: uuid.UUID
     collection_id: uuid.UUID
@@ -114,6 +123,9 @@ class QaSearchResultOut(BaseModel):
     question: str
     answer: str
     score: float
+    # Where the answer comes from (#351), when the pair has a page and a passage: what opens the source of a
+    # cited pair on its page with the passage framed. None for a pair written by hand, or with no passage found.
+    source: QaSourceOut | None = None
 
 
 class SummarySearchResultOut(BaseModel):

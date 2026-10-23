@@ -20,6 +20,8 @@ class GeneratedQaPair:
     embedding_model: str | None = None
     source_page: int | None = None
     source_excerpt: str | None = None
+    source_start: int | None = None
+    source_end: int | None = None
 
 
 class DocumentDerivedData:
@@ -55,6 +57,8 @@ class DocumentDerivedData:
                 pair.source_page,
                 pair.source_excerpt,
                 generation_key,
+                pair.source_start,
+                pair.source_end,
             )
             if pair.embedding is None:
                 continue

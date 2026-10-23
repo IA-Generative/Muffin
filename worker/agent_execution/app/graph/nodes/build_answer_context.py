@@ -45,6 +45,8 @@ def build_answer_context(state: AgentState) -> dict[str, Any]:
                 # would crash link_citations' uuid.UUID() parse. Web citations use `url` instead.
                 "document_id": (e["source_id"] if e["metadata"].get("evidence_kind") == "document" else None),
                 "chunk_id": e["metadata"].get("chunk_id"),
+                # The source a cited question-answer pair comes from (#351) - None for any other evidence.
+                "qa_source": e["metadata"].get("qa_source"),
                 "page_number": e["metadata"].get("page_number"),
                 # Only ever set on a web_search result (see research_task._web_result_evidence) -
                 # what lets the frontend render a clickable external link instead of a

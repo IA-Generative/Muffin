@@ -233,6 +233,8 @@ class CollectionService:
                 source_document_id=pair.document_id if pair.source_page and pair.source_excerpt else None,
                 source_page=pair.source_page,
                 source_excerpt=pair.source_excerpt,
+                source_start=pair.source_start if pair.source_page and pair.source_excerpt else None,
+                source_end=pair.source_end if pair.source_page and pair.source_excerpt else None,
                 origin=pair.origin,
                 validated=pair.validated,
                 golden=pair.golden,

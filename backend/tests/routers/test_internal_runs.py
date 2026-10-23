@@ -702,6 +702,71 @@ async def test_qa_search_finds_matching_qa_pair(client, monkeypatch):
     assert results[0]["score"] == 0.93
 
 
+async def test_qa_search_says_where_a_pair_s_answer_comes_from(client, monkeypatch):
+    """What lets the chat open the source of a cited pair on its page, passage framed (#351)."""
+    from types import SimpleNamespace
+
+    from app.models.qa import QaOrigin, QaPair
+    from app.services import search_service, vector_store
+
+    async with async_session_factory() as session:
+        collection = Collection(owner_id="dev-user", name="Policies", description="")
+        collection.settings = CollectionSettings(embedding_model="text-embedding-3-small")
+        session.add(collection)
+        await session.flush()
+        document = Document(collection_id=collection.id, name="handbook.pdf", type="file", storage_key="k")
+        session.add(document)
+        await session.flush()
+        grounded, by_hand = (
+            QaPair(
+                collection_id=collection.id,
+                document_id=document.id if with_source else None,
+                question=question,
+                answer="25 days a year.",
+                origin=QaOrigin.GENERATED if with_source else QaOrigin.MANUAL,
+                source_page=4 if with_source else None,
+                source_excerpt="Employees get 25 days of leave." if with_source else None,
+                source_start=120 if with_source else None,
+                source_end=151 if with_source else None,
+            )
+            for question, with_source in (("Leave?", True), ("By hand?", False))
+        )
+        session.add_all([grounded, by_hand])
+        await session.commit()
+        collection_id, document_id = collection.id, document.id
+        grounded_id, by_hand_id = grounded.id, by_hand.id
+
+    async def create_embedding(**_kwargs):
+        return SimpleNamespace(data=[SimpleNamespace(embedding=[0.1, 0.2])])
+
+    monkeypatch.setattr(
+        search_service, "_openai_client", SimpleNamespace(embeddings=SimpleNamespace(create=create_embedding))
+    )
+    monkeypatch.setattr(
+        vector_store,
+        "search_qa",
+        lambda collection_id, query, query_embedding, limit: [(grounded_id, 0.93), (by_hand_id, 0.9)],
+    )
+
+    response = await client.post(
+        "/api/internal/qa-search",
+        headers=_headers(),
+        json={"collection_ids": [str(collection_id)], "query": "leave", "limit": 5},
+    )
+
+    results = {result["qa_pair_id"]: result for result in response.json()}
+    assert results[str(grounded_id)]["source"] == {
+        "document_id": str(document_id),
+        "document_name": "handbook.pdf",
+        "page_number": 4,
+        "passage": "Employees get 25 days of leave.",
+        "start": 120,
+        "end": 151,
+    }
+    # Nothing to open: no document, page or passage.
+    assert results[str(by_hand_id)]["source"] is None
+
+
 async def test_summary_search_finds_matching_document(client, monkeypatch):
     from types import SimpleNamespace
 

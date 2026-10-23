@@ -36,6 +36,9 @@ export interface QaPair {
   sourceDocumentId?: string
   sourcePage?: number
   sourceExcerpt?: string
+  // Where that passage is in the page's text, when known (#351): highlighted and framed exactly.
+  sourceStart?: number
+  sourceEnd?: number
   origin: 'generated' | 'manual'
   validated: boolean
   // A test question (#260): written by a person, kept out of the retriever (the assistant never

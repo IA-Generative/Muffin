@@ -406,6 +406,7 @@ async def test_list_qa_pairs_says_where_the_answer_comes_from(client):
             ("Page only?", 2, None),
             ("By hand?", None, None),
         ):
+            position = (120, 148) if excerpt else (None, None)
             session.add(
                 QaPair(
                     collection_id=collection_id,
@@ -416,6 +417,8 @@ async def test_list_qa_pairs_says_where_the_answer_comes_from(client):
                     validated=False,
                     source_page=page,
                     source_excerpt=excerpt,
+                    source_start=position[0],
+                    source_end=position[1],
                 )
             )
         await session.commit()
@@ -429,6 +432,8 @@ async def test_list_qa_pairs_says_where_the_answer_comes_from(client):
         "Le télétravail est autorisé.",
     )
     # Without a passage there is nothing to open the document on: only the name is shown, as before.
+    # Where it is in that page (#351): what frames it at the right place.
+    assert (body["Grounded?"]["source_start"], body["Grounded?"]["source_end"]) == (120, 148)
     assert body["Page only?"]["source_document_id"] is None and body["Page only?"]["source"] == "report.pdf"
     assert body["By hand?"]["source_document_id"] is None and body["By hand?"]["source_page"] is None
 

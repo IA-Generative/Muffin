@@ -45,6 +45,15 @@ interface Citation {
   url?: string | null
   query?: string
   content?: string
+  // Where a cited question-answer pair comes from (#351) - only on a "qa" citation that has a passage.
+  qa_source?: {
+    document_id: string
+    document_name: string
+    page_number: number
+    passage: string
+    start?: number | null
+    end?: number | null
+  } | null
   // The backend Source row this citation was materialized into (see the backend's
   // SourceRepository.link_citations) - absent on a "tool" citation or one persisted before this
   // existed. See Source.id in types/chat.ts.
@@ -878,6 +887,16 @@ function formatAnswerWithCitations(answer: string, citations: Citation[] | null 
         revision: isDocument ? (citation.document_revision ?? undefined) : undefined,
         query: citation.query,
         content: citation.content,
+        qaSource: citation.qa_source
+          ? {
+              documentId: citation.qa_source.document_id,
+              documentName: citation.qa_source.document_name,
+              pageNumber: citation.qa_source.page_number,
+              passage: citation.qa_source.passage,
+              start: citation.qa_source.start ?? undefined,
+              end: citation.qa_source.end ?? undefined,
+            }
+          : undefined,
       })
     }
     return footnoteNumber
