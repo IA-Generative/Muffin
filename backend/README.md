@@ -11,7 +11,8 @@ Celery (`worker/document_process`, `worker/agent_execution`) passent tous par se
   paramètres de chunking/embedding, tags, partage (modèle présent, pas encore branché - voir
   [#13](https://github.com/IA-Generative/Muffin/issues/13)).
 - **Runs** : création d'un run de recherche (`POST /api/runs`), suivi de son état/événements,
-  reprise après une clarification demandée par l'agent (human-in-the-loop).
+  réponse aux questions à choix que l'agent pose à la place d'une réponse (`answers_run_id` de
+  `POST /api/runs`, voir [docs/assistant-questions.md](../docs/assistant-questions.md)).
 - **Endpoints internes** (`/api/internal/*`, préfixe `internal`, protégés par le header
   `X-API-Key` == `WORKER_API_KEY`) : seule porte d'entrée que les deux workers utilisent pour lire/
   écrire en base, dans Qdrant ou dans RustFS. Ni l'un ni l'autre n'a de credentials directs vers

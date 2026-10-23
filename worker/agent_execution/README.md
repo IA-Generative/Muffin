@@ -21,7 +21,8 @@ backend - aucune donnée utilisateur n'y est stockée, ce n'est qu'un aller-reto
    d'édition (`worker/document_edit`) et **attend son résultat**, puis répond avec ce que celui-ci a
    conclu. Voir la section dédiée plus bas.
 2. `analyze_query` - décide si la question nécessite une clarification (`request_clarification`,
-   pause human-in-the-loop) ou peut être traitée directement.
+   qui **termine le run** sur 1 à 4 questions à choix, voir
+   [docs/assistant-questions.md](../../docs/assistant-questions.md)) ou peut être traitée directement.
 3. `decompose_query` / `build_research_plan` - découpe la question en sous-tâches de recherche.
 4. `research_task` (fan-out dynamique via `Send`, un nœud par tâche en parallèle, borné par les
    budgets `MAX_PARALLEL_TASKS`/`MAX_PARALLEL_SEARCHES`/...) - exécute un outil par tâche :
@@ -39,9 +40,10 @@ backend - aucune donnée utilisateur n'y est stockée, ce n'est qu'un aller-reto
    vérifie que chaque affirmation citée est bien supportée par une preuve réelle ; relance une
    recherche ciblée sur les affirmations non supportées sinon.
 
-Le graphe peut être annulé (`cancel_requested` sur le run) et repris après une clarification
-utilisateur (checkpointer LangGraph sur Redis - une pause doit pouvoir être reprise par un worker
-Celery différent de celui qui l'a posée).
+Le graphe peut être annulé (`cancel_requested` sur le run). Une clarification ne met plus le run en
+pause (#344) : les questions sont enregistrées avec le message de l'assistant, la réponse de l'utilisateur
+démarre un nouveau run qui la lit avec l'historique de la conversation. Le checkpointer LangGraph sur
+Redis ne sert plus qu'à reprendre un run qui attendait déjà une réponse avant ce changement.
 
 ## Déléguer une modification à l'agent d'édition (`detect_edit`, `delegate_edit`)
 

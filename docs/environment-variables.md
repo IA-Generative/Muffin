@@ -219,6 +219,7 @@ boucle de vérification (« grounding »).
 | `MAX_TOTAL_SEARCHES` | Plafond cumulé de recherches sur toute la durée d'un run | `20` | idem |
 | `MAX_REPLANS` | Nombre max de replans autorisés | `2` | idem |
 | `MAX_GROUNDING_RESEARCHES` | Nombre max de relances de recherche déclenchées par un échec de vérification (grounding) | `1` | idem |
+| `MAX_QUESTION_ROUNDS` | Nombre max de fois de suite où l'assistant pose des questions à choix avant de poursuivre avec des hypothèses qu'il énonce (#344) | `2` | idem (`graph/nodes/request_clarification.py`) |
 | `SEARCH_RESULTS_PER_QUERY` | Nombre de résultats retournés par recherche vectorielle | `5` | idem |
 | `MAX_ROUTED_COLLECTIONS` | Nombre max de collections retenues par le routage pour une tâche de recherche, dès qu'il existe des sous-collections ; au-delà, l'agent propose à l'utilisateur d'aller plus loin | `15` | idem |
 
