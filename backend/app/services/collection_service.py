@@ -239,6 +239,7 @@ class CollectionService:
         user: RequestContext,
         pages: int,
         draft: PipelineWindowsUpdate | None = None,
+        chunking_strategy: str | None = None,
     ) -> IndexingEstimateOut:
         """What indexing a document of `pages` pages costs in calls to the model, under this collection's settings -
         or under them changed by `draft`, the settings being typed and not saved yet (nothing is stored)."""
@@ -249,7 +250,9 @@ class CollectionService:
             windows = PipelineWindowsOut(**{**stored, **changes}).model_dump()
         except ValidationError as error:
             raise InvalidPipelineWindowsError("; ".join(item["msg"] for item in error.errors())) from error
-        return IndexingEstimateOut(**estimate_llm_calls(pages, windows, collection.settings.chunking_strategy.value))
+        return IndexingEstimateOut(
+            **estimate_llm_calls(pages, windows, chunking_strategy or collection.settings.chunking_strategy.value)
+        )
 
     async def list_qa_pairs(
         self,

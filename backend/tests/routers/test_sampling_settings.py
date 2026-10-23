@@ -240,3 +240,16 @@ async def test_the_estimate_of_a_draft_that_makes_no_sense_is_refused(client, wi
     )
 
     assert response.status_code == 422
+
+
+async def test_the_estimate_of_a_draft_follows_the_way_the_chunks_are_cut_when_it_is_typed_too(client):
+    collection_id = await _collection(client)
+    url = f"/api/collections/{collection_id}/indexing-estimate"
+
+    saved = (await client.post(url, json={"pages": 900})).json()
+    paragraph = (await client.post(url, json={"pages": 900, "chunking_strategy": "paragraph"})).json()
+    refused = await client.post(url, json={"pages": 900, "chunking_strategy": "by hand"})
+
+    assert saved["chat"]["chunking"] == 450
+    assert paragraph["chat"]["chunking"] == 0 and paragraph["chat"]["total"] == 1978
+    assert refused.status_code == 422

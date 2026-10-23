@@ -192,7 +192,9 @@ async def post_indexing_estimate(
     service: ServiceDep,
 ) -> IndexingEstimateOut:
     try:
-        return await service.indexing_estimate(collection_id, user, request.pages, request.pipeline_windows)
+        return await service.indexing_estimate(
+            collection_id, user, request.pages, request.pipeline_windows, request.chunking_strategy
+        )
     except CollectionNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
     except InvalidPipelineWindowsError as error:
