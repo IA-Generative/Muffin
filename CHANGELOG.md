@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.29.0](https://github.com/IA-Generative/Muffin/compare/v0.28.0...v0.29.0) (2026-10-23)
+
+
+### Features
+
+* **agent:** end the run on multiple-choice questions instead of waiting for an answer ([#344](https://github.com/IA-Generative/Muffin/issues/344)) ([a3d4f46](https://github.com/IA-Generative/Muffin/commit/a3d4f468027ae772e2ed880dc199e588a9605bf4))
+* **chat:** an answer goes on with the collections and web search of the run that asked ([#344](https://github.com/IA-Generative/Muffin/issues/344)) ([2fc57e4](https://github.com/IA-Generative/Muffin/commit/2fc57e447663b43cd665055c873b9313a9bea7b2))
+* **chat:** card to answer the assistant's questions, in one click or in free text ([#344](https://github.com/IA-Generative/Muffin/issues/344)) ([7cf75ff](https://github.com/IA-Generative/Muffin/commit/7cf75ffb152966531568b81c934c514144c4aafc))
+* **chat:** keep the assistant's questions with its message and take the answers as a run ([#344](https://github.com/IA-Generative/Muffin/issues/344)) ([2d05111](https://github.com/IA-Generative/Muffin/commit/2d051112d19d840c0f32116e2e92cc8cb71842a4))
+
+
+### Bug Fixes
+
+* **helm:** give the Qdrant pods the resources the namespace quota requires ([4f81c2d](https://github.com/IA-Generative/Muffin/commit/4f81c2dd750d019d6add89eb91f37dffb5c60707))
+
+
+### Code Refactoring
+
+* **chat:** answer the questions of a run by its id and report them on the run ([#344](https://github.com/IA-Generative/Muffin/issues/344)) ([9f2c22a](https://github.com/IA-Generative/Muffin/commit/9f2c22ab287809705fe7498b20930b2509653632))
+
 ## [0.28.0](https://github.com/IA-Generative/Muffin/compare/v0.27.0...v0.28.0) (2026-10-23)
 
 
