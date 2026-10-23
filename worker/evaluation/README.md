@@ -10,7 +10,7 @@ même queue :
   cohérence entre les tours, bonne exploitation du contexte conversationnel - envoie un
   `DiscussionScore` au backend.
 
-Ne parle jamais directement à Postgres/Meilisearch : toute lecture/écriture passe par les endpoints
+Ne parle jamais directement à Postgres/Qdrant : toute lecture/écriture passe par les endpoints
 internes du backend (`app/backend_client.py`), authentifiés par `WORKER_API_KEY`.
 
 Dans sa propre queue Celery (`evaluation`), séparée de celles de worker/document_process et

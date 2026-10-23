@@ -5,7 +5,7 @@ question de l'utilisateur jusqu'à une réponse citée, en passant par le planni
 multi-collections, et une vérification que chaque affirmation est bien étayée par une source
 (grounding).
 
-Ne parle jamais directement à Postgres/Meilisearch : toute lecture/écriture passe par les endpoints
+Ne parle jamais directement à Postgres/Qdrant : toute lecture/écriture passe par les endpoints
 internes du backend (`app/backend_client.py`), authentifiés par `WORKER_API_KEY`. Seule exception :
 SearXNG (`app/searxng_client.py`), appelé directement par l'outil `web_search`, jamais via le
 backend - aucune donnée utilisateur n'y est stockée, ce n'est qu'un aller-retour HTTP.

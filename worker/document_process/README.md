@@ -5,7 +5,7 @@ parsing, OCR si besoin, chunking, résumé, tags, génération de paires QA, ext
 entités/relations, et calcul des embeddings - jusqu'à ce que le document soit cherchable par
 l'agent de recherche.
 
-Ne parle jamais directement à Postgres/Meilisearch : toute lecture/écriture passe par les endpoints
+Ne parle jamais directement à Postgres/Qdrant : toute lecture/écriture passe par les endpoints
 internes du backend (`app/backend_client.py`), authentifiés par `WORKER_API_KEY`.
 
 ## Pipeline
@@ -248,7 +248,7 @@ Une tâche peut s'exécuter deux fois (Redis la rejoue après la mort d'un pod).
 de façon à ce qu'un rejeu laisse le même état qu'une seule exécution :
 
 - **Pages et chunks** : upsert sur `(document, numéro de page)` et `(document, position)` (contraintes
-  d'unicité). Un chunk garde son id, donc son vecteur Meilisearch, d'une exécution à l'autre. Après
+  d'unicité). Un chunk garde son id, donc son vecteur Qdrant, d'une exécution à l'autre. Après
   l'écriture, `prune_pages` / `prune_chunks` retirent ce qu'une exécution plus longue avait laissé
   après le dernier.
 - **QA, entités, relations** : le modèle reformule à chaque exécution, il n'y a donc pas de clé
@@ -295,7 +295,7 @@ fenêtres et est terminée quand chacune est écrite (le backend le note à chaq
 - Seules les paires QA **générées et non validées** sont copiées : une validation, ou une paire écrite à la
   main, est le travail d'une personne dans sa collection.
 - Aucune information sur la source n'est exposée par l'API : c'est interne au backend.
-- Un échec de la copie (Meilisearch, S3) laisse le document intact et l'étape est simplement calculée : la
+- Un échec de la copie (Qdrant, S3) laisse le document intact et l'étape est simplement calculée : la
   réutilisation est une optimisation, jamais un point de défaillance.
 - Un document reprocessé, déplacé ou supprimé n'est plus une source (ses étapes sont effacées avec ce qu'il
   avait dérivé).
