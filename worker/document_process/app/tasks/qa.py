@@ -45,8 +45,19 @@ def evidence_position(content: str, quote: str) -> tuple[int, int] | None:
     return match.span() if match else None
 
 
-@celery_app.task(name="app.tasks.generate_qa_window", bind=True)
-def generate_qa_window(self, document_id: str, collection_id: str, start_page: int, end_page: int, k: int) -> None:
+@celery_app.task(name="app.tasks.generate_qa_window")
+def generate_qa_window(
+    document_id: str, collection_id: str, start_page: int, end_page: int, k: int, lane: dict | None = None
+) -> None:
+    """The QA pairs of one window of pages. `lane`: set when the window is one of a document's lanes - when it
+    ends, the next window of its lane is sent (see `_shared.start_lanes`)."""
+    try:
+        _generate_qa_window(document_id, collection_id, start_page, end_page, k)
+    finally:
+        _shared.continue_lane(generate_qa_window, "app.tasks.generate_qa_window", document_id, collection_id, lane, [k])
+
+
+def _generate_qa_window(document_id: str, collection_id: str, start_page: int, end_page: int, k: int) -> None:
     try:
         settings = _shared.backend_client.get_collection_settings(collection_id)
         model = _shared._model_for(settings, "qa")

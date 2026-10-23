@@ -14,8 +14,21 @@ from app.tasks import _shared
 from app.tasks.qa import evidence_position, locate_evidence
 
 
-@celery_app.task(name="app.tasks.extract_entities_window", bind=True)
-def extract_entities_window(self, document_id: str, collection_id: str, start_page: int, end_page: int) -> None:
+@celery_app.task(name="app.tasks.extract_entities_window")
+def extract_entities_window(
+    document_id: str, collection_id: str, start_page: int, end_page: int, lane: dict | None = None
+) -> None:
+    """The entities and relations of one window of pages. `lane`: set when the window is one of a document's
+    lanes - when it ends, the next window of its lane is sent (see `_shared.start_lanes`)."""
+    try:
+        _extract_entities_window(document_id, collection_id, start_page, end_page)
+    finally:
+        _shared.continue_lane(
+            extract_entities_window, "app.tasks.extract_entities_window", document_id, collection_id, lane, []
+        )
+
+
+def _extract_entities_window(document_id: str, collection_id: str, start_page: int, end_page: int) -> None:
     try:
         settings = _shared.backend_client.get_collection_settings(collection_id)
         model = _shared._model_for(settings, "extraction")
