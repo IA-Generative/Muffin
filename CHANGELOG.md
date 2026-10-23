@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.30.0](https://github.com/IA-Generative/Muffin/compare/v0.29.1...v0.30.0) (2026-10-23)
+
+
+### Features
+
+* **agent:** flag partial summaries to the sufficiency judge ([9793aef](https://github.com/IA-Generative/Muffin/commit/9793aefff98fe3d7f65cd3c4018be4cf5df88336))
+* **enrichment:** send a document's windows a few at a time, each ending the next of its lane ([61e416c](https://github.com/IA-Generative/Muffin/commit/61e416cef9857e7c986b9ec0ed13cd449470f41f))
+* **indexing:** choose the windows and pages of a long document the same way every time ([#373](https://github.com/IA-Generative/Muffin/issues/373)) ([8af2e4c](https://github.com/IA-Generative/Muffin/commit/8af2e4cff49b03f3531bcf57ad44fc33fe8472ac))
+* **indexing:** estimate the calls to the model a document costs, checked against the worker ([#373](https://github.com/IA-Generative/Muffin/issues/373)) ([02423f3](https://github.com/IA-Generative/Muffin/commit/02423f3abdf6faa150c2eb0e78c529c3617e0c25))
+* **indexing:** fingerprint what a stage reads of a long document, only when it reads a part ([#373](https://github.com/IA-Generative/Muffin/issues/373)) ([6255cad](https://github.com/IA-Generative/Muffin/commit/6255cad14d9d908f101eb49899ca2d3a72a22f7d))
+* **indexing:** keep the pages a summary was made from, and prune the windows no longer read ([#373](https://github.com/IA-Generative/Muffin/issues/373)) ([9f0a2e6](https://github.com/IA-Generative/Muffin/commit/9f0a2e6ffc60834de3cf9774aacc06ef355e8bcd))
+* **indexing:** settings to read only part of a long document, validated as a whole ([#373](https://github.com/IA-Generative/Muffin/issues/373)) ([2fe75f3](https://github.com/IA-Generative/Muffin/commit/2fe75f348b0deff20791b3171c59ef86bb6901c3))
+* **worker:** read only a drawn share of the windows of a long document for qa and entities ([59247bf](https://github.com/IA-Generative/Muffin/commit/59247bf7b059f186453e68bbf7e3e492da07c0a5))
+* **worker:** summarize only the stretches of pages asked and say the summary is partial ([1c05d07](https://github.com/IA-Generative/Muffin/commit/1c05d0739f140c046e14ceae65a925302e61864d))
+
+
+### Bug Fixes
+
+* **enrichment:** send the windows of a document below its chunking and summary ([8d85e17](https://github.com/IA-Generative/Muffin/commit/8d85e17c925de899e746d974cba5e5c608743086))
+
 ## [0.29.1](https://github.com/IA-Generative/Muffin/compare/v0.29.0...v0.29.1) (2026-10-23)
 
 
