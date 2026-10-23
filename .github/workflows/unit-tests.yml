@@ -70,6 +70,9 @@ jobs:
         working-directory: backend
         run: uv sync --group dev
 
+      - name: Wait for Qdrant
+        run: curl --retry 30 --retry-delay 1 --retry-connrefused -fsS http://localhost:6333/readyz
+
       - name: Apply database migrations
         working-directory: backend
         run: uv run alembic upgrade head

@@ -152,12 +152,13 @@ lint-backend: ## Lint and format-check the backend (ruff)
 
 TEST_DATABASE_URL := postgresql+asyncpg://muffin:muffin@localhost:55432/muffin
 TEST_REDIS_URL     := redis://localhost:56379/0
+TEST_QDRANT_URL    := http://localhost:56333
 
 .PHONY: test-backend
 test-backend: ## Run backend unit tests against a throwaway Postgres/Redis
 	@$(DOCKER_COMPOSE) -f docker-compose-test.yaml up -d --wait
 	@cd $(BACKEND_DIR) && \
 		(DATABASE_URL=$(TEST_DATABASE_URL) $(UV) run alembic upgrade head && \
-		DATABASE_URL=$(TEST_DATABASE_URL) REDIS_URL=$(TEST_REDIS_URL) $(UV) run pytest; status=$$?; \
+		DATABASE_URL=$(TEST_DATABASE_URL) REDIS_URL=$(TEST_REDIS_URL) QDRANT_TEST_URL=$(TEST_QDRANT_URL) $(UV) run pytest; status=$$?; \
 		cd .. && $(DOCKER_COMPOSE) -f docker-compose-test.yaml down -v; \
 		exit $$status)

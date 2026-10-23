@@ -31,6 +31,9 @@ def qdrant(request, monkeypatch):
     else:
         client = _server_client()
         if client is None:
+            # Set explicitly (CI), a server that is down is a failure, not a reason to skip.
+            if "QDRANT_TEST_URL" in os.environ:
+                pytest.fail(f"no Qdrant server at {SERVER_URL}")
             pytest.skip(f"no Qdrant server at {SERVER_URL}")
         client.delete_collection(vector_store._COLLECTIONS)
     monkeypatch.setattr(vector_store, "_client", client)
