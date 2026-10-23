@@ -6,6 +6,7 @@ import LivingDocumentRevisions from './LivingDocumentRevisions.vue'
 import SourceDocumentModal from './SourceDocumentModal.vue'
 import TaskLogViewer from './TaskLogViewer.vue'
 import UrlRefreshSettings from './UrlRefreshSettings.vue'
+import { formatPages } from '../utils/longDocuments'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
 
@@ -29,6 +30,8 @@ interface DocumentDetail {
   status: string
   progress: number
   summary: string | null
+  // Les plages de pages dont le résumé est tiré, [[début, fin], ...] ; null s'il a lu tout le document (#372).
+  summary_pages: number[][] | null
   error: string | null
   tags: string[]
   page_count: number
@@ -245,6 +248,10 @@ onMounted(() => {
                 <div v-if="detail.tags.length" class="document-modal__tags">
                   <span v-for="tag in detail.tags" :key="tag" class="document-modal__tag">{{ tag }}</span>
                 </div>
+                <p v-if="detail.summary && detail.summary_pages" class="document-modal__partial">
+                  <span class="fr-badge fr-badge--sm fr-badge--info fr-badge--no-icon">Résumé partiel</span>
+                  Rédigé à partir des pages {{ formatPages(detail.summary_pages) }} seulement : il ne dit rien des autres.
+                </p>
                 <p v-if="detail.summary" class="document-modal__summary">{{ detail.summary }}</p>
                 <p v-else class="document-modal__empty">Aucun résumé disponible pour le moment.</p>
                 <p v-if="detail.error" class="document-modal__processing-error">{{ detail.error }}</p>
@@ -495,6 +502,15 @@ onMounted(() => {
   border-radius: 1rem;
   background: var(--background-alt-blue-france);
   color: var(--text-action-high-blue-france);
+}
+
+.document-modal__partial {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+  color: var(--text-mention-grey);
 }
 
 .document-modal__summary {
