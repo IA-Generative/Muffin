@@ -8,7 +8,7 @@
 
 from loguru import logger
 
-from app import reuse
+from app import reuse, sampling
 from app.celery_app import celery_app
 from app.tasks import _shared
 from app.tasks.collection import (  # noqa: E402,F401
@@ -17,19 +17,44 @@ from app.tasks.collection import (  # noqa: E402,F401
 )
 
 
+def _ranges_text(segments: list[tuple[int, int]]) -> str:
+    return ", ".join(f"{start}-{end}" if start != end else str(start) for start, end in segments)
+
+
 def _summarize(document_id: str, settings: dict, model: str) -> None:
     instructions = settings["instructions"].get("summary", "")
     pages = _shared._get_pages(document_id)
-    pages_per_map = _shared._windows(settings)["summary_pages_per_map"]
-    logger.info(f"Summarizing document {document_id}: {len(pages)} page(s), {pages_per_map} page(s) per map")
+    windows = _shared._windows(settings)
+    pages_per_map = windows["summary_pages_per_map"]
+    # A long document may be read only in part (#372): then each stretch read is summarized on its own - a batch never
+    # straddles two distant parts - and the summary says it is partial.
+    segments = sampling.summary_segments(len(pages), windows)
+    stretches = (
+        [pages]
+        if segments is None
+        else [[page for page in pages if start <= page.page_number <= end] for start, end in segments]
+    )
+    batches = [batch for stretch in stretches for batch in _shared._batches(stretch, pages_per_map)]
+    partial = (
+        ""
+        if segments is None
+        else (
+            f" Only pages {_ranges_text(segments)} of this {len(pages)}-page document were given: say in one short "
+            "sentence that the summary covers only these pages, and say nothing of the rest."
+        )
+    )
+    logger.info(
+        f"Summarizing document {document_id}: {sum(len(batch) for batch in batches)} of {len(pages)} page(s), "
+        f"{pages_per_map} page(s) per map"
+    )
 
     partials = [
         _shared._chat(
             model,
-            f"{instructions}\nSummarize the following excerpt concisely.".strip(),
+            f"{instructions}\nSummarize the following excerpt concisely.{partial if len(batches) == 1 else ''}".strip(),
             "\n\n".join(page.content for page in batch),
         )
-        for batch in _shared._batches(pages, pages_per_map)
+        for batch in batches
     ]
 
     if len(partials) == 1:
@@ -37,7 +62,7 @@ def _summarize(document_id: str, settings: dict, model: str) -> None:
     else:
         summary = _shared._chat(
             model,
-            f"{instructions}\nCombine the following partial summaries into one coherent summary.".strip(),
+            f"{instructions}\nCombine the following partial summaries into one coherent summary.{partial}".strip(),
             "\n\n---\n\n".join(partials),
         )
 
@@ -49,7 +74,7 @@ def _summarize(document_id: str, settings: dict, model: str) -> None:
         summary_embedding = _shared.backend_client.embed(settings["embedding_model"], summary)
     except Exception:
         logger.exception(f"Failed to embed summary for document {document_id}")
-    _shared.backend_client.set_document_summary(document_id, summary, summary_embedding)
+    _shared.backend_client.set_document_summary(document_id, summary, summary_embedding, pages=segments)
     logger.info(f"Summary for document {document_id} saved ({len(summary)} chars)")
 
 
