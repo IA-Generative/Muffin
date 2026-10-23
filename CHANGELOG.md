@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.29.1](https://github.com/IA-Generative/Muffin/compare/v0.29.0...v0.29.1) (2026-10-23)
+
+
+### Bug Fixes
+
+* **chat:** frame the cited passage where it is on the page in the source modal ([03185b8](https://github.com/IA-Generative/Muffin/commit/03185b85fcf8d378bf0a91d2c84d4524cc245c50))
+
 ## [0.29.0](https://github.com/IA-Generative/Muffin/compare/v0.28.0...v0.29.0) (2026-10-23)
 
 
