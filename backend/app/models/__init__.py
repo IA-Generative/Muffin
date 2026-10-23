@@ -21,6 +21,7 @@ from app.models.document import (
     DocumentStatus,
     DocumentTag,
     DocumentType,
+    PageTextBox,
 )
 from app.models.document_draft import DocumentDraft, DraftStatus
 from app.models.document_refresh_schedule import DocumentRefreshSchedule
@@ -75,6 +76,7 @@ __all__ = [
     "DocumentStage",
     "DocumentKind",
     "DocumentPage",
+    "PageTextBox",
     "DocumentRevision",
     "DocumentStatus",
     "DocumentTag",

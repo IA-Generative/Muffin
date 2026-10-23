@@ -55,6 +55,8 @@ class DocumentService:
     async def add_page(self, document_id: uuid.UUID, page: DocumentPageCreate) -> DocumentPage:
         await self.get_document(document_id)
         created = await self.repository.add_page(document_id, page.page_number, page.content, page.screenshot)
+        if page.text_boxes is not None:
+            await self.repository.replace_text_boxes(created.id, [box.model_dump() for box in page.text_boxes])
         await self.db.commit()
         return created
 

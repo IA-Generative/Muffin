@@ -21,6 +21,8 @@ def _make_parser(**options) -> LiteParse:
             "tessdata_path": settings.TESSDATA_PATH,
             "extract_blocks": True,
             "extract_screenshots": True,
+            # The words of each line, with their boxes: what frames a passage word by word (#350).
+            "emit_word_boxes": True,
             "pool_size": 1,
             "parse_timeout": settings.OCR_PARSE_TIMEOUT_SECONDS,
             **options,
