@@ -44,7 +44,7 @@ class IndexRebuildService:
     holds to what PostgreSQL says it should (missing points, texts that changed, vectors made with
     another model, points that no longer exist) - so documents added or removed during the build are
     caught too, and a crashed job just resumes. When nothing is left, both indexes are swapped in one
-    atomic Meilisearch task and the new one is reconciled once more, to catch what was written in
+    atomic alias switch and the new one is reconciled once more, to catch what was written in
     between. The old index is kept until the owner validates the switch, or rolls back to it."""
 
     def __init__(self, db: AsyncSession) -> None:

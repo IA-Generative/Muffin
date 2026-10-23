@@ -30,9 +30,10 @@ _openai_client = (
 
 
 class SearchService:
-    """Hybrid (lexical + vector) search across the selected collections (§14 of the
-    research-agent brief) - Meilisearch holds the vectors and a lexical copy of the text,
-    Postgres remains the source of truth for both. A collection's chunks were embedded with
+    """Hybrid (BM25 + vector) search across the selected collections (§14 of the
+    research-agent brief) - Qdrant holds the vectors (the embedding and the sparse BM25 one), the
+    score a search returns being the cosine of the embedding with the query's. Postgres remains the
+    source of truth for the text. A collection's chunks were embedded with
     that collection's own embedding_model (worker/document_process, at chunk creation time), so
     the query is embedded once per distinct model among the selected collections, not once
     overall."""

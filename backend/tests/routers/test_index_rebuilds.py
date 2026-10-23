@@ -1,5 +1,5 @@
 """Blue/green rebuild of a collection's index (#12), through the HTTP API with an in-memory stand-in
-for Meilisearch: what the tests check is what is asked of the two indexes and when."""
+for Qdrant: what the tests check is what is asked of the two indexes and when."""
 
 import uuid
 from types import SimpleNamespace

@@ -97,8 +97,8 @@ class SourceRepository:
                 enriched.append(citation)
                 continue
 
-            # Defensive guard against orphaned Meilisearch vectors: a document deleted before
-            # vector_store.delete_document_embeddings existed (or a Meilisearch cleanup that
+            # Defensive guard against orphaned Qdrant vectors: a document deleted before
+            # vector_store.delete_document_embeddings existed (or a Qdrant cleanup that
             # failed best-effort) leaves stale vectors that still surface in search results,
             # pointing at a document_id that no longer exists in Postgres. Inserting a Source
             # with that id would FK-violate - so verify existence first and null out the

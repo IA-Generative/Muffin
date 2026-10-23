@@ -11,7 +11,7 @@ from app.models.base import Base, UUIDMixin
 class Chunk(UUIDMixin, Base):
     __tablename__ = "chunks"
     # One row per position, written with an upsert (#299): a chunk keeps its id - the one its vector
-    # in Meilisearch and the QA pairs pointing at it carry - when the same chunking runs again.
+    # in Qdrant and the QA pairs pointing at it carry - when the same chunking runs again.
     __table_args__ = (UniqueConstraint("document_id", "index", name="uq_chunks_document_index"),)
 
     document_id: Mapped[uuid.UUID] = mapped_column(

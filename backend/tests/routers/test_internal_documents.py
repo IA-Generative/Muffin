@@ -125,7 +125,7 @@ async def test_create_document_page_and_chunk_with_extras(client):
     assert chunks[0].extras == {"bbox": {"x": 0, "y": 0, "width": 100, "height": 20}, "kind": "paragraph"}
 
 
-async def test_create_document_chunk_with_embedding_upserts_into_meilisearch(client, monkeypatch):
+async def test_create_document_chunk_with_embedding_upserts_into_qdrant(client, monkeypatch):
     from app.services import vector_store
 
     document_id = await _create_document(client)
@@ -159,7 +159,7 @@ async def test_create_document_chunk_with_embedding_upserts_into_meilisearch(cli
     assert chunk_id == chunk.id
 
 
-async def test_create_document_chunk_without_embedding_does_not_touch_meilisearch(client, monkeypatch):
+async def test_create_document_chunk_without_embedding_does_not_touch_qdrant(client, monkeypatch):
     from app.services import vector_store
 
     document_id = await _create_document(client)

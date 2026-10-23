@@ -630,10 +630,10 @@ async def test_search_finds_matching_chunk(client, monkeypatch):
         collection_id = collection.id
         telework_chunk_id = telework_chunk.id
 
-    # The vector store itself (Meilisearch) isn't exercised here - only that the search endpoint
+    # The vector store itself (Qdrant) isn't exercised here - only that the search endpoint
     # embeds the query, asks vector_store.search per selected collection, and hydrates whatever
-    # chunk ids come back. Meilisearch ranking behavior is covered by app/services/vector_store.py
-    # being a thin pass-through to the meilisearch SDK, not worth re-testing against a fake.
+    # chunk ids come back. The ranking (dense + BM25, fused by RRF) is covered by
+    # tests/services/test_vector_store.py, against Qdrant itself rather than a fake.
     async def create_embedding(**_kwargs):
         return SimpleNamespace(data=[SimpleNamespace(embedding=[0.1, 0.2])])
 

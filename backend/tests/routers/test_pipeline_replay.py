@@ -41,7 +41,7 @@ async def client():
 
 @pytest.fixture
 def search_index(monkeypatch):
-    """Meilisearch and RustFS replaced: the points and objects that are written and removed."""
+    """Qdrant and RustFS replaced: the points and objects that are written and removed."""
     calls = {"chunks_upserted": [], "chunks_deleted": [], "qa_deleted": [], "objects_deleted": []}
     monkeypatch.setattr(
         vector_store,

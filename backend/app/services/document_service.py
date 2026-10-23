@@ -148,7 +148,7 @@ class DocumentService:
         (§122) - a no-op for anything but a file sitting in a temporary collection with a
         summary to compare. Embeds the summary with the admin-configured global embedding model
         (never the collection's own chunk embedding_model - it must share the same space as
-        every collection description in the "collections" Meilisearch index, §124) and keeps the
+        every collection description in the "collections" Qdrant index, §124) and keeps the
         top FILING_TOP_K collections this uploader owns, ranked by similarity."""
         document = await self.repository.get_with_collection(document_id)
         if document is None:

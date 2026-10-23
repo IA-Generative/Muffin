@@ -253,7 +253,7 @@ class DocumentRepository:
         return keys
 
     async def list_chunk_ids(self, document_id: uuid.UUID) -> list[uuid.UUID]:
-        """Returns the chunk ids of a document - needed to delete their Meilisearch embeddings
+        """Returns the chunk ids of a document - needed to delete their Qdrant embeddings
         alongside the document itself (see vector_store.delete_document_embeddings), before the
         Postgres rows go away and those ids can't be looked up anymore."""
         result = await self.db.scalars(select(Chunk.id).where(Chunk.document_id == document_id))
@@ -358,7 +358,7 @@ class DocumentRepository:
         anything that already cited it, e.g. a run's citations, keeps resolving) rather than
         deleting and recreating it. Chunks/pages are cleared and its status reset to PENDING;
         the caller is responsible for actually re-enqueueing processing and cleaning up the old
-        collection's Meilisearch embeddings, same division of labour as DocumentUploadService.reprocess."""
+        collection's Qdrant embeddings, same division of labour as DocumentUploadService.reprocess."""
         document.collection_id = collection_id
         document.status = DocumentStatus.PENDING
         document.progress = 0
@@ -490,7 +490,7 @@ class DocumentRepository:
         extras: dict[str, Any] | None,
     ) -> Chunk:
         """An upsert on (document, position), which keeps the chunk's id - the one its vector in
-        Meilisearch and the QA pairs that point at it carry - when the same chunking runs again (#299)."""
+        Qdrant and the QA pairs that point at it carry - when the same chunking runs again (#299)."""
         statement = (
             insert(Chunk)
             .values(document_id=document_id, index=index, text=text, token_count=token_count, extras=extras)
