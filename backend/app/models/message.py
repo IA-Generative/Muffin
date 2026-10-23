@@ -1,7 +1,9 @@
 import enum
 import uuid
+from typing import Any
 
 from sqlalchemy import Enum, ForeignKey, Integer, Text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDMixin
@@ -36,6 +38,14 @@ class Message(UUIDMixin, TimestampMixin, Base):
     # Used by the quality dashboard for cost estimation (0.75 × total tokens).
     prompt_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     completion_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # The multiple-choice questions the assistant asked instead of answering (#344), as the worker
+    # sanitized them: [{"question", "header", "multi_select", "options": [{"label", "description"}]}].
+    # `content` holds the same questions as text, which is what the next run's history carries.
+    questions: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
+    # What the user answered: [{"selected": [labels], "text": free text or None}], one per question. None
+    # while unanswered - and for good when the user wrote something else instead, which abandons the
+    # questions (see ConversationService.list_messages).
+    questions_answer: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
 
     conversation: Mapped["Conversation"] = relationship(back_populates="messages")  # noqa: F821
     sources: Mapped[list["Source"]] = relationship(  # noqa: F821

@@ -25,6 +25,7 @@ class RunRepository:
         user_display: str | None = None,
         continue_exploration: bool = False,
         unexplored_collection_ids: list[str] | None = None,
+        interactive: bool = True,
     ) -> Run:
         run = Run(
             user_id=user_id,
@@ -39,6 +40,7 @@ class RunRepository:
             user_display=user_display,
             continue_exploration=continue_exploration,
             unexplored_collection_ids=unexplored_collection_ids or None,
+            interactive=interactive,
         )
         self.db.add(run)
         await self.db.flush()

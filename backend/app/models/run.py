@@ -61,6 +61,9 @@ class Run(UUIDMixin, TimestampMixin, Base):
     # here for the same reason as the two fields above: the worker only ever reads this run row,
     # never a live per-request flag, so whatever was true when the run was created is what it acts on.
     web_search_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Whether someone reads the answer as it comes and can reply to a question (#344). False for a run
+    # started by a program (MCP, A2A): it is never asked questions it could not answer.
+    interactive: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     # Whether the requesting user was a platform administrator, and how to show them ("Jean D."),
     # snapshotted like user_groups: the research agent acts on the user's behalf from this row alone
     # (it has no session), e.g. to ask the backend to start an edit of a living document (#171) -

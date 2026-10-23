@@ -48,6 +48,8 @@ class ConversationService:
         rows = await self.conversations.list_messages(conversation.id)
         message_ids = [message.id for message, *_run_fields in rows]
         feedback_map = await self.feedbacks.get_user_feedback_for_messages(message_ids, user.user_id)
+        # A message's questions are abandoned once anything follows it without having answered them (#344).
+        last_id = rows[-1][0].id if rows else None
         return [
             MessageOut(
                 id=message.id,
@@ -58,6 +60,11 @@ class ConversationService:
                 citations=citations,
                 edit_proposal=edit_proposal,
                 unexplored_collection_ids=unexplored_collection_ids,
+                questions=message.questions,
+                questions_answer=message.questions_answer,
+                questions_abandoned=bool(message.questions)
+                and message.questions_answer is None
+                and message.id != last_id,
                 feedback=feedback_map.get(message.id),
             )
             for message, citations, edit_proposal, unexplored_collection_ids in rows

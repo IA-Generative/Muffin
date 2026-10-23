@@ -16,6 +16,7 @@ from app.repositories.feedback_repository import FeedbackRepository
 from app.repositories.run_repository import RunRepository
 from app.repositories.source_repository import SourceRepository
 from app.schemas.feedback import FeedbackCreate, FeedbackOut
+from app.schemas.question import validate_answers
 from app.schemas.run import RunCreate, RunEventOut, RunOut
 from app.services.document_upload_service import _uploader_display
 
@@ -33,6 +34,11 @@ class ConversationNotFoundError(Exception):
 
 class RunNotWaitingError(Exception):
     pass
+
+
+class QuestionsNotAnswerableError(Exception):
+    """The message does not hold questions waiting for an answer: it has none, they were answered already,
+    or the thread went on without them (#344)."""
 
 
 class RunHasNoAnswerError(Exception):
@@ -60,6 +66,9 @@ class RunService:
                 raise ConversationNotFoundError(str(body.conversation_id))
         else:
             conversation = await self.conversations.create(user.user_id, title=body.query[:80])
+
+        if body.answers_message_id is not None:
+            await self._record_answers(conversation.id, body)
 
         # The run's strong link is to this message, not directly to the
         # conversation - see app/models/run.py.
@@ -90,6 +99,7 @@ class RunService:
             user_display=_uploader_display(user),
             continue_exploration=body.continue_exploration,
             unexplored_collection_ids=unexplored_ids,
+            interactive=body.interactive,
         )
         await self.db.commit()
         # Dispatched after the first commit: the worker's very first read of
@@ -103,6 +113,24 @@ class RunService:
         # back the real value instead of lazy-loading outside a greenlet.
         await self.db.refresh(run, attribute_names=["created_at", "updated_at"])
         return self._to_out(run)
+
+    async def _record_answers(self, conversation_id: uuid.UUID, body: RunCreate) -> None:
+        """Keeps the user's answers on the message that asked the questions (#344), so the card shows them
+        in the thread. Only the last message of the thread can be answered: writing anything else after it
+        abandoned its questions."""
+        message = await self.conversations.get_message(conversation_id, body.answers_message_id)
+        last = await self.conversations.get_last_message(conversation_id)
+        if (
+            message is None
+            or message.role != MessageRole.ASSISTANT
+            or not message.questions
+            or message.questions_answer is not None
+            or last is None
+            or last.id != message.id
+        ):
+            raise QuestionsNotAnswerableError(str(body.answers_message_id))
+        answers = validate_answers(message.questions, body.answers or [])
+        message.questions_answer = [answer.model_dump() for answer in answers]
 
     async def _resolve_pinned(
         self, collection_ids: list[uuid.UUID], user: RequestContext, include_descendants: bool

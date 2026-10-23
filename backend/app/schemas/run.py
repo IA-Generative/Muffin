@@ -4,6 +4,8 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from app.schemas.question import QuestionAnswer
+
 
 class RunCreate(BaseModel):
     query: str
@@ -23,6 +25,12 @@ class RunCreate(BaseModel):
     # this conversation stopped (its RunOut.unexplored_collection_ids), instead of starting
     # again from the top-level collections.
     continue_exploration: bool = False
+    # Answering the questions the assistant asked (#344): the assistant message that holds them, and the
+    # answer to each. The query is the answer as text, which is what the user's message says in the thread.
+    answers_message_id: uuid.UUID | None = None
+    answers: list[QuestionAnswer] | None = None
+    # False for a run started by a program (MCP, A2A): no one is there to answer a question.
+    interactive: bool = True
 
 
 class RunResumeRequest(BaseModel):
