@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { fetchPageRects, rectStyle, type PageRect } from '../composables/usePageHighlights'
 import { highlightPassage, type PassageMatch } from '../utils/highlightPassage'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
@@ -30,6 +31,8 @@ interface DocumentPage {
 interface CitedPage {
   page: DocumentPage
   match: PassageMatch
+  // Where the passage is on the page's screenshot, to frame (#350) - none when it is not known.
+  rects: PageRect[]
 }
 
 // The pages the passage is on - the cited one, and the next ones when it goes on over the page break.
@@ -51,6 +54,15 @@ async function fetchPage(number: number): Promise<DocumentPage | undefined> {
   return body.items[0]
 }
 
+// The zones to frame come after the page itself: the text is shown at once, the frames when they arrive.
+async function framePage(position: number) {
+  const entry = cited.value[position]
+  if (!entry?.page.screenshot_url) return
+  const rects = await fetchPageRects(props.collectionId, props.documentId, entry.page.page_number, props.excerpt)
+  const current = cited.value[position]
+  if (current === entry) cited.value = cited.value.map((item, at) => (at === position ? { ...item, rects } : item))
+}
+
 onMounted(async () => {
   if (!props.pageNumber) {
     loading.value = false
@@ -60,14 +72,16 @@ onMounted(async () => {
     const first = await fetchPage(props.pageNumber)
     if (first) {
       let match = highlightPassage(first.content, props.excerpt)
-      cited.value = [{ page: first, match }]
+      cited.value = [{ page: first, match, rects: [] }]
+      void framePage(0)
       // The last fragment of the passage is not on this page: it goes on over the page break.
       for (let step = 1; step <= MAX_FOLLOWING_PAGES && match.matched && !match.lastFound; step++) {
         const next = await fetchPage(props.pageNumber + step)
         if (!next) break
         match = highlightPassage(next.content, props.excerpt)
         if (!match.matched) break
-        cited.value = [...cited.value, { page: next, match }]
+        cited.value = [...cited.value, { page: next, match, rects: [] }]
+        void framePage(cited.value.length - 1)
       }
     }
   } catch {
@@ -131,12 +145,21 @@ onMounted(async () => {
             class="source-document-modal__page"
             :class="{ 'source-document-modal__page--with-image': current.page.screenshot_url }"
           >
-            <img
-              v-if="current.page.screenshot_url"
-              :src="`${API_BASE_URL}${current.page.screenshot_url}`"
-              :alt="`Page ${current.page.page_number}`"
-              class="source-document-modal__screenshot"
-            />
+            <div v-if="current.page.screenshot_url" class="source-document-modal__figure">
+              <img
+                :src="`${API_BASE_URL}${current.page.screenshot_url}`"
+                :alt="`Page ${current.page.page_number}`"
+                class="source-document-modal__screenshot"
+              />
+              <!-- The cited zones, framed on the page (the passage is also given as text beside it). -->
+              <span
+                v-for="(rect, position) in current.rects"
+                :key="position"
+                class="source-document-modal__frame"
+                :style="rectStyle(rect)"
+                aria-hidden="true"
+              />
+            </div>
             <div class="source-document-modal__text">
               <h4 v-if="current.page.screenshot_url" class="source-document-modal__section-title">
                 Texte de la page
@@ -249,6 +272,20 @@ onMounted(async () => {
 .source-document-modal__error {
   color: var(--text-default-error);
   font-size: 0.875rem;
+}
+
+.source-document-modal__figure {
+  position: relative;
+  line-height: 0;
+}
+
+/* A cited zone: framed on the page, in percent of the image. */
+.source-document-modal__frame {
+  position: absolute;
+  border: 2px solid var(--border-plain-warning, #d1b781);
+  background: rgba(255, 224, 70, 0.3);
+  border-radius: 2px;
+  pointer-events: none;
 }
 
 .source-document-modal__screenshot {

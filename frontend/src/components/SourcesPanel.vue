@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import type { Source } from '../types/chat'
 import { formatPath } from '../utils/collectionPath'
 import SourceDocumentModal from './SourceDocumentModal.vue'
+import SourcePreview from './SourcePreview.vue'
 
 defineProps<{
   sources: Source[]
@@ -38,6 +39,14 @@ const openSource = ref<Source>()
           <span v-if="source.collectionPath" class="sources-panel__meta">{{ formatPath(source.collectionPath) }}</span>
           <span v-if="source.revision" class="sources-panel__meta">Révision {{ source.revision }}</span>
           <span v-if="source.pageNumber" class="sources-panel__meta">Page {{ source.pageNumber }}</span>
+          <!-- The cited page, with the passage framed (#350) - only when the page has a screenshot. -->
+          <SourcePreview
+            v-if="source.collectionId && source.documentId && source.pageNumber"
+            :collection-id="source.collectionId"
+            :document-id="source.documentId"
+            :page-number="source.pageNumber"
+            :passage="source.content"
+          />
         </button>
 
         <!-- Document summary card: a collection-level summary, not a specific page - shown as

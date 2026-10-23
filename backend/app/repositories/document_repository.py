@@ -17,6 +17,7 @@ from app.models.document import (
     DocumentStatus,
     DocumentTag,
     DocumentType,
+    PageTextBox,
 )
 from app.models.document_revision import DocumentRevision
 from app.models.document_tabular_profile import DocumentTabularProfile
@@ -449,6 +450,21 @@ class DocumentRepository:
         )
         result = await self.db.execute(statement, execution_options={"populate_existing": True})
         return result.scalar_one()
+
+    async def replace_text_boxes(self, page_id: uuid.UUID, boxes: Sequence[dict]) -> None:
+        """The page's lines and words (#350), in place of what it had: written again with the page - a task run
+        twice, #299 - they replace the first ones instead of adding a second copy."""
+        await self.db.execute(delete(PageTextBox).where(PageTextBox.document_page_id == page_id))
+        self.db.add_all(
+            PageTextBox(document_page_id=page_id, position=position, **box) for position, box in enumerate(boxes)
+        )
+        await self.db.flush()
+
+    async def list_text_boxes(self, page_id: uuid.UUID) -> Sequence[PageTextBox]:
+        result = await self.db.execute(
+            select(PageTextBox).where(PageTextBox.document_page_id == page_id).order_by(PageTextBox.position)
+        )
+        return result.scalars().all()
 
     async def prune_pages(self, document_id: uuid.UUID, keep: int) -> list[str]:
         """Drops the pages after the first `keep`: what a previous, longer extraction left behind.

@@ -113,7 +113,24 @@ class ResultReuse:
                 key = f"screenshots/{target.id}/page-{page.page_number}.png"
                 storage.copy_object(page.screenshot, key)
                 copied.append(key)
-            await self.documents.add_page(target.id, page.page_number, page.content, key)
+            copy = await self.documents.add_page(target.id, page.page_number, page.content, key)
+            # Where its lines and words are (#350): without them the copy could not frame a passage.
+            await self.documents.replace_text_boxes(
+                copy.id,
+                [
+                    {
+                        "text": box.text,
+                        "x_min": box.x_min,
+                        "y_min": box.y_min,
+                        "x_max": box.x_max,
+                        "y_max": box.y_max,
+                        "char_start": box.char_start,
+                        "char_end": box.char_end,
+                        "words": box.words,
+                    }
+                    for box in await self.documents.list_text_boxes(page.id)
+                ],
+            )
         await self.documents.prune_pages(target.id, keep=max((page.page_number for page in pages), default=0))
 
     async def _copy_chunks(self, source: Document, target: Document, undo: Undo) -> None:

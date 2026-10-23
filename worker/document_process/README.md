@@ -165,6 +165,21 @@ import. Une tâche `release_import_queue`, envoyée par le beat toutes les 5 min
 appels n'ont pas fait (appel perdu) ; un document libéré mais jamais extrait cesse de compter au bout de
 `IMPORT_SLOT_TIMEOUT_SECONDS`.
 
+## Texte positionné des pages (#350)
+
+Avec chaque page, le worker envoie ses **lignes et ses mots**, avec leur boîte **normalisée entre 0 et 1** par la
+taille de la page (elle tombe donc sur la capture quelle que soit l'échelle à laquelle elle est rendue) et leur
+intervalle de caractères dans le texte de la page (`app/text_boxes.py`, `build_text_boxes`). liteparse les donne
+(`text_items`, et `words` avec `emit_word_boxes`, activé dans `app/parsing.py`) ; le backend les range dans
+`page_text_boxes`, remplacées avec la page. L'intervalle vaut `None` quand la ligne n'est pas retrouvée dans le texte
+(OCR) : elle se lit, elle ne se place pas. Les plages d'un long PDF (#331) les envoient comme le reste de leurs pages.
+L'empreinte de l'extraction (#300) en tient compte (`layout`) : un fichier n'est pas réutilisé depuis une extraction
+faite avant, qui n'a pas ces données. Les documents déjà indexés n'en ont pas ; la relance de l'indexation (#340) les
+leur donne.
+
+Côté backend, `POST /collections/{id}/documents/{id}/pages/{n}/highlights` (un POST, car un chunk cité est trop long
+pour une adresse) dit où est un passage : les intervalles de caractères à surligner et les rectangles à encadrer.
+
 ## Limites de temps (#294)
 
 Aucune tâche n'est tuée parce qu'elle est grosse : il n'y a plus de limite dure (l'ancienne,

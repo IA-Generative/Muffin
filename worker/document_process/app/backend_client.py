@@ -121,15 +121,14 @@ class BackendClient:
         page_number: int,
         content: str,
         screenshot: str | None = None,
+        text_boxes: list[dict[str, Any]] | None = None,
     ) -> None:
-        response = self._client.post(
-            f"/api/internal/documents/{document_id}/pages",
-            json={
-                "page_number": page_number,
-                "content": content,
-                "screenshot": screenshot,
-            },
-        )
+        """`text_boxes`: the page's lines and words with their boxes (#350). Not given, what the page has is
+        kept; given, even empty, it replaces them."""
+        body: dict[str, Any] = {"page_number": page_number, "content": content, "screenshot": screenshot}
+        if text_boxes is not None:
+            body["text_boxes"] = text_boxes
+        response = self._client.post(f"/api/internal/documents/{document_id}/pages", json=body)
         response.raise_for_status()
 
     def get_pages(self, document_id: str) -> list[dict[str, Any]]:
