@@ -65,6 +65,11 @@ class WorkerSettings(BaseSettings):
     # the queue never holds more than that of a document. Each range has its own OCR_PARSE_TIMEOUT_SECONDS.
     PARSE_RANGE_PAGES: int = 25
     PARSE_WINDOW: int = 4
+    # The windows of pages of a document that the QA and the entity extraction are run on (one task each): this
+    # many of each kind at a time per document, a window that ends sending the one that follows its lane. So
+    # the queue never holds more than that of a document, and the documents take turns instead of one's
+    # thousand windows making the next one wait.
+    ENRICHMENT_WINDOW: int = 4
     URL_FETCH_TIMEOUT_SECONDS: int = 30 * 60
     # RustFS/S3: connecting, and waiting for the next bytes of a transfer.
     STORAGE_CONNECT_TIMEOUT_SECONDS: int = 10

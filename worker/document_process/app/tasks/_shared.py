@@ -12,10 +12,12 @@ from loguru import logger
 
 from app.backend_client import backend_client  # noqa: F401
 from app.chunking import PageText
+from app.config import settings as worker_settings
 from app.parsing import count_pages, parse_file, parse_pages  # noqa: F401
 from app.scraping import content_hash, fetch_url  # noqa: F401
 from app.storage import storage  # noqa: F401
 from app.task_revocation import TaskRevoked, raise_if_revoked
+from app.windows import sliding_windows
 
 TOKENS_PER_CHAR = 0.25  # rough estimate, good enough until a real tokenizer is wired in
 
@@ -78,6 +80,64 @@ def _spawn(
     options = {} if priority is None else {"priority": priority}
     result = task.apply_async(args=args, **options)
     backend_client.create_task(result.id, task_name, document_id, parent_celery_task_id=parent_task_id)
+
+
+def start_lanes(
+    task,
+    task_name: str,
+    document_id: str,
+    collection_id: str,
+    windows: list[tuple[int, int]],
+    pages: tuple[int, int, int],
+    extra: list[Any],
+    parent_task_id: str | None,
+) -> None:
+    """Sends the first windows of a stage run in windows of pages (the QA pairs, the entities) - at most
+    ENRICHMENT_WINDOW of them: each is a lane, and a window that ends sends the next of its lane
+    (`continue_lane`). `pages` is (total, window size, slide), from which a lane gets its windows back;
+    `extra` the arguments the task takes after the window."""
+    total, size, slide = pages
+    step = max(worker_settings.ENRICHMENT_WINDOW, 1)
+    for index in range(min(step, len(windows))):
+        lane = {"index": index, "step": step, "pages": total, "size": size, "slide": slide, "parent": parent_task_id}
+        start, end = windows[index]
+        _spawn(
+            task,
+            [document_id, collection_id, start, end, *extra, lane],
+            task_name,
+            document_id,
+            parent_task_id,
+            priority=WINDOW_PRIORITY,
+        )
+
+
+def continue_lane(
+    task, task_name: str, document_id: str, collection_id: str, lane: dict[str, Any] | None, extra: list[Any]
+) -> None:
+    """Called when a window ends, however it ended - a window that failed must not leave the rest of its lane
+    unsent - except when the task was revoked: the user stopped it, nothing goes on. Never raises: it runs
+    where the window's own error is about to be, which it must not hide."""
+    if not lane:
+        return
+    try:
+        raise_if_revoked()
+        windows = sliding_windows(lane["pages"], lane["size"], lane["slide"])
+        following = lane["index"] + lane["step"]
+        if following >= len(windows):
+            return
+        start, end = windows[following]
+        _spawn(
+            task,
+            [document_id, collection_id, start, end, *extra, {**lane, "index": following}],
+            task_name,
+            document_id,
+            lane["parent"],
+            priority=WINDOW_PRIORITY,
+        )
+    except TaskRevoked:
+        return
+    except Exception:
+        logger.exception(f"Could not send the window that follows in its lane for document {document_id}")
 
 
 def _extraction_done(document_id: str) -> None:

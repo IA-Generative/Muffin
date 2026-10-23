@@ -214,36 +214,32 @@ def chunk_document(
         if not skip_qa and not _reused_windows(
             document_id, content_hash, settings, reuse.QA, "qa", qa_windows, "window"
         ):
-            for start, end in qa_windows:
-                _shared._spawn(
-                    generate_qa_window,
-                    [
-                        document_id,
-                        collection_id,
-                        start,
-                        end,
-                        windows["qa_questions_per_window"],
-                    ],
-                    "app.tasks.generate_qa_window",
-                    document_id,
-                    parent_id,
-                    priority=_shared.WINDOW_PRIORITY,
-                )
+            _shared.start_lanes(
+                generate_qa_window,
+                "app.tasks.generate_qa_window",
+                document_id,
+                collection_id,
+                qa_windows,
+                (total_pages, windows["qa_window_pages"], windows["qa_slide_pages"]),
+                [windows["qa_questions_per_window"]],
+                parent_id,
+            )
         extraction_windows = list(
             sliding_windows(total_pages, windows["extraction_window_pages"], windows["extraction_slide_pages"])
         )
         if not skip_extraction and not _reused_windows(
             document_id, content_hash, settings, reuse.ENTITIES, "extraction", extraction_windows, "pages"
         ):
-            for start, end in extraction_windows:
-                _shared._spawn(
-                    extract_entities_window,
-                    [document_id, collection_id, start, end],
-                    "app.tasks.extract_entities_window",
-                    document_id,
-                    parent_id,
-                    priority=_shared.WINDOW_PRIORITY,
-                )
+            _shared.start_lanes(
+                extract_entities_window,
+                "app.tasks.extract_entities_window",
+                document_id,
+                collection_id,
+                extraction_windows,
+                (total_pages, windows["extraction_window_pages"], windows["extraction_slide_pages"]),
+                [],
+                parent_id,
+            )
     except TaskRevoked:
         raise
     except Exception as error:
