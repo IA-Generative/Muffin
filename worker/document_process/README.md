@@ -180,6 +180,24 @@ leur donne.
 Côté backend, `POST /collections/{id}/documents/{id}/pages/{n}/highlights` (un POST, car un chunk cité est trop long
 pour une adresse) dit où est un passage : les intervalles de caractères à surligner et les rectangles à encadrer.
 
+## Entités : où elles sont dans le texte (#352)
+
+`extract_entities_window` demande toujours au LLM le nom et le type des entités d'une fenêtre de pages, mais le worker
+**retrouve ensuite chaque nom dans le texte de la fenêtre** (`app/entity_mentions.py` : les mots dans l'ordre, séparés
+par n'importe quel blanc, sans tenir compte de la casse, et comme mots entiers - « Paris » n'est pas dans « Parisien »)
+et envoie ses occurrences (page, intervalle de caractères, au plus 10 par page et par entité). Le backend les range dans
+`entity_mentions`, remplacées avec la fenêtre (#299), copiées par la réutilisation (#300) et retirées avec le document.
+Le nombre de mentions est **le nombre d'occurrences retrouvées** ; une entité que le modèle a normalisée ou traduite et
+qui n'est nulle part dans le texte garde le nombre de fois où il l'a listée, sans occurrence (`occurrences: 0` dans
+l'API : listée, rien à montrer). Les relations portent la **phrase qui les justifie** : le modèle la donne
+(`evidence`), le worker ne la garde que si elle est mot pour mot dans le texte de la fenêtre (comme la preuve d'une
+paire question-réponse) avec sa page et sa place ; sinon la relation reste, sans phrase. L'empreinte des entités (#300)
+en tient compte (`positions`).
+
+Côté API : `GET /collections/{id}/entities/{entity_id}/mentions[?document_id=]` rend les occurrences dans l'ordre de
+lecture (document, page, place) ; `entities` donne `occurrences`, `relations` donne `source`. L'interface ouvre une
+entité sur ses occurrences (« Occurrence 2 sur 7 »), nom surligné et encadré à sa place.
+
 ## Position des chunks dans les pages (#353)
 
 Chaque chunk garde où il est : `extras["spans"] = [{"page": 3, "start": 120, "end": 560}, …]`, un **intervalle de

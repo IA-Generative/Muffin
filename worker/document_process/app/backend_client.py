@@ -317,10 +317,13 @@ class BackendClient:
         document_id: str,
         window_key: str,
         entities: list[dict[str, Any]],
-        relations: list[dict[str, str]],
+        relations: list[dict[str, Any]],
     ) -> None:
-        """Records what was extracted from one window of pages - entities {"name", "type", "mentions"?}
-        and relations {"from_name", "to_name", "type"} - in place of the previous extraction of it."""
+        """Records what was extracted from one window of pages - entities {"name", "type", "mentions"?,
+        "occurrences"?: [{"page", "start", "end"}]} and relations {"from_name", "to_name", "type",
+        "source_page"?, "source_excerpt"?, "source_start"?, "source_end"?} - in place of the previous
+        extraction of it. The occurrences are where the entity is in the text of the window, the source of a
+        relation the sentence behind it (#352)."""
         response = self._client.put(
             f"/api/internal/documents/{document_id}/entity-windows/{window_key}",
             json={"entities": entities, "relations": relations},

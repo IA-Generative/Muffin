@@ -143,6 +143,9 @@ def entities(content_hash: str, collection_settings: dict[str, Any], model: str)
         {
             **_base(ENTITIES, content_hash),
             "extraction": _extraction_of(content_hash),
+            # The entities carry where they are in the text and the sentence behind each relation (#352): an
+            # extraction made before has neither, and a document extracted now must not be given it.
+            "positions": 1,
             "model": model,
             "instructions": collection_settings["instructions"].get("extraction", ""),
             "window": windows["extraction_window_pages"],

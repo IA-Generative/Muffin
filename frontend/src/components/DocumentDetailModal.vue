@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import type { CollectionDocument, Entity, EntityType, QaPair, Relation } from '../types/collection'
+import EntityOccurrencesModal from './EntityOccurrencesModal.vue'
 import LivingDocumentRevisions from './LivingDocumentRevisions.vue'
+import SourceDocumentModal from './SourceDocumentModal.vue'
 import TaskLogViewer from './TaskLogViewer.vue'
 import UrlRefreshSettings from './UrlRefreshSettings.vue'
 
@@ -54,6 +56,9 @@ const pagesError = ref(false)
 const qaPairs = ref<QaPair[]>()
 const qaError = ref(false)
 
+// The entity whose occurrences in this document are open, and the relation whose sentence is (#352).
+const openEntity = ref<Entity>()
+const openRelation = ref<Relation>()
 const entities = ref<Entity[]>()
 const relations = ref<Relation[]>()
 const entitiesError = ref(false)
@@ -265,7 +270,17 @@ onMounted(() => {
                     <span class="document-modal__entity-type" :class="`document-modal__entity-type--${entity.type}`">
                       {{ ENTITY_LABEL[entity.type] }}
                     </span>
-                    <span>{{ entity.name }}</span>
+                    <button
+                      v-if="(entity.occurrences ?? 0) > 0"
+                      type="button"
+                      class="document-modal__link"
+                      :aria-label="`Voir où « ${entity.name} » apparaît dans ce document`"
+                      @click="openEntity = entity"
+                    >
+                      {{ entity.name }}
+                    </button>
+                    <span v-else>{{ entity.name }}</span>
+                    <span v-if="entity.occurrences === 0" class="document-modal__missing">non retrouvée dans le texte</span>
                     <span class="document-modal__entity-mentions">{{ entity.mentions }} mention(s)</span>
                   </li>
                 </ul>
@@ -277,9 +292,38 @@ onMounted(() => {
                     <span>{{ relation.from }}</span>
                     <span class="document-modal__relation-type">{{ relation.type }}</span>
                     <span>{{ relation.to }}</span>
+                    <button
+                      v-if="relation.source"
+                      type="button"
+                      class="document-modal__link document-modal__link--end"
+                      :aria-label="`Voir la phrase qui énonce la relation ${relation.from} ${relation.type} ${relation.to}`"
+                      @click="openRelation = relation"
+                    >
+                      Voir la phrase
+                    </button>
                   </li>
                 </ul>
                 <p v-else class="document-modal__empty">Aucune relation détectée dans ce document.</p>
+
+                <EntityOccurrencesModal
+                  v-if="openEntity"
+                  :collection-id="collectionId"
+                  :entity-id="openEntity.id"
+                  :entity-name="openEntity.name"
+                  :document-id="document.id"
+                  @close="openEntity = undefined"
+                />
+                <SourceDocumentModal
+                  v-if="openRelation?.source"
+                  :collection-id="collectionId"
+                  :document-id="openRelation.source.document_id"
+                  :document-name="openRelation.source.document_name"
+                  :page-number="openRelation.source.page_number"
+                  :excerpt="openRelation.source.passage"
+                  :start="openRelation.source.start ?? undefined"
+                  :end="openRelation.source.end ?? undefined"
+                  @close="openRelation = undefined"
+                />
               </template>
               <p v-else class="document-modal__loading">Chargement…</p>
             </section>
@@ -548,6 +592,26 @@ onMounted(() => {
   padding: 0.0625rem 0.5rem;
   border-radius: 0.75rem;
   background: var(--background-alt-grey);
+  color: var(--text-mention-grey);
+}
+
+.document-modal__link {
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: var(--text-action-high-blue-france);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.document-modal__link--end {
+  margin-left: auto;
+}
+
+.document-modal__missing {
+  font-size: 0.75rem;
+  font-style: italic;
   color: var(--text-mention-grey);
 }
 

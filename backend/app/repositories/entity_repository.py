@@ -1,11 +1,39 @@
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.entity import Entity, EntityDocument, EntityType, Relation
+from app.models.document import Document
+from app.models.entity import Entity, EntityDocument, EntityMention, EntityType, Relation
+
+
+@dataclass(frozen=True)
+class Occurrence:
+    """Where an entity is in a page (#352): an interval of characters of that page's content."""
+
+    page_number: int
+    char_start: int
+    char_end: int
+
+
+@dataclass(frozen=True)
+class RelationSource:
+    """The sentence that justifies a relation, and where it is (#352)."""
+
+    page: int
+    excerpt: str
+    start: int | None = None
+    end: int | None = None
+
+
+# What a window holds, in the shape the repository is given and gives back: (name, type, mentions) -
+# optionally followed by the entity's occurrences - and (from name, to name, type), optionally followed by the
+# relation's source. The short forms are what extractions made before the positions were kept give.
+EntityRow = tuple
+RelationRow = tuple
 
 
 class EntityRepository:
@@ -17,22 +45,32 @@ class EntityRepository:
         collection_id: uuid.UUID,
         document_id: uuid.UUID,
         window_key: str,
-        entities: Sequence[tuple[str, str, int]],
-        relations: Sequence[tuple[str, str, str]],
+        entities: Sequence[EntityRow],
+        relations: Sequence[RelationRow],
     ) -> None:
         """Records what was extracted from one window of a document's pages, replacing what an earlier
         extraction of the same window had recorded (#299): a task run twice leaves the same entities,
-        relations and counts as one run. `entities` are (name, type, mentions) and `relations`
-        (from name, to name, type); a relation naming an entity that was not extracted is dropped."""
+        relations, counts and occurrences as one run. `entities` are (name, type, mentions[, occurrences]) and
+        `relations` (from name, to name, type[, source]); a relation naming an entity that was not extracted is
+        dropped."""
         touched = await self._remove_contributions(document_id, window_key)
         await self.db.execute(
             delete(Relation).where(Relation.document_id == document_id, Relation.window_key == window_key)
         )
+        await self.db.execute(
+            delete(EntityMention).where(
+                EntityMention.document_id == document_id, EntityMention.window_key == window_key
+            )
+        )
 
         # The same entity listed twice in a window is one entity mentioned twice.
         mentions_by_entity: dict[tuple[str, str], int] = {}
-        for name, type_, mentions in entities:
+        occurrences_by_entity: dict[tuple[str, str], list[Occurrence]] = {}
+        for name, type_, mentions, *rest in entities:
             mentions_by_entity[(name, type_)] = mentions_by_entity.get((name, type_), 0) + mentions
+            if rest and rest[0]:
+                known = occurrences_by_entity.setdefault((name, type_), [])
+                known.extend(occurrence for occurrence in rest[0] if occurrence not in known)
 
         ids: dict[str, uuid.UUID] = {}
         for (name, type_), mentions in mentions_by_entity.items():
@@ -49,10 +87,22 @@ class EntityRepository:
                 link.mentions += mentions
             ids[name] = entity.id
             touched.discard(entity.id)
+            self.db.add_all(
+                EntityMention(
+                    entity_id=entity.id,
+                    document_id=document_id,
+                    window_key=window_key,
+                    page_number=occurrence.page_number,
+                    char_start=occurrence.char_start,
+                    char_end=occurrence.char_end,
+                )
+                for occurrence in occurrences_by_entity.get((name, type_), [])
+            )
         await self.db.flush()
 
-        for from_name, to_name, relation_type in relations:
+        for from_name, to_name, relation_type, *rest in relations:
             if from_name in ids and to_name in ids:
+                source: RelationSource | None = rest[0] if rest else None
                 self.db.add(
                     Relation(
                         collection_id=collection_id,
@@ -61,33 +111,53 @@ class EntityRepository:
                         from_entity_id=ids[from_name],
                         to_entity_id=ids[to_name],
                         type=relation_type,
+                        source_page=source.page if source else None,
+                        source_excerpt=source.excerpt if source else None,
+                        source_start=source.start if source else None,
+                        source_end=source.end if source else None,
                     )
                 )
         await self._delete_unmentioned(touched)
         await self.db.flush()
 
-    async def export_windows(
-        self, document_id: uuid.UUID
-    ) -> dict[str, tuple[list[tuple[str, str, int]], list[tuple[str, str, str]]]]:
-        """What was extracted from each window of a document's pages, by window: its entities (name,
-        type, mentions) and relations (from name, to name, type) - what another document of the same file
-        reuses (#300). A mention from before the windows were recorded has no window and is left out."""
-        windows: dict[str, tuple[list[tuple[str, str, int]], list[tuple[str, str, str]]]] = {}
+    async def export_windows(self, document_id: uuid.UUID) -> dict[str, tuple[list[EntityRow], list[RelationRow]]]:
+        """What was extracted from each window of a document's pages, by window: its entities (name, type,
+        mentions, occurrences) and relations (from name, to name, type, source) - what another document of the
+        same file reuses (#300). A mention from before the windows were recorded has no window and is left
+        out."""
+        windows: dict[str, tuple[list[EntityRow], list[RelationRow]]] = {}
+        occurrences: dict[tuple[str, uuid.UUID], list[Occurrence]] = {}
+        located = await self.db.execute(
+            select(EntityMention).where(EntityMention.document_id == document_id, EntityMention.window_key != "")
+        )
+        for mention in located.scalars().all():
+            occurrences.setdefault((mention.window_key, mention.entity_id), []).append(
+                Occurrence(mention.page_number, mention.char_start, mention.char_end)
+            )
         links = await self.db.execute(
-            select(EntityDocument.window_key, Entity.name, Entity.type, EntityDocument.mentions)
+            select(EntityDocument.window_key, Entity.id, Entity.name, Entity.type, EntityDocument.mentions)
             .join(Entity, Entity.id == EntityDocument.entity_id)
             .where(EntityDocument.document_id == document_id, EntityDocument.window_key != "")
         )
-        for window_key, name, type_, mentions in links.all():
-            windows.setdefault(window_key, ([], []))[0].append((name, type_.value, mentions))
+        for window_key, entity_id, name, type_, mentions in links.all():
+            windows.setdefault(window_key, ([], []))[0].append(
+                (name, type_.value, mentions, occurrences.get((window_key, entity_id), []))
+            )
         relations = await self.db.execute(
             select(Relation)
             .where(Relation.document_id == document_id, Relation.window_key.is_not(None))
             .options(selectinload(Relation.from_entity), selectinload(Relation.to_entity))
         )
         for relation in relations.scalars().all():
+            source = (
+                RelationSource(
+                    relation.source_page, relation.source_excerpt, relation.source_start, relation.source_end
+                )
+                if relation.source_page and relation.source_excerpt
+                else None
+            )
             windows.setdefault(relation.window_key, ([], []))[1].append(
-                (relation.from_entity.name, relation.to_entity.name, relation.type)
+                (relation.from_entity.name, relation.to_entity.name, relation.type, source)
             )
         return windows
 
@@ -97,6 +167,7 @@ class EntityRepository:
         deleted or about to be extracted again."""
         touched = await self._remove_contributions(document_id, None)
         await self.db.execute(delete(Relation).where(Relation.document_id == document_id))
+        await self.db.execute(delete(EntityMention).where(EntityMention.document_id == document_id))
         await self._delete_unmentioned(touched)
         await self.db.flush()
 
@@ -172,3 +243,42 @@ class EntityRepository:
             .options(selectinload(Relation.from_entity), selectinload(Relation.to_entity))
         )
         return result.scalars().all()
+
+    async def occurrence_counts(
+        self, entity_ids: Sequence[uuid.UUID], document_id: uuid.UUID | None = None
+    ) -> Mapping[uuid.UUID, int]:
+        """How many occurrences of each entity were found in the text (#352) - in one document when given. An
+        entity absent from the result was not found in the text: the model listed it, nothing could be framed."""
+        if not entity_ids:
+            return {}
+        query = (
+            select(EntityMention.entity_id, func.count())
+            .where(EntityMention.entity_id.in_(entity_ids))
+            .group_by(EntityMention.entity_id)
+        )
+        if document_id is not None:
+            query = query.where(EntityMention.document_id == document_id)
+        return {entity_id: count for entity_id, count in (await self.db.execute(query)).all()}
+
+    async def list_mentions(
+        self, collection_id: uuid.UUID, entity_id: uuid.UUID, document_id: uuid.UUID | None = None, limit: int = 500
+    ) -> Sequence[tuple[EntityMention, str]]:
+        """The occurrences of an entity of this collection, with the name of their document - by document, then
+        page, then place in the page: the order one reads them in."""
+        query = (
+            select(EntityMention, Document.name)
+            .join(Entity, Entity.id == EntityMention.entity_id)
+            .join(Document, Document.id == EntityMention.document_id)
+            .where(Entity.id == entity_id, Entity.collection_id == collection_id)
+            .order_by(Document.name, EntityMention.document_id, EntityMention.page_number, EntityMention.char_start)
+            .limit(limit)
+        )
+        if document_id is not None:
+            query = query.where(EntityMention.document_id == document_id)
+        return [(mention, name) for mention, name in (await self.db.execute(query)).all()]
+
+    async def document_names(self, document_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, str]:
+        if not document_ids:
+            return {}
+        result = await self.db.execute(select(Document.id, Document.name).where(Document.id.in_(document_ids)))
+        return {document_id: name for document_id, name in result.all()}

@@ -97,6 +97,20 @@ class EntityOut(BaseModel):
     name: str
     type: str
     mentions: int
+    # How many occurrences were found in the text (#352) - what can be opened and framed. 0: the model listed the
+    # entity but its name is nowhere in the text as written (normalized, translated): nothing to show.
+    occurrences: int = 0
+
+
+class RelationSourceOut(BaseModel):
+    """The sentence that justifies a relation, and where it is (#352)."""
+
+    document_id: uuid.UUID
+    document_name: str
+    page_number: int
+    passage: str
+    start: int | None = None
+    end: int | None = None
 
 
 class RelationOut(BaseModel):
@@ -106,6 +120,17 @@ class RelationOut(BaseModel):
     from_entity: str = Field(alias="from")
     to: str
     type: str
+    source: RelationSourceOut | None = None
+
+
+class EntityMentionOut(BaseModel):
+    """One occurrence of an entity: the document and page it is on, and where in that page's text (#352)."""
+
+    document_id: uuid.UUID
+    document_name: str
+    page_number: int
+    start: int
+    end: int
 
 
 class ChunkingSettings(BaseModel):

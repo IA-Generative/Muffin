@@ -19,7 +19,7 @@ from app.repositories.document_repository import DocumentRepository
 from app.repositories.document_revision_repository import DocumentRevisionRepository
 from app.repositories.entity_repository import EntityRepository
 from app.repositories.task_repository import TaskRepository
-from app.schemas.collection import EntityOut, RelationOut
+from app.schemas.collection import EntityOut, RelationOut, RelationSourceOut
 from app.schemas.document import (
     DocumentDetailOut,
     DocumentLockOut,
@@ -467,12 +467,14 @@ class DocumentUploadService:
         await self._get_readable_collection(collection_id, user)
         await self._get_owned_document(collection_id, document_id)
         entities = await self.entities.list_by_document(document_id)
+        located = await self.entities.occurrence_counts([entity.id for entity in entities], document_id)
         return [
             EntityOut(
                 id=entity.id,
                 name=entity.name,
                 type=entity.type,
                 mentions=entity.mentions,
+                occurrences=located.get(entity.id, 0),
             )
             for entity in entities
         ]
@@ -483,12 +485,26 @@ class DocumentUploadService:
         await self._get_readable_collection(collection_id, user)
         await self._get_owned_document(collection_id, document_id)
         relations = await self.entities.list_relations_by_document(document_id)
+        name = (await self.documents.get(document_id)).name
         return [
             RelationOut(
                 id=relation.id,
                 from_entity=relation.from_entity.name,
                 to=relation.to_entity.name,
                 type=relation.type,
+                # The sentence behind it (#352), when it has one.
+                source=(
+                    RelationSourceOut(
+                        document_id=document_id,
+                        document_name=name,
+                        page_number=relation.source_page,
+                        passage=relation.source_excerpt,
+                        start=relation.source_start,
+                        end=relation.source_end,
+                    )
+                    if relation.source_page and relation.source_excerpt
+                    else None
+                ),
             )
             for relation in relations
         ]
