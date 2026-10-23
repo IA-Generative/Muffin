@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useCollections } from '../composables/useCollections'
 import { useCurrentUser } from '../composables/useCurrentUser'
 import { useEmbeddingModels } from '../composables/useEmbeddingModels'
@@ -8,9 +8,19 @@ import type {
   ChunkingSettings,
   Collection,
   GenerationModels,
+  IndexingEstimate,
   PipelineWindows,
   ShareSubjectType,
 } from '../types/collection'
+import {
+  draftFromSettings,
+  READ_EVERYTHING,
+  setSeparateEnds,
+  toPayload,
+  validateLongDocuments,
+  type LongDocumentsDraft,
+  type LongDocumentsField,
+} from '../utils/longDocuments'
 
 const props = defineProps<{
   collection: Collection
@@ -21,6 +31,8 @@ const {
   updateEmbeddingModel,
   updateGenerationModel,
   updatePipelineWindows,
+  saveLongDocuments,
+  estimateIndexing,
   reindexCollection,
   indexRebuilds,
   indexRebuildError,
@@ -69,6 +81,9 @@ watch(
   () => {
     Object.assign(chunkingForm, props.collection.chunkingSettings)
     Object.assign(windowsForm, props.collection.pipelineWindows)
+    Object.assign(longDocs, draftFromSettings(props.collection.pipelineWindows))
+    longDocsSaveError.value = null
+    longDocsSaved.value = false
     chunkingInstructions.value = props.collection.instructions.chunking
     embeddingModelDraft.value = props.collection.embeddingModel
     qaInstructions.value = props.collection.instructions.qa
@@ -146,6 +161,99 @@ function saveSummary() {
   if (summaryModelDraft.value) updateGenerationModel(props.collection.id, 'summary', summaryModelDraft.value)
   updatePipelineWindows(props.collection.id, { summaryPagesPerMap: windowsForm.summaryPagesPerMap })
 }
+
+// Longs documents (#372) : un brouillon propre à la section, enregistré d'un bloc et validé à la saisie.
+const longDocs = reactive<LongDocumentsDraft>(draftFromSettings(props.collection.pipelineWindows))
+const longDocsErrors = computed(() => validateLongDocuments(longDocs))
+const longDocsInvalid = computed(() => Object.keys(longDocsErrors.value).length > 0)
+const longDocsSaveError = ref<string | null>(null)
+const longDocsSaved = ref(false)
+
+// Les saisies effacées ('') ne sont pas des nombres : le champ est signalé, rien n'est envoyé.
+function errorId(field: LongDocumentsField) {
+  return longDocsErrors.value[field] ? `long-docs-${field}-error` : undefined
+}
+
+async function saveLongDocs() {
+  longDocsSaved.value = false
+  if (longDocsInvalid.value) return
+  longDocsSaveError.value = await saveLongDocuments(props.collection.id, toPayload(longDocs))
+  longDocsSaved.value = longDocsSaveError.value === null
+}
+
+watch(longDocs, () => {
+  longDocsSaved.value = false
+})
+
+// Ce que ces réglages coûteraient : le backend calcule, avec ceux qui sont saisis (pas besoin d'enregistrer), puis
+// avec « tout est lu » pour dire ce qui est économisé.
+const estimatePages = ref<number | ''>(900)
+const estimateState = reactive<{ draft: IndexingEstimate | null; full: IndexingEstimate | null; error: string | null }>({
+  draft: null,
+  full: null,
+  error: null,
+})
+const estimatePagesInvalid = computed(
+  () =>
+    estimatePages.value === '' ||
+    !Number.isInteger(estimatePages.value) ||
+    estimatePages.value < 1 ||
+    estimatePages.value > 100000,
+)
+let estimateTimer: ReturnType<typeof setTimeout> | undefined
+let estimateRequest = 0
+
+async function refreshEstimate() {
+  if (longDocsInvalid.value || estimatePagesInvalid.value) return
+  const request = ++estimateRequest
+  const pages = estimatePages.value as number
+  const draft = toPayload(longDocs)
+  const [withDraft, withEverything] = await Promise.all([
+    estimateIndexing(props.collection.id, pages, draft),
+    estimateIndexing(props.collection.id, pages, { ...draft, ...READ_EVERYTHING }),
+  ])
+  if (request !== estimateRequest) return
+  if ('error' in withDraft) {
+    estimateState.error = withDraft.error
+    return
+  }
+  estimateState.error = null
+  estimateState.draft = withDraft.estimate
+  estimateState.full = 'estimate' in withEverything ? withEverything.estimate : null
+}
+
+watch(
+  [longDocs, estimatePages, () => props.collection.id, () => props.collection.chunkingSettings.strategy],
+  () => {
+    clearTimeout(estimateTimer)
+    estimateTimer = setTimeout(refreshEstimate, 300)
+  },
+  { immediate: true },
+)
+onBeforeUnmount(() => clearTimeout(estimateTimer))
+
+const ESTIMATE_STEPS: { key: string; label: string }[] = [
+  { key: 'summary', label: 'Résumé' },
+  { key: 'qa', label: 'Questions-réponses' },
+  { key: 'entities', label: 'Entités et relations' },
+  { key: 'chunking', label: 'Découpage par le modèle' },
+  { key: 'tagging', label: 'Tags' },
+]
+const estimateSteps = computed(() =>
+  estimateState.draft
+    ? ESTIMATE_STEPS.filter((step) => (estimateState.draft?.chat[step.key] ?? 0) > 0).map((step) => ({
+        ...step,
+        calls: estimateState.draft?.chat[step.key] ?? 0,
+      }))
+    : [],
+)
+const estimateEmbeddings = computed(() =>
+  estimateState.draft ? Object.values(estimateState.draft.embeddings).reduce((sum, value) => sum + value, 0) : 0,
+)
+const showSeparateEnds = computed({
+  get: () => longDocs.separateEnds,
+  set: (value: boolean) => setSeparateEnds(longDocs, value),
+})
 
 const STRATEGY_HINT: Record<ChunkingSettings['strategy'], string> = {
   paragraph: 'Découpe le texte à chaque paragraphe. Simple et robuste pour des documents bien structurés.',
@@ -225,6 +333,7 @@ const STEPS = [
   { key: 'qa', label: 'Questions-réponses', required: true, hint: 'La génération de questions-réponses à partir des documents.' },
   { key: 'extraction', label: 'Extraction', required: true, hint: "L'extraction des entités et de leurs relations dans les documents." },
   { key: 'tagging', label: 'Tags automatiques', required: true, hint: 'Les tags ajoutés automatiquement à chaque document.' },
+  { key: 'longdocs', label: 'Longs documents', required: true, hint: "Ce que le résumé, les questions et les entités lisent d'un document de plusieurs centaines de pages." },
   { key: 'visibility', label: 'Visibilité', required: false, hint: 'Rendre la collection publique pour tous les utilisateurs connectés.' },
   { key: 'shares', label: 'Partages', required: false, hint: 'Inviter des personnes ou des groupes à consulter la collection.' },
 ] as const
@@ -744,6 +853,305 @@ function stepTooltipTitle(step: Step) {
       </div>
     </form>
 
+    <form
+      v-show="currentStep === 'longdocs'"
+      class="settings-tab__section"
+      novalidate
+      @submit.prevent="saveLongDocs"
+    >
+      <div class="settings-tab__header">
+        <span class="settings-tab__icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M8 7h8M8 11h8M8 15h5M6 3h9l4 4v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"
+            />
+          </svg>
+        </span>
+        <h3 class="settings-tab__title">Longs documents</h3>
+        <span
+          class="settings-tab__requirement"
+          :class="`settings-tab__requirement--${STEPS[stepIndex].required ? 'required' : 'optional'}`"
+          :title="requirementHint(STEPS[stepIndex].required)"
+        >
+          {{ requirementLabel(STEPS[stepIndex].required) }}
+        </span>
+      </div>
+
+      <div class="settings-tab__body">
+        <p class="settings-tab__hint">
+          Au-delà d'un certain nombre de pages, le résumé, les questions et les entités peuvent ne lire qu'une partie du
+          document pour limiter les appels au modèle. Par défaut, tout est lu, comme avant.
+        </p>
+
+        <div class="settings-tab__field">
+          <label for="long-docs-min-pages">À partir de combien de pages (seuil)</label>
+          <input
+            id="long-docs-min-pages"
+            v-model.number="longDocs.samplingMinPages"
+            type="number"
+            min="1"
+            :aria-invalid="longDocsErrors.samplingMinPages ? 'true' : undefined"
+            :aria-describedby="`long-docs-min-pages-hint ${errorId('samplingMinPages') ?? ''}`.trim()"
+          />
+          <p id="long-docs-min-pages-hint" class="settings-tab__hint">
+            En deçà, tout le document est traité comme avant, quels que soient les réglages ci-dessous.
+          </p>
+          <p
+            v-if="longDocsErrors.samplingMinPages"
+            id="long-docs-samplingMinPages-error"
+            class="settings-tab__hint settings-tab__hint--error"
+          >
+            {{ longDocsErrors.samplingMinPages }}
+          </p>
+        </div>
+
+        <fieldset class="fr-fieldset settings-tab__group" aria-describedby="long-docs-summary-hint">
+          <legend class="fr-fieldset__legend settings-tab__legend">Résumé</legend>
+          <div class="fr-fieldset__element">
+            <div class="fr-radio-group fr-radio-group--sm">
+              <input id="long-docs-summary-all" v-model="longDocs.summaryMode" type="radio" value="all" name="long-docs-summary-mode" />
+              <label class="fr-label" for="long-docs-summary-all">Tout le document</label>
+            </div>
+          </div>
+          <div class="fr-fieldset__element">
+            <div class="fr-radio-group fr-radio-group--sm">
+              <input
+                id="long-docs-summary-percent"
+                v-model="longDocs.summaryMode"
+                type="radio"
+                value="percent"
+                name="long-docs-summary-mode"
+              />
+              <label class="fr-label" for="long-docs-summary-percent">Une partie du document</label>
+            </div>
+          </div>
+          <div class="fr-fieldset__element">
+            <div class="fr-radio-group fr-radio-group--sm">
+              <input
+                id="long-docs-summary-pages"
+                v-model="longDocs.summaryMode"
+                type="radio"
+                value="pages"
+                name="long-docs-summary-mode"
+              />
+              <label class="fr-label" for="long-docs-summary-pages">Des pages précises</label>
+            </div>
+          </div>
+
+          <div v-if="longDocs.summaryMode === 'percent'" class="settings-tab__field">
+            <template v-if="!longDocs.separateEnds">
+              <label for="long-docs-summary-percent-value">Part du document lue (%)</label>
+              <input
+                id="long-docs-summary-percent-value"
+                v-model.number="longDocs.summaryPercent"
+                type="number"
+                min="1"
+                max="100"
+                :aria-invalid="longDocsErrors.summaryPercent ? 'true' : undefined"
+                :aria-describedby="`long-docs-summary-hint ${errorId('summaryPercent') ?? ''}`.trim()"
+              />
+              <p class="settings-tab__hint">Répartie moitié au début, moitié à la fin du document.</p>
+              <p
+                v-if="longDocsErrors.summaryPercent"
+                id="long-docs-summaryPercent-error"
+                class="settings-tab__hint settings-tab__hint--error"
+              >
+                {{ longDocsErrors.summaryPercent }}
+              </p>
+            </template>
+            <template v-else>
+              <label for="long-docs-summary-head">Début du document lu (%)</label>
+              <input
+                id="long-docs-summary-head"
+                v-model.number="longDocs.summaryHeadPercent"
+                type="number"
+                min="0"
+                max="100"
+                :aria-invalid="longDocsErrors.summaryHeadPercent ? 'true' : undefined"
+                :aria-describedby="errorId('summaryHeadPercent')"
+              />
+              <p v-if="longDocsErrors.summaryHeadPercent" id="long-docs-summaryHeadPercent-error" class="settings-tab__hint settings-tab__hint--error">
+                {{ longDocsErrors.summaryHeadPercent }}
+              </p>
+              <label for="long-docs-summary-tail">Fin du document lue (%)</label>
+              <input
+                id="long-docs-summary-tail"
+                v-model.number="longDocs.summaryTailPercent"
+                type="number"
+                min="0"
+                max="100"
+                :aria-invalid="longDocsErrors.summaryTailPercent ? 'true' : undefined"
+                :aria-describedby="errorId('summaryTailPercent')"
+              />
+              <p
+                v-if="longDocsErrors.summaryTailPercent"
+                id="long-docs-summaryTailPercent-error"
+                class="settings-tab__hint settings-tab__hint--error"
+              >
+                {{ longDocsErrors.summaryTailPercent }}
+              </p>
+            </template>
+            <div class="fr-checkbox-group fr-checkbox-group--sm">
+              <input id="long-docs-separate" v-model="showSeparateEnds" type="checkbox" />
+              <label class="fr-label" for="long-docs-separate">Régler le début et la fin séparément</label>
+            </div>
+          </div>
+
+          <div v-if="longDocs.summaryMode === 'pages'" class="settings-tab__field">
+            <label for="long-docs-summary-ranges">Pages lues</label>
+            <input
+              id="long-docs-summary-ranges"
+              v-model="longDocs.summaryPageRanges"
+              type="text"
+              inputmode="numeric"
+              placeholder="1-5, 40-45, 90-"
+              :aria-invalid="longDocsErrors.summaryPageRanges ? 'true' : undefined"
+              :aria-describedby="`long-docs-summary-ranges-hint ${errorId('summaryPageRanges') ?? ''}`.trim()"
+            />
+            <p id="long-docs-summary-ranges-hint" class="settings-tab__hint">
+              Des pages ou des plages séparées par des virgules ; « 90- » va jusqu'à la fin.
+            </p>
+            <p
+              v-if="longDocsErrors.summaryPageRanges"
+              id="long-docs-summaryPageRanges-error"
+              class="settings-tab__hint settings-tab__hint--error"
+            >
+              {{ longDocsErrors.summaryPageRanges }}
+            </p>
+          </div>
+          <p id="long-docs-summary-hint" class="settings-tab__hint">
+            Un résumé partiel ne dit rien des pages non lues : il le signale, et l'assistant ne s'en sert pas pour
+            répondre sur un détail qu'elles pourraient ne pas couvrir.
+          </p>
+        </fieldset>
+
+        <div class="settings-tab__field">
+          <label for="long-docs-qa-max">Nombre maximum de questions par document</label>
+          <input
+            id="long-docs-qa-max"
+            v-model.number="longDocs.qaMaxQuestions"
+            type="number"
+            min="1"
+            placeholder="Illimité"
+            :aria-invalid="longDocsErrors.qaMaxQuestions ? 'true' : undefined"
+            :aria-describedby="`long-docs-qa-hint ${errorId('qaMaxQuestions') ?? ''}`.trim()"
+          />
+          <p id="long-docs-qa-hint" class="settings-tab__hint">
+            Vide : pas de plafond. Les questions sont posées sur des pages tirées sur tout le document, jamais plus que
+            ce nombre (parfois moins). Avec moins de questions, une question posée a moins de chances de retomber sur
+            une question déjà générée.
+          </p>
+          <p
+            v-if="longDocsErrors.qaMaxQuestions"
+            id="long-docs-qaMaxQuestions-error"
+            class="settings-tab__hint settings-tab__hint--error"
+          >
+            {{ longDocsErrors.qaMaxQuestions }}
+          </p>
+        </div>
+
+        <fieldset class="fr-fieldset settings-tab__group" aria-describedby="long-docs-entities-hint">
+          <legend class="fr-fieldset__legend settings-tab__legend">Entités et relations</legend>
+          <div class="settings-tab__field">
+            <label for="long-docs-entities-percent">Part du document analysée (%)</label>
+            <input
+              id="long-docs-entities-percent"
+              v-model.number="longDocs.extractionPercent"
+              type="number"
+              min="1"
+              max="100"
+              :aria-invalid="longDocsErrors.extractionPercent ? 'true' : undefined"
+              :aria-describedby="errorId('extractionPercent')"
+            />
+            <p
+              v-if="longDocsErrors.extractionPercent"
+              id="long-docs-extractionPercent-error"
+              class="settings-tab__hint settings-tab__hint--error"
+            >
+              {{ longDocsErrors.extractionPercent }}
+            </p>
+          </div>
+          <div class="settings-tab__field">
+            <label for="long-docs-entities-max">Nombre maximum de fenêtres analysées (facultatif)</label>
+            <input
+              id="long-docs-entities-max"
+              v-model.number="longDocs.extractionMaxWindows"
+              type="number"
+              min="1"
+              placeholder="Illimité"
+              :aria-invalid="longDocsErrors.extractionMaxWindows ? 'true' : undefined"
+              :aria-describedby="errorId('extractionMaxWindows')"
+            />
+            <p
+              v-if="longDocsErrors.extractionMaxWindows"
+              id="long-docs-extractionMaxWindows-error"
+              class="settings-tab__hint settings-tab__hint--error"
+            >
+              {{ longDocsErrors.extractionMaxWindows }}
+            </p>
+          </div>
+          <p id="long-docs-entities-hint" class="settings-tab__hint">
+            Les entités et relations ne sont extraites que d'un échantillon des pages : le graphe est plus pauvre qu'en
+            lisant tout.
+          </p>
+        </fieldset>
+
+        <p class="settings-tab__hint">
+          Découpage : les chunks couvrent toujours tout le document, rien à régler ici.
+        </p>
+
+        <div class="settings-tab__estimate" aria-live="polite">
+          <div class="settings-tab__field">
+            <label for="long-docs-estimate-pages">Estimer pour un document de (pages)</label>
+            <input
+              id="long-docs-estimate-pages"
+              v-model.number="estimatePages"
+              type="number"
+              min="1"
+              max="100000"
+              :aria-invalid="estimatePagesInvalid ? 'true' : undefined"
+            />
+          </div>
+          <p v-if="longDocsInvalid || estimatePagesInvalid" class="settings-tab__hint">
+            Corriger les champs signalés pour voir l'estimation.
+          </p>
+          <p v-else-if="estimateState.error" class="settings-tab__hint settings-tab__hint--error">
+            {{ estimateState.error }}
+          </p>
+          <template v-else-if="estimateState.draft">
+            <p class="settings-tab__estimate-total">
+              Environ <strong>{{ estimateState.draft.chat.total }} appels</strong> au modèle pour un document de
+              {{ estimateState.draft.pages }} pages<template
+                v-if="estimateState.full && estimateState.full.chat.total !== estimateState.draft.chat.total"
+              >
+                (au lieu de {{ estimateState.full.chat.total }} en lisant tout)</template
+              >.
+            </p>
+            <p v-if="!estimateState.draft.sampled" class="settings-tab__hint">
+              Ce document n'atteint pas le seuil : tout est lu, comme avant.
+            </p>
+            <ul class="settings-tab__estimate-steps">
+              <li v-for="step in estimateSteps" :key="step.key">{{ step.label }} : {{ step.calls }}</li>
+            </ul>
+            <p class="settings-tab__hint">
+              À part : {{ estimateEmbeddings }} appels au modèle d'embedding (le résumé, et une par question) ; le
+              découpage et les passages en ajoutent selon leur taille.
+            </p>
+          </template>
+        </div>
+      </div>
+
+      <div class="settings-tab__footer">
+        <p v-if="longDocsSaveError" class="settings-tab__hint settings-tab__hint--error" role="alert">
+          {{ longDocsSaveError }}
+        </p>
+        <p v-else-if="longDocsSaved" class="settings-tab__hint" role="status">Réglages enregistrés.</p>
+        <button type="submit" class="fr-btn fr-btn--sm" :disabled="longDocsInvalid">Enregistrer</button>
+      </div>
+    </form>
+
     <form v-show="currentStep === 'visibility'" class="settings-tab__section" @submit.prevent="saveVisibility">
       <div class="settings-tab__header">
         <span class="settings-tab__icon" aria-hidden="true">
@@ -1211,6 +1619,41 @@ function stepTooltipTitle(step: Step) {
   margin: 0;
   font-size: 0.75rem;
   color: var(--text-mention-grey);
+}
+
+.settings-tab__group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.settings-tab__legend {
+  padding: 0;
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+
+.settings-tab__estimate {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem 0.875rem;
+  border-radius: 0.5rem;
+  background: var(--background-alt-blue-france);
+}
+
+.settings-tab__estimate-total {
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+.settings-tab__estimate-steps {
+  margin: 0;
+  padding-left: 1.25rem;
+  font-size: 0.8125rem;
 }
 
 .settings-tab__hint--error {
