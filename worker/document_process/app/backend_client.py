@@ -408,7 +408,7 @@ class BackendClient:
         return response.json()["embeddings"]
 
     def update_collection_description_embedding(self, collection_id: str, embedding: list[float]) -> None:
-        """Not persisted in Postgres - indexed straight into Meilisearch (§124), which is now
+        """Not persisted in Postgres - indexed straight into Qdrant (§124), which is now
         the only place a collection's description embedding lives."""
         response = self._client.patch(
             f"/api/internal/collections/{collection_id}/description-embedding",

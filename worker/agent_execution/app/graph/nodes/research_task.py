@@ -19,11 +19,14 @@ from app.graph.services.vdb_router import RoutingScope, select_relevant_vdbs
 from app.graph.state import Evidence, ResearchTaskInput
 from app.searxng_client import searxng_client
 
-# Ranking score (Meilisearch hybrid search, §12: blended lexical + cosine-vector) above which a
-# previously answered question counts as "this one, already answered" rather than merely related -
+# Cosine between the question and a previously answered one (the score the backend returns is the cosine
+# of the dense vectors, not the rank-based score of the BM25 + dense fusion that orders the hits, #355)
+# above which that question counts as "this one, already answered" rather than merely related -
 # conservative on purpose, a false match here means citing a wrong answer, not just a missed
-# shortcut.
+# shortcut. A pair only the lexical branch found has a low cosine and never passes.
 _QA_MATCH_THRESHOLD = 0.85
+# The fusion orders the candidates, the cosine decides: the best of a few is looked at, not just the first.
+_QA_CANDIDATES = 3
 
 _SUMMARY_SUFFICIENCY_PROMPT = (
     "Given a query and the summaries of the documents in a knowledge base, decide whether these summaries "
@@ -197,7 +200,7 @@ def _run_search(
     }
 
     # Tier 1: has this exact question already been answered (a QA pair), in these collections?
-    qa_hits = backend_client.search_qa(vdb_ids, task["query"], limit=1)
+    qa_hits = backend_client.search_qa(vdb_ids, task["query"], limit=_QA_CANDIDATES)
     if qa_hits and qa_hits[0]["score"] >= _QA_MATCH_THRESHOLD:
         evidence = [_qa_evidence(task["id"], task["query"], qa_hits[0])]
         return {**base_updates, "results": []}, evidence

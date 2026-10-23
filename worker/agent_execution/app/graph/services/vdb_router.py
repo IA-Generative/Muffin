@@ -47,7 +47,7 @@ def _vector_prefilter(query: str, accessible_vdbs: list[dict[str, Any]]) -> list
     boundary itself (that's `accessible_vdbs`, already filtered by the backend), just a relevance
     pre-filter so the LLM catalogue below doesn't grow unbounded with the user's total accessible
     collection count. Falls back to the full set on any failure (no embedding model configured,
-    Meilisearch unreachable, etc.) - same fail-open philosophy as the LLM call below."""
+    Qdrant unreachable, etc.) - same fail-open philosophy as the LLM call below."""
     try:
         scored = backend_client.search_collections(
             [str(v["id"]) for v in accessible_vdbs], query, _VECTOR_PREFILTER_TOP_K

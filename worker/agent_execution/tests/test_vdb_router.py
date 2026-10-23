@@ -11,7 +11,7 @@ class _FakeBackendClient:
     def search_collections(self, collection_ids: list[str], query: str, limit: int) -> list[dict]:
         self.calls.append(collection_ids)
         if self.raises:
-            raise RuntimeError("Meilisearch unreachable")
+            raise RuntimeError("Qdrant unreachable")
         return self.hits
 
 
