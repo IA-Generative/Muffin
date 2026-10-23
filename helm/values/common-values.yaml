@@ -52,7 +52,7 @@ backend:
   # still hit 8080. We must re-declare the probes with the correct port. Paths and timings are
   # copied verbatim from the chart defaults (values.yaml).
   probes:
-    # All probes use /api/health (checks redis, meilisearch, db).
+    # All probes use /api/health (checks redis, qdrant, db).
     startupProbe:
       httpGet:
         path: "/api/health"
@@ -99,7 +99,7 @@ backend:
   - secretRef:
       name: "muffin-redis"
   - secretRef:
-      name: "muffin-meilisearch"
+      name: "muffin-qdrant"
   # Listed last: envFrom's later-source-wins rule guarantees this computed DATABASE_URL is what
   # actually lands in the container even if another secret above ever grows a stray field of the
   # same name.
@@ -110,8 +110,8 @@ backend:
     KEYCLOAK_REALM: "mirai"
     KEYCLOAK_CLIENT_ID: "muffin"
     SESSION_COOKIE_SECURE: "true"
-    # Internal ClusterIP service (sub-chart `meilisearch`), not secret.
-    MEILI_URL: "http://muffin-meilisearch:7700"
+    # Internal ClusterIP service (sub-chart `qdrant`), not secret.
+    QDRANT_URL: "http://muffin-qdrant:6333"
     # Same S3 endpoint already used for cnpg backups below - no need to self-host rustfs when a
     # known S3 exists. Only the access/secret key are Vault-backed (`muffin-s3`); bucket differs
     # per env (see values-<env>.yaml).
@@ -318,6 +318,46 @@ worker_document_edit:
     BACKEND_API_URL: "http://muffin-backend:8000"
     AWS_ENDPOINT_URL: "https://s3.fr-par.scw.cloud"
 
+cronjobs:
+  # Backup of Qdrant (the only place the vectors are, besides what is rebuilt from PostgreSQL): a snapshot of
+  # the whole storage every night, the last 7 kept on the snapshots volume of the qdrant pod. To restore one,
+  # see docs/qdrant-backup.md.
+  qdrant-snapshot:
+    schedule: "30 1 * * *"
+    concurrencyPolicy: "Forbid"
+    image:
+      registry: "harbor.sdid.cpin.numerique-interieur.com"
+      repository: "{{ .Values.global.project }}/muffin-backend"
+      pullPolicy: "IfNotPresent"
+    command: ["python", "-c"]
+    args:
+    - |-
+      import json, os, urllib.request
+
+      url, keep = os.environ["QDRANT_URL"], 7
+      headers = {"api-key": os.environ["QDRANT_API_KEY"]}
+
+      def call(method, path):
+          request = urllib.request.Request(url + path, method=method, headers=headers)
+          with urllib.request.urlopen(request, timeout=3600) as response:
+              return json.load(response)["result"]
+
+      print("created", call("POST", "/snapshots?wait=true")["name"])
+      names = sorted(snapshot["name"] for snapshot in call("GET", "/snapshots"))
+      for name in names[:-keep]:
+          call("DELETE", f"/snapshots/{name}?wait=true")
+          print("deleted", name)
+    envFrom:
+    - secretRef:
+        name: "muffin-qdrant"
+    env:
+      QDRANT_URL: "http://muffin-qdrant:6333"
+    serviceAccount:
+      enabled: true
+      create: true
+    backoffLimit: 1
+    restartPolicy: "Never"
+
 jobs:
   migration:
     # `pre-install` would run before the CNPG cluster exists, so the wait-for-postgres init
@@ -446,22 +486,33 @@ redis:
       cpu: "1"
       memory: "1Gi"
 
-# Meilisearch - full-text + vector search backend (backend/app/services/vector_store.py).
-# MEILI_MASTER_KEY is Vault-backed (`muffin-meilisearch`); the same value is exposed as
-# MEILI_API_KEY to the backend via envFrom + VSO transformation.
-meilisearch:
+# Qdrant - dense + sparse (BM25) vector search backend (backend/app/services/vector_store.py).
+# QDRANT_API_KEY is Vault-backed (`muffin-qdrant`): the backend reads it from that secret through
+# envFrom, and the server from the same key through the env var below. Not the chart's `apiKey`: it reads
+# the secret when the chart is rendered, which on a first install is before it exists - the server
+# would start with no key at all. An env var is resolved when the pod starts, and the pod does not start
+# without the secret.
+qdrant:
   enabled: true
   # The release name is NOT `muffin` (it's `mirai-<env>-muffin-<id>` on the DSO cluster), so
-  # without this override the Service would be named `<release>-meilisearch` and the backend's
-  # MEILI_URL (`http://muffin-meilisearch:7700`) wouldn't resolve. Same pattern as redis and
+  # without this override the Service would be named `<release>-qdrant` and the backend's
+  # QDRANT_URL (`http://muffin-qdrant:6333`) wouldn't resolve. Same pattern as redis and
   # searxng below.
-  fullnameOverride: muffin-meilisearch
-  environment:
-    MEILI_ENV: "production"
-    MEILI_NO_ANALYTICS: true
-  auth:
-    existingMasterKeySecret: "muffin-meilisearch"
+  fullnameOverride: muffin-qdrant
+  # A single instance (no replication) to start with: the data is backed up with snapshots, see
+  # docs/qdrant-backup.md.
+  replicaCount: 1
+  env:
+  - name: QDRANT__SERVICE__API_KEY
+    valueFrom:
+      secretKeyRef:
+        name: muffin-qdrant
+        key: QDRANT_API_KEY
   persistence:
+    size: "10Gi"
+  # Snapshots (the backup) are written to their own volume: one as big as the data would fill the
+  # main one and crash the pod.
+  snapshotPersistence:
     enabled: true
     size: "10Gi"
   resources:
@@ -709,25 +760,19 @@ extraObjects:
       destination:
         name: muffin-db-backups
         create: true
-  muffin-meilisearch:
+  muffin-qdrant:
     apiVersion: secrets.hashicorp.com/v1beta1
     kind: VaultStaticSecret
     metadata:
-      name: muffin-meilisearch
+      name: muffin-qdrant
     spec:
       vaultAuthRef: vault-auth
       mount: '{{ .Values.global.project }}'
-      path: '{{ .Values.global.vault.env }}/muffin/meilisearch'
+      path: '{{ .Values.global.vault.env }}/muffin/qdrant'
       type: kv-v2
       destination:
-        name: muffin-meilisearch
+        name: muffin-qdrant
         create: true
-        # Keeps MEILI_MASTER_KEY (consumed by the sub-chart via `auth.existingMasterKeySecret`)
-        # and adds MEILI_API_KEY for the backend's envFrom (MeilisearchSettings expects that name).
-        transformation:
-          templates:
-            MEILI_API_KEY:
-              text: '{{ "{{" }} get .Secrets "MEILI_MASTER_KEY" {{ "}}" }}'
   searxng-secret:
     apiVersion: secrets.hashicorp.com/v1beta1
     kind: VaultStaticSecret

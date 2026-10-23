@@ -39,10 +39,10 @@ dependencies:
     version: 0.8.1
     repository: https://cloudnative-pg.github.io/charts
     condition: cnpg.enabled
-  - name: meilisearch
-    repository: https://meilisearch.github.io/meilisearch-kubernetes
-    version: 0.39.0
-    condition: meilisearch.enabled
+  - name: qdrant
+    repository: https://qdrant.github.io/qdrant-helm
+    version: 1.20.0
+    condition: qdrant.enabled
   - name: searxng
     repository: https://unknowniq.github.io/helm-charts
     version: 0.1.11
