@@ -22,7 +22,16 @@ const modal = computed(() => {
   if (!source?.collectionId) return undefined
   if (source.type === 'qa' && source.qaSource) {
     const { documentId, documentName, pageNumber, passage, start, end } = source.qaSource
-    return { collectionId: source.collectionId, documentId, documentName, pageNumber, excerpt: passage, start, end }
+    return {
+      collectionId: source.collectionId,
+      documentId,
+      documentName,
+      pageNumber,
+      excerpt: passage,
+      start,
+      end,
+      chunkId: undefined,
+    }
   }
   if (!source.documentId) return undefined
   return {
@@ -33,6 +42,7 @@ const modal = computed(() => {
     excerpt: source.content,
     start: undefined,
     end: undefined,
+    chunkId: source.chunkId,
   }
 })
 </script>
@@ -67,6 +77,7 @@ const modal = computed(() => {
             :document-id="source.documentId"
             :page-number="source.pageNumber"
             :passage="source.content"
+            :chunk-id="source.chunkId"
           />
         </button>
 
@@ -167,6 +178,7 @@ const modal = computed(() => {
       :excerpt="modal.excerpt"
       :start="modal.start"
       :end="modal.end"
+      :chunk-id="modal.chunkId"
       @close="openSource = undefined"
     />
   </aside>

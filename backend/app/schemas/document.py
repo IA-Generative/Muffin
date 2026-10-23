@@ -255,20 +255,22 @@ class ReprocessedOut(BaseModel):
 
 
 class HighlightRequest(BaseModel):
-    """What to frame on a page (#350): a passage - found in the page's text - or an interval of characters of it.
-    A POST, though it only reads: a cited chunk is long, and would not fit in the address."""
+    """What to frame on a page (#350): a passage - found in the page's text -, an interval of characters of it, or
+    a cited chunk (#353), which says where it is in each page it touches. A POST, though it only reads: a cited
+    chunk's text is long, and would not fit in the address."""
 
     text: str | None = Field(default=None, max_length=20_000)
     start: int | None = Field(default=None, ge=0)
     end: int | None = Field(default=None, ge=0)
+    chunk_id: uuid.UUID | None = None
     # A short text that is several times on the page (a name): how many of its occurrences, at most.
     max_occurrences: int = Field(default=1, ge=1, le=10)
 
     @model_validator(mode="after")
-    def _text_or_interval(self) -> "HighlightRequest":
+    def _something_to_frame(self) -> "HighlightRequest":
         interval = self.start is not None and self.end is not None and self.end > self.start
-        if not interval and not (self.text and self.text.strip()):
-            raise ValueError("give a text, or an interval of characters (start < end)")
+        if not interval and not (self.text and self.text.strip()) and self.chunk_id is None:
+            raise ValueError("give a text, an interval of characters (start < end) or a chunk")
         return self
 
 
@@ -291,3 +293,6 @@ class HighlightRange(BaseModel):
 class HighlightsOut(BaseModel):
     rects: list[HighlightRect]
     ranges: list[HighlightRange]
+    # For a chunk (#353): the pages it is on, in order - what a source modal pages through. Empty otherwise,
+    # and for a chunk whose pages are not known.
+    pages: list[int] = []

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { highlightPassage, highlightRange } from './highlightPassage.ts'
+import { highlightPassage, highlightRange, highlightRanges } from './highlightPassage.ts'
 
 const marked = (content: string, passage: string | null | undefined) =>
   highlightPassage(content, passage)
@@ -101,4 +101,31 @@ test('an interval beyond the page is brought back to it, and an empty or reverse
   assert.equal(highlightRange('Un texte', 6, 2).matched, false)
   assert.equal(highlightRange('Un texte', 40, 50).matched, false)
   assert.deepEqual(highlightRange('', 0, 4).segments, [])
+})
+
+test('several intervals are highlighted, in the page order whatever the order they come in', () => {
+  const page = 'Alpha un. Beta deux. Gamma trois.'
+
+  const match = highlightRanges(page, [
+    { start: 21, end: 33 },
+    { start: 0, end: 9 },
+  ])
+
+  assert.deepEqual(
+    match.segments.filter((segment) => segment.highlighted).map((segment) => segment.text),
+    ['Alpha un.', 'Gamma trois.'],
+  )
+  assert.equal(match.segments.map((segment) => segment.text).join(''), page)
+})
+
+test('an interval inside another is not highlighted twice', () => {
+  const match = highlightRanges('abcdefghij', [
+    { start: 0, end: 8 },
+    { start: 2, end: 5 },
+  ])
+
+  assert.deepEqual(match.segments, [
+    { text: 'abcdefgh', highlighted: true },
+    { text: 'ij', highlighted: false },
+  ])
 })
