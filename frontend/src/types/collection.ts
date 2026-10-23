@@ -125,6 +125,26 @@ export interface PipelineWindows {
   // Not a document-level window like the others above - how many QA pairs
   // are generated from the collection's description each time it changes.
   collectionQaCount: number
+  // Longs documents (#372) : au-delà de samplingMinPages pages, le résumé, les questions et les entités ne lisent
+  // pas tout le document (les chunks, si). Les valeurs par défaut lisent tout.
+  samplingMinPages: number
+  summaryMode: 'all' | 'percent' | 'pages'
+  summaryPercent: number
+  summaryHeadPercent: number | null
+  summaryTailPercent: number | null
+  summaryPageRanges: string
+  qaMaxQuestions: number | null
+  extractionPercent: number
+  extractionMaxWindows: number | null
+}
+
+// Les appels au modèle que coûte l'indexation d'un document de `pages` pages (GET/POST .../indexing-estimate).
+export interface IndexingEstimate {
+  pages: number
+  sampled: boolean
+  chat: Record<string, number>
+  embeddings: Record<string, number>
+  collectionMax: number
 }
 
 export interface EvaluationMetrics {
