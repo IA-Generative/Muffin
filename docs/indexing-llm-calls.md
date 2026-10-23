@@ -39,22 +39,25 @@ question générée pour les QA (`fenêtres × qa_questions_per_window` au plus,
 
 Les fenêtres des QA et des entités se recouvrent (glissement de 1 page) : c'est ce qui les rend nombreuses.
 
-## Avec l'échantillonnage (prévu)
+## Avec l'échantillonnage (prévu, #372)
 
 À partir de `sampling_min_pages` pages (100 par défaut), trois étapes ne parcourent plus tout le document ; le chunking
 parcourt toujours toutes les pages. Un document de 100 pages ou moins est traité comme ci-dessus.
 
+Les fenêtres tirées sont **sans recouvrement** (glissement = taille de fenêtre) : « 20 % » veut dire 20 % des pages. Avec les
+fenêtres actuelles, qui se recouvrent, 20 % des fenêtres en couvriraient environ 80 % des pages.
+
 | Étape | Réglage | Appels de chat |
 |---|---|---|
-| Résumé | `summary_head_percent`, `summary_tail_percent` (ou des plages de pages) | `⌈pages retenues / summary_pages_per_map⌉` + 1, avec `pages retenues = ⌈P × (tête + queue) / 100⌉` |
-| QA | `qa_max_questions` (N) | `min(fenêtres sans recouvrement, ⌊N / qa_questions_per_window⌋)` ; au plus N questions |
-| Entités | `extraction_percent` | `max(1, ⌈fenêtres × pourcentage / 100⌉)` |
+| Résumé | `summary_percent` (réparti moitié début, moitié fin), ou `summary_head_percent` + `summary_tail_percent`, ou des plages de pages | `⌈pages retenues / summary_pages_per_map⌉` + 1, avec `pages retenues = ⌈P × pourcentage / 100⌉` |
+| QA | `qa_max_questions` (N), par document | `min(⌈P / qa_window_pages⌉, ⌊N / qa_questions_per_window⌋)` ; au plus N questions |
+| Entités | `extraction_percent`, `extraction_max_windows` (optionnel) | `min(max(1, ⌈⌈P / extraction_window_pages⌉ × pourcentage / 100⌉), extraction_max_windows)` |
 
-Exemple, 900 pages, résumé 15 % + 15 %, N = 100 questions, 20 % des entités : résumé `⌈270 / 5⌉ + 1 = 55`, QA
-`⌊100 / 3⌋ = 33`, entités `⌈897 × 0,2⌉ = 180`, étiquettes 1 : **269 appels au lieu de 1 978** (−86 %).
+Exemple, 900 pages, résumé 30 % (15 % + 15 %), N = 100 questions, 20 % des entités : résumé `⌈270 / 5⌉ + 1 = 55`, QA
+`⌊100 / 3⌋ = 33`, entités `⌈⌈900 / 4⌉ × 0,2⌉ = 45`, étiquettes 1 : **134 appels au lieu de 1 978** (−93 %).
 
 ## Où ce calcul sera utilisé
-Une fonction pure `estimate_llm_calls(pages, réglages)` (même module que la sélection des fenêtres, testée contre
-`sliding_windows`) donnera ces nombres : l'onglet réglages de la collection affichera « environ N appels pour un document
-de 100 / 900 pages » à côté des champs, et le calcul sert de référence pour vérifier qu'un échantillonnage tient son
-plafond.
+Une fonction unique dans le backend (`estimate_llm_calls(pages, réglages)`, #373) donne ces nombres par une route que
+l'onglet réglages de la collection appelle (#375) : « environ N appels pour un document de 100 / 900 pages » à côté des
+champs. Un fichier de cas de référence (pages, réglages → appels) est vérifié par le test du backend et par un test du
+worker qui compte les tâches réellement envoyées (#374) : le calcul affiché et le travail fait ne peuvent pas diverger.
