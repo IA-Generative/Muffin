@@ -46,7 +46,7 @@ async def client():
 
 @pytest.fixture
 def index(monkeypatch):
-    """Meilisearch, RustFS and the embeddings API replaced. `vectors` holds what the source collection's
+    """Qdrant, RustFS and the embeddings API replaced. `vectors` holds what the source collection's
     index has, by point id; the rest records what is written, copied and removed."""
     state = {
         "vectors": {},
@@ -487,7 +487,7 @@ async def test_a_copy_that_fails_leaves_nothing_and_the_worker_computes_the_stag
     await _processed_source(await _collection(), index)
     target_collection = await _collection()
     target = await _document(target_collection)
-    index["read_error"] = RuntimeError("Meilisearch is down")
+    index["read_error"] = RuntimeError("Qdrant is down")
 
     assert await _begin(client, target, PipelineStage.CHUNKS) is False
 

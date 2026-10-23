@@ -342,7 +342,7 @@ async def update_conversation_title(
 
 @router.post(
     "/search",
-    summary="Hybrid search (Meilisearch) over the chunks of the given collections",
+    summary="Hybrid search (Qdrant) over the chunks of the given collections",
     response_model=list[SearchResultOut],
 )
 async def search(body: SearchRequest, db: Annotated[AsyncSession, Depends(get_db)]) -> list[SearchResultOut]:
@@ -367,7 +367,7 @@ async def search(body: SearchRequest, db: Annotated[AsyncSession, Depends(get_db
 
 @router.post(
     "/qa-search",
-    summary="Hybrid search (Meilisearch) over the QA pairs of the given collections - the research "
+    summary="Hybrid search (Qdrant) over the QA pairs of the given collections - the research "
     "agent's QA-first retrieval tier, tried before falling back to summaries then chunk search",
     response_model=list[QaSearchResultOut],
 )
@@ -403,7 +403,7 @@ async def qa_search(body: SearchRequest, db: Annotated[AsyncSession, Depends(get
 
 @router.post(
     "/summary-search",
-    summary="Hybrid search (Meilisearch) over the document summaries of the given collections - the "
+    summary="Hybrid search (Qdrant) over the document summaries of the given collections - the "
     "research agent's tier-2 retrieval, tried after a QA miss and before a full chunk search",
     response_model=list[SummarySearchResultOut],
 )

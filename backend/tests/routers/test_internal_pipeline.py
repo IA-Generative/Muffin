@@ -69,7 +69,7 @@ async def test_get_collection_settings_not_found(client):
 
 @pytest.fixture
 def vectors(monkeypatch):
-    """Meilisearch replaced: what is indexed and what is removed, by QA pair id."""
+    """Qdrant replaced: what is indexed and what is removed, by QA pair id."""
     from app.services import vector_store
 
     calls = {"upserted": [], "deleted": []}
@@ -378,10 +378,10 @@ async def test_update_collection_description_embedding_not_found(client):
     assert response.status_code == 404
 
 
-async def test_update_collection_description_embedding_indexes_in_meilisearch(client, monkeypatch):
-    """Not persisted anywhere in Postgres (§124: the embedding lives in Meilisearch only) -
+async def test_update_collection_description_embedding_indexes_in_qdrant(client, monkeypatch):
+    """Not persisted anywhere in Postgres (§124: the embedding lives in Qdrant only) -
     this endpoint's whole job is calling vector_store, so that's the only thing worth asserting
-    on. Two calls, to confirm the second one's embedding is what actually reaches Meilisearch
+    on. Two calls, to confirm the second one's embedding is what actually reaches Qdrant
     (a full replace, not an accumulation)."""
     from app.services import vector_store
 
@@ -421,14 +421,14 @@ async def test_update_collection_description_embedding_indexes_in_meilisearch(cl
 
 async def test_update_collection_description_embedding_indexing_failure_does_not_fail_the_request(client, monkeypatch):
     """Best-effort indexing (§124) - the Postgres embedding is already committed by the time
-    Meilisearch is touched, so a Meilisearch failure here must not roll back a successful write
+    Qdrant is touched, so a Qdrant failure here must not roll back a successful write
     or surface as an error to the worker."""
     from app.services import vector_store
 
     collection_id, _ = await _create_collection_and_document()
 
     def _raise(*args, **kwargs):
-        raise RuntimeError("Meilisearch unreachable")
+        raise RuntimeError("Qdrant unreachable")
 
     monkeypatch.setattr(vector_store, "upsert_collection_description", _raise)
 
@@ -441,7 +441,7 @@ async def test_update_collection_description_embedding_indexing_failure_does_not
     assert response.status_code == 200
 
 
-async def test_update_collection_tags_indexes_tags_in_meilisearch(client, monkeypatch):
+async def test_update_collection_tags_indexes_tags_in_qdrant(client, monkeypatch):
     from app.services import vector_store
 
     collection_id, _ = await _create_collection_and_document()

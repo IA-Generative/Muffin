@@ -125,7 +125,7 @@ async def update_collection_tags(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found")
     await repository.update_tags(collection, update.tags, PIPELINE_UPDATED_BY)
     await db.commit()
-    # Best-effort, same reasoning as vector_store.delete_collection: a Meilisearch failure here
+    # Best-effort, same reasoning as vector_store.delete_collection: a Qdrant failure here
     # must not roll back the tags themselves, which are already committed above. A no-op if the
     # collection has no description embedded yet (see update_collection_tags_in_index).
     try:
@@ -137,7 +137,7 @@ async def update_collection_tags(
 
 @router.patch(
     "/collections/{collection_id}/description-embedding",
-    summary="Report the embedding vector for a collection's description, indexed in Meilisearch "
+    summary="Report the embedding vector for a collection's description, indexed in Qdrant "
     "(§124) to match a query to the right collection - not persisted anywhere in Postgres",
 )
 async def update_collection_description_embedding(
@@ -148,7 +148,7 @@ async def update_collection_description_embedding(
     collection = await CollectionRepository(db).get_by_id(collection_id)
     if collection is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found")
-    # Best-effort, same reasoning as elsewhere in this router - a Meilisearch failure here must
+    # Best-effort, same reasoning as elsewhere in this router - a Qdrant failure here must
     # never surface as an error to the worker; the collection's description/tags themselves are
     # unaffected either way, only this search index falls behind until the next successful call.
     try:
@@ -156,7 +156,7 @@ async def update_collection_description_embedding(
             collection_id, collection.description, [tag.tag for tag in collection.tags], update.embedding
         )
     except Exception:
-        logger.exception(f"Failed to index the description for collection {collection_id} in Meilisearch")
+        logger.exception(f"Failed to index the description for collection {collection_id} in Qdrant")
     return {"status": "ok"}
 
 

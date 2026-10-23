@@ -233,7 +233,7 @@ class CollectionRepository:
     async def get_embedding_models(self, collection_ids: list[uuid.UUID]) -> dict[uuid.UUID, str]:
         """Which embedding model each collection's chunks were embedded with (§12: VDB routing
         picks collections, but the query itself must be embedded once per distinct model among
-        them before searching each one's own Meilisearch index)."""
+        them before searching each one's own Qdrant index)."""
         # The model of the vectors in the active index, which is the configured one unless the owner
         # picked another model and the index hasn't been rebuilt with it yet (#12).
         result = await self.db.execute(

@@ -228,7 +228,7 @@ class DocumentUploadService:
         self, conversation_id: uuid.UUID, user: RequestContext, document_id: uuid.UUID
     ) -> None:
         """Deletes a file from a conversation's temporary collection - reuses delete_document
-        unchanged (RustFS + DB + Meilisearch cleanup). No temporary collection at all means this
+        unchanged (RustFS + DB + Qdrant cleanup). No temporary collection at all means this
         document can't possibly be in it, same as DocumentNotFoundError for a real collection."""
         collection = await self.collections.get_temporary_for_conversation(conversation_id)
         if collection is None:
@@ -275,7 +275,7 @@ class DocumentUploadService:
         The task is recorded for `user_id`. `bulk`: one of many, processed after any other waiting.
         `enqueue` false: the document is left waiting, for its import's window to queue (#335)."""
         # Same reasoning as delete_document: clear_content wipes the Postgres chunks/pages, so their
-        # Meilisearch embeddings must be deleted first or they'd survive as stale vectors pointing
+        # Qdrant embeddings must be deleted first or they'd survive as stale vectors pointing
         # at chunk ids that no longer exist.
         chunk_ids = await self.documents.list_chunk_ids(document.id)
         vector_store.delete_document_embeddings(document.collection_id, document.id, chunk_ids)
@@ -514,7 +514,7 @@ class DocumentUploadService:
         document = await self._get_owned_document(collection_id, document_id)
         rustfs_keys = await self.documents.list_rustfs_keys_for_document(document_id)
         chunk_ids = await self.documents.list_chunk_ids(document_id)
-        # Delete the Meilisearch embeddings *before* the Postgres rows go away - otherwise the
+        # Delete the Qdrant embeddings *before* the Postgres rows go away - otherwise the
         # chunk ids can't be looked up anymore, and stale vectors would keep surfacing in search
         # results pointing at a document_id that no longer exists (FK violation at citation
         # materialization time, see SourceRepository.link_citations).
