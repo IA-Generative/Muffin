@@ -90,16 +90,28 @@ apps) : `RUSTFS_VOLUMES`, `RUSTFS_ADDRESS`, `RUSTFS_CONSOLE_ADDRESS`, `RUSTFS_CO
 `RUSTFS_UNSAFE_BYPASS_DISK_CHECK` (bypass dev-only : les 4 volumes nommés Docker sont sur le même
 disque physique, RustFS le refuse par défaut).
 
-## Recherche hybride (Meilisearch)
+## Recherche hybride (Qdrant)
+
+Moteur, modèle de données, BM25 et RRF : voir [docs/search.md](search.md). Sauvegarde : [docs/qdrant-backup.md](qdrant-backup.md).
 
 | Variable | Définition | Défaut | Utilisée par |
 |---|---|---|---|
-| `MEILI_URL` | URL du serveur Meilisearch | `http://localhost:7700` | **backend** (`app/config/meilisearch.py` → `app/connectors.py`, `app/services/vector_store.py` : upsert/recherche hybride (lexicale + vectorielle) des chunks, QA pairs et résumés embarqués) |
-| `MEILI_API_KEY` | Clé API Meilisearch (doit correspondre à `MEILI_MASTER_KEY` côté serveur) | `None` (pas de clé - convient à une instance de dev démarrée sans `MEILI_MASTER_KEY`, jamais en production) | **backend** (`app/config/meilisearch.py`) |
+| `QDRANT_URL` | URL du serveur Qdrant | `http://localhost:6333` | **backend** (`app/config/qdrant.py` → `app/connectors.py`, `app/services/vector_store.py` : upsert/recherche hybride (dense + BM25) des chunks, QA pairs et résumés embarqués) |
+| `QDRANT_API_KEY` | Clé API Qdrant (doit correspondre à `QDRANT__SERVICE__API_KEY` côté serveur) | `None` (pas de clé - convient à une instance de dev démarrée sans clé, jamais en production) | **backend** (`app/config/qdrant.py`) |
+| `SEARCH_RRF_K` | Constante `k` de la fusion RRF : une position `r` d'une branche ajoute `poids / (k + r)` au score fusionné. Plus `k` est petit, plus la fusion favorise ce que chaque branche classe en tête | `60` | **backend** (`app/config/qdrant.py` → `vector_store._hybrid`) |
+| `SEARCH_DENSE_WEIGHT` / `SEARCH_SPARSE_WEIGHT` | Poids de la branche dense (embedding) et de la branche lexicale (BM25) dans la fusion | `1.0` / `1.0` | **backend** (idem) |
+| `SEARCH_PREFETCH_LIMIT` | Candidats que chaque branche remet à la fusion, avant la limite finale | `50` | **backend** (idem) |
+| `SEARCH_BM25_K1` / `SEARCH_BM25_B` | Saturation de la fréquence d'un terme (`k1`) et normalisation par la longueur du texte (`b`) de BM25 | `1.2` / `0.75` | **backend** (`app/core/bm25.py`) |
+| `SEARCH_BM25_AVG_LENGTH` | Longueur moyenne, en termes, d'un texte indexé (un chunk) - Qdrant ne la fournit pas | `200` | **backend** (idem) |
+| `SEARCH_LANGUAGE` | Langue de la racinisation et des mots vides (algorithme Snowball : `french`, `english`...), identique à l'indexation et à la requête. **Changer la langue impose de ré-indexer** | `french` | **backend** (idem) |
+| `SEARCH_LOG_BRANCHES` | Journalise (niveau debug), pour chaque recherche, le rang que chaque branche donnerait seule à chaque résultat (requêtes supplémentaires : pour le débogage) | `false` | **backend** (`vector_store._log_branches`) |
 
-Les workers n'accèdent jamais directement à Meilisearch : toute recherche/écriture vectorielle
+Les workers n'accèdent jamais directement à Qdrant : toute recherche/écriture vectorielle
 passe par les endpoints internes du backend (`/internal/search`, `/internal/qa-search`,
 `/internal/summary-search`, `/internal/pipeline/*`).
+
+Le conteneur **qdrant** lui-même lit `QDRANT__SERVICE__API_KEY` (docker-compose : la valeur de `QDRANT_API_KEY`, par défaut
+`dev-only-qdrant-key-not-for-prod` ; Helm : le secret Vault `muffin-qdrant`).
 
 ## Recherche web (SearXNG)
 
@@ -107,7 +119,7 @@ passe par les endpoints internes du backend (`/internal/search`, `/internal/qa-s
 |---|---|---|---|
 | `SEARXNG_URL` | URL de l'instance SearXNG | `http://localhost:8080` | **worker/agent_execution** (`app/config.py` → `app/searxng_client.py`) |
 
-Contrairement à Meilisearch/Postgres, c'est le worker `agent_execution` qui appelle SearXNG
+Contrairement à Qdrant/Postgres, c'est le worker `agent_execution` qui appelle SearXNG
 directement (pas via le backend) - aucune donnée utilisateur n'y transite en base, l'appel est
 un aller-retour HTTP simple, sans authentification (SearXNG n'en a pas par défaut). L'outil
 `web_search` de l'agent n'est appelé que si le run a explicitement activé la recherche web
