@@ -12,8 +12,11 @@ import type {
   EditProposal,
   ExecutionEvent,
   FeedbackDetails,
+  AssistantQuestion,
+  QuestionAnswer,
   Source,
 } from '../types/chat'
+import { formatAnswers, toRequestAnswers } from '../utils/questionAnswers'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
 
@@ -73,7 +76,33 @@ interface MessageOut {
   citations: Citation[] | null
   edit_proposal: ProposalOut | null
   unexplored_collection_ids?: string[] | null
+  questions?: QuestionOut[] | null
+  questions_answer?: { selected: string[]; text: string | null }[] | null
+  questions_abandoned?: boolean
   feedback: 'up' | 'down' | null
+}
+
+// Backend shape (snake_case) of the questions with options the assistant asked (#344).
+interface QuestionOut {
+  question: string
+  header: string
+  multi_select: boolean
+  options: { label: string; description: string }[]
+}
+
+function toQuestions(raw: QuestionOut[] | null | undefined): AssistantQuestion[] | undefined {
+  return raw?.length
+    ? raw.map((item) => ({
+        question: item.question,
+        header: item.header,
+        multiSelect: item.multi_select,
+        options: item.options,
+      }))
+    : undefined
+}
+
+function toQuestionsAnswer(raw: MessageOut['questions_answer']): QuestionAnswer[] | undefined {
+  return raw ? raw.map((item) => ({ selected: item.selected, text: item.text ?? '' })) : undefined
 }
 
 // Backend shape (snake_case) of Run.edit_proposal - see backend/app/models/run.py. Two kinds share
@@ -138,6 +167,7 @@ interface RunOut {
   citations: Citation[] | null
   edit_proposal: ProposalOut | null
   unexplored_collection_ids?: string[] | null
+  questions?: QuestionOut[] | null
   error: string | null
 }
 
@@ -162,9 +192,6 @@ const executionErrorMessageIds = ref(new Set<string>())
 const confirmedConversationIds = new Set<string>()
 const conversationAliases: Record<string, string> = {}
 const activePolls = new Map<string, ReturnType<typeof setInterval>>()
-// A run paused on a clarification question (HITL, §31): the next message typed in this
-// conversation answers it (POST /api/runs/{runId}/resume) instead of starting a new run.
-const pendingClarifications: Record<string, { runId: string; messageId: string }> = {}
 // Which conversation ids already have their message history loaded (or definitively don't exist
 // on the backend) - avoids re-fetching on every sidebar click, and lets a brand-new local-only
 // conversation (newConversation()) skip a fetch that would just 404.
@@ -356,6 +383,9 @@ async function ensureMessagesLoaded(conversationId: string) {
         editProposal: toEditProposal(item.edit_proposal),
         creationProposal: toCreationProposal(item.edit_proposal),
         unexploredCollectionIds: item.unexplored_collection_ids ?? undefined,
+        questions: toQuestions(item.questions),
+        questionsAnswer: toQuestionsAnswer(item.questions_answer),
+        questionsAbandoned: item.questions_abandoned ?? false,
       }
     })
     confirmedConversationIds.add(conversationId)
@@ -754,6 +784,8 @@ async function loadMoreConversations() {
 interface RunOptions {
   includeDescendants?: boolean
   continueExploration?: boolean
+  // The message answers the questions this run asked (#344), with the answer to each.
+  answers?: { runId: string; answers: QuestionAnswer[] }
 }
 
 async function createRun(
@@ -778,6 +810,8 @@ async function createRun(
       web_search_enabled: webSearchEnabled,
       include_descendants: options.includeDescendants ?? true,
       continue_exploration: options.continueExploration ?? false,
+      answers_run_id: options.answers?.runId,
+      answers: options.answers ? toRequestAnswers(options.answers.answers) : undefined,
     }),
   })
   if (!response.ok) throw new Error(`${response.status}`)
@@ -793,17 +827,6 @@ async function fetchRun(runId: string): Promise<RunOut> {
 async function fetchActiveRuns(conversationId: string): Promise<RunOut[]> {
   const response = await fetch(`${API_BASE_URL}/api/conversations/${conversationId}/active-runs`, {
     credentials: 'include',
-  })
-  if (!response.ok) throw new Error(`${response.status}`)
-  return response.json()
-}
-
-async function resumeRun(runId: string, answer: string): Promise<RunOut> {
-  const response = await fetch(`${API_BASE_URL}/api/runs/${runId}/resume`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ answer }),
   })
   if (!response.ok) throw new Error(`${response.status}`)
   return response.json()
@@ -926,6 +949,8 @@ function formatAnswerWithCitations(answer: string, citations: Citation[] | null 
 }
 
 function assistantMessageFor(id: string, run: RunOut): ChatMessage {
+  // A run that was already waiting for an answer when questions stopped holding a run up (#344): it
+  // can no longer be resumed, the question is shown and a new message goes on from there.
   if (run.status === 'waiting_for_user') {
     return {
       id,
@@ -951,6 +976,7 @@ function assistantMessageFor(id: string, run: RunOut): ChatMessage {
       editProposal: toEditProposal(run.edit_proposal),
       creationProposal: toCreationProposal(run.edit_proposal),
       unexploredCollectionIds: run.unexplored_collection_ids ?? undefined,
+      questions: toQuestions(run.questions),
     }
   }
   return {
@@ -969,15 +995,11 @@ function replaceMessage(conversationId: string, messageId: string, message: Chat
 }
 
 // Applies a run's latest state to its placeholder message, and returns whether polling should
-// stop - either a terminal status, or waiting_for_user (§31 HITL): nothing will change there
-// until the user answers, which happens through sendMessage/pendingClarifications below, not
-// more polling.
+// stop - either a terminal status, or waiting_for_user (a run that was already waiting before #344):
+// nothing will change there.
 function applyRunUpdate(conversationId: string, messageId: string, run: RunOut): boolean {
   replaceMessage(conversationId, messageId, assistantMessageFor(messageId, run))
-  if (run.status === 'waiting_for_user') {
-    pendingClarifications[resolveConversationId(conversationId)] = { runId: run.id, messageId }
-    return true
-  }
+  if (run.status === 'waiting_for_user') return true
   const terminal = TERMINAL_STATUSES.has(run.status)
   // When the run completes, the worker generates a conversation title *after* marking the run
   // as completed (see agent_service._finalize) - so the title isn't available in this very
@@ -999,7 +1021,7 @@ function applyRunUpdate(conversationId: string, messageId: string, run: RunOut):
   return terminal
 }
 
-// Polls a run until it reaches a terminal status (or pauses for a clarification), updating the
+// Polls a run until it reaches a terminal status, updating the
 // placeholder assistant message in place each time - same setInterval-based polling convention
 // as useCollections.ts's pollDocumentsWhileProcessing.
 function trackRun(conversationId: string, messageId: string, run: RunOut) {
@@ -1048,20 +1070,6 @@ async function runQuery(
   }
 }
 
-async function resumeAndTrack(conversationId: string, runId: string, messageId: string, answer: string) {
-  try {
-    const run = await resumeRun(runId, answer)
-    trackRun(conversationId, messageId, run)
-  } catch {
-    replaceMessage(conversationId, messageId, {
-      id: messageId,
-      role: 'assistant',
-      content: 'Impossible de reprendre cette recherche. Veuillez réessayer.',
-      error: true,
-    })
-  }
-}
-
 function sendMessage(
   content: string,
   collectionIds: string[] = [],
@@ -1071,19 +1079,7 @@ function sendMessage(
 ) {
   const conversationId = activeId.value
 
-  const pending = pendingClarifications[conversationId]
-  if (pending) {
-    delete pendingClarifications[conversationId]
-    messagesByConversation.value[conversationId].push({ id: crypto.randomUUID(), role: 'user', content })
-    replaceMessage(conversationId, pending.messageId, {
-      id: pending.messageId,
-      role: 'assistant',
-      content: 'Recherche en cours',
-      pending: true,
-    })
-    resumeAndTrack(conversationId, pending.runId, pending.messageId, content)
-    return
-  }
+  abandonOpenQuestions(conversationId)
 
   const messageId = crypto.randomUUID()
   messagesByConversation.value[conversationId].push(
@@ -1129,6 +1125,32 @@ async function askSuggestion(suggestion: QaSuggestion) {
   }
 }
 
+// Writing anything but an answer after the assistant's questions lets them go (#344): the card says so
+// at once, as the backend will when the thread is read again.
+function abandonOpenQuestions(conversationId: string) {
+  for (const message of messagesByConversation.value[conversationId] ?? []) {
+    if (message.questions?.length && message.questionsAnswer === undefined) message.questionsAbandoned = true
+  }
+}
+
+// The user answers the questions a message asks (#344): their answer is a message of the thread, and a new
+// run reads it with the conversation - nothing waited for it, whenever it comes.
+async function answerQuestions(messageId: string, answers: QuestionAnswer[]) {
+  const conversationId = activeId.value
+  const list = messagesByConversation.value[conversationId]
+  const asked = list?.find((message) => message.id === messageId)
+  if (!asked?.questions || !asked.runId) return
+
+  const content = formatAnswers(asked.questions, answers)
+  asked.questionsAnswer = answers
+  const placeholderId = crypto.randomUUID()
+  list.push(
+    { id: crypto.randomUUID(), role: 'user', content },
+    { id: placeholderId, role: 'assistant', content: 'Recherche en cours', pending: true },
+  )
+  await runQuery(conversationId, placeholderId, content, [], false, { answers: { runId: asked.runId, answers } })
+}
+
 // "Go further" on the latest answer (#219): a new message resuming the exploration where that
 // answer stopped - the backend hands the agent that answer's unexplored collections. The text is
 // what the user sees in the thread; the agent reads it against the conversation's history.
@@ -1152,9 +1174,6 @@ function regenerateMessage(id: string) {
     clearInterval(interval)
     activePolls.delete(id)
   }
-  // Regenerating (e.g. from a clarification bubble) abandons whatever run was pending - a
-  // stale entry here would otherwise hijack the next normal sendMessage into "resuming" it.
-  delete pendingClarifications[conversationId]
   list[index] = { id, role: 'assistant', content: 'Recherche en cours', pending: true }
   // Regenerating never re-enables web search on its own - it's not tracked per message, and
   // silently turning it back on for a rerun the user didn't explicitly opt into would violate
@@ -1379,6 +1398,7 @@ export function useChat() {
     renameConversation,
     deleteConversation,
     sendMessage,
+    answerQuestions,
     askSuggestion,
     goFurther,
     regenerateMessage,
