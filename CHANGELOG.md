@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.27.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.26.0...v0.27.0-rc) (2026-10-23)
+
+
+### Features
+
+* **chat:** highlight the cited passage in the source modal, with a pager between cited pages ([12560d1](https://github.com/IA-Generative/Muffin/commit/12560d1f7b8db7a52772c07a9b41f2f12ed11329)), closes [#349](https://github.com/IA-Generative/Muffin/issues/349)
+* **chunking:** keep the exact position of each chunk in its pages and frame cited chunks there ([fd08434](https://github.com/IA-Generative/Muffin/commit/fd08434b891b7cc169906530f11c45b950a55e91)), closes [#353](https://github.com/IA-Generative/Muffin/issues/353)
+* **documents:** keep the positioned text of pages, frame the cited passage on the screenshot ([17aace2](https://github.com/IA-Generative/Muffin/commit/17aace2771f8ea78d6e18a85fba5ad8227f84a06)), closes [#350](https://github.com/IA-Generative/Muffin/issues/350)
+* **entities:** find each entity in the text and keep the sentence behind each relation ([7f87886](https://github.com/IA-Generative/Muffin/commit/7f878868a02273bce81616b2607333c8779a2369)), closes [#352](https://github.com/IA-Generative/Muffin/issues/352)
+* **qa:** frame the source of a question-answer pair where its passage is, in the tab and the chat ([1997bc3](https://github.com/IA-Generative/Muffin/commit/1997bc3cd8fe71f772357c230346ed9c6124f584)), closes [#351](https://github.com/IA-Generative/Muffin/issues/351)
+
 ## [0.26.0](https://github.com/IA-Generative/Muffin/compare/v0.25.0...v0.26.0) (2026-10-22)
 
 
