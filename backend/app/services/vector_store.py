@@ -1,18 +1,18 @@
-import time
 import uuid
 from collections.abc import Sequence
-from concurrent.futures import ThreadPoolExecutor
 
+import numpy as np
 from loguru import logger
-from meilisearch.errors import MeilisearchApiError
+from qdrant_client import models
 
-from app.connectors import meilisearch_connector
+from app.config import SearchSettings
+from app.connectors import qdrant_connector
+from app.core.bm25 import Bm25Encoder
 
-# Distinguishes a chunk's embedding from a QA pair's question embedding and a document summary's
-# embedding, all within the same Meilisearch index (§ QA -> summaries -> chunks retrieval
-# cascade) - they all live in chunks_<collection_id> and share the same embedder (all embedded
-# with that collection's own embedding_model), only this field says which kind of document it
-# is, so search()/search_qa()/search_summaries() below just filter on it.
+# Three kinds of points live in one Qdrant collection per Muffin Collection (§ QA -> summaries -> chunks
+# retrieval cascade): a chunk's embedding, a QA pair's question embedding and a document summary's embedding.
+# They share the collection's embedding model, only this payload field says which kind a point is, so
+# search()/search_qa()/search_summaries() below just filter on it.
 _KIND_FIELD = "kind"
 _KIND_CHUNK = "chunk"
 _KIND_QA = "qa"
@@ -20,108 +20,126 @@ _KIND_SUMMARY = "summary"
 # The kinds of points, for what copies them from one document to another (#300).
 KIND_CHUNK, KIND_QA, KIND_SUMMARY = _KIND_CHUNK, _KIND_QA, _KIND_SUMMARY
 
-# Stable embedder name used everywhere search/indexing touch a vector - the embedding model's own
-# name/version is configured once, on the index's embedder settings at creation time (see
-# _create_index), and never appears anywhere in the search path below. Swapping models means a
-# new index (blue/green reindex, see issue #12), never renaming this key.
-_EMBEDDER = "default"
+# Every point has two named vectors: the embedding, and the sparse BM25 vector of its text, whose IDF
+# Qdrant computes from the statistics of the collection itself.
+_DENSE = "dense"
+_SPARSE = "sparse"
 
-# Hybrid search blends lexical (full-text) and vector ranking - 1.0 would be pure vector search,
-# ignoring the lexical side entirely. 0.5 gives the lexical side an equal say, since the whole
-# point of hybrid search is to stop leaving full-text matching on the table.
-_SEMANTIC_RATIO = 0.5
+_settings = SearchSettings()
+_encoder = Bm25Encoder(
+    language=_settings.SEARCH_LANGUAGE,
+    k1=_settings.SEARCH_BM25_K1,
+    b=_settings.SEARCH_BM25_B,
+    average_length=_settings.SEARCH_BM25_AVG_LENGTH,
+)
 
-_client = meilisearch_connector.client
+_client = qdrant_connector.client
 
-# Single global index (unlike chunks_<collection_id>, one row per collection here - a
-# description isn't chunked) holding every collection's description/tags/embedding, all always
-# embedded with the same admin-configured model (see app/services/embedding_model_lookup.py) so
-# a query can be compared against every collection's description in one embedding space. Used
-# to narrow a large accessible set down to the most relevant candidates before an LLM call
-# (§ VDB routing) and, later, to suggest a collection for an uploaded file (§122).
-_COLLECTIONS_INDEX = "collections"
+# Single global collection (unlike chunks_<collection_id>, one point per Muffin collection here - a
+# description isn't chunked) holding every collection's description and tags, all always embedded with the
+# same admin-configured model (see app/services/embedding_model_lookup.py) so a query can be compared
+# against every collection's description in one embedding space. Used to narrow a large accessible set down
+# to the most relevant candidates before an LLM call (§ VDB routing) and, later, to suggest a collection for
+# an uploaded file (§122).
+_COLLECTIONS = "collections"
 
-# Set once per process, not at import time: enabling this is an HTTP call, and doing it eagerly
-# at import would risk crashing app boot if Meilisearch isn't reachable yet (same "must not crash
-# boot" reasoning as MeilisearchConnector itself) - deferred here to the first time an index is
-# actually about to be created, and re-attempted on every process if it ever failed.
-_vector_store_feature_enabled = False
+_PAGE = 1000
 
 
-def _ensure_vector_store_feature() -> None:
-    global _vector_store_feature_enabled
-    if _vector_store_feature_enabled:
-        return
-    # As of Meilisearch 1.12, embedders/hybrid search are gated behind this experimental flag,
-    # settable only through this API (no CLI flag/env var equivalent) - persisted server-side,
-    # so this is a one-time no-op after the first successful call, but harmless to repeat.
-    #
-    # Meilisearch ≥1.13: vectorStore became stable and was removed from experimental-features.
-    # The API returns 400 "Unknown field `vectorStore`" — this means the feature is already
-    # enabled by default, so we can safely ignore the error and proceed.
-    try:
-        _client.update_experimental_features({"vectorStore": True})
-    except MeilisearchApiError as e:
-        if "vectorStore" in str(e):
-            logger.info("vectorStore already stable on this Meilisearch version, skipping")
-        else:
-            raise
-    _vector_store_feature_enabled = True
+# -- naming: one alias per Muffin collection, over one of its two physical collections ---------------
+# Searches and writes go to the alias chunks_<id>, which never needs to know a rebuild (#12) is going on.
+# That rebuild builds the other physical collection, then moves the alias onto it in one atomic operation:
+# the two are used in turn, "next" being whichever the alias does not point to.
 
 
-def _index_name(collection_id: uuid.UUID) -> str:
-    # One Meilisearch index per Muffin Collection (§7/§12 of the research-agent brief:
-    # VDB == Collection in this codebase) - keeps deletion trivial and never mixes
-    # vectors from two collections with potentially different embedding models/dimensions.
+def _alias(collection_id: uuid.UUID) -> str:
     return f"chunks_{collection_id}"
 
 
-def _next_index_name(collection_id: uuid.UUID) -> str:
-    # The index a blue/green rebuild (#12) builds next to the active one. After the swap it holds
-    # the old index instead, until the switch is validated (deleted) or rolled back (swapped again).
-    return f"chunks_{collection_id}_next"
+def _physical(collection_id: uuid.UUID, slot: str) -> str:
+    return f"chunks_{collection_id}_{slot}"
 
 
-def _index_exists(name: str) -> bool:
+def _active_physical(collection_id: uuid.UUID) -> str | None:
+    """The physical collection the alias points to, None when nothing was ever indexed."""
+    alias = _alias(collection_id)
+    for description in _client.get_aliases().aliases:
+        if description.alias_name == alias:
+            return description.collection_name
+    return None
+
+
+def _next_physical(collection_id: uuid.UUID) -> str:
+    active = _active_physical(collection_id)
+    return _physical(collection_id, "b" if active == _physical(collection_id, "a") else "a")
+
+
+def _target(collection_id: uuid.UUID, next_index: bool) -> str:
+    return _next_physical(collection_id) if next_index else _alias(collection_id)
+
+
+def _exists(name: str) -> bool:
+    return _client.collection_exists(name)
+
+
+def _create_collection(name: str, dimensions: int) -> None:
+    # Lazily created on first embedding - the dimension is whatever the collection's own embedding model
+    # produces, never hardcoded.
     try:
-        _client.get_index(name)
-        return True
-    except MeilisearchApiError as error:
-        if error.code == "index_not_found":
-            return False
-        raise
+        _client.create_collection(
+            name,
+            vectors_config={_DENSE: models.VectorParams(size=dimensions, distance=models.Distance.COSINE)},
+            sparse_vectors_config={_SPARSE: models.SparseVectorParams(modifier=models.Modifier.IDF)},
+        )
+    except Exception:
+        if not _exists(name):  # a concurrent writer may have created it first
+            raise
+        return
+    for field in (_KIND_FIELD, "collection_id"):
+        _client.create_payload_index(name, field, models.PayloadSchemaType.KEYWORD)
 
 
-def _create_index(name: str, embedding: list[float]) -> None:
-    # Lazily created on first embedding - the embedder's dimensions are whatever the
-    # collection's own embedding_model produces, never hardcoded. create_index/update_settings
-    # are queued tasks processed in submission order by Meilisearch, so the settings below are
-    # guaranteed to apply before any add_documents call made right after this returns - no
-    # client-side wait_for_task needed.
-    _ensure_vector_store_feature()
-    _client.create_index(name, {"primaryKey": "id"})
-    _client.index(name).update_settings(
-        {
-            "embedders": {_EMBEDDER: {"source": "userProvided", "dimensions": len(embedding)}},
-            "filterableAttributes": [_KIND_FIELD, "document_id", "collection_id"],
-        }
-    )
+def _ensure_active(collection_id: uuid.UUID, dimensions: int) -> str:
+    """The alias, with a collection behind it - created now when nothing was indexed yet."""
+    alias = _alias(collection_id)
+    if _exists(alias):
+        return alias
+    # "a" may already be a rebuild being built while nothing is active yet: the active one is "b" then.
+    physical = _physical(collection_id, "b" if _exists(_physical(collection_id, "a")) else "a")
+    _create_collection(physical, dimensions)
+    try:
+        _client.update_collection_aliases(
+            [models.CreateAliasOperation(create_alias=models.CreateAlias(collection_name=physical, alias_name=alias))]
+        )
+    except Exception:
+        if not _exists(alias):
+            raise
+    return alias
+
+
+def _ensure_next(collection_id: uuid.UUID, dimensions: int) -> str:
+    name = _next_physical(collection_id)
+    if not _exists(name):
+        _create_collection(name, dimensions)
+    return name
+
+
+# -- writing ----------------------------------------------------------------------------------------
+
+
+def _sparse(text: str) -> models.SparseVector:
+    indices, values = _encoder.encode_document(text)
+    return models.SparseVector(indices=indices, values=values)
 
 
 def _point(
     collection_id: uuid.UUID, point_id: uuid.UUID, embedding: list[float], kind: str, text: str, model: str | None
-) -> dict:
-    point = {
-        "id": str(point_id),
-        _KIND_FIELD: kind,
-        "collection_id": str(collection_id),
-        "text": text,
-        "_vectors": {_EMBEDDER: embedding},
-    }
+) -> models.PointStruct:
+    payload = {_KIND_FIELD: kind, "collection_id": str(collection_id), "text": text}
     # Which model made the vector: what a rebuild (#12) checks to redo a vector made with another one.
     if model:
-        point["model"] = model
-    return point
+        payload["model"] = model
+    return models.PointStruct(id=str(point_id), vector={_DENSE: embedding, _SPARSE: _sparse(text)}, payload=payload)
 
 
 def _upsert(
@@ -132,10 +150,9 @@ def _upsert(
     text: str = "",
     model: str | None = None,
 ) -> None:
-    name = _index_name(collection_id)
-    if not _index_exists(name):
-        _create_index(name, embedding)
-    _client.index(name).add_documents([_point(collection_id, point_id, embedding, kind, text, model)])
+    name = _ensure_active(collection_id, len(embedding))
+    # wait: what is read right after (a document that reuses these results, #300) must already be there.
+    _client.upsert(name, [_point(collection_id, point_id, embedding, kind, text, model)], wait=True)
 
 
 def upsert_chunk_embedding(
@@ -168,123 +185,155 @@ def upsert_summary_embedding(
     _upsert(collection_id, document_id, embedding, _KIND_SUMMARY, text, model)
 
 
-def _search(
-    collection_id: uuid.UUID,
-    query: str,
-    query_embedding: list[float],
-    limit: int,
-    kind_filter: str,
+# -- hybrid search ----------------------------------------------------------------------------------
+
+
+def _branches(query: str, query_embedding: list[float], flt: models.Filter) -> list[tuple[str, models.Prefetch]]:
+    """The two searches the fusion merges: by embedding, and by BM25 terms (none when the query has no term
+    left once stop words are gone - the dense branch alone then answers)."""
+    limit = _settings.SEARCH_PREFETCH_LIMIT
+    branches = [(_DENSE, models.Prefetch(query=query_embedding, using=_DENSE, filter=flt, limit=limit))]
+    indices, values = _encoder.encode_query(query)
+    if indices:
+        sparse = models.SparseVector(indices=indices, values=values)
+        branches.append((_SPARSE, models.Prefetch(query=sparse, using=_SPARSE, filter=flt, limit=limit)))
+    return branches
+
+
+def _cosine(left: Sequence[float], right: Sequence[float]) -> float:
+    a, b = np.asarray(left, dtype=np.float64), np.asarray(right, dtype=np.float64)
+    norm = np.linalg.norm(a) * np.linalg.norm(b)
+    return float(a @ b / norm) if norm else 0.0
+
+
+def _hybrid(
+    name: str, query: str, query_embedding: list[float], limit: int, flt: models.Filter
 ) -> list[tuple[uuid.UUID, float]]:
-    name = _index_name(collection_id)
-    if not _index_exists(name):
+    """Hits ordered by the Reciprocal Rank Fusion of the dense and the BM25 branches, each with the cosine
+    between the query and the point's own embedding as its score.
+
+    A fused score only says how the ranks of a point in the two branches add up - it changes with the
+    number of candidates, and says nothing of how close the point is. The cosine does, the same way
+    for every query and whichever branch found the point (a point only the lexical branch found still
+    has one), which is what the research agent compares to a threshold to tell that a question was
+    already answered."""
+    if not _exists(name):
         return []
-    result = _client.index(name).search(
-        query,
-        {
-            "vector": query_embedding,
-            "hybrid": {"embedder": _EMBEDDER, "semanticRatio": _SEMANTIC_RATIO},
-            "filter": kind_filter,
-            "limit": limit,
-            "showRankingScore": True,
-        },
+    branches = _branches(query, query_embedding, flt)
+    weights = {_DENSE: _settings.SEARCH_DENSE_WEIGHT, _SPARSE: _settings.SEARCH_SPARSE_WEIGHT}
+    fusion = models.Rrf(k=_settings.SEARCH_RRF_K, weights=[weights[branch] for branch, _ in branches])
+    result = _client.query_points(
+        name,
+        prefetch=[prefetch for _, prefetch in branches],
+        query=models.RrfQuery(rrf=fusion),
+        limit=limit,
+        with_vectors=[_DENSE],
     )
-    return [(uuid.UUID(hit["id"]), hit["_rankingScore"]) for hit in result["hits"]]
+    hits = [
+        (uuid.UUID(str(point.id)), _cosine(query_embedding, point.vector[_DENSE]))
+        for point in result.points
+        if isinstance(point.vector, dict) and _DENSE in point.vector
+    ]
+    if _settings.SEARCH_LOG_BRANCHES:
+        _log_branches(name, hits, branches, limit)
+    return hits
+
+
+def _branch_ranks(
+    name: str, branches: list[tuple[str, models.Prefetch]], limit: int
+) -> dict[str, dict[uuid.UUID, int]]:
+    """The rank (from 1) each branch alone gives to its candidates."""
+    ranks: dict[str, dict[uuid.UUID, int]] = {}
+    for branch, prefetch in branches:
+        result = _client.query_points(
+            name, query=prefetch.query, using=prefetch.using, query_filter=prefetch.filter, limit=limit
+        )
+        ranks[branch] = {uuid.UUID(str(point.id)): rank for rank, point in enumerate(result.points, start=1)}
+    return ranks
+
+
+def _log_branches(
+    name: str, hits: list[tuple[uuid.UUID, float]], branches: list[tuple[str, models.Prefetch]], limit: int
+) -> None:
+    ranks = _branch_ranks(name, branches, _settings.SEARCH_PREFETCH_LIMIT)
+    for position, (point_id, cosine) in enumerate(hits[:limit], start=1):
+        by_branch = {branch: ranks[branch].get(point_id) for branch in ranks}
+        logger.debug(f"search {name}: #{position} {point_id} cosine={cosine:.3f} branch ranks={by_branch}")
+
+
+def _kind_filter(kind: str) -> models.Filter:
+    return models.Filter(must=[models.FieldCondition(key=_KIND_FIELD, match=models.MatchValue(value=kind))])
 
 
 def search(
     collection_id: uuid.UUID, query: str, query_embedding: list[float], limit: int
 ) -> list[tuple[uuid.UUID, float]]:
-    return _search(collection_id, query, query_embedding, limit, f"{_KIND_FIELD} = {_KIND_CHUNK}")
+    return _hybrid(_alias(collection_id), query, query_embedding, limit, _kind_filter(_KIND_CHUNK))
 
 
 def search_qa(
     collection_id: uuid.UUID, query: str, query_embedding: list[float], limit: int
 ) -> list[tuple[uuid.UUID, float]]:
-    return _search(collection_id, query, query_embedding, limit, f"{_KIND_FIELD} = {_KIND_QA}")
+    return _hybrid(_alias(collection_id), query, query_embedding, limit, _kind_filter(_KIND_QA))
 
 
 def search_summaries(
     collection_id: uuid.UUID, query: str, query_embedding: list[float], limit: int
 ) -> list[tuple[uuid.UUID, float]]:
-    return _search(collection_id, query, query_embedding, limit, f"{_KIND_FIELD} = {_KIND_SUMMARY}")
+    return _hybrid(_alias(collection_id), query, query_embedding, limit, _kind_filter(_KIND_SUMMARY))
+
+
+def explain_search(
+    collection_id: uuid.UUID, query: str, query_embedding: list[float], kind: str = _KIND_CHUNK
+) -> dict[str, dict[uuid.UUID, int]]:
+    """What each branch of a search alone ranks - the contribution of the lexical and the dense side to a
+    result, for debugging and tests (SEARCH_LOG_BRANCHES logs the same for every search)."""
+    name = _alias(collection_id)
+    if not _exists(name):
+        return {}
+    return _branch_ranks(name, _branches(query, query_embedding, _kind_filter(kind)), _settings.SEARCH_PREFETCH_LIMIT)
+
+
+# -- deleting ---------------------------------------------------------------------------------------
+
+
+def _delete_ids(names: Sequence[str], point_ids: Sequence[str]) -> None:
+    selector = models.PointIdsList(points=list(point_ids))
+    for name in names:
+        if _exists(name):
+            _client.delete(name, points_selector=selector, wait=True)
+
+
+def _both_physicals(collection_id: uuid.UUID) -> tuple[str, str]:
+    return _physical(collection_id, "a"), _physical(collection_id, "b")
 
 
 def delete_document_embeddings(collection_id: uuid.UUID, document_id: uuid.UUID, chunk_ids: list[uuid.UUID]) -> None:
-    """Best-effort cleanup of every Meilisearch point tied to one document - the chunk
-    embeddings (keyed by chunk_id) and the summary embedding (keyed by document_id itself,
-    see upsert_summary_embedding). Called from delete_document/reprocess *before* the
-    Postgres rows go away, so a Meilisearch/network failure here only leaves orphaned vectors
-    (never stale references the search path can still hit)."""
+    """Best-effort cleanup of every Qdrant point tied to one document - the chunk embeddings (keyed by
+    chunk_id) and the summary embedding (keyed by document_id itself, see upsert_summary_embedding). Called
+    from delete_document/reprocess *before* the Postgres rows go away, so a Qdrant/network failure here only
+    leaves orphaned vectors (never stale references the search path can still hit)."""
     ids = [str(document_id)] + [str(chunk_id) for chunk_id in chunk_ids]
-    # Both indexes: a rebuild's index (#12) must not keep what the active one no longer has.
-    for name in (_index_name(collection_id), _next_index_name(collection_id)):
-        if not _index_exists(name):
-            continue
+    # Both collections: a rebuild's (#12) must not keep what the active one no longer has.
+    for name in _both_physicals(collection_id):
         try:
-            _client.index(name).delete_documents(ids)
+            _delete_ids([name], ids)
         except Exception:
-            logger.exception(f"Failed to delete document {document_id} embeddings from index '{name}'")
-
-
-# Points read back at once: Meilisearch has no fetch by id, one request each.
-_READ_WORKERS = 8
-# Meilisearch indexes asynchronously: how long a read waits for what was written just before it.
-_SETTLE_TIMEOUT_SECONDS = 30
-
-
-def _wait_until_settled(index_name: str) -> None:
-    """Waits until the index has nothing left to process. A write returns once Meilisearch has queued it,
-    not indexed it: a point read right after is not there yet, which for a copy would mean silently
-    copying without its vector."""
-    deadline = time.monotonic() + _SETTLE_TIMEOUT_SECONDS
-    while time.monotonic() < deadline:
-        pending = _client.get_tasks({"indexUids": [index_name], "statuses": ["enqueued", "processing"], "limit": 1})
-        if not pending.results:
-            return
-        time.sleep(0.2)
-    raise TimeoutError(f"Index {index_name} still has tasks to process after {_SETTLE_TIMEOUT_SECONDS}s")
-
-
-def read_vectors(
-    collection_id: uuid.UUID, point_ids: Sequence[uuid.UUID]
-) -> dict[uuid.UUID, tuple[list[float], str | None]]:
-    """The vectors of points of the collection's active index, with the model that made each - what a
-    document that reuses another's results copies instead of embedding the same texts again (#300). A
-    point that is not there (its embedding failed when it was made) is simply absent."""
-    name = _index_name(collection_id)
-    if not point_ids or not _index_exists(name):
-        return {}
-    _wait_until_settled(name)
-    index = _client.index(name)
-
-    def read(point_id: uuid.UUID) -> tuple[uuid.UUID, tuple[list[float], str | None]] | None:
-        try:
-            point = dict(index.get_document(str(point_id), {"retrieveVectors": "true"}))
-        except MeilisearchApiError as error:
-            if error.code == "document_not_found":
-                return None
-            raise
-        embeddings = (point.get("_vectors") or {}).get(_EMBEDDER, {}).get("embeddings") or []
-        return (point_id, (list(embeddings[0]), point.get("model"))) if embeddings else None
-
-    with ThreadPoolExecutor(max_workers=_READ_WORKERS) as pool:
-        return dict(found for found in pool.map(read, point_ids) if found is not None)
+            logger.exception(f"Failed to delete document {document_id} embeddings from collection '{name}'")
 
 
 def _delete_points(collection_id: uuid.UUID, ids: Sequence[uuid.UUID], what: str) -> None:
-    """Best-effort removal of points from both of a collection's indexes, same reasoning as
+    """Best-effort removal of points from both of a collection's physical collections, same reasoning as
     delete_document_embeddings: a failure only leaves orphaned vectors, which the search paths never
     return since they resolve their ids against Postgres."""
     if not ids:
         return
     point_ids = [str(point_id) for point_id in ids]
-    for name in (_index_name(collection_id), _next_index_name(collection_id)):
-        if not _index_exists(name):
-            continue
+    for name in _both_physicals(collection_id):
         try:
-            _client.index(name).delete_documents(point_ids)
+            _delete_ids([name], point_ids)
         except Exception:
-            logger.exception(f"Failed to delete {len(point_ids)} {what} embedding(s) from index '{name}'")
+            logger.exception(f"Failed to delete {len(point_ids)} {what} embedding(s) from collection '{name}'")
 
 
 def delete_qa_embeddings(collection_id: uuid.UUID, qa_pair_ids: Sequence[uuid.UUID]) -> None:
@@ -301,56 +350,75 @@ def delete_qa_embedding(collection_id: uuid.UUID, qa_pair_id: uuid.UUID) -> None
 
 def delete_collection(collection_id: uuid.UUID) -> None:
     """Best-effort, same reasoning as app/core/storage.py's delete_objects: called after the
-    Collection row is already gone, so a Meilisearch/network failure here must not roll that
-    back - it just leaves an orphaned index under a collection id nothing references anymore.
+    Collection row is already gone, so a Qdrant/network failure here must not roll that back - it just
+    leaves an orphaned collection under an id nothing references anymore. Deleting a collection removes
+    the alias that points to it.
     """
-    for name in (_index_name(collection_id), _next_index_name(collection_id)):
+    for name in _both_physicals(collection_id):
         try:
-            if _index_exists(name):
-                _client.delete_index(name)
+            if _exists(name):
+                _client.delete_collection(name)
         except Exception:
-            logger.exception(f"Failed to delete Meilisearch index '{name}' - it is now orphaned")
+            logger.exception(f"Failed to delete Qdrant collection '{name}' - it is now orphaned")
     try:
-        if _index_exists(_COLLECTIONS_INDEX):
-            _client.index(_COLLECTIONS_INDEX).delete_document(str(collection_id))
+        _delete_ids([_COLLECTIONS], [str(collection_id)])
     except Exception:
-        logger.exception(f"Failed to remove collection {collection_id} from the '{_COLLECTIONS_INDEX}' index")
+        logger.exception(f"Failed to remove collection {collection_id} from the '{_COLLECTIONS}' collection")
 
 
-# -- blue/green rebuild of a collection's index (#12) ---------------------------------------------
-# The active index keeps its name, chunks_<id>: searches never need to know a rebuild is going on.
-# The new one is built under chunks_<id>_next, then the two are swapped in one Meilisearch task.
-
-_PAGE = 1000
-# A swap is quick, but it waits for every task queued before it on both indexes.
-_SWAP_TIMEOUT_MS = 120_000
+# -- reading ----------------------------------------------------------------------------------------
 
 
-def _target(collection_id: uuid.UUID, next_index: bool) -> str:
-    return _next_index_name(collection_id) if next_index else _index_name(collection_id)
+def read_vectors(
+    collection_id: uuid.UUID, point_ids: Sequence[uuid.UUID]
+) -> dict[uuid.UUID, tuple[list[float], str | None]]:
+    """The vectors of points of the collection's active index, with the model that made each - what a
+    document that reuses another's results copies instead of embedding the same texts again (#300). A
+    point that is not there (its embedding failed when it was made) is simply absent."""
+    name = _alias(collection_id)
+    if not point_ids or not _exists(name):
+        return {}
+    vectors: dict[uuid.UUID, tuple[list[float], str | None]] = {}
+    for start in range(0, len(point_ids), _PAGE):
+        records = _client.retrieve(
+            name,
+            [str(point_id) for point_id in point_ids[start : start + _PAGE]],
+            with_payload=["model"],
+            with_vectors=[_DENSE],
+        )
+        for record in records:
+            if isinstance(record.vector, dict) and record.vector.get(_DENSE):
+                vectors[uuid.UUID(str(record.id))] = (list(record.vector[_DENSE]), (record.payload or {}).get("model"))
+    return vectors
+
+
+# -- blue/green rebuild of a collection's index (#12) -----------------------------------------------
+# The active index is reached through the alias chunks_<id>: searches never need to know a rebuild is going
+# on. The new one is built in the other physical collection, then the alias is moved onto it in one atomic
+# operation. The old collection stays, as "next", until the switch is validated (deleted) or rolled back
+# (the alias moved back).
 
 
 def list_points(collection_id: uuid.UUID, *, next_index: bool) -> dict[str, dict[str, str | None]]:
     """Every point of the index, by id: its kind, text and the model that made its vector (None for a
     point indexed before the model was recorded). What a rebuild compares to PostgreSQL."""
     name = _target(collection_id, next_index)
-    if not _index_exists(name):
+    if not _exists(name):
         return {}
     points: dict[str, dict[str, str | None]] = {}
-    offset = 0
+    offset = None
     while True:
-        page = _client.index(name).get_documents(
-            {"fields": ["id", _KIND_FIELD, "text", "model"], "limit": _PAGE, "offset": offset}
+        records, offset = _client.scroll(
+            name, limit=_PAGE, offset=offset, with_payload=[_KIND_FIELD, "text", "model"], with_vectors=False
         )
-        for document in page.results:
-            fields = dict(document)
-            points[str(fields["id"])] = {
-                "kind": fields.get(_KIND_FIELD),
-                "text": fields.get("text"),
-                "model": fields.get("model"),
+        for record in records:
+            payload = record.payload or {}
+            points[str(record.id)] = {
+                "kind": payload.get(_KIND_FIELD),
+                "text": payload.get("text"),
+                "model": payload.get("model"),
             }
-        offset += len(page.results)
-        if not page.results or offset >= page.total:
+        if offset is None:
             return points
 
 
@@ -361,104 +429,106 @@ def upsert_points(
     *,
     next_index: bool,
 ) -> None:
-    """(kind, id, text, embedding) points, all made with `model`, in one Meilisearch task."""
+    """(kind, id, text, embedding) points, all made with `model`, in one call."""
     if not points:
         return
-    name = _target(collection_id, next_index)
-    if not _index_exists(name):
-        _create_index(name, points[0][3])
-    _client.index(name).add_documents(
-        [_point(collection_id, point_id, embedding, kind, text, model) for kind, point_id, text, embedding in points]
+    dimensions = len(points[0][3])
+    name = _ensure_next(collection_id, dimensions) if next_index else _ensure_active(collection_id, dimensions)
+    _client.upsert(
+        name,
+        [_point(collection_id, point_id, embedding, kind, text, model) for kind, point_id, text, embedding in points],
+        wait=True,
     )
 
 
 def delete_points(collection_id: uuid.UUID, point_ids: list[str], *, next_index: bool) -> None:
-    name = _target(collection_id, next_index)
-    if point_ids and _index_exists(name):
-        _client.index(name).delete_documents(point_ids)
+    if point_ids:
+        _delete_ids([_target(collection_id, next_index)], point_ids)
 
 
 def next_index_exists(collection_id: uuid.UUID) -> bool:
-    return _index_exists(_next_index_name(collection_id))
+    return _exists(_next_physical(collection_id))
 
 
 def delete_next_index(collection_id: uuid.UUID) -> None:
-    name = _next_index_name(collection_id)
-    if _index_exists(name):
-        _wait(_client.delete_index(name).task_uid)
+    name = _next_physical(collection_id)
+    if _exists(name):
+        _client.delete_collection(name)
 
 
 def swap_with_next(collection_id: uuid.UUID) -> None:
-    """Swaps the active index and the rebuilt one, atomically: every search before it reads the old
-    index, every search after it the new one, never anything in between. Waits for it to be done,
-    and raises if Meilisearch refused it. A collection with no active index yet (nothing indexed
-    before the rebuild) gets an empty one first - a swap needs both."""
-    active, rebuilt = _index_name(collection_id), _next_index_name(collection_id)
-    if not _index_exists(active):
-        dimensions = _client.index(rebuilt).get_settings()["embedders"][_EMBEDDER].dimensions
-        _create_index(active, [0.0] * dimensions)
-    _wait(_client.swap_indexes([{"indexes": [active, rebuilt]}]).task_uid)
-
-
-def _wait(task_uid: int) -> None:
-    task = _client.wait_for_task(task_uid, timeout_in_ms=_SWAP_TIMEOUT_MS)
-    status = getattr(task, "status", None)
-    if status != "succeeded":
-        raise RuntimeError(f"Meilisearch task {task_uid} ended {status}: {getattr(task, 'error', None)}")
-
-
-def _ensure_collections_index(embedding: list[float]) -> None:
-    if _index_exists(_COLLECTIONS_INDEX):
-        return
-    _ensure_vector_store_feature()
-    _client.create_index(_COLLECTIONS_INDEX, {"primaryKey": "id"})
-    _client.index(_COLLECTIONS_INDEX).update_settings(
-        {
-            "embedders": {_EMBEDDER: {"source": "userProvided", "dimensions": len(embedding)}},
-            "filterableAttributes": ["id"],
-        }
+    """Moves the alias from the active collection to the rebuilt one, atomically: every search before it
+    reads the old one, every search after it the new one, never anything in between (a single request
+    carries both operations). Raises if there is no rebuilt collection. A collection with nothing indexed
+    before the rebuild simply gets its alias."""
+    rebuilt = _next_physical(collection_id)
+    if not _exists(rebuilt):
+        raise RuntimeError(f"No rebuilt index to switch to for collection {collection_id}")
+    alias = _alias(collection_id)
+    operations: list[models.AliasOperations] = []
+    if _active_physical(collection_id) is not None:
+        operations.append(models.DeleteAliasOperation(delete_alias=models.DeleteAlias(alias_name=alias)))
+    operations.append(
+        models.CreateAliasOperation(create_alias=models.CreateAlias(collection_name=rebuilt, alias_name=alias))
     )
+    _client.update_collection_aliases(operations)
+
+
+# -- collection descriptions ------------------------------------------------------------------------
+
+
+def _description_text(description: str, tags: Sequence[str]) -> str:
+    return " ".join([description, *tags])
 
 
 def upsert_collection_description(
     collection_id: uuid.UUID, description: str, tags: list[str], embedding: list[float]
 ) -> None:
-    """Full replace of a collection's row (id/description/tags/embedding together) - called
-    whenever the description itself (and therefore its embedding) changes. For a tags-only
-    change with the description unchanged, see update_collection_tags_in_index instead, which
-    doesn't need to touch the embedding."""
-    _ensure_collections_index(embedding)
-    _client.index(_COLLECTIONS_INDEX).add_documents(
-        [{"id": str(collection_id), "description": description, "tags": tags, "_vectors": {_EMBEDDER: embedding}}]
+    """Full replace of a collection's point (description, tags and both vectors together) - called
+    whenever the description itself (and therefore its embedding) changes. For a tags-only change with the
+    description unchanged, see update_collection_tags_in_index instead, which doesn't need the embedding."""
+    if not _exists(_COLLECTIONS):
+        _create_collection(_COLLECTIONS, len(embedding))
+    _client.upsert(
+        _COLLECTIONS,
+        [
+            models.PointStruct(
+                id=str(collection_id),
+                vector={_DENSE: embedding, _SPARSE: _sparse(_description_text(description, tags))},
+                payload={"description": description, "tags": tags},
+            )
+        ],
+        wait=True,
     )
 
 
 def update_collection_tags_in_index(collection_id: uuid.UUID, tags: list[str]) -> None:
-    """Partial update (Meilisearch merges the given fields into the existing document, it
-    doesn't replace it) - a no-op if the collection has no description embedded yet (nothing to
-    merge into; the next description change will index it with these tags anyway)."""
-    if not _index_exists(_COLLECTIONS_INDEX):
+    """Partial update: the tags are searchable text next to the description, so the sparse vector is made
+    again, the embedding is left as is - a no-op if the collection has no description embedded yet
+    (nothing to merge into; the next description change will index it with these tags anyway)."""
+    if not _exists(_COLLECTIONS):
         return
-    _client.index(_COLLECTIONS_INDEX).update_documents([{"id": str(collection_id), "tags": tags}])
+    records = _client.retrieve(_COLLECTIONS, [str(collection_id)], with_payload=["description"], with_vectors=False)
+    if not records:
+        return
+    description = (records[0].payload or {}).get("description", "")
+    _client.set_payload(_COLLECTIONS, {"tags": tags}, points=[str(collection_id)], wait=True)
+    _client.update_vectors(
+        _COLLECTIONS,
+        [models.PointVectors(id=str(collection_id), vector={_SPARSE: _sparse(_description_text(description, tags))})],
+        wait=True,
+    )
 
 
 def search_collections(
     query: str, query_embedding: list[float], collection_ids: list[uuid.UUID], limit: int
 ) -> list[tuple[uuid.UUID, float]]:
-    """Vector (hybrid) search over collection descriptions, restricted to the given candidate
-    ids - the caller (SearchService.search_collections) is responsible for that candidate list
-    already being access-filtered; this never widens it, only ranks/narrows within it."""
-    if not collection_ids or not _index_exists(_COLLECTIONS_INDEX):
+    """Hybrid search over collection descriptions, restricted to the given candidate ids - the caller
+    (SearchService.search_collections) is responsible for that candidate list already being access-filtered;
+    this never widens it, only ranks/narrows within it."""
+    if not collection_ids:
         return []
-    ids_filter = "id IN [" + ", ".join(f'"{collection_id}"' for collection_id in collection_ids) + "]"
-    result = _client.index(_COLLECTIONS_INDEX).search(
-        query,
-        {
-            "vector": query_embedding,
-            "hybrid": {"embedder": _EMBEDDER, "semanticRatio": _SEMANTIC_RATIO},
-            "filter": ids_filter,
-            "limit": limit,
-            "showRankingScore": True,
-        },
+    candidates = models.Filter(
+        must=[models.HasIdCondition(has_id=[str(collection_id) for collection_id in collection_ids])]
     )
-    return [(uuid.UUID(hit["id"]), hit["_rankingScore"]) for hit in result["hits"]]
+    return _hybrid(_COLLECTIONS, query, query_embedding, limit, candidates)
