@@ -32,7 +32,11 @@ _SUMMARY_SUFFICIENCY_PROMPT = (
     "Given a query and the summaries of the documents in a knowledge base, decide whether these summaries "
     "alone (without reading the documents' full content) are enough to answer it completely and precisely. "
     'Respond only with JSON: {"sufficient": bool, "answer": string or null - a complete, precise answer '
-    "using only the given summaries, set only when sufficient is true}."
+    "using only the given summaries, set only when sufficient is true}. "
+    "A summary flagged as partial was written from some pages of a long document only: it says nothing of "
+    "the other pages, so it is never enough for a question about a detail, a section or a passage that "
+    "those pages may not cover - answer sufficient=false then. It can still be enough for a general question "
+    "about what the document is about."
 )
 
 
@@ -154,6 +158,17 @@ def _web_result_evidence(task_id: str, retrieval_query: str, result: dict[str, A
 _SUMMARY_MATCH_LIMIT = 5
 
 
+def _pages_text(ranges: list[list[int]]) -> str:
+    return ", ".join(f"{start}-{end}" if start != end else str(start) for start, end in ranges)
+
+
+def _summary_line(summary: dict[str, Any]) -> str:
+    """A summary written from some pages only says so, so that the judge never takes it for the whole document."""
+    pages = summary.get("summary_pages")
+    flag = f" [partial summary: pages {_pages_text(pages)} only]" if pages else ""
+    return f"{summary['name']}{flag}: {summary['summary']}"
+
+
 def _summaries_suffice(query: str, summaries: list[dict[str, Any]], model: str | None) -> tuple[bool, str | None]:
     """Tier 2 of the research agent's retrieval cascade (§ QA -> summaries -> chunks): before
     ever running a full chunk search, ask whether the top-matching documents' own summaries
@@ -163,7 +178,7 @@ def _summaries_suffice(query: str, summaries: list[dict[str, Any]], model: str |
     collection - that wouldn't scale to a collection with hundreds of them."""
     if model is None:
         return False, None
-    listing = "\n\n".join(f"{s['name']}: {s['summary']}" for s in summaries if s.get("summary"))
+    listing = "\n\n".join(_summary_line(s) for s in summaries if s.get("summary"))
     if not listing:
         return False, None
     raw = json_chat(
@@ -254,7 +269,12 @@ def _run_list_documents(
     for vdb in selected_vdbs:
         documents = backend_client.list_collection_documents(user_id, str(vdb["id"]))
         for document in documents:
-            content = f"{document['name']} ({document['status']}): {document['summary'] or 'no summary yet'}"
+            partial = (
+                f" [partial summary: pages {_pages_text(document['summary_pages'])} only]"
+                if document.get("summary_pages")
+                else ""
+            )
+            content = f"{document['name']} ({document['status']}){partial}: {document['summary'] or 'no summary yet'}"
             evidence.append(
                 Evidence(
                     id=str(uuid.uuid4()),
