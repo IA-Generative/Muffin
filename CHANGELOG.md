@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.28.0](https://github.com/IA-Generative/Muffin/compare/v0.27.0...v0.28.0) (2026-10-23)
+
+
+### Features
+
+* **agent:** decide 'already answered' on the dense cosine, look at the best of 3 candidates ([#355](https://github.com/IA-Generative/Muffin/issues/355)) ([b19b3ca](https://github.com/IA-Generative/Muffin/commit/b19b3ca7e230df15f4661bdc6cf8dfe0f8399809))
+* **search:** replace Meilisearch with Qdrant hybrid search (dense + BM25 IDF, RRF) ([e2b5403](https://github.com/IA-Generative/Muffin/commit/e2b5403254eeb9a0a79fa89716af2d3834dbcc98))
+
+
+### Bug Fixes
+
+* **ci:** start the Qdrant service in the backend unit tests ([#355](https://github.com/IA-Generative/Muffin/issues/355)) ([e8202c5](https://github.com/IA-Generative/Muffin/commit/e8202c5f0525fa5d0844b674f906bbaec7187bc2))
+* **release:** bump every Python service and its uv.lock with release-please ([d7208af](https://github.com/IA-Generative/Muffin/commit/d7208af870c0cd183cfb05457103ec0787d3f8ee))
+* **release:** bump muffin-backend in backend/uv.lock with release-please ([3d654a1](https://github.com/IA-Generative/Muffin/commit/3d654a12d237ffb39cff5c572aa9660b8521fec8))
+
+
+### Dependencies
+
+* **helm:** replace Meilisearch with a Qdrant sub-chart and a nightly snapshot ([#355](https://github.com/IA-Generative/Muffin/issues/355)) ([bb842ec](https://github.com/IA-Generative/Muffin/commit/bb842eccbb3b1e2376c908737d8a781f2e8c50f1))
+* **search:** add a Qdrant service to Docker Compose, the test stack and CI ([#355](https://github.com/IA-Generative/Muffin/issues/355)) ([e86df4f](https://github.com/IA-Generative/Muffin/commit/e86df4f3b736531818e1a79f888b823f5a7f4465))
+
 ## [0.27.0](https://github.com/IA-Generative/Muffin/compare/v0.26.0...v0.27.0) (2026-10-23)
 
 
