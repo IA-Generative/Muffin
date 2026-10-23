@@ -93,9 +93,10 @@ class DocumentService:
         summary: str,
         embedding: list[float] | None = None,
         embedding_model: str | None = None,
+        pages: list[list[int]] | None = None,
     ) -> None:
         document = await self.get_document(document_id)
-        await self.repository.set_summary(document, summary)
+        await self.repository.set_summary(document, summary, pages)
         await self.db.commit()
         if embedding is not None:
             embedding, model = await vector_for_active_index(

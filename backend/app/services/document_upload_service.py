@@ -362,6 +362,7 @@ class DocumentUploadService:
             status=document.status,
             progress=document.progress,
             summary=document.summary,
+            summary_pages=document.summary_pages,
             error=document.error,
             tags=[tag.tag for tag in document.tags],
             page_count=page_count,

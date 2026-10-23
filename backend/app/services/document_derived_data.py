@@ -81,6 +81,20 @@ class DocumentDerivedData:
         relations (from name, to name, type[, source]) - see EntityRepository.replace_window."""
         await self.entities.replace_window(collection_id, document_id, window_key, entities, relations)
 
+    async def prune_windows(
+        self, document: Document, qa_keep: Sequence[str] | None, entities_keep: Sequence[str] | None
+    ) -> None:
+        """A document read again with other settings keeps only the windows it now has (#372): the pairs and the
+        entities of the others go, with the vectors of the pairs. A step given None is left alone."""
+        if qa_keep is not None:
+            removed = await self.qa_pairs.delete_generated_windows_except(document.id, qa_keep)
+            for collection_id in {collection for collection, _ in removed}:
+                vector_store.delete_qa_embeddings(
+                    collection_id, [pair for collection, pair in removed if collection == collection_id]
+                )
+        if entities_keep is not None:
+            await self.entities.prune_windows(document.id, entities_keep)
+
     async def clear(self, document: Document, *, keep_validated_qa: bool) -> None:
         """Removes what was derived from a document. For a reprocess (`keep_validated_qa`: a pair a
         person validated stays) and for a deletion, where nothing is kept - what they answer from is

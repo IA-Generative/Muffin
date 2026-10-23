@@ -141,6 +141,8 @@ class SummarySearchResultOut(BaseModel):
     collection_path: list[CollectionPathItem]
     name: str
     summary: str | None
+    # See DocumentSummaryOut.summary_pages.
+    summary_pages: list[list[int]] | None = None
     score: float
 
 
@@ -175,6 +177,8 @@ class DocumentSummaryOut(BaseModel):
     name: str
     status: str
     summary: str | None
+    # The stretches of pages the summary was made from (#372) - None: the whole document.
+    summary_pages: list[list[int]] | None = None
 
 
 class TabularDocumentOut(BaseModel):

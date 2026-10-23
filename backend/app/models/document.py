@@ -56,6 +56,10 @@ class Document(UUIDMixin, TimestampMixin, Base):
     )
     progress: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The stretches of pages the summary was made from, [[first, last], ...] (#372) - None when it read the whole
+    # document, which is what a short document and a collection that does not sample long ones always get. A
+    # summary that read a part says nothing of the rest: the research agent must not take it for the whole.
+    summary_pages: Mapped[list[list[int]] | None] = mapped_column(JSONB, nullable=True)
     # Separate from summary: a summarize_document failure shouldn't be able to
     # clobber a real summary a previous run already produced, and vice versa.
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
