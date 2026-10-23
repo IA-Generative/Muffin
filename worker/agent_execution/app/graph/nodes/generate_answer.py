@@ -1,6 +1,7 @@
 import time
 from typing import Any
 
+from app.ask_user import NOBODY_TO_ASK
 from app.backend_client import backend_client
 from app.graph.services.events import emit, is_cancelled, set_activity
 from app.graph.services.prompts import get_prompt
@@ -83,8 +84,15 @@ def generate_answer(state: AgentState) -> dict[str, Any]:
         if unexplored
         else ""
     )
+    # Same reasoning as exploration_note: nobody could be asked what the request left open (#344).
+    assumption_note = (
+        f"\n\nNote: {NOBODY_TO_ASK} Begin the answer with one short sentence stating them."
+        if state.get("must_assume")
+        else ""
+    )
     user_content = (
-        f"Query: {state['contextualized_query']}\n\nEvidence:{missing_note}{exploration_note}\n\n{evidence_block}"
+        f"Query: {state['contextualized_query']}\n\nEvidence:{missing_note}{exploration_note}{assumption_note}"
+        f"\n\n{evidence_block}"
     )
     start = time.monotonic()
     result = backend_client.llm_chat_with_usage(

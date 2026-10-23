@@ -34,6 +34,9 @@ class WorkerSettings(BaseSettings):
     MAX_TOTAL_SEARCHES: int = 20
     MAX_REPLANS: int = 2
     MAX_GROUNDING_RESEARCHES: int = 1
+    # How many times in a row the assistant may ask questions before it carries on with assumptions
+    # instead (#344) - the model must not question the user in a loop.
+    MAX_QUESTION_ROUNDS: int = 2
     SEARCH_RESULTS_PER_QUERY: int = 5
     # How many collections VDB routing may select per routing call once sub-collections exist
     # (#233) - each is one index query. Picks over this cap are reported back as unexplored so

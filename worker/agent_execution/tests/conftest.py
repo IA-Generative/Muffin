@@ -31,6 +31,8 @@ class FakeBackend:
         self.llm_router = llm_router
         self.cancel_requested = False
         self.events: list[tuple[str, str | None]] = []
+        # The same events with their payload, in order.
+        self.event_data: list[tuple[str, dict[str, Any] | None]] = []
         self.activities: list[tuple[str, str]] = []  # [(node, activity), ...]
         self.searched_collection_ids: list[list[str]] = []
         self.accessible_collections_groups_requested: list[list[str]] = []
@@ -105,6 +107,7 @@ class FakeBackend:
         task_id: str | None = None,
     ) -> None:
         self.events.append((type_, task_id))
+        self.event_data.append((type_, data))
 
     def update_run_status(
         self,
@@ -283,6 +286,8 @@ def initial_state(
     user_groups: list[str] | None = None,
     web_search_enabled: bool = False,
     resume_from_vdb_ids: list[str] | None = None,
+    interactive: bool = True,
+    question_rounds: int = 0,
 ) -> dict[str, Any]:
     return {
         "run_id": str(uuid.uuid4()),
@@ -297,6 +302,10 @@ def initial_state(
         "web_search_enabled": web_search_enabled,
         "resume_from_vdb_ids": resume_from_vdb_ids or [],
         "unexplored_vdb_ids": [],
+        "interactive": interactive,
+        "question_rounds": question_rounds,
+        "questions": None,
+        "must_assume": False,
         "accessible_vdbs": [],
         "edit_target": None,
         "edit_proposal": None,

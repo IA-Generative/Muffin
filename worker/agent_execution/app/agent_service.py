@@ -3,6 +3,7 @@ from typing import Any
 from langgraph.checkpoint.redis import RedisSaver
 from loguru import logger
 
+from app.ask_user import question_rounds
 from app.backend_client import backend_client
 from app.config import settings
 from app.graph import AgentState, build_graph
@@ -78,7 +79,12 @@ class AgentService:
             # Prior turns of this same conversation (oldest first, the run's own query excluded -
             # see GET /api/internal/runs/{run_id}) - without these, a follow-up like "elle parle
             # de quoi ?" has no way to resolve what "elle" refers to; see analyze_query.
-            history = [{"role": item["role"], "content": item["content"]} for item in run.get("history") or []]
+            raw_history = run.get("history") or []
+            history = [{"role": item["role"], "content": item["content"]} for item in raw_history]
+            # This message answers the questions the assistant asked last (#344): the event the clients
+            # of the run's event stream already know from when the run waited for the answer.
+            if raw_history and raw_history[-1].get("asked"):
+                backend_client.add_run_event(run_id, "clarification_received", {"answer": run["query"]})
             initial_state: AgentState = {
                 "run_id": run_id,
                 "user_id": run["user_id"],
@@ -100,6 +106,10 @@ class AgentService:
                 # Starts from what pinning already couldn't bring along (#220) - this run's own
                 # exploration adds to it, see AgentState.unexplored_vdb_ids.
                 "unexplored_vdb_ids": [str(vdb_id) for vdb_id in (run.get("unexplored_collection_ids") or [])],
+                "interactive": bool(run.get("interactive", True)),
+                "question_rounds": question_rounds(raw_history),
+                "questions": None,
+                "must_assume": False,
                 "accessible_vdbs": [],
                 "edit_target": None,
                 "edit_proposal": None,
@@ -135,6 +145,9 @@ class AgentService:
     def resume(self, run_id: str, answer: str) -> None:
         """Entry point for continuing a run paused on request_clarification's interrupt() (§31),
         called from app.tasks.resume_agent (dispatched by POST /api/runs/{id}/resume).
+
+        Legacy: request_clarification no longer pauses (#344) - the answer comes with the next message of the
+        conversation. Kept for a run that was already waiting when this changed.
         """
         from langgraph.types import Command
 
@@ -176,6 +189,7 @@ class AgentService:
             completion_tokens=final_state.get("answer_completion_tokens"),
             edit_proposal=final_state.get("edit_proposal"),
             unexplored_collection_ids=_unexplored(final_state),
+            questions=final_state.get("questions"),
         )
         backend_client.update_run_status(run_id, "completed")
         backend_client.add_run_event(run_id, "run_completed", {"citation_count": len(final_state["citations"])})
@@ -185,6 +199,9 @@ class AgentService:
         prompt_usages = final_state.get("prompt_usages") or []
         if prompt_usages:
             backend_client.add_prompt_usages(run_id, list(dict.fromkeys(prompt_usages)))
+        # A question is no basis for a title: the conversation is titled once it has an answer.
+        if final_state.get("questions"):
+            return
         _generate_conversation_title(
             final_state["conversation_id"],
             final_state["original_query"],

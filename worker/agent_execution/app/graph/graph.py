@@ -27,6 +27,7 @@ from app.graph.routing.conditions import (
     after_detect_edit,
     after_evaluate_coverage,
     after_generate_answer,
+    after_request_clarification,
     after_validate_grounding,
     continue_dag_or_evaluate,
     execute_research_plan,
@@ -97,7 +98,12 @@ def build_graph(checkpointer: BaseCheckpointSaver | None = None):
             "cancelled": "cancelled",
         },
     )
-    _cancellable_edge(graph, "request_clarification", "decompose_query")
+    # Asking ends the run (the answer comes with the next message); not asking carries on with assumptions.
+    graph.add_conditional_edges(
+        "request_clarification",
+        after_request_clarification,
+        {"decompose_query": "decompose_query", "end": END, "cancelled": "cancelled"},
+    )
     # Terminal like generate_answer/validate_grounding, just without the grounding pass -
     # nothing here to fact-check against evidence, there's no evidence at all.
     _cancellable_edge(graph, "answer_identity", END)

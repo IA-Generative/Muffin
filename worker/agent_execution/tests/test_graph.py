@@ -574,12 +574,20 @@ def test_grounding_failure_triggers_targeted_research(make_run):
     assert any(task_id.startswith("grounding-1-") for task_id in result["completed_task_ids"])
 
 
-def test_ambiguous_query_interrupts_for_clarification_then_resumes(make_run):
-    from langgraph.types import Command
+_OPTIONS = [
+    {
+        "question": "Which department do you mean?",
+        "header": "Department",
+        "multi_select": False,
+        "options": [{"label": "HR", "description": "People"}, {"label": "Finance", "description": ""}],
+    }
+]
 
+
+def _clarification_router(**analysis):
     def router(system_prompt: str) -> str:
         if "Analyze the user" in system_prompt:
-            return _analysis(ambiguous=True, clarification_question="Which department do you mean?")
+            return _analysis(ambiguous=True, **analysis)
         if "select the ones relevant" in system_prompt.lower():
             return '["hr"]'
         if "Decide whether" in system_prompt:
@@ -588,17 +596,92 @@ def test_ambiguous_query_interrupts_for_clarification_then_resumes(make_run):
             return json.dumps({"valid": True, "unsupported_claims": []})
         return "answer [x]."
 
+    return router
+
+
+def test_ambiguous_query_ends_the_run_on_the_questions_with_options(make_run):
+    router = _clarification_router(questions=_OPTIONS, clarification_question="Which department?")
     graph, fake = make_run([{"id": "hr", "name": "HR", "description": "HR", "tags": []}], router)
     state = initial_state("What is the policy?")
-    config = _config(state)
 
-    paused = graph.invoke(state, config=config)
-    assert "__interrupt__" in paused
-    assert paused["__interrupt__"][0].value["question"] == "Which department do you mean?"
+    result = graph.invoke(state, config=_config(state))
 
-    resumed = graph.invoke(Command(resume="HR department"), config=config)
-    assert "__interrupt__" not in resumed
-    assert resumed["answer"] == "answer [x]."
+    assert "__interrupt__" not in result
+    assert result["questions"] == _OPTIONS
+    assert result["answer"] == "Which department do you mean?\n- HR : People\n- Finance"
+    assert result["citations"] == []
+    requested = [data for type_, data in fake.event_data if type_ == "clarification_requested"]
+    assert requested[0]["questions"] == _OPTIONS
+    assert requested[0]["question"] == result["answer"]
+
+
+def test_a_question_without_valid_options_falls_back_on_the_free_text_question(make_run):
+    router = _clarification_router(
+        questions=[{"question": "Which?", "options": [{"label": "only one"}]}],
+        clarification_question="Which department do you mean?",
+    )
+    graph, _ = make_run([{"id": "hr", "name": "HR", "description": "HR", "tags": []}], router)
+    state = initial_state("What is the policy?")
+
+    result = graph.invoke(state, config=_config(state))
+
+    assert [(q["question"], q["options"]) for q in result["questions"]] == [("Which department do you mean?", [])]
+    assert result["answer"] == "Which department do you mean?"
+
+
+def test_a_run_nobody_can_answer_carries_on_and_states_its_assumptions(make_run):
+    router = _clarification_router(questions=_OPTIONS)
+    graph, fake = make_run([{"id": "hr", "name": "HR", "description": "HR", "tags": []}], router)
+    state = initial_state("What is the policy?", interactive=False)
+
+    result = graph.invoke(state, config=_config(state))
+
+    assert not result.get("questions")
+    assert result["answer"] == "answer [x]."
+    assert not [type_ for type_, _ in fake.events if type_ == "clarification_requested"]
+
+
+def test_the_assistant_stops_asking_after_too_many_rounds_in_a_row(make_run):
+    router = _clarification_router(questions=_OPTIONS)
+    graph, _ = make_run([{"id": "hr", "name": "HR", "description": "HR", "tags": []}], router)
+    state = initial_state("What is the policy?", question_rounds=2)
+
+    result = graph.invoke(state, config=_config(state))
+
+    assert not result.get("questions")
+    assert result["answer"] == "answer [x]."
+
+
+def test_a_run_that_carries_on_without_asking_tells_the_model_to_state_its_assumptions(make_run):
+    graph, fake = make_run([{"id": "hr", "name": "HR", "description": "HR", "tags": []}], _clarification_router())
+    state = initial_state("What is the policy?", interactive=False)
+
+    graph.invoke(state, config=_config(state))
+
+    prompt = next(call for call in fake.llm_calls if "Answer the user's query" in call[0]["content"])[1]["content"]
+    assert "Nobody can answer questions here" in prompt
+
+
+def test_a_run_that_could_ask_does_not_mention_assumptions(make_run):
+    graph, fake = make_run(
+        [{"id": "hr", "name": "HR", "description": "HR", "tags": []}],
+        lambda prompt: _analysis() if "Analyze the user" in prompt else "answer [x].",
+    )
+    state = initial_state("What is the policy?")
+
+    graph.invoke(state, config=_config(state))
+
+    assert not any("Nobody can answer" in call[-1]["content"] for call in fake.llm_calls)
+
+
+def test_the_analysis_prompt_asks_for_questions_whichever_version_of_it_is_active(make_run):
+    graph, fake = make_run([{"id": "hr", "name": "HR", "description": "HR", "tags": []}], _clarification_router())
+    state = initial_state("What is the policy?")
+
+    graph.invoke(state, config=_config(state))
+
+    system_prompt = next(call for call in fake.llm_calls if "Analyze the user" in call[0]["content"])[0]["content"]
+    assert '"questions"' in system_prompt and "2 to 4 options" in system_prompt
 
 
 def test_list_collections_tool_answers_from_accessible_vdbs_without_searching(make_run):
