@@ -945,6 +945,49 @@ def test_qa_cache_hit_skips_chunk_search(make_run):
     assert result["deduped_evidence"][0]["content"] == "25 days a year."
 
 
+def test_a_cited_qa_pair_carries_the_source_it_comes_from(make_run):
+    """What lets the chat open the source of a cited question-answer pair on its page (#351): the citation
+    keeps the pair's answer as its content, and the document, page and passage apart."""
+
+    def router(system_prompt: str) -> str:
+        if "Analyze the user" in system_prompt:
+            return _analysis()
+        if "select the ones relevant" in system_prompt.lower():
+            return '["hr"]'
+        if "Decide whether" in system_prompt:
+            return json.dumps({"status": "sufficient", "missing_information": [], "reasoning": "ok"})
+        return "Leave is 25 days a year [x]."
+
+    graph, fake = make_run(_hr_eng_vdbs(), router)
+    source = {
+        "document_id": "doc-1",
+        "document_name": "handbook.pdf",
+        "page_number": 4,
+        "passage": "Employees get 25 days of leave.",
+        "start": 120,
+        "end": 151,
+    }
+    fake.qa_hits = [
+        {
+            "qa_pair_id": "qa-1",
+            "collection_id": "hr",
+            "question": "How much leave?",
+            "answer": "25 days a year.",
+            "score": 0.93,
+            "source": source,
+        },
+    ]
+
+    state = initial_state("What is the leave policy?")
+    result = graph.invoke(state, config=_config(state))
+
+    (citation,) = result["citations"]
+    assert citation["evidence_kind"] == "qa" and citation["content"] == "25 days a year."
+    assert citation["qa_source"] == source
+    # Still no document to link a source row to: a QA citation is not a document citation.
+    assert citation["document_id"] is None
+
+
 def test_qa_cache_miss_falls_through_to_chunk_search(make_run):
     """A QA hit below the match threshold is not close enough - falls through exactly like no
     hit at all."""

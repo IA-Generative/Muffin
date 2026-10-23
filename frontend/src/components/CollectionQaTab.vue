@@ -165,6 +165,8 @@ async function submit() {
       :document-name="openSource.source ?? ''"
       :page-number="openSource.sourcePage"
       :excerpt="openSource.sourceExcerpt"
+      :start="openSource.sourceStart"
+      :end="openSource.sourceEnd"
       @close="openSource = undefined"
     />
   </div>

@@ -112,13 +112,24 @@ async def test_replace_generated_qa_records_the_pairs_of_a_run(client, vectors):
         collection_id,
         document_id,
         "window:1-2",
-        [_pair("What is this?", source_page=7, source_excerpt="This document is a report.", embedding=[0.1, 0.2])],
+        [
+            _pair(
+                "What is this?",
+                source_page=7,
+                source_excerpt="This document is a report.",
+                source_start=120,
+                source_end=146,
+                embedding=[0.1, 0.2],
+            )
+        ],
     )
 
     assert response.status_code == 200
     (pair,) = await _qa_pairs(collection_id)
     assert (pair.question, pair.origin, pair.document_id) == ("What is this?", "generated", document_id)
     assert (pair.source_page, pair.source_excerpt) == (7, "This document is a report.")
+    # Where the passage is in its page (#351).
+    assert (pair.source_start, pair.source_end) == (120, 146)
     assert pair.generation_key == "window:1-2" and pair.validated is False
     assert vectors["upserted"] == [(pair.id, "What is this?")]
 

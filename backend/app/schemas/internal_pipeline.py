@@ -85,6 +85,9 @@ class GeneratedQaPair(BaseModel):
     # Where in the document the answer comes from (#126), when the worker could tell.
     source_page: int | None = Field(default=None, ge=1)
     source_excerpt: str | None = Field(default=None, max_length=4000)
+    # Where that passage is in the content of `source_page` (#351), when the worker knows it.
+    source_start: int | None = Field(default=None, ge=0)
+    source_end: int | None = Field(default=None, ge=0)
 
 
 class GeneratedQaReplace(BaseModel):

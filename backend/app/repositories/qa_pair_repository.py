@@ -22,6 +22,8 @@ class QaPairRepository:
         source_page: int | None = None,
         source_excerpt: str | None = None,
         generation_key: str | None = None,
+        source_start: int | None = None,
+        source_end: int | None = None,
     ) -> QaPair:
         qa_pair = QaPair(
             collection_id=collection_id,
@@ -32,6 +34,8 @@ class QaPairRepository:
             generation_key=generation_key,
             source_page=source_page,
             source_excerpt=source_excerpt,
+            source_start=source_start,
+            source_end=source_end,
         )
         self.db.add(qa_pair)
         await self.db.flush()
@@ -148,7 +152,11 @@ class QaPairRepository:
             return []
         # Never a golden pair: it is not in the retriever, and nothing that answers may use one even
         # if a stray vector pointed at it.
-        result = await self.db.execute(select(QaPair).where(QaPair.id.in_(qa_pair_ids), QaPair.golden.is_(False)))
+        result = await self.db.execute(
+            select(QaPair)
+            .where(QaPair.id.in_(qa_pair_ids), QaPair.golden.is_(False))
+            .options(selectinload(QaPair.document))
+        )
         return result.scalars().all()
 
     async def random_with_source(

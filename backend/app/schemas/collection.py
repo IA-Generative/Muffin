@@ -57,6 +57,9 @@ class QaPairOut(BaseModel):
     source_document_id: uuid.UUID | None = None
     source_page: int | None = None
     source_excerpt: str | None = None
+    # Where the passage is in that page's content (#351), when known: frames it at the right place.
+    source_start: int | None = None
+    source_end: int | None = None
     origin: str
     validated: bool
     # A test question (#260): written by a person, kept out of the retriever, used only to measure.

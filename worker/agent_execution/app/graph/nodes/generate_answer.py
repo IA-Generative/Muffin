@@ -111,6 +111,8 @@ def generate_answer(state: AgentState) -> dict[str, Any]:
             "evidence_kind": e["evidence_kind"],
             "document_id": e["document_id"],
             "chunk_id": e["chunk_id"],
+            # Where a cited question-answer pair comes from (#351): the document, page and passage to open.
+            "qa_source": e.get("qa_source"),
             "page_number": e["page_number"],
             "url": e["url"],
             "query": e["query"],

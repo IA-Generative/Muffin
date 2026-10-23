@@ -153,6 +153,8 @@ async def _processed_source(collection_id, index, *, complete=tuple(PipelineStag
                 generation_key="window:1-2",
                 source_page=1,
                 source_excerpt="passage",
+                source_start=12,
+                source_end=19,
             )
             for question, validated in (("Generated?", False), ("Validated?", True))
         ]
@@ -384,6 +386,8 @@ async def test_only_the_pairs_the_pipeline_generated_are_copied(client, index):
         1,
         "passage",
     )
+    # Where the passage is in its page (#351): the copy has the same text, so the same place.
+    assert (pair.source_start, pair.source_end) == (12, 19)
     assert pair.source_chunk_id is None
     assert [(qa_id, embedding) for qa_id, embedding, _ in index["qa_points"]] == [(pair.id, [3.0, 3.0])]
     assert index["embedded"] == []

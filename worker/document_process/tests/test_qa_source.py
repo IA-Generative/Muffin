@@ -4,7 +4,7 @@ import pytest
 
 from app import task_logging, tasks
 from app.chunking import PageText
-from app.tasks.qa import locate_evidence
+from app.tasks.qa import evidence_position, locate_evidence
 
 PAGES = [
     PageText(page_number=3, content="Introduction.\n\nLe télétravail est autorisé\ndeux jours par semaine."),
@@ -33,6 +33,30 @@ def test_a_quote_that_is_not_in_the_text_is_dropped():
 @pytest.mark.parametrize("quote", ["", "   ", "Oui.", "télétravail"])
 def test_an_empty_or_too_short_quote_is_dropped(quote):
     assert locate_evidence(PAGES, quote) is None
+
+
+class TestEvidencePosition:
+    def test_it_is_where_the_quote_is_in_the_pages_own_text(self):
+        content = "Introduction.\n\nLe télétravail est autorisé\ndeux jours par semaine."
+
+        start, end = evidence_position(content, "le TÉLÉTRAVAIL est autorisé deux jours par semaine.")
+
+        assert content[start:end] == "Le télétravail est autorisé\ndeux jours par semaine."
+
+    def test_regular_expression_characters_in_the_quote_are_taken_literally(self):
+        content = "Prix (HT) : 5,00 € [net] pour tous."
+
+        assert evidence_position(content, "(HT) : 5,00 € [net]") == (5, 24)
+
+    def test_a_quote_that_is_there_twice_is_found_at_its_first_place(self):
+        content = "Total : 10 euros. Autre chose. Total : 10 euros."
+
+        assert evidence_position(content, "Total : 10 euros.") == (0, 17)
+
+    def test_nothing_is_found_for_an_empty_quote_or_one_that_is_not_there(self):
+        assert evidence_position("Un texte.", "") is None
+        assert evidence_position("Un texte.", "   ") is None
+        assert evidence_position("Un texte.", "Autre chose") is None
 
 
 @pytest.fixture
@@ -74,8 +98,12 @@ def test_a_generated_pair_is_stored_with_the_page_and_passage_of_its_evidence(ba
     first, second = call.args[3]
     assert first["source_page"] == 3
     assert first["source_excerpt"] == "Le télétravail est autorisé deux jours par semaine."
+    # Where it is in the page's own text (#351), line break included - not in the flattened passage.
+    start, end = first["source_start"], first["source_end"]
+    assert PAGES[0].content[start:end] == "Le télétravail est autorisé\ndeux jours par semaine."
     # An evidence that isn't in the text is never shown as a source.
     assert second["source_page"] is None and second["source_excerpt"] is None
+    assert second["source_start"] is None and second["source_end"] is None
 
 
 def test_the_model_is_asked_for_the_exact_evidence(backend, monkeypatch):

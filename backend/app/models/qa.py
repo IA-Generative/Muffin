@@ -50,6 +50,11 @@ class QaPair(UUIDMixin, TimestampMixin, Base):
         ForeignKey("chunks.id", ondelete="SET NULL"), nullable=True
     )
     source_excerpt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Where that passage is in the content of `source_page` (#351): an interval of characters, found when the
+    # pair was generated. What frames it on the page at the right place even when the same words are there
+    # twice. None for a pair generated before, or whose passage was found afterwards: it is then looked for.
+    source_start: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     collection: Mapped["Collection"] = relationship(back_populates="qa_pairs")  # noqa: F821
     document: Mapped["Document | None"] = relationship()  # noqa: F821

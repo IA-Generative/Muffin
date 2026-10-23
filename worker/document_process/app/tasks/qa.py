@@ -7,6 +7,7 @@
 """
 
 import hashlib
+import re
 
 from loguru import logger
 
@@ -30,6 +31,18 @@ def locate_evidence(pages: list[PageText], quote: str) -> tuple[int, str] | None
         if wanted in _squash(page.content):
             return page.page_number, " ".join(quote.split())
     return None
+
+
+def evidence_position(content: str, quote: str) -> tuple[int, int] | None:
+    """Where the quote is in the page's own text (#351), as an interval of characters - what frames it on the
+    page at the right place, even when the same words are there twice. The words of the quote separated by any
+    whitespace, whatever the case, as `locate_evidence` read it; None when that does not find it (then the
+    backend looks for the passage itself, when it is asked for)."""
+    words = quote.split()
+    if not words:
+        return None
+    match = re.search(r"\s+".join(re.escape(word) for word in words), content, re.IGNORECASE)
+    return match.span() if match else None
 
 
 @celery_app.task(name="app.tasks.generate_qa_window", bind=True)
@@ -71,6 +84,10 @@ def generate_qa_window(self, document_id: str, collection_id: str, start_page: i
             except Exception:
                 logger.exception(f"Failed to embed QA question for document {document_id}")
             source = locate_evidence(window_pages, str(pair.get("evidence") or ""))
+            position = None
+            if source:
+                page_content = next(page.content for page in window_pages if page.page_number == source[0])
+                position = evidence_position(page_content, source[1])
             generated.append(
                 {
                     "question": question,
@@ -78,6 +95,9 @@ def generate_qa_window(self, document_id: str, collection_id: str, start_page: i
                     "embedding": embedding,
                     "source_page": source[0] if source else None,
                     "source_excerpt": source[1] if source else None,
+                    # Where the passage is in that page's text (#351).
+                    "source_start": position[0] if position else None,
+                    "source_end": position[1] if position else None,
                 }
             )
         # In one call, in place of what an earlier run of this window recorded (#299): the task run
