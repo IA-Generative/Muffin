@@ -119,7 +119,7 @@ def test_accents_case_and_inflections_do_not_prevent_a_lexical_match(collection)
 
 
 def test_a_typo_is_not_tolerated_by_the_lexical_branch(collection):
-    """What Meilisearch used to forgive: BM25 matches terms, not nearly-terms (documented in the settings)."""
+    """What a typo-tolerant engine would forgive: BM25 matches terms, not nearly-terms (documented in the settings)."""
     point = _chunk(collection, [0, 1, 0], "Règlement du stationnement")
 
     assert point not in vector_store.explain_search(collection, "stationnemet", [1, 0, 0])["sparse"]

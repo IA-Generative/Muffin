@@ -2,7 +2,7 @@
 
 Documente la hiérarchie de collections mise en place par l'épique #213 : une collection peut
 contenir des sous-collections, sur autant de niveaux que nécessaire, comme des dossiers. Chaque
-sous-collection reste une collection à part entière (documents, index Meilisearch, paramètres).
+sous-collection reste une collection à part entière (documents, index Qdrant, paramètres).
 
 Côté interface, voir [docs/ui/collections/README.md](ui/collections/README.md#sous-collections-213).
 
@@ -21,7 +21,7 @@ Côté interface, voir [docs/ui/collections/README.md](ui/collections/README.md#
   - même propriétaire que le parent ;
   - jamais de collection temporaire, ni comme enfant ni comme parent.
 - Supprimer une collection supprime tout son sous-arbre. `CollectionService.delete_collection`
-  nettoie RustFS et Meilisearch pour chaque descendant.
+  nettoie RustFS et Qdrant pour chaque descendant.
 - Parcours de l'arbre : `CollectionHierarchyRepository`
   (`backend/app/repositories/collection_hierarchy_repository.py`), par CTE récursives. Chacune se
   protège d'un cycle : `UNION` quand les lignes sont de simples ids, liste des ids déjà visités
