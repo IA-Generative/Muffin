@@ -101,10 +101,22 @@ class GeneratedQaReplace(BaseModel):
     pairs: list[GeneratedQaPair]
 
 
+class ExtractedOccurrence(BaseModel):
+    """Where an entity is in a page of the window (#352): an interval of characters of that page's content."""
+
+    page: int = Field(ge=1)
+    start: int = Field(ge=0)
+    end: int = Field(ge=0)
+
+
 class ExtractedEntity(BaseModel):
     name: str
     type: EntityType
+    # How many times the worker found the entity in the text of the window - or, when it found it nowhere (the
+    # model normalized or translated its name), how many times the model listed it.
     mentions: int = Field(default=1, ge=1)
+    # Where it found it - up to a few per page: a name that is everywhere would drown the page.
+    occurrences: list[ExtractedOccurrence] = Field(default_factory=list, max_length=500)
 
 
 class ExtractedRelation(BaseModel):
@@ -112,6 +124,12 @@ class ExtractedRelation(BaseModel):
     from_name: str
     to_name: str
     type: str
+    # The sentence that justifies it (#352), checked in the text by the worker: the page, the sentence, and where
+    # it is in that page's content.
+    source_page: int | None = Field(default=None, ge=1)
+    source_excerpt: str | None = Field(default=None, max_length=4000)
+    source_start: int | None = Field(default=None, ge=0)
+    source_end: int | None = Field(default=None, ge=0)
 
 
 class EntityWindowReplace(BaseModel):

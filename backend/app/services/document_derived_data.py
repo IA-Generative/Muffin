@@ -73,11 +73,12 @@ class DocumentDerivedData:
         collection_id: uuid.UUID,
         document_id: uuid.UUID,
         window_key: str,
-        entities: Sequence[tuple[str, str, int]],
-        relations: Sequence[tuple[str, str, str]],
+        entities: Sequence[tuple],
+        relations: Sequence[tuple],
     ) -> None:
         """Records the entities and relations extracted from one window of pages, in place of what the
-        previous extraction of that window had recorded."""
+        previous extraction of that window had recorded. Entities are (name, type, mentions[, occurrences]),
+        relations (from name, to name, type[, source]) - see EntityRepository.replace_window."""
         await self.entities.replace_window(collection_id, document_id, window_key, entities, relations)
 
     async def clear(self, document: Document, *, keep_validated_qa: bool) -> None:

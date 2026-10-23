@@ -28,7 +28,7 @@ from app.models.document_refresh_schedule import DocumentRefreshSchedule
 from app.models.document_revision import DocumentRevision, RevisionOrigin
 from app.models.document_stage import DocumentStage, PipelineStage
 from app.models.document_tabular_profile import DocumentTabularProfile
-from app.models.entity import Entity, EntityType, Relation
+from app.models.entity import Entity, EntityMention, EntityType, Relation
 from app.models.evaluation import (
     EvaluationResult,
     EvaluationResultSource,
@@ -85,6 +85,7 @@ __all__ = [
     "DocumentType",
     "DraftStatus",
     "Entity",
+    "EntityMention",
     "EntityType",
     "EvaluationResult",
     "EvaluationResultSource",

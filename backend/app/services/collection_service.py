@@ -27,11 +27,13 @@ from app.schemas.collection import (
     CollectionPathItem,
     CollectionSettingsUpdate,
     CollectionUpdate,
+    EntityMentionOut,
     EntityOut,
     GroundednessRunOut,
     GroundednessStatsOut,
     QaPairOut,
     RelationOut,
+    RelationSourceOut,
     RelevantDocumentOut,
     ShareCreate,
     ShareOut,
@@ -288,12 +290,14 @@ class CollectionService:
     async def list_entities(self, collection_id: uuid.UUID, user: RequestContext) -> list[EntityOut]:
         await self._get_accessible(collection_id, user)
         entities = await self.entities.list_by_collection(collection_id)
+        located = await self.entities.occurrence_counts([entity.id for entity in entities])
         return [
             EntityOut(
                 id=entity.id,
                 name=entity.name,
                 type=entity.type,
                 mentions=entity.mentions,
+                occurrences=located.get(entity.id, 0),
             )
             for entity in entities
         ]
@@ -301,14 +305,55 @@ class CollectionService:
     async def list_relations(self, collection_id: uuid.UUID, user: RequestContext) -> list[RelationOut]:
         await self._get_accessible(collection_id, user)
         relations = await self.entities.list_relations_by_collection(collection_id)
+        return await self._relations_out(relations)
+
+    async def _relations_out(self, relations) -> list[RelationOut]:
+        names = await self.entities.document_names(
+            list({relation.document_id for relation in relations if relation.document_id is not None})
+        )
         return [
             RelationOut(
                 id=relation.id,
                 from_entity=relation.from_entity.name,
                 to=relation.to_entity.name,
                 type=relation.type,
+                # The sentence behind it (#352), when it has one and its document is still there.
+                source=(
+                    RelationSourceOut(
+                        document_id=relation.document_id,
+                        document_name=names[relation.document_id],
+                        page_number=relation.source_page,
+                        passage=relation.source_excerpt,
+                        start=relation.source_start,
+                        end=relation.source_end,
+                    )
+                    if relation.source_page and relation.source_excerpt and relation.document_id in names
+                    else None
+                ),
             )
             for relation in relations
+        ]
+
+    async def list_entity_mentions(
+        self,
+        collection_id: uuid.UUID,
+        user: RequestContext,
+        entity_id: uuid.UUID,
+        document_id: uuid.UUID | None = None,
+    ) -> list[EntityMentionOut]:
+        """The occurrences of an entity in the text (#352), in the order one reads them: what a source modal pages
+        through. In one document when asked. Empty for an entity of another collection, or not found in the text."""
+        await self._get_accessible(collection_id, user)
+        rows = await self.entities.list_mentions(collection_id, entity_id, document_id)
+        return [
+            EntityMentionOut(
+                document_id=mention.document_id,
+                document_name=name,
+                page_number=mention.page_number,
+                start=mention.char_start,
+                end=mention.char_end,
+            )
+            for mention, name in rows
         ]
 
     async def delete_collection(self, collection_id: uuid.UUID, user: RequestContext) -> None:

@@ -1,7 +1,7 @@
 import enum
 import uuid
 
-from sqlalchemy import Enum, ForeignKey, Integer, String
+from sqlalchemy import Enum, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDMixin
@@ -49,6 +49,24 @@ class EntityDocument(Base):
     mentions: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
 
+class EntityMention(UUIDMixin, Base):
+    """One occurrence of an entity in a page of a document (#352): where its name is, as an interval of characters
+    of the page's content - what frames it on the page, through the boxes of the page's lines (#350). Found by the
+    worker in the text of the window of pages it extracted the entity from, and replaced with that window (#299)."""
+
+    __tablename__ = "entity_mentions"
+    __table_args__ = (Index("ix_entity_mentions_document_window", "document_id", "window_key"),)
+
+    entity_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("entities.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    document_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
+    window_key: Mapped[str] = mapped_column(String, nullable=False, default="", server_default="")
+    page_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    char_start: Mapped[int] = mapped_column(Integer, nullable=False)
+    char_end: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
 class Relation(UUIDMixin, Base):
     __tablename__ = "relations"
 
@@ -67,6 +85,13 @@ class Relation(UUIDMixin, Base):
     # The window of pages it was extracted from (#299), replaced as a whole when that window is
     # extracted again. None for a relation written before this existed.
     window_key: Mapped[str | None] = mapped_column(String, nullable=True)
+    # The sentence that justifies the relation (#352): the page it is on, the sentence itself and where it is in
+    # that page's content - verified in the text by the worker, never the model's own words. None for a relation
+    # extracted before this, or one whose sentence was not found.
+    source_page: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source_excerpt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_start: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     collection: Mapped["Collection"] = relationship(back_populates="relations")  # noqa: F821
     from_entity: Mapped["Entity"] = relationship(foreign_keys=[from_entity_id])

@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { usePagination } from '../composables/usePagination'
-import type { Collection, EntityType } from '../types/collection'
+import type { Collection, Entity, EntityType, Relation } from '../types/collection'
+import EntityOccurrencesModal from './EntityOccurrencesModal.vue'
 import PaginationControls from './PaginationControls.vue'
+import SourceDocumentModal from './SourceDocumentModal.vue'
 
 const props = defineProps<{
   collection: Collection
@@ -13,6 +15,10 @@ const { page: entityPage, pageCount: entityPageCount, paged: pagedEntities } = u
 
 const relations = computed(() => props.collection.relations)
 const { page: relationPage, pageCount: relationPageCount, paged: pagedRelations } = usePagination(relations)
+
+// The entity whose occurrences are open, and the relation whose sentence is (#352).
+const openEntity = ref<Entity>()
+const openRelation = ref<Relation>()
 
 const ENTITY_LABEL: Record<EntityType, string> = {
   personne: 'Personne',
@@ -33,7 +39,19 @@ const ENTITY_LABEL: Record<EntityType, string> = {
         <span class="relations-tab__entity-type" :class="`relations-tab__entity-type--${item.type}`">
           {{ ENTITY_LABEL[item.type] }}
         </span>
-        <span class="relations-tab__entity-name">{{ item.name }}</span>
+        <!-- Found in the text: opens its occurrences. Listed by the model but found nowhere as written: nothing
+             to open, and it says so (#352). -->
+        <button
+          v-if="(item.occurrences ?? 0) > 0"
+          type="button"
+          class="relations-tab__entity-name relations-tab__entity-name--link"
+          :aria-label="`Voir où « ${item.name} » apparaît dans les documents`"
+          @click="openEntity = item"
+        >
+          {{ item.name }}
+        </button>
+        <span v-else class="relations-tab__entity-name">{{ item.name }}</span>
+        <span v-if="item.occurrences === 0" class="relations-tab__entity-missing">non retrouvée dans le texte</span>
         <span class="relations-tab__entity-mentions">{{ item.mentions }} mention(s)</span>
       </li>
     </ul>
@@ -55,12 +73,40 @@ const ENTITY_LABEL: Record<EntityType, string> = {
           {{ relation.type }}
         </span>
         <span class="relations-tab__node">{{ relation.to }}</span>
+        <button
+          v-if="relation.source"
+          type="button"
+          class="relations-tab__source"
+          :aria-label="`Voir la phrase qui énonce la relation ${relation.from} ${relation.type} ${relation.to}`"
+          @click="openRelation = relation"
+        >
+          Voir la phrase
+        </button>
       </li>
     </ul>
     <p v-else class="relations-tab__empty">
       Aucune relation détectée pour le moment. Elles apparaissent une fois les documents indexés.
     </p>
     <PaginationControls v-model:page="relationPage" :page-count="relationPageCount" />
+
+    <EntityOccurrencesModal
+      v-if="openEntity"
+      :collection-id="collection.id"
+      :entity-id="openEntity.id"
+      :entity-name="openEntity.name"
+      @close="openEntity = undefined"
+    />
+    <SourceDocumentModal
+      v-if="openRelation?.source"
+      :collection-id="collection.id"
+      :document-id="openRelation.source.document_id"
+      :document-name="openRelation.source.document_name"
+      :page-number="openRelation.source.page_number"
+      :excerpt="openRelation.source.passage"
+      :start="openRelation.source.start ?? undefined"
+      :end="openRelation.source.end ?? undefined"
+      @close="openRelation = undefined"
+    />
   </div>
 </template>
 
@@ -120,6 +166,34 @@ const ENTITY_LABEL: Record<EntityType, string> = {
 
 .relations-tab__entity-name {
   font-weight: 700;
+}
+
+.relations-tab__entity-name--link {
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: var(--text-action-high-blue-france);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.relations-tab__entity-missing {
+  font-size: 0.75rem;
+  color: var(--text-mention-grey);
+  font-style: italic;
+}
+
+.relations-tab__source {
+  margin-left: auto;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: 0.8125rem;
+  color: var(--text-action-high-blue-france);
+  text-decoration: underline;
+  cursor: pointer;
 }
 
 .relations-tab__entity-mentions {

@@ -114,7 +114,12 @@ def test_the_entities_of_a_window_are_sent_in_one_call_keyed_by_the_window(backe
         "doc-1",
         "pages:3-4",
         # The same entity listed twice is one entity mentioned twice.
-        [{"name": "Acme", "type": "organisation", "mentions": 2}, {"name": "Alice", "type": "personne", "mentions": 1}],
+        # Found nowhere in the text of these pages ("page 3"): listed as many times as the model listed them, with
+        # no occurrence to show (#352).
+        [
+            {"name": "Acme", "type": "organisation", "mentions": 2, "occurrences": []},
+            {"name": "Alice", "type": "personne", "mentions": 1, "occurrences": []},
+        ],
         # A relation naming an entity that was not extracted is dropped.
         [{"from_name": "Alice", "to_name": "Acme", "type": "works_at"}],
     )

@@ -13,6 +13,7 @@ from app.schemas.collection import (
     CollectionOut,
     CollectionSettingsUpdate,
     CollectionUpdate,
+    EntityMentionOut,
     EntityOut,
     GroundednessStatsOut,
     QaPairOut,
@@ -294,6 +295,25 @@ async def list_chunks(
 async def list_entities(collection_id: uuid.UUID, user: UserDep, service: ServiceDep) -> list[EntityOut]:
     try:
         return await service.list_entities(collection_id, user)
+    except CollectionNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
+
+
+@router.get(
+    "/collections/{collection_id}/entities/{entity_id}/mentions",
+    summary="Where an entity is in the text (#352): its occurrences - document, page, interval of characters - in "
+    "the order one reads them, in one document when `document_id` is given",
+    response_model=list[EntityMentionOut],
+)
+async def list_entity_mentions(
+    collection_id: uuid.UUID,
+    entity_id: uuid.UUID,
+    user: UserDep,
+    service: ServiceDep,
+    document_id: uuid.UUID | None = None,
+) -> list[EntityMentionOut]:
+    try:
+        return await service.list_entity_mentions(collection_id, user, entity_id, document_id)
     except CollectionNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
 
