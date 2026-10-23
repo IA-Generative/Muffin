@@ -352,6 +352,14 @@ cronjobs:
         name: "muffin-qdrant"
     env:
       QDRANT_URL: "http://muffin-qdrant:6333"
+    # Required by the namespace quota, like on every other pod.
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "64Mi"
+      limits:
+        cpu: "200m"
+        memory: "128Mi"
     serviceAccount:
       enabled: true
       create: true
@@ -508,6 +516,10 @@ qdrant:
       secretKeyRef:
         name: muffin-qdrant
         key: QDRANT_API_KEY
+  # The chart's `ensure-dir-ownership` init container chowns the volumes, but takes no resources, which
+  # the namespace quota refuses a pod without. The pod's fsGroup already gives the volumes to the
+  # container's group, so it is not needed.
+  updateVolumeFsOwnership: false
   persistence:
     size: "10Gi"
   # Snapshots (the backup) are written to their own volume: one as big as the data would fill the
