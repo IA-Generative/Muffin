@@ -108,12 +108,6 @@ class ConversationRepository:
         await self.db.flush()
         return message
 
-    async def get_message(self, conversation_id: uuid.UUID, message_id: uuid.UUID) -> Message | None:
-        result = await self.db.execute(
-            select(Message).where(Message.id == message_id, Message.conversation_id == conversation_id)
-        )
-        return result.scalar_one_or_none()
-
     async def get_last_message(self, conversation_id: uuid.UUID) -> Message | None:
         result = await self.db.execute(
             select(Message)

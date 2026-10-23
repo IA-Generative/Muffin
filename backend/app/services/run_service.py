@@ -67,7 +67,7 @@ class RunService:
         else:
             conversation = await self.conversations.create(user.user_id, title=body.query[:80])
 
-        if body.answers_message_id is not None:
+        if body.answers_run_id is not None:
             await self._record_answers(conversation.id, body)
 
         # The run's strong link is to this message, not directly to the
@@ -115,20 +115,20 @@ class RunService:
         return self._to_out(run)
 
     async def _record_answers(self, conversation_id: uuid.UUID, body: RunCreate) -> None:
-        """Keeps the user's answers on the message that asked the questions (#344), so the card shows them
+        """Keeps the user's answers on the message of the run that asked the questions (#344), so the card shows them
         in the thread. Only the last message of the thread can be answered: writing anything else after it
         abandoned its questions."""
-        message = await self.conversations.get_message(conversation_id, body.answers_message_id)
+        message = await self.conversations.get_assistant_message_by_run_id(body.answers_run_id)
         last = await self.conversations.get_last_message(conversation_id)
         if (
             message is None
-            or message.role != MessageRole.ASSISTANT
+            or message.conversation_id != conversation_id
             or not message.questions
             or message.questions_answer is not None
             or last is None
             or last.id != message.id
         ):
-            raise QuestionsNotAnswerableError(str(body.answers_message_id))
+            raise QuestionsNotAnswerableError(str(body.answers_run_id))
         answers = validate_answers(message.questions, body.answers or [])
         message.questions_answer = [answer.model_dump() for answer in answers]
 
@@ -167,7 +167,11 @@ class RunService:
 
     async def get_run(self, run_id: uuid.UUID, user: RequestContext) -> RunOut:
         run = await self._get_owned(run_id, user)
-        return self._to_out(run)
+        questions = None
+        if run.status == RunStatus.COMPLETED:
+            message = await self.conversations.get_assistant_message_by_run_id(run.id)
+            questions = message.questions if message is not None else None
+        return self._to_out(run, questions)
 
     async def list_active_runs(self, conversation_id: uuid.UUID, user: RequestContext) -> list[RunOut]:
         """Non-terminal runs for a conversation - the frontend calls this after a page
@@ -288,7 +292,7 @@ class RunService:
             raise RunNotFoundError(str(run_id))
         return run
 
-    def _to_out(self, run) -> RunOut:  # noqa: ANN001
+    def _to_out(self, run, questions: list[dict] | None = None) -> RunOut:  # noqa: ANN001
         return RunOut(
             id=run.id,
             conversation_id=run.conversation_id,
@@ -304,6 +308,7 @@ class RunService:
             citations=run.citations,
             edit_proposal=run.edit_proposal,
             unexplored_collection_ids=run.unexplored_collection_ids,
+            questions=questions,
             error=run.error,
             created_at=run.created_at,
             updated_at=run.updated_at,

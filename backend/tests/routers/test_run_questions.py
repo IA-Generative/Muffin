@@ -111,7 +111,7 @@ async def test_the_answer_is_kept_with_the_questions_and_starts_a_run(client):
         client,
         "Période : 2024 ; Services : RH, Finance",
         conversation_id=run["conversation_id"],
-        answers_message_id=assistant["id"],
+        answers_run_id=assistant["run_id"],
         answers=[{"selected": ["2024"]}, {"selected": ["RH", "Finance"], "text": " pas la direction "}],
     )
 
@@ -134,7 +134,7 @@ async def test_a_free_text_answer_is_enough(client):
         client,
         "Autre chose",
         conversation_id=run["conversation_id"],
-        answers_message_id=assistant["id"],
+        answers_run_id=assistant["run_id"],
         answers=[{"text": "la période d'avant"}, {"selected": ["RH"]}],
     )
 
@@ -163,7 +163,7 @@ async def test_answers_that_do_not_fit_the_questions_are_refused(client, answers
             json={
                 "query": "x",
                 "conversation_id": run["conversation_id"],
-                "answers_message_id": assistant["id"],
+                "answers_run_id": assistant["run_id"],
                 "answers": answers,
             },
         )
@@ -188,7 +188,7 @@ async def test_writing_something_else_abandons_the_questions(client):
             json={
                 "query": "x",
                 "conversation_id": run["conversation_id"],
-                "answers_message_id": assistant["id"],
+                "answers_run_id": assistant["run_id"],
                 "answers": [{"selected": ["2024"]}, {"selected": ["RH"]}],
             },
         )
@@ -200,7 +200,7 @@ async def test_questions_are_answered_once(client):
     await _ask(client, run)
     assistant = (await _messages(client, run["conversation_id"]))[1]
     answers = [{"selected": ["2024"]}, {"selected": ["RH"]}]
-    await _run(client, "r", conversation_id=run["conversation_id"], answers_message_id=assistant["id"], answers=answers)
+    await _run(client, "r", conversation_id=run["conversation_id"], answers_run_id=assistant["run_id"], answers=answers)
 
     with patch("app.services.run_service.enqueue_run_agent", return_value="celery-x"):
         again = await client.post(
@@ -208,7 +208,7 @@ async def test_questions_are_answered_once(client):
             json={
                 "query": "r",
                 "conversation_id": run["conversation_id"],
-                "answers_message_id": assistant["id"],
+                "answers_run_id": assistant["run_id"],
                 "answers": answers,
             },
         )
@@ -227,7 +227,7 @@ async def test_a_message_without_questions_cannot_be_answered(client):
             json={
                 "query": "x",
                 "conversation_id": run["conversation_id"],
-                "answers_message_id": assistant["id"],
+                "answers_run_id": assistant["run_id"],
                 "answers": [],
             },
         )
@@ -247,7 +247,7 @@ async def test_questions_of_another_conversation_cannot_be_answered(client):
             json={
                 "query": "x",
                 "conversation_id": other["conversation_id"],
-                "answers_message_id": assistant["id"],
+                "answers_run_id": assistant["run_id"],
                 "answers": [{"selected": ["2024"]}, {"selected": ["RH"]}],
             },
         )
@@ -263,7 +263,7 @@ async def test_the_worker_is_told_which_messages_asked_questions_and_whether_any
         client,
         "Période : 2024",
         conversation_id=run["conversation_id"],
-        answers_message_id=assistant["id"],
+        answers_run_id=assistant["run_id"],
         answers=[{"selected": ["2024"]}, {"selected": ["RH"]}],
         interactive=False,
     )
@@ -273,3 +273,17 @@ async def test_the_worker_is_told_which_messages_asked_questions_and_whether_any
     body = response.json()
     assert body["interactive"] is False
     assert [(item["role"], item["asked"]) for item in body["history"]] == [("user", False), ("assistant", True)]
+
+
+async def test_a_run_that_ended_on_questions_reports_them_with_its_status(client):
+    run = await _run(client, "Combien de congés ?")
+    assert (await client.get(f"/api/runs/{run['id']}")).json()["questions"] is None
+    await _ask(client, run)
+    async with async_session_factory() as session:
+        stored = await session.get(Run, uuid.UUID(run["id"]))
+        stored.status = "completed"
+        await session.commit()
+
+    body = (await client.get(f"/api/runs/{run['id']}")).json()
+
+    assert [question["header"] for question in body["questions"]] == ["Période", "Services"]
