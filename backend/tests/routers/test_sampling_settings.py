@@ -133,3 +133,53 @@ def test_page_ranges_are_read(text, expected):
 def test_page_ranges_that_are_not_are_refused(text):
     with pytest.raises(InvalidPageRangesError):
         parse_page_ranges(text)
+
+
+async def test_the_estimate_follows_the_settings_of_the_collection(client):
+    collection_id = await _collection(client)
+
+    default = (await client.get(f"/api/collections/{collection_id}/indexing-estimate", params={"pages": 900})).json()
+    # A new collection cuts its chunks with the model (450 calls, on top of the 1 978 of the other steps).
+    assert default["chat"]["chunking"] == 450 and default["chat"]["total"] == 2428
+    assert default["sampled"] is True and default["collection_max"] == 4
+
+    await _settings(
+        client,
+        collection_id,
+        {"summary_mode": "percent", "summary_percent": 30, "qa_max_questions": 100, "extraction_percent": 20},
+    )
+    sampled = (await client.get(f"/api/collections/{collection_id}/indexing-estimate", params={"pages": 900})).json()
+    assert sampled["chat"] == {"chunking": 450, "summary": 55, "tagging": 1, "qa": 33, "entities": 45, "total": 584}
+    assert sampled["embeddings"] == {"summary": 1, "qa_questions": 99}
+
+    short = (await client.get(f"/api/collections/{collection_id}/indexing-estimate", params={"pages": 100})).json()
+    assert short["sampled"] is False and short["chat"]["total"] == 268  # 218 + 50 for the chunking
+
+
+async def test_the_estimate_counts_the_calls_of_the_model_chunking_only_for_that_strategy(client):
+    collection_id = await _collection(client)
+    url = f"/api/collections/{collection_id}/indexing-estimate"
+
+    llm = (await client.get(url, params={"pages": 900})).json()
+    await client.patch(f"/api/collections/{collection_id}/settings", json={"chunking_strategy": "paragraph"})
+    paragraph = (await client.get(url, params={"pages": 900})).json()
+
+    assert llm["chat"]["chunking"] == 450
+    assert paragraph["chat"]["chunking"] == 0 and paragraph["chat"]["total"] == 1978
+
+
+@pytest.mark.parametrize("pages", [0, -3, 100_001, "many"])
+async def test_the_estimate_refuses_a_number_of_pages_that_makes_no_sense(client, pages):
+    collection_id = await _collection(client)
+
+    response = await client.get(f"/api/collections/{collection_id}/indexing-estimate", params={"pages": pages})
+
+    assert response.status_code == 422
+
+
+async def test_the_estimate_of_a_collection_that_is_not_there_is_a_404(client):
+    import uuid
+
+    response = await client.get(f"/api/collections/{uuid.uuid4()}/indexing-estimate", params={"pages": 10})
+
+    assert response.status_code == 404

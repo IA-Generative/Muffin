@@ -206,6 +206,20 @@ class PipelineWindowsOut(BaseModel):
         return self
 
 
+class IndexingEstimateOut(BaseModel):
+    """The calls to the language model indexing a document costs under a collection's settings (#372)."""
+
+    pages: int
+    # Whether the document is long enough for the settings that read only a part of it to apply.
+    sampled: bool
+    # Calls to the chat model, by step ("total" adds them up).
+    chat: dict[str, int]
+    # Calls to the embedding model that do not depend on how the text is cut: the summary, and a question each.
+    embeddings: dict[str, int]
+    # What the collection's own description, tags and reference questions may add, when the summary changes them.
+    collection_max: int
+
+
 class PipelineWindowsUpdate(BaseModel):
     summary_pages_per_map: int | None = None
     qa_window_pages: int | None = None
