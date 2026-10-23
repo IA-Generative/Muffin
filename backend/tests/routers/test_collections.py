@@ -266,6 +266,16 @@ async def test_pipeline_windows_default_when_never_saved(client):
         "chunking_window_pages": 2,
         "chunking_slide_pages": 1,
         "collection_qa_count": 3,
+        # Long documents (#372): everything is read until a collection says otherwise.
+        "sampling_min_pages": 100,
+        "summary_mode": "all",
+        "summary_percent": 30,
+        "summary_head_percent": None,
+        "summary_tail_percent": None,
+        "summary_page_ranges": "",
+        "qa_max_questions": None,
+        "extraction_percent": 100,
+        "extraction_max_windows": None,
     }
 
 
