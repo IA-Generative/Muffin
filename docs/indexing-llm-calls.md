@@ -58,8 +58,10 @@ Exemple, 900 pages, résumé 30 % (15 % + 15 %), N = 100 questions, 20 % des ent
 
 ## Où ce calcul est utilisé
 Une fonction unique dans le backend (`estimate_llm_calls`, `backend/app/core/indexing_cost.py`) donne ces nombres par
-`GET /api/collections/{id}/indexing-estimate?pages=N`, selon les réglages de la collection ; l'onglet réglages l'appellera
-(#375) : « environ N appels pour un document de 100 / 900 pages » à côté des champs. Les cas de référence
+`GET /api/collections/{id}/indexing-estimate?pages=N`, selon les réglages de la collection ; l'onglet réglages (section « Longs documents »)
+l'affiche à côté des champs : « environ N appels pour un document de P pages (au lieu de M en lisant tout) ». Il le calcule
+avec les réglages tels qu'ils sont saisis, sans les enregistrer : `POST /api/collections/{id}/indexing-estimate` prend
+`{pages, pipeline_windows}` (les clés envoyées l'emportent sur celles de la collection, `null` retire un plafond). Les cas de référence
 (`docs/indexing-llm-calls-cases.json` : pages, réglages → appels) sont vérifiés par le test du backend et par un test du
 worker qui compte les tâches réellement envoyées (`tests/test_llm_call_cases.py`) : le calcul affiché et le travail fait ne
 peuvent pas diverger, y compris pour les cas qui ne lisent qu'une partie du document.
