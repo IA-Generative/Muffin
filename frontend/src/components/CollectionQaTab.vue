@@ -2,8 +2,9 @@
 import { computed, onMounted, ref } from 'vue'
 import { useCollections } from '../composables/useCollections'
 import { usePagination } from '../composables/usePagination'
-import type { Collection } from '../types/collection'
+import type { Collection, QaPair } from '../types/collection'
 import PaginationControls from './PaginationControls.vue'
+import SourceDocumentModal from './SourceDocumentModal.vue'
 
 const props = defineProps<{
   collection: Collection
@@ -13,6 +14,13 @@ const { addQaPair, removeQaPair, toggleQaValidation, qaError, loadTabData } = us
 
 // The documents a test question can point at: loaded here too, since this tab may be opened first.
 onMounted(() => loadTabData(props.collection.id, 'documents'))
+
+// The pair whose source is open (#349): its document on the page the answer comes from, the passage highlighted.
+const openSource = ref<QaPair>()
+
+function hasPassage(pair: QaPair): boolean {
+  return !!pair.sourceDocumentId && !!pair.sourcePage && !!pair.sourceExcerpt
+}
 
 const qaPairs = computed(() => props.collection.qaPairs)
 const { page, pageCount, paged: pagedQaPairs } = usePagination(qaPairs)
@@ -104,6 +112,15 @@ async function submit() {
             <span v-if="pair.golden && pair.relevantDocuments.length" class="qa-tab__source">
               {{ pair.relevantDocuments.map((document) => document.name).join(', ') }}
             </span>
+            <button
+              v-else-if="pair.source && hasPassage(pair)"
+              type="button"
+              class="qa-tab__source qa-tab__source--link"
+              :aria-label="`Voir la source de cette réponse dans ${pair.source}, page ${pair.sourcePage}`"
+              @click="openSource = pair"
+            >
+              {{ pair.source }} · page {{ pair.sourcePage }}
+            </button>
             <span v-else-if="pair.source" class="qa-tab__source">{{ pair.source }}</span>
             <span v-else-if="pair.golden" class="qa-tab__source">Aucun document : non évaluable</span>
           </div>
@@ -140,6 +157,16 @@ async function submit() {
     <p v-else class="qa-tab__empty">Aucune question-réponse pour le moment.</p>
 
     <PaginationControls v-model:page="page" :page-count="pageCount" />
+
+    <SourceDocumentModal
+      v-if="openSource && openSource.sourceDocumentId"
+      :collection-id="collection.id"
+      :document-id="openSource.sourceDocumentId"
+      :document-name="openSource.source ?? ''"
+      :page-number="openSource.sourcePage"
+      :excerpt="openSource.sourceExcerpt"
+      @close="openSource = undefined"
+    />
   </div>
 </template>
 
@@ -230,6 +257,16 @@ async function submit() {
 .qa-tab__source {
   font-size: 0.75rem;
   color: var(--text-mention-grey);
+}
+
+.qa-tab__source--link {
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: var(--text-action-high-blue-france);
+  text-decoration: underline;
+  cursor: pointer;
 }
 
 .qa-tab__validate {

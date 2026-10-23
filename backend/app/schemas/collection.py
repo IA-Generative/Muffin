@@ -51,6 +51,12 @@ class QaPairOut(BaseModel):
     question: str
     answer: str
     source: str | None = None
+    # Where the answer comes from (#349): the document, its page and the passage - what opens the document
+    # on that page with the passage highlighted. None for a pair written by hand, or one whose passage was
+    # not found.
+    source_document_id: uuid.UUID | None = None
+    source_page: int | None = None
+    source_excerpt: str | None = None
     origin: str
     validated: bool
     # A test question (#260): written by a person, kept out of the retriever, used only to measure.
