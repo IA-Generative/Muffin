@@ -45,8 +45,30 @@ existants continuent de fonctionner :
 
 ![Onglet avancé actif, libellé du déclencheur mis à jour](screenshots/collections-tabs-03-chunks-active.png)
 
-Tant que les paramètres de la collection n'ont pas été enregistrés, seul l'onglet Paramètres est
+Tant que la configuration de la collection n'est pas terminée, seul l'onglet Paramètres est
 accessible (les autres onglets et le menu Avancé restent désactivés).
+
+## Onglet Paramètres : assistant, puis réglages guidés
+
+**Première configuration** (`CollectionSetupWizard.vue`) : trois étapes - un profil, les modèles, un récapitulatif.
+Les profils (`utils/collectionProfiles.ts`) traduisent un besoin en réglages : *Rapide et économique* (découpage par
+paragraphe, longs documents lus en partie), *Équilibré* (recommandé, préselectionné sur une collection neuve),
+*Précis* (tout est lu). Chaque carte dit ce qu'elle règle, ce qu'elle fait perdre et ce qu'elle coûte en appels au modèle
+pour 900 pages (calculé par le backend, voir `docs/indexing-llm-calls.md`). Le profil ne règle que le découpage et les
+longs documents ; il ne touche ni aux modèles, ni aux consignes, et ne remplace rien sur une collection qui a déjà des
+documents ou des réglages.
+
+**Ensuite** (`CollectionSettingsTab.vue`), les réglages sont groupés par ce qu'ils font : *Profil*, *Lire et retrouver
+les documents* (découpage, modèle d'embedding), *Ce que l'IA ajoute à chaque document* (résumé, questions-réponses,
+entités, tags, avec un modèle de génération commun), *Documents très longs*, *Qui peut y accéder* (visibilité et partages,
+appliqués tout de suite). Chaque section est repliée avec son état en une ligne ; les réglages techniques (pages par
+lot, fenêtres, taille des chunks, modèle par étape) sont dans « Réglages avancés ». Tout s'enregistre d'un seul bouton,
+dans une barre toujours visible qui dit ce qui est en attente ; un brouillon non enregistré survit à un changement
+d'onglet. Les valeurs invalides sont signalées à côté du champ et empêchent l'enregistrement ; le découpage et le modèle
+d'embedding demandent confirmation (réindexation possible).
+
+La logique (brouillon, modifications, validation, requête, résumés en une phrase) est dans `utils/settingsDraft.ts`,
+`utils/settingsSummary.ts` et `utils/longDocuments.ts`, testée avec `pnpm test`.
 
 ## Mode lecture/édition, header collant, transitions (§142)
 
