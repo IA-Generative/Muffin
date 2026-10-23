@@ -291,8 +291,9 @@ class DocumentRepository:
         if summary is not None:
             document.summary = summary
 
-    async def set_summary(self, document: Document, summary: str) -> None:
+    async def set_summary(self, document: Document, summary: str, pages: list[list[int]] | None = None) -> None:
         document.summary = summary
+        document.summary_pages = pages or None
 
     async def set_error(self, document: Document, error: str) -> None:
         document.error = error

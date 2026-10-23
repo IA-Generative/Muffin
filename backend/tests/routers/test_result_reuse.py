@@ -356,6 +356,19 @@ async def test_a_chunk_with_no_vector_at_the_source_has_none_here_either(client,
     assert [text for _, _, text, _ in points] == ["chunk 0", "chunk 2"]
 
 
+async def test_a_copied_summary_keeps_the_pages_it_was_made_from(client, index):
+    source = await _processed_source(await _collection(), index)
+    async with async_session_factory() as session:
+        (await session.get(Document, source)).summary_pages = [[1, 10], [90, 100]]
+        await session.commit()
+    target = await _document(await _collection())
+
+    assert await _begin(client, target, PipelineStage.SUMMARY) is True
+
+    async with async_session_factory() as session:
+        assert (await session.get(Document, target)).summary_pages == [[1, 10], [90, 100]]
+
+
 async def test_the_summary_is_copied_with_its_vector(client, index):
     await _processed_source(await _collection(), index)
     target_collection = await _collection()

@@ -204,10 +204,30 @@ class BackendClient:
         response = self._client.post(f"/api/internal/documents/{document_id}/chunks/prune", json={"keep": keep})
         response.raise_for_status()
 
-    def set_document_summary(self, document_id: str, summary: str, embedding: list[float] | None = None) -> None:
+    def set_document_summary(
+        self,
+        document_id: str,
+        summary: str,
+        embedding: list[float] | None = None,
+        pages: list[tuple[int, int]] | None = None,
+    ) -> None:
+        """`pages`: the stretches of pages the summary was made from (#372) - None when it read the whole document."""
         response = self._client.patch(
             f"/api/internal/documents/{document_id}/summary",
-            json={"summary": summary, "embedding": embedding, "embedding_model": _model_of(embedding)},
+            json={
+                "summary": summary,
+                "embedding": embedding,
+                "embedding_model": _model_of(embedding),
+                "pages": [list(stretch) for stretch in pages] if pages else None,
+            },
+        )
+        response.raise_for_status()
+
+    def prune_windows(self, document_id: str, qa: list[str] | None = None, entities: list[str] | None = None) -> None:
+        """Keeps, of what was derived from the document's windows of pages (#372), only the windows given - by key,
+        "window:3-4" for the QA pairs and "pages:3-6" for the entities. A step left out is left alone."""
+        response = self._client.post(
+            f"/api/internal/documents/{document_id}/windows/prune", json={"qa": qa, "entities": entities}
         )
         response.raise_for_status()
 

@@ -64,6 +64,8 @@ class DocumentDetailOut(BaseModel):
     status: str
     progress: int
     summary: str | None
+    # The stretches of pages the summary was made from, [[first, last], ...] - None when it read the whole document.
+    summary_pages: list[list[int]] | None = None
     error: str | None
     tags: list[str]
     page_count: int

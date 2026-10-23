@@ -161,6 +161,35 @@ class EntityRepository:
             )
         return windows
 
+    async def prune_windows(self, document_id: uuid.UUID, keep_keys: Sequence[str]) -> int:
+        """Takes the contribution of the windows of a document that are not among `keep_keys` out of the
+        collection (#372), as `remove_document` does for all of them: a document read again with other settings
+        keeps only the entities and relations of what its windows now are. Returns how many windows went. A row
+        written before windows were kept apart has no key of the form `pages:a-b` and stays."""
+        keys = set(
+            (
+                await self.db.execute(
+                    select(EntityDocument.window_key).where(EntityDocument.document_id == document_id)
+                )
+            ).scalars()
+        )
+        keys |= set(
+            (await self.db.execute(select(Relation.window_key).where(Relation.document_id == document_id))).scalars()
+        )
+        stale = {key for key in keys if key.startswith("pages:") and key not in set(keep_keys)}
+        touched: set[uuid.UUID] = set()
+        for key in stale:
+            touched |= await self._remove_contributions(document_id, key)
+            await self.db.execute(
+                delete(Relation).where(Relation.document_id == document_id, Relation.window_key == key)
+            )
+            await self.db.execute(
+                delete(EntityMention).where(EntityMention.document_id == document_id, EntityMention.window_key == key)
+            )
+        await self._delete_unmentioned(touched)
+        await self.db.flush()
+        return len(stale)
+
     async def remove_document(self, document_id: uuid.UUID) -> None:
         """Takes a document's contribution out of the collection: its mentions leave the entities' counts
         (an entity nothing mentions anymore goes), and its relations go (#299). For a document that is

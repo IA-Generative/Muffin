@@ -262,6 +262,7 @@ async def list_collection_documents(
             name=document.name,
             status=document.status,
             summary=document.summary,
+            summary_pages=document.summary_pages,
         )
         for document in documents
     ]
@@ -424,6 +425,7 @@ async def summary_search(
             collection_path=paths.get(document.collection_id, []),
             name=document.name,
             summary=document.summary,
+            summary_pages=document.summary_pages,
             score=score,
         )
         for document, score in rows

@@ -157,7 +157,7 @@ class ResultReuse:
     async def _copy_summary(self, source: Document, target: Document, undo: Undo) -> None:
         if not source.summary:
             raise ValueError(f"document {source.id} has no summary to copy")
-        await self.documents.set_summary(target, source.summary)
+        await self.documents.set_summary(target, source.summary, source.summary_pages)
         await self._copy_vectors(
             source.collection_id,
             target.collection_id,

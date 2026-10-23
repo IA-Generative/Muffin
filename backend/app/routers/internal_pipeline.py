@@ -10,7 +10,7 @@ from app.models.document_stage import PipelineStage
 from app.repositories.collection_repository import CollectionRepository
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.entity_repository import Occurrence, RelationSource
-from app.schemas.internal_pipeline import EntityWindowReplace, GeneratedQaReplace
+from app.schemas.internal_pipeline import EntityWindowReplace, GeneratedQaReplace, WindowsPrune
 from app.services.document_derived_data import DocumentDerivedData
 from app.services.document_derived_data import GeneratedQaPair as GeneratedQaPairData
 from app.services.result_reuse import ResultReuse
@@ -88,4 +88,20 @@ async def replace_entity_window(
     )
     await db.commit()
     await ResultReuse(db).mark_done(document_id, PipelineStage.ENTITIES, window_key)
+    return {"status": "ok"}
+
+
+@router.post(
+    "/documents/{document_id}/windows/prune",
+    summary="Keep, of what was derived from a document's windows of pages, only the given windows - the others "
+    "(from a previous run under other settings) go",
+)
+async def prune_windows(
+    document_id: uuid.UUID, body: WindowsPrune, db: Annotated[AsyncSession, Depends(get_db)]
+) -> dict[str, str]:
+    document = await DocumentRepository(db).get(document_id)
+    if document is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+    await DocumentDerivedData(db).prune_windows(document, body.qa, body.entities)
+    await db.commit()
     return {"status": "ok"}

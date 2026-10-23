@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Annotated, Any
 
 from pydantic import BaseModel, Field
 
@@ -55,6 +55,8 @@ class TaskLogEntriesIn(BaseModel):
 
 class DocumentSummaryUpdate(BaseModel):
     summary: str
+    # The stretches of pages the summary was made from, [[first, last], ...] (#372) - None: the whole document.
+    pages: list[Annotated[list[int], Field(min_length=2, max_length=2)]] | None = Field(default=None, max_length=100)
     # Computed worker-side (same pattern as ChunkCreate.embedding/QaPairCreate.embedding) - backs
     # the research agent's tier-2 retrieval (§ QA -> summaries -> chunks): the top-K most
     # relevant document summaries are found by vector search, not by reading every summary in
@@ -88,6 +90,15 @@ class GeneratedQaPair(BaseModel):
     # Where that passage is in the content of `source_page` (#351), when the worker knows it.
     source_start: int | None = Field(default=None, ge=0)
     source_end: int | None = Field(default=None, ge=0)
+
+
+class WindowsPrune(BaseModel):
+    """The windows of a document's pages a step is about to run on (#372), by key ("window:3-4" for the QA pairs,
+    "pages:3-6" for the entities): what was derived from any other window of the document is removed. A step left
+    out (None) is left alone."""
+
+    qa: list[str] | None = Field(default=None, max_length=100_000)
+    entities: list[str] | None = Field(default=None, max_length=100_000)
 
 
 class GeneratedQaReplace(BaseModel):

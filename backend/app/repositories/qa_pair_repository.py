@@ -75,6 +75,26 @@ class QaPairRepository:
         )
         return list(result.scalars().all())
 
+    async def delete_generated_windows_except(
+        self, document_id: uuid.UUID, keep_keys: Sequence[str]
+    ) -> list[tuple[uuid.UUID, uuid.UUID]]:
+        """Removes the pairs the pipeline generated from windows of a document's pages that are not among
+        `keep_keys` (#372): a document read again with other settings keeps only what its windows now are. A pair
+        a person validated stays, and so does what came from something else than a window (a tabular profile).
+        Returns (collection id, pair id) of the removed ones, whose vectors are still to remove."""
+        result = await self.db.execute(
+            delete(QaPair)
+            .where(
+                QaPair.document_id == document_id,
+                QaPair.origin == QaOrigin.GENERATED,
+                QaPair.validated.is_(False),
+                QaPair.generation_key.like("window:%"),
+                QaPair.generation_key.not_in(list(keep_keys)),
+            )
+            .returning(QaPair.collection_id, QaPair.id)
+        )
+        return [(row.collection_id, row.id) for row in result.all()]
+
     async def delete_generated_for_document(
         self, document_id: uuid.UUID, *, keep_validated: bool
     ) -> list[tuple[uuid.UUID, uuid.UUID]]:

@@ -49,15 +49,25 @@ fenêtres actuelles, qui se recouvrent, 20 % des fenêtres en couvriraient envir
 
 | Étape | Réglage | Appels de chat |
 |---|---|---|
-| Résumé | `summary_percent` (réparti moitié début, moitié fin), ou `summary_head_percent` + `summary_tail_percent`, ou des plages de pages | `⌈pages retenues / summary_pages_per_map⌉` + 1, avec `pages retenues = ⌈P × pourcentage / 100⌉` |
+| Résumé | `summary_percent` (réparti moitié début, moitié fin), ou `summary_head_percent` + `summary_tail_percent`, ou des plages de pages (`summary_page_ranges`) | `⌈pages retenues / summary_pages_per_map⌉` + 1, avec `pages retenues = ⌈P × pourcentage / 100⌉` |
 | QA | `qa_max_questions` (N), par document | `min(⌈P / qa_window_pages⌉, ⌊N / qa_questions_per_window⌋)` ; au plus N questions |
 | Entités | `extraction_percent`, `extraction_max_windows` (optionnel) | `min(max(1, ⌈⌈P / extraction_window_pages⌉ × pourcentage / 100⌉), extraction_max_windows)` |
 
 Exemple, 900 pages, résumé 30 % (15 % + 15 %), N = 100 questions, 20 % des entités : résumé `⌈270 / 5⌉ + 1 = 55`, QA
 `⌊100 / 3⌋ = 33`, entités `⌈⌈900 / 4⌉ × 0,2⌉ = 45`, étiquettes 1 : **134 appels au lieu de 1 978** (−93 %).
 
-## Où ce calcul sera utilisé
-Une fonction unique dans le backend (`estimate_llm_calls(pages, réglages)`, #373) donne ces nombres par une route que
-l'onglet réglages de la collection appelle (#375) : « environ N appels pour un document de 100 / 900 pages » à côté des
-champs. Un fichier de cas de référence (pages, réglages → appels) est vérifié par le test du backend et par un test du
-worker qui compte les tâches réellement envoyées (#374) : le calcul affiché et le travail fait ne peuvent pas diverger.
+## Où ce calcul est utilisé
+Une fonction unique dans le backend (`estimate_llm_calls`, `backend/app/core/indexing_cost.py`) donne ces nombres par
+`GET /api/collections/{id}/indexing-estimate?pages=N`, selon les réglages de la collection ; l'onglet réglages l'appellera
+(#375) : « environ N appels pour un document de 100 / 900 pages » à côté des champs. Les cas de référence
+(`docs/indexing-llm-calls-cases.json` : pages, réglages → appels) sont vérifiés par le test du backend et par un test du
+worker qui compte les tâches réellement envoyées (`tests/test_llm_call_cases.py`) : le calcul affiché et le travail fait ne
+peuvent pas diverger. Aujourd'hui le worker ne lit que les cas qui parcourent tout le document ; ceux qui en lisent une
+partie le seront avec #374, quand les étapes appliquent les réglages.
+
+## Les réglages (`pipeline_windows`, par collection)
+`sampling_min_pages` (100), `summary_mode` (`all` / `percent` / `pages`), `summary_percent` (30), `summary_head_percent` et
+`summary_tail_percent` (début et fin séparés, qui remplacent `summary_percent`), `summary_page_ranges` (« 1-5, 40-45 »),
+`qa_max_questions`, `extraction_percent` (100), `extraction_max_windows`. Les valeurs par défaut lisent tout : rien ne
+change tant qu'on ne les règle pas. Le backend refuse les valeurs qui n'ont pas de sens, y compris celles qui ne le sont
+qu'ensemble (début + fin supérieurs à 100 %, un mode « pages » sans page).
