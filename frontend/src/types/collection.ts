@@ -31,6 +31,11 @@ export interface QaPair {
   question: string
   answer: string
   source?: string
+  // Where the answer comes from (#349): what opens the document on that page with the passage
+  // highlighted. Absent for a pair written by hand, or one whose passage was not found.
+  sourceDocumentId?: string
+  sourcePage?: number
+  sourceExcerpt?: string
   origin: 'generated' | 'manual'
   validated: boolean
   // A test question (#260): written by a person, kept out of the retriever (the assistant never
