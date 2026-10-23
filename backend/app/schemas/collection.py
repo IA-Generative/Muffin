@@ -242,6 +242,13 @@ class PipelineWindowsUpdate(BaseModel):
     extraction_max_windows: int | None = None
 
 
+class IndexingEstimateRequest(BaseModel):
+    """Settings typed and not saved yet, to see what they would cost before saving them."""
+
+    pages: int = Field(ge=1, le=100_000)
+    pipeline_windows: PipelineWindowsUpdate = PipelineWindowsUpdate()
+
+
 class CollectionPathItem(BaseModel):
     id: uuid.UUID
     name: str

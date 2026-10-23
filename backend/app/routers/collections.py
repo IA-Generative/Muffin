@@ -17,6 +17,7 @@ from app.schemas.collection import (
     EntityOut,
     GroundednessStatsOut,
     IndexingEstimateOut,
+    IndexingEstimateRequest,
     QaPairOut,
     RelationOut,
     ShareCreate,
@@ -173,6 +174,25 @@ async def update_collection_settings(
 ) -> CollectionOut:
     try:
         return await service.update_settings(collection_id, user, update)
+    except CollectionNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
+    except InvalidPipelineWindowsError as error:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)) from error
+
+
+@router.post(
+    "/collections/{collection_id}/indexing-estimate",
+    summary="The same for settings that are typed and not saved yet (nothing is stored)",
+    response_model=IndexingEstimateOut,
+)
+async def post_indexing_estimate(
+    collection_id: uuid.UUID,
+    request: IndexingEstimateRequest,
+    user: UserDep,
+    service: ServiceDep,
+) -> IndexingEstimateOut:
+    try:
+        return await service.indexing_estimate(collection_id, user, request.pages, request.pipeline_windows)
     except CollectionNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
     except InvalidPipelineWindowsError as error:

@@ -183,3 +183,60 @@ async def test_the_estimate_of_a_collection_that_is_not_there_is_a_404(client):
     response = await client.get(f"/api/collections/{uuid.uuid4()}/indexing-estimate", params={"pages": 10})
 
     assert response.status_code == 404
+
+
+async def test_the_estimate_of_settings_not_saved_yet_stores_nothing(client):
+    collection_id = await _collection(client)
+    url = f"/api/collections/{collection_id}/indexing-estimate"
+
+    draft = await client.post(
+        url,
+        json={
+            "pages": 900,
+            "pipeline_windows": {"summary_mode": "percent", "qa_max_questions": 100, "extraction_percent": 20},
+        },
+    )
+
+    assert draft.status_code == 200
+    assert draft.json()["chat"] == {
+        "chunking": 450,
+        "summary": 55,
+        "tagging": 1,
+        "qa": 33,
+        "entities": 45,
+        "total": 584,
+    }
+    saved = (await client.get(url, params={"pages": 900})).json()
+    assert saved["chat"]["total"] == 2428
+    assert (await client.get(f"/api/collections/{collection_id}")).json()["pipeline_windows"]["summary_mode"] == "all"
+
+
+async def test_the_estimate_of_a_draft_is_made_over_what_is_saved_and_a_null_removes_a_cap(client):
+    collection_id = await _collection(client)
+    await _settings(client, collection_id, {"qa_max_questions": 100})
+    url = f"/api/collections/{collection_id}/indexing-estimate"
+
+    capped = (await client.post(url, json={"pages": 900})).json()
+    uncapped = (await client.post(url, json={"pages": 900, "pipeline_windows": {"qa_max_questions": None}})).json()
+
+    assert capped["chat"]["qa"] == 33
+    assert uncapped["chat"]["qa"] == 899
+
+
+@pytest.mark.parametrize(
+    "windows",
+    [
+        {"summary_percent": 0},
+        {"summary_head_percent": 60, "summary_tail_percent": 60},
+        {"summary_mode": "pages"},
+        {"summary_page_ranges": "5-2"},
+    ],
+)
+async def test_the_estimate_of_a_draft_that_makes_no_sense_is_refused(client, windows):
+    collection_id = await _collection(client)
+
+    response = await client.post(
+        f"/api/collections/{collection_id}/indexing-estimate", json={"pages": 900, "pipeline_windows": windows}
+    )
+
+    assert response.status_code == 422
