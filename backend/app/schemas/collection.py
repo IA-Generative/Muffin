@@ -1,9 +1,10 @@
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.core.page_ranges import InvalidPageRangesError, parse_page_ranges
 from app.models.collection import CollectionVisibility, ShareStatus, ShareSubjectType
 
 if TYPE_CHECKING:
@@ -173,6 +174,36 @@ class PipelineWindowsOut(BaseModel):
     # generate_collection_qa produces from the collection's description each
     # time it changes (see the "collections" Qdrant index, §124).
     collection_qa_count: int = 3
+    # Long documents (#372): above `sampling_min_pages` pages, the summary, the QA pairs and the entities do not
+    # read the whole document. The defaults read everything, so nothing changes until a collection sets them.
+    # The chunks always cover every page.
+    sampling_min_pages: int = Field(default=100, ge=1)
+    # What the summary reads: everything, a share of the document (`summary_percent`, half at the start and half at
+    # the end - or `summary_head_percent` and `summary_tail_percent` when they are set, which replace it), or the
+    # pages of `summary_page_ranges` ("1-5, 40-45").
+    summary_mode: Literal["all", "percent", "pages"] = "all"
+    summary_percent: int = Field(default=30, ge=1, le=100)
+    summary_head_percent: int | None = Field(default=None, ge=0, le=100)
+    summary_tail_percent: int | None = Field(default=None, ge=0, le=100)
+    summary_page_ranges: str = Field(default="", max_length=500)
+    # At most this many questions for a document (None: no cap) - the model may give fewer.
+    qa_max_questions: int | None = Field(default=None, ge=1)
+    # The share of the entity windows that are analysed, and at most this many of them (None: no cap).
+    extraction_percent: int = Field(default=100, ge=1, le=100)
+    extraction_max_windows: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def _check_sampling(self) -> "PipelineWindowsOut":
+        head, tail = self.summary_head_percent, self.summary_tail_percent
+        if (head is not None or tail is not None) and not 1 <= (head or 0) + (tail or 0) <= 100:
+            raise ValueError("summary_head_percent + summary_tail_percent must be between 1 and 100")
+        try:
+            ranges = parse_page_ranges(self.summary_page_ranges)
+        except InvalidPageRangesError as error:
+            raise ValueError(f"summary_page_ranges: {error}") from error
+        if self.summary_mode == "pages" and not ranges:
+            raise ValueError("summary_mode 'pages' needs summary_page_ranges")
+        return self
 
 
 class PipelineWindowsUpdate(BaseModel):
@@ -185,6 +216,16 @@ class PipelineWindowsUpdate(BaseModel):
     chunking_window_pages: int | None = None
     chunking_slide_pages: int | None = None
     collection_qa_count: int | None = None
+    sampling_min_pages: int | None = None
+    summary_mode: Literal["all", "percent", "pages"] | None = None
+    summary_percent: int | None = None
+    summary_head_percent: int | None = None
+    summary_tail_percent: int | None = None
+    summary_page_ranges: str | None = None
+    # These four can be sent as null to remove the cap / the separate start and end.
+    qa_max_questions: int | None = None
+    extraction_percent: int | None = None
+    extraction_max_windows: int | None = None
 
 
 class CollectionPathItem(BaseModel):

@@ -1,6 +1,7 @@
 import uuid
 from collections.abc import Sequence
 
+from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,6 +32,7 @@ from app.schemas.collection import (
     EntityOut,
     GroundednessRunOut,
     GroundednessStatsOut,
+    PipelineWindowsOut,
     QaPairOut,
     RelationOut,
     RelationSourceOut,
@@ -52,6 +54,10 @@ DEFAULT_COLLECTION_NAME = "Nouvelle collection"
 
 class CollectionNotFoundError(Exception):
     pass
+
+
+class InvalidPipelineWindowsError(Exception):
+    """The pipeline settings as they would be once updated are not valid (#372) - the message says which."""
 
 
 class ParentCollectionNotFoundError(Exception):
@@ -190,6 +196,16 @@ class CollectionService:
         update: CollectionSettingsUpdate,
     ) -> CollectionOut:
         collection = await self._get_owned(collection_id, user)
+        windows_update = (
+            update.pipeline_windows.model_dump(exclude_unset=True) if update.pipeline_windows is not None else None
+        )
+        if windows_update is not None:
+            # Valid as a whole, not only each field: the update is merged into what is stored (a start and end
+            # that add up to more than the document, a page mode with no page).
+            try:
+                PipelineWindowsOut(**{**(collection.settings.pipeline_windows or {}), **windows_update})
+            except ValidationError as error:
+                raise InvalidPipelineWindowsError("; ".join(item["msg"] for item in error.errors())) from error
 
         await self.repository.update_settings(
             collection,
@@ -206,9 +222,7 @@ class CollectionService:
                 if update.generation_models is not None
                 else None
             ),
-            pipeline_windows=(
-                update.pipeline_windows.model_dump(exclude_unset=True) if update.pipeline_windows is not None else None
-            ),
+            pipeline_windows=windows_update,
         )
 
         # No refresh needed: only collection_settings columns changed (none

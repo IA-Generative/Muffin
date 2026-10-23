@@ -35,6 +35,7 @@ from app.services.collection_service import (
     AlreadyInvitedError,
     CollectionNotFoundError,
     CollectionService,
+    InvalidPipelineWindowsError,
     ParentCollectionNotFoundError,
     ShareNotFoundError,
 )
@@ -173,6 +174,8 @@ async def update_collection_settings(
         return await service.update_settings(collection_id, user, update)
     except CollectionNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
+    except InvalidPipelineWindowsError as error:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)) from error
 
 
 @router.get(

@@ -18,7 +18,7 @@ class CollectionSettingsInternalOut(BaseModel):
     embedding_model: str
     instructions: dict[str, str]
     generation_models: dict[str, str | None]
-    pipeline_windows: dict[str, int]
+    pipeline_windows: dict[str, Any]
 
 
 class TaskCreate(BaseModel):

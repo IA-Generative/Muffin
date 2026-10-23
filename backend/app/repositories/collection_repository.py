@@ -1,6 +1,7 @@
 import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import delete, exists, false, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -365,7 +366,7 @@ class CollectionRepository:
         embedding_model: str | None,
         instructions: dict[str, str] | None,
         generation_models: dict[str, str | None] | None,
-        pipeline_windows: dict[str, int] | None,
+        pipeline_windows: dict[str, Any] | None,
     ) -> bool:
         """Returns whether the embedding model actually changed - the caller
         uses that to flip reindex_required."""
