@@ -109,6 +109,42 @@ def chunks(content_hash: str, collection_settings: dict[str, Any]) -> str:
     )
 
 
+def _summary_sampling(windows: dict[str, Any]) -> dict[str, Any]:
+    """What the summary reads of a long document (#372) - nothing when it reads it all, so that the fingerprints of
+    the summaries made before stay what they were."""
+    if windows["summary_mode"] == "all":
+        return {}
+    mode = windows["summary_mode"]
+    read: dict[str, Any] = (
+        {"ranges": windows["summary_page_ranges"]}
+        if mode == "pages"
+        else {
+            "percent": windows["summary_percent"],
+            "head": windows["summary_head_percent"],
+            "tail": windows["summary_tail_percent"],
+        }
+    )
+    return {"sampling": {"mode": mode, "min_pages": windows["sampling_min_pages"], **read}}
+
+
+def _qa_sampling(windows: dict[str, Any]) -> dict[str, Any]:
+    if windows["qa_max_questions"] is None:
+        return {}
+    return {"sampling": {"max_questions": windows["qa_max_questions"], "min_pages": windows["sampling_min_pages"]}}
+
+
+def _entities_sampling(windows: dict[str, Any]) -> dict[str, Any]:
+    if windows["extraction_percent"] >= 100 and windows["extraction_max_windows"] is None:
+        return {}
+    return {
+        "sampling": {
+            "percent": windows["extraction_percent"],
+            "max_windows": windows["extraction_max_windows"],
+            "min_pages": windows["sampling_min_pages"],
+        }
+    }
+
+
 def summary(content_hash: str, collection_settings: dict[str, Any], model: str) -> str:
     windows = _shared._windows(collection_settings)
     return _digest(
@@ -118,6 +154,7 @@ def summary(content_hash: str, collection_settings: dict[str, Any], model: str) 
             "model": model,
             "instructions": collection_settings["instructions"].get("summary", ""),
             "pages_per_map": windows["summary_pages_per_map"],
+            **_summary_sampling(windows),
         }
     )
 
@@ -133,6 +170,7 @@ def qa(content_hash: str, collection_settings: dict[str, Any], model: str) -> st
             "window": windows["qa_window_pages"],
             "slide": windows["qa_slide_pages"],
             "questions": windows["qa_questions_per_window"],
+            **_qa_sampling(windows),
         }
     )
 
@@ -150,6 +188,7 @@ def entities(content_hash: str, collection_settings: dict[str, Any], model: str)
             "instructions": collection_settings["instructions"].get("extraction", ""),
             "window": windows["extraction_window_pages"],
             "slide": windows["extraction_slide_pages"],
+            **_entities_sampling(windows),
         }
     )
 
