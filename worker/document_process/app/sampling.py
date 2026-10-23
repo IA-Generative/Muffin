@@ -104,6 +104,35 @@ def window_has_text(pages_text: dict[int, str]) -> Callable[[Window], bool]:
     return usable
 
 
+def plan_qa(
+    total_pages: int, windows: dict[str, Any], pages_text: dict[int, str], seed: int
+) -> tuple[list[Window], int, bool]:
+    """(windows to ask the questions on, questions to ask in each, whether they were drawn). Every window, as before,
+    unless the document is long enough and the collection caps its questions: then `qa_max_questions` is the most
+    the document gets, from windows drawn side by side over all of it."""
+    per_window, cap = windows["qa_questions_per_window"], windows["qa_max_questions"]
+    if not applies(total_pages, windows) or cap is None:
+        return sliding_windows(total_pages, windows["qa_window_pages"], windows["qa_slide_pages"]), per_window, False
+    pool = disjoint_windows(total_pages, windows["qa_window_pages"])
+    count, asked = qa_plan(len(pool), cap, per_window)
+    return select_windows(pool, count, seed, window_has_text(pages_text)), asked, True
+
+
+def plan_entities(
+    total_pages: int, windows: dict[str, Any], pages_text: dict[int, str], seed: int
+) -> tuple[list[Window], bool]:
+    """(windows to extract the entities from, whether they were drawn). Every window, as before, unless the
+    document is long enough and the collection asks for a share of them (or caps their number)."""
+    percent, cap = windows["extraction_percent"], windows["extraction_max_windows"]
+    if not applies(total_pages, windows) or (percent >= 100 and cap is None):
+        return sliding_windows(
+            total_pages, windows["extraction_window_pages"], windows["extraction_slide_pages"]
+        ), False
+    pool = disjoint_windows(total_pages, windows["extraction_window_pages"])
+    count = count_for_percent(len(pool), percent, cap)
+    return select_windows(pool, count, seed, window_has_text(pages_text)), True
+
+
 # -- the pages the summary reads ------------------------------------------------------------------------------
 
 _RANGE = re.compile(r"^(\d+)(?:(-)(\d*))?$")

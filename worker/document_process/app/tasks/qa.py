@@ -81,6 +81,11 @@ def _generate_qa_window(document_id: str, collection_id: str, start_page: int, e
         if not isinstance(pairs, list):
             raise ValueError(f"Expected a JSON array of QA pairs, got: {pairs!r}")
 
+        # The prompt asks for exactly k, but a model may give more: never more than asked - the cap of a document's
+        # questions (#372) is only as good as this.
+        if len(pairs) > k:
+            logger.warning(f"The model gave {len(pairs)} QA pair(s) for {k} asked: the first {k} are kept")
+            pairs = pairs[:k]
         logger.info(f"Generated {len(pairs)} QA pair(s) for pages {start_page}-{end_page}")
         window_pages = [page for page in pages if start_page <= page.page_number <= end_page]
         generated = []
