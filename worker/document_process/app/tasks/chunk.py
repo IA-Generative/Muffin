@@ -8,7 +8,7 @@ asynchrone, sans jamais le bloquer.
 
 from loguru import logger
 
-from app import reuse
+from app import reuse, sampling
 from app.backend_client import Embedding
 from app.celery_app import celery_app
 from app.chunking import Chunk, ChunkStarts, chunk_pages
@@ -18,7 +18,6 @@ from app.tasks import _shared
 from app.tasks.extract import extract_entities_window  # noqa: E402,F401
 from app.tasks.qa import generate_qa_window  # noqa: E402,F401
 from app.tasks.summarize import summarize_document  # noqa: E402,F401
-from app.windows import sliding_windows
 
 
 def _reused_windows(
@@ -40,6 +39,24 @@ def _reused_windows(
     return reuse.begin(
         document_id, stage, fingerprint, expected=[f"{key_prefix}:{start}-{end}" for start, end in windows]
     )
+
+
+def _prune_windows(document_id: str, **keep: list[str]) -> None:
+    """Best-effort: what is left of windows no longer read is stale data, never worth failing the document over."""
+    try:
+        _shared.backend_client.prune_windows(document_id, **keep)
+    except Exception:
+        logger.exception(f"Could not remove what earlier runs derived from the windows no longer read ({document_id})")
+
+
+def _announce_windows(
+    document_id: str, step: str, windows: list[tuple[int, int]], total_pages: int, drawn: bool
+) -> None:
+    """The log line that says what a long document is read of: windows drawn out of it, or all of them."""
+    if drawn:
+        logger.info(
+            f"Long document {document_id} ({total_pages} pages): {step} read on {len(windows)} window(s) drawn over it"
+        )
 
 
 def _llm_chunk_starts(settings: dict) -> ChunkStarts | None:
@@ -210,10 +227,20 @@ def chunk_document(
             )
 
         total_pages = len(pages)
-        qa_windows = list(sliding_windows(total_pages, windows["qa_window_pages"], windows["qa_slide_pages"]))
+        pages_text = {page.page_number: page.content for page in pages}
+        # What a long document is read of (#372): every window until a collection says otherwise - and the same
+        # windows for the same file, whichever document it is.
+        qa_windows, questions_per_window, qa_drawn = sampling.plan_qa(
+            total_pages, windows, pages_text, sampling.seed_for(document_id, content_hash, "qa")
+        )
         if not skip_qa and not _reused_windows(
             document_id, content_hash, settings, reuse.QA, "qa", qa_windows, "window"
         ):
+            _announce_windows(document_id, "QA", qa_windows, len(pages), qa_drawn)
+            # What an earlier run under other settings made of windows that are no longer read goes. When every window
+            # is read there is nothing of the sort.
+            if qa_drawn:
+                _prune_windows(document_id, qa=[f"window:{start}-{end}" for start, end in qa_windows])
             _shared.start_lanes(
                 generate_qa_window,
                 "app.tasks.generate_qa_window",
@@ -221,15 +248,19 @@ def chunk_document(
                 collection_id,
                 qa_windows,
                 (total_pages, windows["qa_window_pages"], windows["qa_slide_pages"]),
-                [windows["qa_questions_per_window"]],
+                [questions_per_window],
                 parent_id,
+                drawn=qa_drawn,
             )
-        extraction_windows = list(
-            sliding_windows(total_pages, windows["extraction_window_pages"], windows["extraction_slide_pages"])
+        extraction_windows, extraction_drawn = sampling.plan_entities(
+            total_pages, windows, pages_text, sampling.seed_for(document_id, content_hash, "entities")
         )
         if not skip_extraction and not _reused_windows(
             document_id, content_hash, settings, reuse.ENTITIES, "extraction", extraction_windows, "pages"
         ):
+            _announce_windows(document_id, "entities", extraction_windows, len(pages), extraction_drawn)
+            if extraction_drawn:
+                _prune_windows(document_id, entities=[f"pages:{start}-{end}" for start, end in extraction_windows])
             _shared.start_lanes(
                 extract_entities_window,
                 "app.tasks.extract_entities_window",
@@ -239,6 +270,7 @@ def chunk_document(
                 (total_pages, windows["extraction_window_pages"], windows["extraction_slide_pages"]),
                 [],
                 parent_id,
+                drawn=extraction_drawn,
             )
     except TaskRevoked:
         raise

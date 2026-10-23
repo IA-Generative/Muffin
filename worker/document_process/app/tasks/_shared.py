@@ -101,15 +101,21 @@ def start_lanes(
     pages: tuple[int, int, int],
     extra: list[Any],
     parent_task_id: str | None,
+    *,
+    drawn: bool = False,
 ) -> None:
     """Sends the first windows of a stage run in windows of pages (the QA pairs, the entities) - at most
     ENRICHMENT_WINDOW of them: each is a lane, and a window that ends sends the next of its lane
-    (`continue_lane`). `pages` is (total, window size, slide), from which a lane gets its windows back;
-    `extra` the arguments the task takes after the window."""
+    (`continue_lane`). `pages` is (total, window size, slide), from which a lane gets its windows back; `extra` the
+    arguments the task takes after the window. Windows drawn out of a long document (`drawn`, #372) cannot be
+    recomputed from that: the lane carries them."""
     total, size, slide = pages
     step = max(worker_settings.ENRICHMENT_WINDOW, 1)
+    where: dict[str, Any] = (
+        {"windows": [list(window) for window in windows]} if drawn else {"pages": total, "size": size, "slide": slide}
+    )
     for index in range(min(step, len(windows))):
-        lane = {"index": index, "step": step, "pages": total, "size": size, "slide": slide, "parent": parent_task_id}
+        lane = {"index": index, "step": step, "parent": parent_task_id, **where}
         start, end = windows[index]
         _spawn(
             task,
@@ -131,7 +137,11 @@ def continue_lane(
         return
     try:
         raise_if_revoked()
-        windows = sliding_windows(lane["pages"], lane["size"], lane["slide"])
+        windows = (
+            [(start, end) for start, end in lane["windows"]]
+            if "windows" in lane
+            else sliding_windows(lane["pages"], lane["size"], lane["slide"])
+        )
         following = lane["index"] + lane["step"]
         if following >= len(windows):
             return
