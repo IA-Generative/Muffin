@@ -1136,6 +1136,49 @@ def test_document_summaries_suffice_skips_chunk_search(make_run):
     assert result["deduped_evidence"][0]["content"] == "Telework is allowed two days a week."
 
 
+def test_partial_summary_is_flagged_to_the_judge(make_run):
+    """A summary written from some pages of a long document is flagged as such, with the pages it covers (#372)."""
+    seen: list[str] = []
+
+    def router(system_prompt: str) -> str:
+        if "Analyze the user" in system_prompt:
+            return _analysis()
+        if "select the ones relevant" in system_prompt.lower():
+            return '["hr"]'
+        if "alone (without reading" in system_prompt:
+            seen.append(system_prompt)
+            return json.dumps({"sufficient": False, "answer": None})
+        if "Decide whether" in system_prompt:
+            return json.dumps({"status": "sufficient", "missing_information": [], "reasoning": "ok"})
+        return "ok [x]."
+
+    graph, fake = make_run(_hr_eng_vdbs(), router)
+    fake.summary_hits = [
+        {
+            "document_id": "doc-1",
+            "collection_id": "hr",
+            "name": "handbook.pdf",
+            "summary": "Covers telework.",
+            "summary_pages": [[1, 30], [71, 100]],
+            "score": 0.7,
+        }
+    ]
+
+    state = initial_state("What does article 12 say?")
+    graph.invoke(state, config=_config(state))
+
+    assert "partial" in seen[0] and "never enough" in seen[0]
+
+
+def test_summary_line_flags_only_partial_summaries():
+    from app.graph.nodes.research_task import _summary_line
+
+    assert _summary_line({"name": "a.pdf", "summary": "S"}) == "a.pdf: S"
+    assert _summary_line({"name": "a.pdf", "summary": "S", "summary_pages": [[1, 30], [100, 100]]}) == (
+        "a.pdf [partial summary: pages 1-30, 100 only]: S"
+    )
+
+
 def test_no_qa_hit_no_summary_falls_through_to_chunk_search(make_run):
     """Neither tier 1 nor tier 2 has anything - falls through to the original chunk search,
     unchanged from before this cascade existed."""
