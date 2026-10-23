@@ -111,3 +111,37 @@ def rects_for_span(boxes: Sequence[PageTextBox], start: int, end: int) -> list[d
             _union(words) if words else {"x_min": box.x_min, "y_min": box.y_min, "x_max": box.x_max, "y_max": box.y_max}
         )
     return rects
+
+
+# A chunk that crosses this many pages is not a chunk of pages: what an old one without intervals could claim.
+_MAX_CHUNK_PAGES = 20
+
+
+def chunk_pages_of(extras: dict) -> list[int]:
+    """The pages a chunk is on, in order: from its intervals (#353), else from its first and last page, which a chunk
+    made before them has."""
+    spans = extras.get("spans")
+    if isinstance(spans, list) and spans:
+        return sorted({span["page"] for span in spans if isinstance(span, dict) and isinstance(span.get("page"), int)})
+    first, last = extras.get("page_start"), extras.get("page_end")
+    if isinstance(first, int) and isinstance(last, int) and first <= last < first + _MAX_CHUNK_PAGES:
+        return list(range(first, last + 1))
+    return []
+
+
+def chunk_spans_on(extras: dict, page_number: int, content_length: int) -> list[Span] | None:
+    """The intervals of a chunk on this page, brought back into the page's content - None when the chunk has no
+    intervals at all (made before they were kept: its text is looked for instead), an empty list when it has some
+    but none on this page."""
+    spans = extras.get("spans")
+    if not isinstance(spans, list) or not spans:
+        return None
+    return [
+        (span["start"], min(span["end"], content_length))
+        for span in spans
+        if isinstance(span, dict)
+        and span.get("page") == page_number
+        and isinstance(span.get("start"), int)
+        and isinstance(span.get("end"), int)
+        and span["start"] < min(span["end"], content_length)
+    ]

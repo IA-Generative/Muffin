@@ -14,6 +14,8 @@ const props = defineProps<{
   // Where the passage is in the page's text, when it is known (#351): framed exactly.
   start?: number
   end?: number
+  // The cited chunk (#353): framed where the backend knows it is.
+  chunkId?: string
 }>()
 
 const screenshotUrl = ref<string | null>(null)
@@ -38,6 +40,7 @@ onMounted(async () => {
     passage: props.passage,
     start: props.start,
     end: props.end,
+    chunkId: props.chunkId,
   })
 })
 </script>

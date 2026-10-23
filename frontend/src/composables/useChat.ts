@@ -883,6 +883,7 @@ function formatAnswerWithCitations(answer: string, citations: Citation[] | null 
         collectionId: citation.vdb_id,
         collectionPath: citation.vdb_path?.length ? citation.vdb_path : undefined,
         documentId: isDocument ? (citation.document_id ?? undefined) : undefined,
+        chunkId: isDocument ? (citation.chunk_id ?? undefined) : undefined,
         pageNumber: isDocument ? (citation.page_number ?? undefined) : undefined,
         revision: isDocument ? (citation.document_revision ?? undefined) : undefined,
         query: citation.query,

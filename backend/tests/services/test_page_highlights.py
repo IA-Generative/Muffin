@@ -2,7 +2,7 @@
 
 from types import SimpleNamespace
 
-from app.services.page_highlights import find_spans, locate_passage, rects_for_span
+from app.services.page_highlights import chunk_pages_of, chunk_spans_on, find_spans, locate_passage, rects_for_span
 
 PAGE = "Article 1\nLe locataire paie son loyer\nchaque mois.\n\nArticle 2\nLe bail dure trois ans."
 
@@ -131,3 +131,31 @@ class TestRectsForSpan:
         boxes = [_box("a", 0.1, 0.1, 0.2, 0.2, 0, 10), _box("b", 0.1, 0.3, 0.2, 0.4, 10, 20)]
 
         assert rects_for_span(boxes, 10, 20) == [{"x_min": 0.1, "y_min": 0.3, "x_max": 0.2, "y_max": 0.4}]
+
+
+class TestChunkPositions:
+    SPANS = {"spans": [{"page": 4, "start": 120, "end": 560}, {"page": 3, "start": 900, "end": 1000}]}
+
+    def test_the_pages_of_a_chunk_come_from_its_intervals_in_order(self):
+        assert chunk_pages_of(self.SPANS) == [3, 4]
+
+    def test_a_chunk_without_intervals_has_the_pages_between_its_first_and_last(self):
+        assert chunk_pages_of({"page_start": 2, "page_end": 4}) == [2, 3, 4]
+        assert chunk_pages_of({"page_start": 2, "page_end": 2}) == [2]
+
+    def test_a_chunk_that_says_nothing_or_nonsense_has_no_known_pages(self):
+        for extras in ({}, {"page_start": 5, "page_end": 2}, {"page_start": 1, "page_end": 400}, {"spans": []}):
+            assert chunk_pages_of(extras) == []
+
+    def test_the_intervals_of_a_chunk_on_a_page(self):
+        assert chunk_spans_on(self.SPANS, 4, 2000) == [(120, 560)]
+        assert chunk_spans_on(self.SPANS, 3, 2000) == [(900, 1000)]
+
+    def test_an_interval_is_brought_back_into_the_content_and_dropped_when_nothing_is_left(self):
+        assert chunk_spans_on(self.SPANS, 4, 300) == [(120, 300)]
+        assert chunk_spans_on(self.SPANS, 4, 100) == []
+
+    def test_none_means_the_chunk_has_no_intervals_and_empty_that_it_is_not_on_the_page(self):
+        assert chunk_spans_on({"page_start": 1, "page_end": 1}, 1, 100) is None
+        assert chunk_spans_on({"spans": []}, 1, 100) is None
+        assert chunk_spans_on(self.SPANS, 9, 2000) == []

@@ -85,6 +85,9 @@ def chunks(content_hash: str, collection_settings: dict[str, Any]) -> str:
         {
             **_base(CHUNKS, content_hash),
             "extraction": _extraction_of(content_hash),
+            # The chunks carry where they are in their pages (#353), and a semantic chunk its own pages: chunks
+            # made before have neither, and a document chunked now must not be given them.
+            "positions": 1,
             "strategy": collection_settings["chunking_strategy"],
             "size": collection_settings["chunk_size"],
             "overlap": collection_settings["chunk_overlap"],

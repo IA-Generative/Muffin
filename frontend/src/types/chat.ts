@@ -19,6 +19,8 @@ export interface Source {
   // Names from the root down to the cited collection, through collections the user can read (#220).
   collectionPath?: string[]
   documentId?: string
+  // The cited chunk, for a "document" citation (#353): what the backend locates in its pages.
+  chunkId?: string
   pageNumber?: number
   // Only for a citation of a living document (#171): which revision of it the answer was drawn from.
   revision?: number

@@ -37,7 +37,7 @@ from app.schemas.pagination import Page, PaginationParams
 from app.services import embedding_model_lookup, vector_store
 from app.services.document_derived_data import DocumentDerivedData
 from app.services.import_processing_queue import ImportProcessingQueue
-from app.services.page_highlights import locate_passage, rects_for_span
+from app.services.page_highlights import chunk_pages_of, chunk_spans_on, locate_passage, rects_for_span
 
 from .collection_service import FALLBACK_EMBEDDING_MODEL, CollectionNotFoundError
 
@@ -437,14 +437,28 @@ class DocumentUploadService:
         page = await self.documents.get_page(document_id, page_number)
         if page is None:
             raise DocumentNotFoundError(f"page {page_number} of document {document_id}")
-        if request.start is not None and request.end is not None and request.end > request.start:
+        pages: list[int] = []
+        text = request.text
+        chunk = await self.documents.get_chunk(document_id, request.chunk_id) if request.chunk_id is not None else None
+        if chunk is not None:
+            # A chunk knows where it is in each page it touches (#353) - exact, even when the same words are
+            # there twice. One from before that has no intervals: its text is looked for in the page.
+            extras = chunk.extras or {}
+            pages = chunk_pages_of(extras)
+            chunk_spans = chunk_spans_on(extras, page_number, len(page.content))
+            if chunk_spans is not None:
+                spans = chunk_spans
+            else:
+                spans = locate_passage(page.content, text or chunk.text, request.max_occurrences)
+        elif request.start is not None and request.end is not None and request.end > request.start:
             spans = [(min(request.start, len(page.content)), min(request.end, len(page.content)))]
         else:
-            spans = locate_passage(page.content, request.text, request.max_occurrences)
+            spans = locate_passage(page.content, text, request.max_occurrences)
         boxes = await self.documents.list_text_boxes(page.id)
         return HighlightsOut(
             rects=[HighlightRect(**rect) for start, end in spans for rect in rects_for_span(boxes, start, end)],
             ranges=[HighlightRange(start=start, end=end) for start, end in spans if end > start],
+            pages=pages,
         )
 
     async def list_entities(

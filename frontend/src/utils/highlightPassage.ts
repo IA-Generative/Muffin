@@ -89,19 +89,31 @@ export function highlightPassage(content: string, passage: string | null | undef
 }
 
 /**
- * Splits a page's text around an interval of characters of it (#351) - where a question-answer pair's passage
- * was found when it was generated. Exact, even when the same words are there twice. An interval that is not in
- * the page (the page changed since) highlights nothing: the caller then looks for the passage by its text.
+ * Splits a page's text around intervals of characters of it (#351, #353) - where a question-answer pair's passage
+ * was found when it was generated, or where a cited chunk is in the page. Exact, even when the same words are
+ * there twice. An interval that is not in the page (it changed since) highlights nothing: the caller then looks
+ * for the passage by its text.
  */
-export function highlightRange(content: string, start: number, end: number): PassageMatch {
-  const first = Math.max(start, 0)
-  const last = Math.min(end, content.length)
-  if (!content || !(first < last)) {
+export function highlightRanges(content: string, ranges: { start: number; end: number }[]): PassageMatch {
+  const inside = ranges
+    .map(({ start, end }) => ({ start: Math.max(start, 0), end: Math.min(end, content.length) }))
+    .filter(({ start, end }) => start < end)
+    .sort((a, b) => a.start - b.start)
+  if (!content || !inside.length) {
     return { segments: content ? [{ text: content, highlighted: false }] : [], matched: false, firstFound: false, lastFound: false }
   }
   const segments: TextSegment[] = []
-  if (first > 0) segments.push({ text: content.slice(0, first), highlighted: false })
-  segments.push({ text: content.slice(first, last), highlighted: true })
-  if (last < content.length) segments.push({ text: content.slice(last), highlighted: false })
+  let position = 0
+  for (const { start, end } of inside) {
+    if (start < position) continue // overlaps the previous one
+    if (start > position) segments.push({ text: content.slice(position, start), highlighted: false })
+    segments.push({ text: content.slice(start, end), highlighted: true })
+    position = end
+  }
+  if (position < content.length) segments.push({ text: content.slice(position), highlighted: false })
   return { segments, matched: true, firstFound: true, lastFound: true }
+}
+
+export function highlightRange(content: string, start: number, end: number): PassageMatch {
+  return highlightRanges(content, [{ start, end }])
 }
