@@ -10,6 +10,7 @@ from app.core.security import worker_auth
 from app.core.security.factory import get_current_user
 from app.db import async_session_factory
 from app.main import app
+from app.models.chunk import Chunk
 from app.models.collection import Collection, CollectionSettings
 from app.models.document import Document, DocumentPage, PageTextBox
 from app.services.result_reuse import ResultReuse
@@ -204,6 +205,7 @@ async def test_a_passage_is_framed_word_by_word_and_its_characters_are_given(cli
             {"x_min": 0.1, "y_min": 0.3, "x_max": 0.35, "y_max": 0.4},
         ],
         "ranges": [{"start": 8, "end": 21}, {"start": 22, "end": 30}],
+        "pages": [],
     }
 
 
@@ -222,7 +224,7 @@ async def test_a_passage_that_is_not_on_the_page_gives_nothing(client):
 
     response = await _highlights(client, collection_id, document_id, {"text": "un passage qui n'y est pas"})
 
-    assert response.json() == {"rects": [], "ranges": []}
+    assert response.json() == {"rects": [], "ranges": [], "pages": []}
 
 
 async def test_a_page_with_no_positioned_text_gives_the_characters_but_no_rectangle(client):
@@ -232,7 +234,7 @@ async def test_a_page_with_no_positioned_text_gives_the_characters_but_no_rectan
 
     response = await _highlights(client, collection_id, document_id, {"text": "tout le monde"})
 
-    assert response.json() == {"rects": [], "ranges": [{"start": 8, "end": 21}]}
+    assert response.json() == {"rects": [], "ranges": [{"start": 8, "end": 21}], "pages": []}
 
 
 async def test_a_value_that_is_several_times_on_the_page_is_framed_up_to_the_limit(client):
@@ -282,3 +284,98 @@ async def test_the_pages_of_a_private_collection_are_not_framed_for_a_stranger(c
     response = await _highlights(client, collection_id, document_id, {"text": "tout le monde"})
 
     assert response.status_code == 404
+
+
+# --- a cited chunk: where it is, from the intervals it keeps (#353) -------------------------------------------------
+
+
+async def _chunk(document_id, extras, text="Total : 10 euros."):
+    async with async_session_factory() as session:
+        chunk = Chunk(document_id=document_id, index=0, text=text, token_count=4, extras=extras)
+        session.add(chunk)
+        await session.commit()
+        return str(chunk.id)
+
+
+async def test_a_chunk_is_framed_where_its_interval_is_even_when_the_same_words_are_twice_on_the_page(client):
+    collection_id, document_id = await _document()
+    content = "Total : 10 euros. Autre chose. Total : 10 euros."
+    second = content.rindex("Total")
+    boxes = [
+        {
+            "text": content,
+            "x_min": 0.1,
+            "y_min": 0.1,
+            "x_max": 0.9,
+            "y_max": 0.2,
+            "char_start": 0,
+            "char_end": len(content),
+            "words": [_word("Total", 0.6, 0.7, second, second + 5)],
+        }
+    ]
+    await _write(client, document_id, content=content, text_boxes=boxes)
+    chunk_id = await _chunk(
+        document_id, {"page_start": 1, "page_end": 1, "spans": [{"page": 1, "start": second, "end": second + 17}]}
+    )
+
+    response = await _highlights(client, collection_id, document_id, {"chunk_id": chunk_id})
+
+    # The second one - the chunk's own - not the first, which a search of its text would have given.
+    assert response.json()["ranges"] == [{"start": second, "end": second + 17}]
+    assert response.json()["rects"] == [{"x_min": 0.6, "y_min": 0.1, "x_max": 0.7, "y_max": 0.2}]
+    assert response.json()["pages"] == [1]
+
+
+async def test_a_chunk_across_two_pages_is_framed_on_each_with_the_pages_it_is_on(client):
+    collection_id, document_id = await _document()
+    await _write(client, document_id, number=1, content="Fin de la page un", text_boxes=[])
+    await _write(client, document_id, number=2, content="Début de la page deux", text_boxes=[])
+    chunk_id = await _chunk(
+        document_id,
+        {
+            "spans": [{"page": 1, "start": 7, "end": 17}, {"page": 2, "start": 0, "end": 8}],
+            "page_start": 1,
+            "page_end": 2,
+        },
+        text="la page un\n\nDébut de",
+    )
+
+    first = await _highlights(client, collection_id, document_id, {"chunk_id": chunk_id}, number=1)
+    second = await _highlights(client, collection_id, document_id, {"chunk_id": chunk_id}, number=2)
+
+    assert first.json()["ranges"] == [{"start": 7, "end": 17}] and first.json()["pages"] == [1, 2]
+    assert second.json()["ranges"] == [{"start": 0, "end": 8}] and second.json()["pages"] == [1, 2]
+
+
+async def test_a_chunk_that_is_not_on_this_page_gives_nothing_and_is_not_looked_for_there(client):
+    collection_id, document_id = await _document()
+    await _write(client, document_id, number=1, content="Total : 10 euros.", text_boxes=[])
+    chunk_id = await _chunk(document_id, {"spans": [{"page": 2, "start": 0, "end": 17}]})
+
+    response = await _highlights(client, collection_id, document_id, {"chunk_id": chunk_id}, number=1)
+
+    # The text is on this page too, but the chunk is on page 2: no look-alike is framed in its place.
+    assert response.json()["ranges"] == [] and response.json()["rects"] == []
+
+
+async def test_a_chunk_from_before_the_intervals_is_looked_for_by_its_text_with_its_pages_from_its_range(client):
+    collection_id, document_id = await _document()
+    await _write(client, document_id, content=CONTENT, text_boxes=BOXES)
+    chunk_id = await _chunk(document_id, {"page_start": 1, "page_end": 2}, text="tout le monde")
+
+    response = await _highlights(client, collection_id, document_id, {"chunk_id": chunk_id})
+
+    assert response.json()["ranges"] == [{"start": 8, "end": 21}]
+    assert len(response.json()["rects"]) == 1
+    assert response.json()["pages"] == [1, 2]
+
+
+async def test_the_chunk_of_another_document_is_not_found_whatever_its_id(client):
+    collection_id, document_id = await _document()
+    _, other_id = await _document()
+    await _write(client, document_id, content=CONTENT, text_boxes=BOXES)
+    foreign = await _chunk(other_id, {"spans": [{"page": 1, "start": 0, "end": 7}]})
+
+    response = await _highlights(client, collection_id, document_id, {"chunk_id": foreign})
+
+    assert response.json() == {"rects": [], "ranges": [], "pages": []}

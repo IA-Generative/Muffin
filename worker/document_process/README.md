@@ -180,6 +180,19 @@ leur donne.
 Côté backend, `POST /collections/{id}/documents/{id}/pages/{n}/highlights` (un POST, car un chunk cité est trop long
 pour une adresse) dit où est un passage : les intervalles de caractères à surligner et les rectangles à encadrer.
 
+## Position des chunks dans les pages (#353)
+
+Chaque chunk garde où il est : `extras["spans"] = [{"page": 3, "start": 120, "end": 560}, …]`, un **intervalle de
+caractères par page touchée**, dans le contenu de cette page (`app/chunking.py`, `_spans` et `_chunk_of` ; `strip()`
+est pris en compte, l'intervalle commence au premier caractère du chunk). Des intervalles et non des rectangles : les
+rectangles se déduisent de `page_text_boxes` (#350) à la lecture. `fixed` et `paragraphs` ont les bornes de leur
+découpage ; `llm` fusionne les intervalles de ses paragraphes consécutifs (un par page) ; `semantic` ne donne plus à
+chaque chunk les pages de sa fenêtre mais les siennes (`page_start`/`page_end` sont la première et la dernière page de
+ses intervalles). L'empreinte des chunks (#300) en tient compte (`positions`) : un fichier n'est pas réutilisé depuis un
+découpage fait avant, qui n'a ni intervalles ni ces pages. Les chunks d'avant n'ont pas `spans` : la route
+`POST …/pages/{n}/highlights` accepte un `chunk_id` - exact avec les intervalles, par recherche du texte du chunk sans -
+et dit les pages du chunk (`pages`), que la modale de source parcourt.
+
 ## Source d'une paire question-réponse (#351)
 
 Une paire générée garde sa page (`source_page`), son passage (`source_excerpt`, aplati) et **où il est** dans le texte

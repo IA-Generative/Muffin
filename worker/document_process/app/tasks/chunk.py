@@ -184,6 +184,8 @@ def chunk_document(
                         extras={
                             "page_start": chunk.page_start,
                             "page_end": chunk.page_end,
+                            # Where the chunk is in each page it touches (#353).
+                            "spans": chunk.spans,
                         },
                         embedding=embedding,
                     )

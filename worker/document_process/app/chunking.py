@@ -2,7 +2,7 @@ import contextvars
 import re
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from loguru import logger
 
@@ -24,6 +24,11 @@ class Chunk:
     text: str
     page_start: int
     page_end: int
+    # Where the chunk is in the pages (#353): for each page it touches, the interval of characters in that
+    # page's own content - [{"page": 3, "start": 120, "end": 560}, ...]. Intervals, not rectangles: the boxes of
+    # a page's lines say where those characters are, so a chunk is framed at its exact place, even when the same
+    # words are there twice. `page_start`/`page_end` are the first and last of these pages.
+    spans: list[dict[str, int]] = field(default_factory=list)
 
 
 def _page_for_offset(offsets: list[tuple[int, int]], char_offset: int) -> int:
@@ -48,6 +53,30 @@ def _concat_with_offsets(pages: list[PageText]) -> tuple[str, list[tuple[int, in
     return "\n\n".join(parts), offsets
 
 
+def _spans(pages: list[PageText], offsets: list[tuple[int, int]], start: int, end: int) -> list[dict[str, int]]:
+    """The interval [start, end) of the pages joined together (see `_concat_with_offsets`), as one interval of
+    characters per page it touches, relative to that page's own content - the joiner between pages is in none."""
+    spans = []
+    for page, (number, page_start) in zip(pages, offsets, strict=True):
+        low, high = max(start, page_start), min(end, page_start + len(page.content))
+        if low < high:
+            spans.append({"page": number, "start": low - page_start, "end": high - page_start})
+    return spans
+
+
+def _chunk_of(text: str, pages: list[PageText], offsets: list[tuple[int, int]], start: int) -> Chunk:
+    """The chunk made of `text`, which `text.strip()` is at `start` in the joined pages: its blanks are not part of
+    it, so the interval it covers is shifted past them."""
+    stripped = text.strip()
+    first = start + len(text) - len(text.lstrip())
+    spans = _spans(pages, offsets, first, first + len(stripped))
+    if not spans:
+        # Nothing of the pages (the text is made of the joiner alone): the page it was cut at.
+        page = _page_for_offset(offsets, first)
+        return Chunk(text=stripped, page_start=page, page_end=page)
+    return Chunk(text=stripped, page_start=spans[0]["page"], page_end=spans[-1]["page"], spans=spans)
+
+
 def _chunk_fixed(pages: list[PageText], chunk_size: int, chunk_overlap: int) -> list[Chunk]:
     text, offsets = _concat_with_offsets(pages)
     chunk_size = max(chunk_size, 1)
@@ -57,15 +86,9 @@ def _chunk_fixed(pages: list[PageText], chunk_size: int, chunk_overlap: int) -> 
     start = 0
     while start < len(text):
         end = min(start + chunk_size, len(text))
-        segment = text[start:end].strip()
-        if segment:
-            chunks.append(
-                Chunk(
-                    text=segment,
-                    page_start=_page_for_offset(offsets, start),
-                    page_end=_page_for_offset(offsets, max(end - 1, start)),
-                )
-            )
+        segment = text[start:end]
+        if segment.strip():
+            chunks.append(_chunk_of(segment, pages, offsets, start))
         if end >= len(text):
             break
         start += stride
@@ -78,15 +101,8 @@ def _chunk_paragraphs(pages: list[PageText]) -> list[Chunk]:
     cursor = 0
     for paragraph in PARAGRAPH_SPLIT.split(text):
         start = text.index(paragraph, cursor) if paragraph else cursor
-        stripped = paragraph.strip()
-        if stripped:
-            chunks.append(
-                Chunk(
-                    text=stripped,
-                    page_start=_page_for_offset(offsets, start),
-                    page_end=_page_for_offset(offsets, start + len(paragraph)),
-                )
-            )
+        if paragraph.strip():
+            chunks.append(_chunk_of(paragraph, pages, offsets, start))
         cursor = start + len(paragraph)
     return chunks
 
@@ -101,8 +117,8 @@ def _chunk_semantic(pages: list[PageText], window_pages: int, slide_pages: int) 
     chunks: list[Chunk] = []
     for start_page, end_page in sliding_windows(len(pages), window_pages, slide_pages):
         window_pages_text = [by_page[n] for n in range(start_page, end_page + 1) if n in by_page]
-        for chunk in _chunk_paragraphs(window_pages_text):
-            chunks.append(Chunk(text=chunk.text, page_start=start_page, page_end=end_page))
+        # A chunk's own pages: it is a paragraph of the window, not the whole window.
+        chunks.extend(_chunk_paragraphs(window_pages_text))
     return chunks
 
 
@@ -155,9 +171,21 @@ def _chunk_llm(
                     text="\n\n".join(paragraph.text for paragraph in group),
                     page_start=group[0].page_start,
                     page_end=group[-1].page_end,
+                    spans=_merge_spans([span for paragraph in group for span in paragraph.spans]),
                 )
             )
     return chunks
+
+
+def _merge_spans(spans: list[dict[str, int]]) -> list[dict[str, int]]:
+    """The intervals of consecutive paragraphs, as one per page: from where the first begins to where the last
+    ends on that page - the blanks between them are in the chunk's region of the page."""
+    by_page: dict[int, dict[str, int]] = {}
+    for span in spans:
+        merged = by_page.setdefault(span["page"], dict(span))
+        merged["start"] = min(merged["start"], span["start"])
+        merged["end"] = max(merged["end"], span["end"])
+    return [by_page[page] for page in sorted(by_page)]
 
 
 def _valid_starts(starts: list[int], count: int) -> list[int]:

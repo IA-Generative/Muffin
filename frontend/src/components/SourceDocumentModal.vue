@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { fetchSourceRects, rectStyle, type PageRect } from '../composables/usePageHighlights'
-import { highlightPassage, highlightRange, type PassageMatch } from '../utils/highlightPassage'
+import { fetchChunkHighlights, fetchSourceRects, rectStyle, type PageRect } from '../composables/usePageHighlights'
+import { highlightPassage, highlightRange, highlightRanges, type PassageMatch } from '../utils/highlightPassage'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
 
 // A passage that goes on over a page break is followed onto the next pages, up to this many more.
 const MAX_FOLLOWING_PAGES = 4
+// A cited chunk is shown on at most this many pages.
+const MAX_CITED_PAGES = 8
 
 const props = defineProps<{
   collectionId: string
@@ -21,6 +23,9 @@ const props = defineProps<{
   // looked for by its text.
   start?: number
   end?: number
+  // The cited chunk (#353): the backend knows where it is in each page it touches, and says which pages - exact,
+  // even when the same words are there twice, and no search of the text.
+  chunkId?: string
 }>()
 
 const emit = defineEmits<{
@@ -76,9 +81,32 @@ async function framePage(position: number) {
     passage: props.excerpt,
     start: props.start,
     end: props.end,
+    chunkId: props.chunkId,
   })
   const current = cited.value[position]
   if (current === entry) cited.value = cited.value.map((item, at) => (at === position ? { ...item, rects } : item))
+}
+
+// A cited chunk: the backend says which pages it is on, and where in each - the pages are then shown with the
+// passage highlighted and framed at that place. False when it cannot (it does not answer, or the chunk is not
+// there): the passage is then looked for by its text.
+async function loadChunk(chunkId: string, pageNumber: number): Promise<boolean> {
+  const located = await fetchChunkHighlights(props.collectionId, props.documentId, pageNumber, chunkId)
+  if (!located) return false
+  const numbers = [...new Set([pageNumber, ...located.pages])].sort((a, b) => a - b).slice(0, MAX_CITED_PAGES)
+  const entries: CitedPage[] = []
+  for (const number of numbers) {
+    const page = await fetchPage(number)
+    if (!page) continue
+    const here = number === pageNumber ? located : await fetchChunkHighlights(props.collectionId, props.documentId, number, chunkId)
+    const match = here?.ranges.length ? highlightRanges(page.content, here.ranges) : highlightPassage(page.content, props.excerpt)
+    // A page of the chunk's range that the passage is not on is not a cited page - except the one cited.
+    if (match.matched || number === pageNumber) entries.push({ page, match, rects: here?.rects ?? [] })
+  }
+  if (!entries.length) return false
+  cited.value = entries
+  index.value = Math.max(entries.findIndex((entry) => entry.page.page_number === pageNumber), 0)
+  return true
 }
 
 onMounted(async () => {
@@ -87,6 +115,7 @@ onMounted(async () => {
     return
   }
   try {
+    if (props.chunkId && (await loadChunk(props.chunkId, props.pageNumber))) return
     const first = await fetchPage(props.pageNumber)
     if (first) {
       let match = highlight(first.content, first.page_number)

@@ -110,6 +110,11 @@ class DocumentRepository:
         result = await self.db.execute(select(Chunk).where(Chunk.document_id == document_id).order_by(Chunk.index))
         return result.scalars().all()
 
+    async def get_chunk(self, document_id: uuid.UUID, chunk_id: uuid.UUID) -> Chunk | None:
+        """A chunk of this document - one of another document is not found, whatever its id."""
+        result = await self.db.execute(select(Chunk).where(Chunk.id == chunk_id, Chunk.document_id == document_id))
+        return result.scalar_one_or_none()
+
     async def list_tags(self, document_id: uuid.UUID) -> list[str]:
         result = await self.db.execute(select(DocumentTag.tag).where(DocumentTag.document_id == document_id))
         return sorted(result.scalars().all())
