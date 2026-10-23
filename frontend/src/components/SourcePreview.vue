@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { fetchPageRects, rectStyle, type PageRect } from '../composables/usePageHighlights'
+import { fetchSourceRects, rectStyle, type PageRect } from '../composables/usePageHighlights'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
 
@@ -11,6 +11,9 @@ const props = defineProps<{
   documentId: string
   pageNumber: number
   passage?: string
+  // Where the passage is in the page's text, when it is known (#351): framed exactly.
+  start?: number
+  end?: number
 }>()
 
 const screenshotUrl = ref<string | null>(null)
@@ -30,7 +33,12 @@ onMounted(async () => {
   } catch {
     return
   }
-  if (screenshotUrl.value) rects.value = await fetchPageRects(props.collectionId, props.documentId, props.pageNumber, props.passage)
+  if (!screenshotUrl.value) return
+  rects.value = await fetchSourceRects(props.collectionId, props.documentId, props.pageNumber, {
+    passage: props.passage,
+    start: props.start,
+    end: props.end,
+  })
 })
 </script>
 

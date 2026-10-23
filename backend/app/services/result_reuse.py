@@ -183,6 +183,9 @@ class ResultReuse:
                     embedding_model=model,
                     source_page=pair.source_page,
                     source_excerpt=pair.source_excerpt,
+                    # Same text on every page of the copy: the passage is at the same place.
+                    source_start=pair.source_start,
+                    source_end=pair.source_end,
                 )
             )
         for window, generated in by_window.items():

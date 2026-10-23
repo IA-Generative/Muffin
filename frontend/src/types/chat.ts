@@ -24,6 +24,17 @@ export interface Source {
   revision?: number
   query?: string
   content?: string
+  // Only for a "qa" citation (#351): where the cited pair's answer comes from - the document, page and passage
+  // that open on that page with the passage framed. `start`/`end` is where the passage is in the page's text,
+  // when known. Absent for a pair written by hand, or with no passage found.
+  qaSource?: {
+    documentId: string
+    documentName: string
+    pageNumber: number
+    passage: string
+    start?: number
+    end?: number
+  }
 }
 
 // A change to a living document that the research agent delegated to the editing agent (#171) -

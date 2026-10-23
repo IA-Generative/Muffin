@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { highlightPassage } from './highlightPassage.ts'
+import { highlightPassage, highlightRange } from './highlightPassage.ts'
 
 const marked = (content: string, passage: string | null | undefined) =>
   highlightPassage(content, passage)
@@ -77,4 +77,28 @@ test('a fragment is looked for after the previous one, so a repeated word does n
   const page = 'Total 10\nAutre ligne\nTotal 20'
 
   assert.deepEqual(marked(page, 'Autre ligne\n\nTotal 20'), ['Autre ligne', 'Total 20'])
+})
+
+test('an interval of characters is highlighted exactly, even when the same words are there twice', () => {
+  const page = 'Total : 10 euros. Autre chose. Total : 10 euros.'
+  const second = page.lastIndexOf('Total')
+
+  const match = highlightRange(page, second, second + 17)
+
+  assert.deepEqual(match.segments, [
+    { text: 'Total : 10 euros. Autre chose. ', highlighted: false },
+    { text: 'Total : 10 euros.', highlighted: true },
+  ])
+  assert.ok(match.matched)
+})
+
+test('an interval beyond the page is brought back to it, and an empty or reversed one highlights nothing', () => {
+  assert.deepEqual(highlightRange('Un texte', 3, 99).segments, [
+    { text: 'Un ', highlighted: false },
+    { text: 'texte', highlighted: true },
+  ])
+  assert.equal(highlightRange('Un texte', 5, 5).matched, false)
+  assert.equal(highlightRange('Un texte', 6, 2).matched, false)
+  assert.equal(highlightRange('Un texte', 40, 50).matched, false)
+  assert.deepEqual(highlightRange('', 0, 4).segments, [])
 })

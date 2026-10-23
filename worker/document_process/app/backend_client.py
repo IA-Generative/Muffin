@@ -288,7 +288,8 @@ class BackendClient:
     ) -> None:
         """Records the pairs one run generated (a window "window:1-2", "tabular", "collection:<hash>"), in
         place of what the previous run of the same key recorded: a task run twice leaves the same pairs.
-        Each is {"question", "answer", "embedding"?, "source_page"?, "source_excerpt"?}."""
+        Each is {"question", "answer", "embedding"?, "source_page"?, "source_excerpt"?, "source_start"?,
+        "source_end"?} - the last two where the passage is in its page (#351)."""
         response = self._client.put(
             f"/api/internal/collections/{collection_id}/qa-pairs/generated",
             json={
@@ -302,6 +303,8 @@ class BackendClient:
                         "embedding_model": _model_of(pair.get("embedding")),
                         "source_page": pair.get("source_page"),
                         "source_excerpt": pair.get("source_excerpt"),
+                        "source_start": pair.get("source_start"),
+                        "source_end": pair.get("source_end"),
                     }
                     for pair in pairs
                 ],

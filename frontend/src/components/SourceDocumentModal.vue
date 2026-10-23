@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { fetchPageRects, rectStyle, type PageRect } from '../composables/usePageHighlights'
-import { highlightPassage, type PassageMatch } from '../utils/highlightPassage'
+import { fetchSourceRects, rectStyle, type PageRect } from '../composables/usePageHighlights'
+import { highlightPassage, highlightRange, type PassageMatch } from '../utils/highlightPassage'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
 
@@ -16,6 +16,11 @@ const props = defineProps<{
   // The exact chunk text that was actually retrieved and cited, or the evidence of a question-answer
   // pair - already in hand from the citation itself, never refetched.
   excerpt?: string
+  // Where that passage is in the page's text (#351), when it is known - a question-answer pair remembers it:
+  // highlighted and framed exactly, even when the same words are there twice. Without it, the passage is
+  // looked for by its text.
+  start?: number
+  end?: number
 }>()
 
 const emit = defineEmits<{
@@ -43,6 +48,15 @@ const loading = ref(true)
 
 const current = computed(() => cited.value[index.value])
 
+// The passage in a page's text: at its interval when it is known and it is in the page, else by its text.
+function highlight(content: string, pageNumber: number): PassageMatch {
+  if (props.start !== undefined && props.end !== undefined && pageNumber === props.pageNumber) {
+    const exact = highlightRange(content, props.start, props.end)
+    if (exact.matched) return exact
+  }
+  return highlightPassage(content, props.excerpt)
+}
+
 async function fetchPage(number: number): Promise<DocumentPage | undefined> {
   const response = await fetch(
     `${API_BASE_URL}/api/collections/${props.collectionId}/documents/${props.documentId}/pages` +
@@ -58,7 +72,11 @@ async function fetchPage(number: number): Promise<DocumentPage | undefined> {
 async function framePage(position: number) {
   const entry = cited.value[position]
   if (!entry?.page.screenshot_url) return
-  const rects = await fetchPageRects(props.collectionId, props.documentId, entry.page.page_number, props.excerpt)
+  const rects = await fetchSourceRects(props.collectionId, props.documentId, entry.page.page_number, {
+    passage: props.excerpt,
+    start: props.start,
+    end: props.end,
+  })
   const current = cited.value[position]
   if (current === entry) cited.value = cited.value.map((item, at) => (at === position ? { ...item, rects } : item))
 }
@@ -71,14 +89,14 @@ onMounted(async () => {
   try {
     const first = await fetchPage(props.pageNumber)
     if (first) {
-      let match = highlightPassage(first.content, props.excerpt)
+      let match = highlight(first.content, first.page_number)
       cited.value = [{ page: first, match, rects: [] }]
       void framePage(0)
       // The last fragment of the passage is not on this page: it goes on over the page break.
       for (let step = 1; step <= MAX_FOLLOWING_PAGES && match.matched && !match.lastFound; step++) {
         const next = await fetchPage(props.pageNumber + step)
         if (!next) break
-        match = highlightPassage(next.content, props.excerpt)
+        match = highlight(next.content, next.page_number)
         if (!match.matched) break
         cited.value = [...cited.value, { page: next, match, rects: [] }]
         void framePage(cited.value.length - 1)

@@ -180,6 +180,17 @@ leur donne.
 Côté backend, `POST /collections/{id}/documents/{id}/pages/{n}/highlights` (un POST, car un chunk cité est trop long
 pour une adresse) dit où est un passage : les intervalles de caractères à surligner et les rectangles à encadrer.
 
+## Source d'une paire question-réponse (#351)
+
+Une paire générée garde sa page (`source_page`), son passage (`source_excerpt`, aplati) et **où il est** dans le texte
+brut de cette page : `source_start` / `source_end` (`evidence_position` dans `app/tasks/qa.py`, recherche tolérante - casse
+et espaces ignorés - qui trouve la même preuve que la vérification de `locate_evidence`, la première occurrence si le
+passage est deux fois dans la page). Le backend les rend avec la paire (`GET …/qa-pairs`) et avec un résultat de
+recherche (`/api/internal/qa-search`, `source` : document, page, passage, intervalle), la réutilisation (#300) les
+recopie, et l'agent les porte jusqu'à la citation (`qa_source`). L'interface ouvre alors la source sur sa page, passage
+surligné et encadré à l'endroit exact ; une paire d'avant, ou dont la position n'a pas été trouvée, retombe sur la
+recherche du passage par son texte.
+
 ## Limites de temps (#294)
 
 Aucune tâche n'est tuée parce qu'elle est grosse : il n'y a plus de limite dure (l'ancienne,

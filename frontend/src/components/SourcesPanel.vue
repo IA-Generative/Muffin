@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import type { Source } from '../types/chat'
 import { formatPath } from '../utils/collectionPath'
 import SourceDocumentModal from './SourceDocumentModal.vue'
@@ -14,6 +14,27 @@ defineEmits<{
 }>()
 
 const openSource = ref<Source>()
+
+// What the modal opens on: the cited page of a document, or - for a cited question-answer pair - the page its
+// answer comes from, with the passage (#351).
+const modal = computed(() => {
+  const source = openSource.value
+  if (!source?.collectionId) return undefined
+  if (source.type === 'qa' && source.qaSource) {
+    const { documentId, documentName, pageNumber, passage, start, end } = source.qaSource
+    return { collectionId: source.collectionId, documentId, documentName, pageNumber, excerpt: passage, start, end }
+  }
+  if (!source.documentId) return undefined
+  return {
+    collectionId: source.collectionId,
+    documentId: source.documentId,
+    documentName: source.title,
+    pageNumber: source.pageNumber,
+    excerpt: source.content,
+    start: undefined,
+    end: undefined,
+  }
+})
 </script>
 
 <template>
@@ -60,7 +81,29 @@ const openSource = ref<Source>()
           <p v-if="source.content" class="sources-panel__tool-line">{{ source.content }}</p>
         </div>
 
-        <!-- QA card: a previously-answered question reused as evidence - read-only, no page. -->
+        <!-- QA card: a previously-answered question reused as evidence. When the pair knows the page and
+             passage its answer comes from (#351), it opens that page with the passage framed. -->
+        <button
+          v-else-if="source.type === 'qa' && source.qaSource"
+          type="button"
+          class="sources-panel__card sources-panel__card--qa"
+          :aria-label="`Voir la source de cette réponse dans ${source.qaSource.documentName}, page ${source.qaSource.pageNumber}`"
+          @click="openSource = source"
+        >
+          <span class="sources-panel__card-kind">Question déjà répondue</span>
+          <span class="sources-panel__title">{{ source.title }}</span>
+          <p v-if="source.content" class="sources-panel__tool-line">{{ source.content }}</p>
+          <span class="sources-panel__meta">{{ source.qaSource.documentName }} · page {{ source.qaSource.pageNumber }}</span>
+          <SourcePreview
+            v-if="source.collectionId"
+            :collection-id="source.collectionId"
+            :document-id="source.qaSource.documentId"
+            :page-number="source.qaSource.pageNumber"
+            :passage="source.qaSource.passage"
+            :start="source.qaSource.start"
+            :end="source.qaSource.end"
+          />
+        </button>
         <div v-else-if="source.type === 'qa'" class="sources-panel__card sources-panel__card--qa">
           <span class="sources-panel__card-kind">Question déjà répondue</span>
           <span class="sources-panel__title">{{ source.title }}</span>
@@ -116,12 +159,14 @@ const openSource = ref<Source>()
     </ul>
 
     <SourceDocumentModal
-      v-if="openSource && openSource.collectionId && openSource.documentId"
-      :collection-id="openSource.collectionId"
-      :document-id="openSource.documentId"
-      :document-name="openSource.title"
-      :page-number="openSource.pageNumber"
-      :excerpt="openSource.content"
+      v-if="modal"
+      :collection-id="modal.collectionId"
+      :document-id="modal.documentId"
+      :document-name="modal.documentName"
+      :page-number="modal.pageNumber"
+      :excerpt="modal.excerpt"
+      :start="modal.start"
+      :end="modal.end"
       @close="openSource = undefined"
     />
   </aside>

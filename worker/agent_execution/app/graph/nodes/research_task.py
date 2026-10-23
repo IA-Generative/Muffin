@@ -101,6 +101,10 @@ def _qa_evidence(task_id: str, retrieval_query: str, hit: dict[str, Any]) -> Evi
             "document_name": "Question déjà répondue",
             "qa_pair_id": str(hit["qa_pair_id"]),
             "evidence_kind": "qa",
+            # Where the answer comes from (#351): the document, page and passage the pair was generated from,
+            # when it has them - what opens its source on that page with the passage framed. Kept apart from
+            # `source_id`/`document_id`, which stay empty: a QA citation is not a document citation.
+            "qa_source": hit.get("source"),
         },
         relevance_score=hit["score"],
         retrieval_query=retrieval_query,

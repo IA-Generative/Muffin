@@ -21,6 +21,7 @@ from app.schemas.internal_run import (
     DocumentSummaryOut,
     InternalRunOut,
     QaSearchResultOut,
+    QaSourceOut,
     RunErrorUpdate,
     RunEventCreate,
     RunResultUpdate,
@@ -383,6 +384,18 @@ async def qa_search(body: SearchRequest, db: Annotated[AsyncSession, Depends(get
             question=qa_pair.question,
             answer=qa_pair.answer,
             score=score,
+            source=(
+                QaSourceOut(
+                    document_id=qa_pair.document_id,
+                    document_name=qa_pair.document.name,
+                    page_number=qa_pair.source_page,
+                    passage=qa_pair.source_excerpt,
+                    start=qa_pair.source_start,
+                    end=qa_pair.source_end,
+                )
+                if qa_pair.document is not None and qa_pair.source_page and qa_pair.source_excerpt
+                else None
+            ),
         )
         for qa_pair, collection_id, score in rows
     ]

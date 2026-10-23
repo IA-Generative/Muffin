@@ -559,6 +559,8 @@ interface QaPairOut {
   source_document_id?: string | null
   source_page?: number | null
   source_excerpt?: string | null
+  source_start?: number | null
+  source_end?: number | null
   origin: QaPair['origin']
   validated: boolean
   golden: boolean
@@ -574,6 +576,8 @@ function toQaPair(raw: QaPairOut): QaPair {
     sourceDocumentId: raw.source_document_id ?? undefined,
     sourcePage: raw.source_page ?? undefined,
     sourceExcerpt: raw.source_excerpt ?? undefined,
+    sourceStart: raw.source_start ?? undefined,
+    sourceEnd: raw.source_end ?? undefined,
     origin: raw.origin,
     validated: raw.validated,
     golden: raw.golden,

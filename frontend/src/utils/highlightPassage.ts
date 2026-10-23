@@ -87,3 +87,21 @@ export function highlightPassage(content: string, passage: string | null | undef
   if (position < content.length) segments.push({ text: content.slice(position), highlighted: false })
   return { segments, matched: true, firstFound: found[0] !== null, lastFound: found[found.length - 1] !== null }
 }
+
+/**
+ * Splits a page's text around an interval of characters of it (#351) - where a question-answer pair's passage
+ * was found when it was generated. Exact, even when the same words are there twice. An interval that is not in
+ * the page (the page changed since) highlights nothing: the caller then looks for the passage by its text.
+ */
+export function highlightRange(content: string, start: number, end: number): PassageMatch {
+  const first = Math.max(start, 0)
+  const last = Math.min(end, content.length)
+  if (!content || !(first < last)) {
+    return { segments: content ? [{ text: content, highlighted: false }] : [], matched: false, firstFound: false, lastFound: false }
+  }
+  const segments: TextSegment[] = []
+  if (first > 0) segments.push({ text: content.slice(0, first), highlighted: false })
+  segments.push({ text: content.slice(first, last), highlighted: true })
+  if (last < content.length) segments.push({ text: content.slice(last), highlighted: false })
+  return { segments, matched: true, firstFound: true, lastFound: true }
+}
