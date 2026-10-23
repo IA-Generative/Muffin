@@ -62,6 +62,11 @@ jobs:
       working-directory: frontend
       run: pnpm run typecheck
 
+    # The utilities (src/utils/*.test.ts) run with Node's own test runner: no test framework to add.
+    - name: Test frontend utilities
+      working-directory: frontend
+      run: pnpm run test
+
   lint-backend:
     name: Lint backend
     runs-on: ubuntu-latest

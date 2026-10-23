@@ -9,6 +9,7 @@
     "build": "vue-tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "vue-tsc --noEmit",
+    "test": "node --test src/utils/*.test.ts",
     "screenshot": "node scripts/screenshot.mjs"
   },
   "dependencies": {

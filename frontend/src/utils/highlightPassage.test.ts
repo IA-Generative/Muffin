@@ -1,0 +1,80 @@
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+import { highlightPassage } from './highlightPassage.ts'
+
+const marked = (content: string, passage: string | null | undefined) =>
+  highlightPassage(content, passage)
+    .segments.filter((segment) => segment.highlighted)
+    .map((segment) => segment.text)
+
+const PAGE = 'Article 1\nLe locataire paie son loyer\nchaque mois.\n\nArticle 2\nLe bail dure trois ans.'
+
+test('the passage is highlighted where it is, the rest of the page is kept', () => {
+  const match = highlightPassage(PAGE, 'Le bail dure trois ans.')
+
+  assert.deepEqual(match.segments.map((segment) => segment.text).join(''), PAGE)
+  assert.deepEqual(marked(PAGE, 'Le bail dure trois ans.'), ['Le bail dure trois ans.'])
+  assert.ok(match.matched && match.firstFound && match.lastFound)
+})
+
+test('line breaks, extra spaces and case do not matter', () => {
+  assert.deepEqual(marked(PAGE, 'le  LOCATAIRE paie son loyer chaque mois.'), [
+    'Le locataire paie son loyer\nchaque mois.',
+  ])
+})
+
+test('an excerpt truncated with ellipses is found by its fragments', () => {
+  assert.deepEqual(marked(PAGE, '... Le locataire paie son loyer ... Le bail dure trois ans ...'), [
+    'Le locataire paie son loyer',
+    'Le bail dure trois ans',
+  ])
+})
+
+test('a passage of several paragraphs highlights each of them', () => {
+  assert.deepEqual(marked(PAGE, 'Article 1\nLe locataire paie son loyer\nchaque mois.\n\nArticle 2'), [
+    'Article 1\nLe locataire paie son loyer\nchaque mois.',
+    'Article 2',
+  ])
+})
+
+test('an excerpt that summarizes the zone is found by its first words', () => {
+  const page = 'Le bail dure trois ans à compter de la signature du contrat et se renouvelle.'
+
+  assert.deepEqual(marked(page, 'Le bail dure trois ans à compter de la signature, puis renouvellement tacite.'), [
+    'Le bail dure trois ans à compter de',
+  ])
+})
+
+test('nothing is highlighted when the passage is not on the page', () => {
+  const match = highlightPassage(PAGE, "Le propriétaire entretient l'immeuble")
+
+  assert.equal(match.matched, false)
+  assert.deepEqual(match.segments, [{ text: PAGE, highlighted: false }])
+})
+
+test('an empty passage or an empty page highlights nothing', () => {
+  assert.equal(highlightPassage(PAGE, '').matched, false)
+  assert.equal(highlightPassage(PAGE, '...').matched, false)
+  assert.equal(highlightPassage(PAGE, null).matched, false)
+  assert.deepEqual(highlightPassage('', 'texte').segments, [])
+})
+
+test('a passage that goes on over the page break has its last fragment missing from the first page', () => {
+  const passage = 'Le bail dure trois ans.\n\nIl est renouvelable.'
+
+  const first = highlightPassage(PAGE, passage)
+  const second = highlightPassage('Il est renouvelable.\nArticle 3', passage)
+
+  assert.ok(first.matched && first.firstFound && !first.lastFound)
+  assert.ok(second.matched && !second.firstFound && second.lastFound)
+})
+
+test('regular expression characters in the passage are taken literally', () => {
+  assert.deepEqual(marked('Prix (HT) : 5,00 € [net]', 'Prix (HT) : 5,00 € [net]'), ['Prix (HT) : 5,00 € [net]'])
+})
+
+test('a fragment is looked for after the previous one, so a repeated word does not take the first place', () => {
+  const page = 'Total 10\nAutre ligne\nTotal 20'
+
+  assert.deepEqual(marked(page, 'Autre ligne\n\nTotal 20'), ['Autre ligne', 'Total 20'])
+})

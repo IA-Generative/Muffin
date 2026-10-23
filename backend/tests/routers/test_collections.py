@@ -392,6 +392,47 @@ async def test_list_qa_pairs_includes_document_name_as_source(client):
     assert body[0]["origin"] == "generated"
 
 
+async def test_list_qa_pairs_says_where_the_answer_comes_from(client):
+    """The document, page and passage a generated pair was grounded in (#349): what opens it on its page."""
+    from app.models.qa import QaOrigin, QaPair
+
+    collection_id = (await client.post("/api/collections")).json()["id"]
+    async with async_session_factory() as session:
+        document = Document(collection_id=collection_id, name="report.pdf", type="url")
+        session.add(document)
+        await session.flush()
+        for question, page, excerpt in (
+            ("Grounded?", 4, "Le télétravail est autorisé."),
+            ("Page only?", 2, None),
+            ("By hand?", None, None),
+        ):
+            session.add(
+                QaPair(
+                    collection_id=collection_id,
+                    document_id=document.id,
+                    question=question,
+                    answer="A.",
+                    origin=QaOrigin.GENERATED,
+                    validated=False,
+                    source_page=page,
+                    source_excerpt=excerpt,
+                )
+            )
+        await session.commit()
+        document_id = str(document.id)
+
+    body = {pair["question"]: pair for pair in (await client.get(f"/api/collections/{collection_id}/qa-pairs")).json()}
+
+    assert body["Grounded?"]["source_document_id"] == document_id
+    assert (body["Grounded?"]["source_page"], body["Grounded?"]["source_excerpt"]) == (
+        4,
+        "Le télétravail est autorisé.",
+    )
+    # Without a passage there is nothing to open the document on: only the name is shown, as before.
+    assert body["Page only?"]["source_document_id"] is None and body["Page only?"]["source"] == "report.pdf"
+    assert body["By hand?"]["source_document_id"] is None and body["By hand?"]["source_page"] is None
+
+
 async def test_list_qa_pairs_for_unknown_collection_returns_404(client):
     response = await client.get(f"/api/collections/{uuid.uuid4()}/qa-pairs")
     assert response.status_code == 404
