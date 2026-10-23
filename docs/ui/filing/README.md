@@ -17,7 +17,7 @@ Backend : `backend/app/routers/filing.py`, `backend/app/services/document_servic
 ## Mécanisme
 
 Une fois le résumé d'un fichier prêt, son embedding est comparé à la description de chaque
-collection que l'uploadeur possède (index Meilisearch de #124) - les `FILING_TOP_K = 5`
+collection que l'uploadeur possède (index Qdrant de #124) - les `FILING_TOP_K = 5`
 meilleures correspondances sont conservées sur le document (`Document.filing_candidates`, une
 photo figée pour comparer plus tard "ce qui a été suggéré" à "ce qui a été choisi").
 
