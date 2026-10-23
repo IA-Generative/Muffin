@@ -32,7 +32,7 @@ WINDOW_PRIORITY = 3
 # Mirrors app/schemas/collection.py's PipelineWindowsOut defaults - the
 # collection settings endpoint only returns the keys the user actually
 # overrode, missing keys fall back to these.
-PIPELINE_WINDOW_DEFAULTS = {
+PIPELINE_WINDOW_DEFAULTS: dict[str, Any] = {
     "summary_pages_per_map": 5,
     "qa_window_pages": 2,
     "qa_slide_pages": 1,
@@ -42,6 +42,16 @@ PIPELINE_WINDOW_DEFAULTS = {
     "chunking_window_pages": 2,
     "chunking_slide_pages": 1,
     "collection_qa_count": 3,
+    # Long documents (#372) - same defaults as the backend's PipelineWindowsOut: read everything.
+    "sampling_min_pages": 100,
+    "summary_mode": "all",
+    "summary_percent": 30,
+    "summary_head_percent": None,
+    "summary_tail_percent": None,
+    "summary_page_ranges": "",
+    "qa_max_questions": None,
+    "extraction_percent": 100,
+    "extraction_max_windows": None,
 }
 
 
@@ -56,7 +66,7 @@ def _strip_code_fence(text: str) -> str:
     return "\n".join(lines).strip()
 
 
-def _windows(settings: dict[str, Any]) -> dict[str, int]:
+def _windows(settings: dict[str, Any]) -> dict[str, Any]:
     return {**PIPELINE_WINDOW_DEFAULTS, **(settings.get("pipeline_windows") or {})}
 
 
