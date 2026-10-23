@@ -67,6 +67,9 @@ def extraction(content_hash: str) -> str:
             # A long PDF is parsed range by range, and what liteparse does across pages (repeated headers
             # and footers) sees one range: another range size can read the pages differently.
             "range": worker_settings.PARSE_RANGE_PAGES,
+            # The pages carry their positioned text (#350): an extraction made before has none, and a document
+            # extracted now must not be given pages without it.
+            "layout": 1,
         }
     )
 

@@ -12,6 +12,8 @@ from app.schemas.document import (
     DocumentOut,
     DocumentPageOut,
     DocumentUrlCreate,
+    HighlightRequest,
+    HighlightsOut,
     ReprocessedOut,
     TabularProfileOut,
 )
@@ -80,6 +82,28 @@ async def get_page_screenshot(
     try:
         content, content_type = await service.get_page_screenshot(collection_id, user, document_id, page_number)
         return Response(content=content, media_type=content_type)
+    except CollectionNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
+    except DocumentNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Page not found") from error
+
+
+@router.post(
+    "/collections/{collection_id}/documents/{document_id}/pages/{page_number}/highlights",
+    summary="Where a passage is on a page (#350): the intervals of characters to highlight in its text and the "
+    "rectangles to frame on its screenshot, normalized between 0 and 1. Empty when the passage is not on the page",
+    response_model=HighlightsOut,
+)
+async def get_page_highlights(
+    collection_id: uuid.UUID,
+    document_id: uuid.UUID,
+    page_number: int,
+    body: HighlightRequest,
+    user: UserDep,
+    service: ServiceDep,
+) -> HighlightsOut:
+    try:
+        return await service.page_highlights(collection_id, user, document_id, page_number, body)
     except CollectionNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
     except DocumentNotFoundError as error:

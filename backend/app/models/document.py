@@ -153,3 +153,33 @@ class DocumentPage(UUIDMixin, Base):
     screenshot: Mapped[str | None] = mapped_column(String, nullable=True)
 
     document: Mapped["Document"] = relationship(back_populates="pages")
+    text_boxes: Mapped[list["PageTextBox"]] = relationship(
+        back_populates="page", cascade="all, delete-orphan", order_by="PageTextBox.position", lazy="noload"
+    )
+
+
+class PageTextBox(UUIDMixin, Base):
+    """A line of the page's text, with where it is (#350): its box, normalized between 0 and 1 against the page
+    (so it lands on the screenshot whatever the scale it was rendered at), and its interval of characters in
+    `DocumentPage.content` - NULL when the line could not be found in the content (OCR). `words` details its
+    words with the same fields, so that a passage is framed word by word, not by the whole line. A table of its
+    own: there are hundreds of lines per page, and they must not weigh on every query that lists the pages."""
+
+    __tablename__ = "page_text_boxes"
+
+    document_page_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("document_pages.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    # Reading order within the page.
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    x_min: Mapped[float] = mapped_column(Float, nullable=False)
+    y_min: Mapped[float] = mapped_column(Float, nullable=False)
+    x_max: Mapped[float] = mapped_column(Float, nullable=False)
+    y_max: Mapped[float] = mapped_column(Float, nullable=False)
+    char_start: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    char_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # [{"text", "x_min", "y_min", "x_max", "y_max", "char_start", "char_end"}, ...]
+    words: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
+
+    page: Mapped[DocumentPage] = relationship(back_populates="text_boxes")

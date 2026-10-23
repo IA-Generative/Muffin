@@ -110,7 +110,7 @@ def test_a_url_serving_a_file_is_stored_and_processed_like_an_upload(backend, mo
     storage.put_object.assert_called_once_with(key, b"%PDF-1.4", content_type="application/pdf")
     backend.set_content_hash.assert_called_once_with("doc-1", pdf.content_hash, storage_key=key)
     parse.assert_called_once_with(b"%PDF-1.4")
-    backend.add_page.assert_called_once_with("doc-1", page_number=1, content="Texte", screenshot=None)
+    backend.add_page.assert_called_once_with("doc-1", page_number=1, content="Texte", screenshot=None, text_boxes=[])
     assert spawn.call_args.args[2] == "app.tasks.chunk_document"
 
 

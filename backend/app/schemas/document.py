@@ -252,3 +252,42 @@ class ReprocessedOut(BaseModel):
     """How many documents in error were relaunched (#340)."""
 
     reprocessed: int
+
+
+class HighlightRequest(BaseModel):
+    """What to frame on a page (#350): a passage - found in the page's text - or an interval of characters of it.
+    A POST, though it only reads: a cited chunk is long, and would not fit in the address."""
+
+    text: str | None = Field(default=None, max_length=20_000)
+    start: int | None = Field(default=None, ge=0)
+    end: int | None = Field(default=None, ge=0)
+    # A short text that is several times on the page (a name): how many of its occurrences, at most.
+    max_occurrences: int = Field(default=1, ge=1, le=10)
+
+    @model_validator(mode="after")
+    def _text_or_interval(self) -> "HighlightRequest":
+        interval = self.start is not None and self.end is not None and self.end > self.start
+        if not interval and not (self.text and self.text.strip()):
+            raise ValueError("give a text, or an interval of characters (start < end)")
+        return self
+
+
+class HighlightRect(BaseModel):
+    """A rectangle to frame on the page's screenshot, normalized between 0 and 1 against the page."""
+
+    x_min: float
+    y_min: float
+    x_max: float
+    y_max: float
+
+
+class HighlightRange(BaseModel):
+    """An interval of characters of the page's content: what the text view highlights."""
+
+    start: int
+    end: int
+
+
+class HighlightsOut(BaseModel):
+    rects: list[HighlightRect]
+    ranges: list[HighlightRange]

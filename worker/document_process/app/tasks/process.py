@@ -29,6 +29,7 @@ from app.tasks import _shared
 # au moment de l'appel (Celery enregistre les tâches par nom).
 from app.tasks.chunk import chunk_document  # noqa: E402,F401
 from app.tasks.tabular import process_tabular_document  # noqa: E402,F401
+from app.text_boxes import build_text_boxes
 
 
 def _process_url(document: dict) -> dict | None:
@@ -192,6 +193,7 @@ def _store_pages(document_id: str, pages: list, screenshots: list, report=None) 
             page_number=page.page_num,
             content=page.text,
             screenshot=screenshot_key,
+            text_boxes=build_text_boxes(page),
         )
 
     # Several pages at a time - 911 pages one by one, a screenshot and a request each, is minutes. Each

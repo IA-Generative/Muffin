@@ -26,6 +26,10 @@ from app.schemas.document import (
     DocumentOut,
     DocumentPageOut,
     FilingCandidateOut,
+    HighlightRange,
+    HighlightRect,
+    HighlightRequest,
+    HighlightsOut,
     RefreshSchedule,
     TabularProfileOut,
 )
@@ -33,6 +37,7 @@ from app.schemas.pagination import Page, PaginationParams
 from app.services import embedding_model_lookup, vector_store
 from app.services.document_derived_data import DocumentDerivedData
 from app.services.import_processing_queue import ImportProcessingQueue
+from app.services.page_highlights import locate_passage, rects_for_span
 
 from .collection_service import FALLBACK_EMBEDDING_MODEL, CollectionNotFoundError
 
@@ -415,6 +420,32 @@ class DocumentUploadService:
         if page is None or page.screenshot is None:
             raise DocumentNotFoundError(f"page {page_number} of document {document_id}")
         return storage.get_object(page.screenshot)
+
+    async def page_highlights(
+        self,
+        collection_id: uuid.UUID,
+        user: RequestContext,
+        document_id: uuid.UUID,
+        page_number: int,
+        request: HighlightRequest,
+    ) -> HighlightsOut:
+        """Where a passage is on a page (#350): the intervals of characters to highlight in its text, and the
+        rectangles to frame on its screenshot. Empty when the passage is not on the page, or the page has no
+        positioned text (a Markdown page, a document indexed before this existed): never an approximate place."""
+        await self._get_readable_collection(collection_id, user)
+        await self._get_owned_document(collection_id, document_id)
+        page = await self.documents.get_page(document_id, page_number)
+        if page is None:
+            raise DocumentNotFoundError(f"page {page_number} of document {document_id}")
+        if request.start is not None and request.end is not None and request.end > request.start:
+            spans = [(min(request.start, len(page.content)), min(request.end, len(page.content)))]
+        else:
+            spans = locate_passage(page.content, request.text, request.max_occurrences)
+        boxes = await self.documents.list_text_boxes(page.id)
+        return HighlightsOut(
+            rects=[HighlightRect(**rect) for start, end in spans for rect in rects_for_span(boxes, start, end)],
+            ranges=[HighlightRange(start=start, end=end) for start, end in spans if end > start],
+        )
 
     async def list_entities(
         self, collection_id: uuid.UUID, user: RequestContext, document_id: uuid.UUID
