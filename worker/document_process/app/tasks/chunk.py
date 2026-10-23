@@ -227,6 +227,7 @@ def chunk_document(
                     "app.tasks.generate_qa_window",
                     document_id,
                     parent_id,
+                    priority=_shared.WINDOW_PRIORITY,
                 )
         extraction_windows = list(
             sliding_windows(total_pages, windows["extraction_window_pages"], windows["extraction_slide_pages"])
@@ -241,6 +242,7 @@ def chunk_document(
                     "app.tasks.extract_entities_window",
                     document_id,
                     parent_id,
+                    priority=_shared.WINDOW_PRIORITY,
                 )
     except TaskRevoked:
         raise

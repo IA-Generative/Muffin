@@ -903,6 +903,17 @@ extraObjects:
           listLength: "32"
         authenticationRef:
           name: muffin-keda-triggerauth
+      # The windows of a document (QA, entities) are sent with a lower priority (WINDOW_PRIORITY = 3 in
+      # worker/document_process/app/tasks/_shared.py), so that a big document does not hold up the chunking
+      # of the next ones: Redis keeps them in a list of their own, which has to be watched as well.
+      - type: redis
+        metricType: AverageValue
+        metadata:
+          address: "muffin-redis.{{ .Release.Namespace }}.svc.cluster.local:6379"
+          listName: "document_enrichment\x06\x163"
+          listLength: "32"
+        authenticationRef:
+          name: muffin-keda-triggerauth
 
   # ScaledObject for index_rebuild (queues: index_rebuild, document_import). Never to zero: a
   # running rebuild or import has already left the list (acks_late), so KEDA would not see it and
