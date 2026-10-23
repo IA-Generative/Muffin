@@ -247,6 +247,8 @@ class IndexingEstimateRequest(BaseModel):
 
     pages: int = Field(ge=1, le=100_000)
     pipeline_windows: PipelineWindowsUpdate = PipelineWindowsUpdate()
+    # The way the chunks are cut, when it is typed too: cutting them with the model is a call per few pages.
+    chunking_strategy: Literal["paragraph", "fixed", "semantic", "llm"] | None = None
 
 
 class CollectionPathItem(BaseModel):
