@@ -19,6 +19,14 @@ from app.task_revocation import TaskRevoked, raise_if_revoked
 
 TOKENS_PER_CHAR = 0.25  # rough estimate, good enough until a real tokenizer is wired in
 
+# The windows of a document (one QA task, one entity task per window of pages) are sent with this Celery
+# priority, one step below the default 0 of the tasks that make a document searchable (chunking, summary).
+# They all share one queue: a 900-page document sends well over a thousand windows, and a document dropped
+# after it would wait for every one of them before its own chunking even started. With Redis, a priority is a
+# list of its own that the worker only reads once the lists above it are empty (steps 0, 3, 6, 9; the
+# backend's BULK_PRIORITY is the last). KEDA scales on this list too (helm/values/common-values.yaml).
+WINDOW_PRIORITY = 3
+
 # Mirrors app/schemas/collection.py's PipelineWindowsOut defaults - the
 # collection settings endpoint only returns the keys the user actually
 # overrode, missing keys fall back to these.
@@ -59,8 +67,16 @@ def _model_for(settings: dict[str, Any], step: str) -> str | None:
     return configured or backend_client.get_default_chat_model()
 
 
-def _spawn(task, args: list[Any], task_name: str, document_id: str, parent_task_id: str | None) -> None:
-    result = task.apply_async(args=args)
+def _spawn(
+    task,
+    args: list[Any],
+    task_name: str,
+    document_id: str,
+    parent_task_id: str | None,
+    priority: int | None = None,
+) -> None:
+    options = {} if priority is None else {"priority": priority}
+    result = task.apply_async(args=args, **options)
     backend_client.create_task(result.id, task_name, document_id, parent_celery_task_id=parent_task_id)
 
 

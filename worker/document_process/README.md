@@ -68,6 +68,15 @@ Une seule image, trois pods, chacun sur ses queues (routage par nom de tâche da
 | `worker-document-enrichment` / `document_enrichment` | `document_enrichment` | threads (`-c 16`) | `chunk_document` (embeddings), `summarize_document`, `generate_qa_window`, `extract_entities_window`, `tag_document`, `update_collection_*`, `rollup_collection_description`, `generate_collection_qa` |
 | `worker-index-rebuild` / `index_rebuild` | `index_rebuild`, `document_import` | prefork (`-c 2`) | `rebuild_index`, `import_zip` |
 
+**Priorité dans la queue d'enrichissement.** Toutes les tâches d'enrichissement partagent une queue, et un document
+de 900 pages envoie plus d'un millier de fenêtres (`generate_qa_window`, `extract_entities_window`) : un document
+déposé après lui aurait attendu qu'elles passent toutes avant que son propre `chunk_document` ne démarre. Les
+fenêtres sont donc envoyées avec la priorité `WINDOW_PRIORITY` (3, `app/tasks/_shared.py`), un cran sous les
+tâches qui rendent un document cherchable (chunking, résumé : priorité 0 par défaut). Avec Redis, chaque priorité
+est une liste à part que le worker ne lit qu'une fois les listes au-dessus vides ; l'import ZIP, lui, reste tout
+en bas (9). KEDA surveille les deux listes de `document_enrichment` (`document_enrichment` et
+`document_enrichment\x06\x163`, voir `helm/values/common-values.yaml`).
+
 - L'extraction (OCR) est limitée par le CPU ; l'enrichissement attend surtout l'API d'embeddings/LLM,
   d'où un pool de threads ; un import ZIP ou une reconstruction d'index sont de longues
   entrées/sorties qui ne doivent bloquer ni l'un ni l'autre.
