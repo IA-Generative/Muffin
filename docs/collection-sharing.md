@@ -100,7 +100,7 @@ collection (spam de la table `collection_shares`). Ce n'est plus un risque de fu
 
 ### 4. Pas de sélecteur de groupe dans l'UI
 
-**Fichier** : `frontend/src/components/CollectionSettingsTab.vue` (section "Partages")
+**Fichier** : `frontend/src/components/CollectionAccessSettings.vue` (section "Partages")
 
 L'owner doit taper le chemin exact du groupe Keycloak (`/muffin-dev-team`) à la main - aucune
 liste, aucune autocomplétion. C'est un choix assumé (voir la discussion qui a mené à #26) pour
