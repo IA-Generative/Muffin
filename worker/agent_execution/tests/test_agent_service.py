@@ -97,6 +97,7 @@ def test_finalize_reports_the_grounding_verdict_alongside_the_result(monkeypatch
         completion_tokens=None,
         edit_proposal=None,
         unexplored_collection_ids=[],
+        questions=None,
     )
 
 
@@ -122,6 +123,7 @@ def test_finalize_reports_no_grounding_verdict_when_validate_grounding_was_skipp
         completion_tokens=None,
         edit_proposal=None,
         unexplored_collection_ids=[],
+        questions=None,
     )
 
 
@@ -165,3 +167,76 @@ def test_finalize_reports_unexplored_collections_once_and_only_accessible_ones(m
     )
 
     assert fake.set_run_result.call_args.kwargs["unexplored_collection_ids"] == ["leave", "hr"]
+
+
+def test_finalize_hands_the_questions_to_the_backend_and_does_not_title_the_conversation(monkeypatch):
+    fake = MagicMock()
+    fake.get_default_chat_model.return_value = "test-model"
+    monkeypatch.setattr("app.agent_service.backend_client", fake)
+    questions = [{"question": "Which?", "header": "Which", "multi_select": False, "options": []}]
+
+    AgentService()._finalize("run-1", _completed_state(answer="Which?", citations=[], questions=questions))
+
+    assert fake.set_run_result.call_args.kwargs["questions"] == questions
+    fake.update_run_status.assert_called_once_with("run-1", "completed")
+    fake.llm_chat.assert_not_called()
+    fake.update_conversation_title.assert_not_called()
+
+
+def _run_row(history, **overrides):
+    row = {
+        "id": "run-1",
+        "status": "queued",
+        "user_id": "user-1",
+        "conversation_id": "conv-1",
+        "query": "Période : 2024",
+        "history": history,
+    }
+    row.update(overrides)
+    return row
+
+
+def _run(monkeypatch, row):
+    fake = MagicMock()
+    fake.get_run.return_value = row
+    fake.get_default_chat_model.return_value = "test-model"
+    graph = MagicMock()
+    graph.invoke.return_value = {"conversation_id": "conv-1", "answer": "ok", "citations": [], "original_query": "q"}
+    monkeypatch.setattr("app.agent_service.backend_client", fake)
+    monkeypatch.setattr("app.agent_service._graph", graph)
+    AgentService().run("run-1")
+    return fake, graph.invoke.call_args.args[0]
+
+
+def test_an_answer_to_questions_is_announced_with_the_event_clients_already_know(monkeypatch):
+    history = [
+        {"role": "user", "content": "Combien de congés ?", "asked": False},
+        {"role": "assistant", "content": "Quelle période ?\n- 2023\n- 2024", "asked": True},
+    ]
+
+    fake, state = _run(monkeypatch, _run_row(history))
+
+    fake.add_run_event.assert_any_call("run-1", "clarification_received", {"answer": "Période : 2024"})
+    assert state["question_rounds"] == 1
+    assert state["messages"][-3:] == [
+        {"role": "user", "content": "Combien de congés ?"},
+        {"role": "assistant", "content": "Quelle période ?\n- 2023\n- 2024"},
+        {"role": "user", "content": "Période : 2024"},
+    ]
+
+
+def test_a_plain_message_is_not_announced_as_an_answer(monkeypatch):
+    history = [{"role": "assistant", "content": "Une réponse", "asked": False}]
+
+    fake, state = _run(monkeypatch, _run_row(history))
+
+    assert not [call for call in fake.add_run_event.call_args_list if call.args[1] == "clarification_received"]
+    assert state["question_rounds"] == 0
+
+
+def test_a_run_nobody_reads_is_told_so(monkeypatch):
+    _, state = _run(monkeypatch, _run_row([], interactive=False))
+    assert state["interactive"] is False
+
+    _, state = _run(monkeypatch, _run_row([]))
+    assert state["interactive"] is True

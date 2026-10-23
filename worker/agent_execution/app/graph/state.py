@@ -126,6 +126,19 @@ class AgentState(TypedDict):
     # research_task (refuses to run it otherwise, an independent second gate).
     web_search_enabled: bool
 
+    # --- questions to the user (#344) ---
+    # Whether someone reads the answer and can reply (Run.interactive): a run started by a program is never
+    # asked anything. `question_rounds`: how many times in a row the assistant already asked, at the end of
+    # the conversation - what the cap on asking is counted against.
+    interactive: bool
+    question_rounds: int
+    # Set by request_clarification when the run ends on questions with options (the answer is then the same
+    # questions as text): [{"question", "header", "multi_select", "options": [{"label", "description"}]}].
+    questions: list[dict[str, Any]] | None
+    # Set when the request was left open and nobody could be asked (no one there, or the cap was reached):
+    # the answer states the assumptions it made.
+    must_assume: bool
+
     # --- permission barrier (§4) ---
     accessible_vdbs: list[dict[str, Any]]
 

@@ -1,5 +1,6 @@
 from typing import Any
 
+from app.ask_user import GUIDANCE
 from app.graph.services.events import emit, is_cancelled, set_activity
 from app.graph.services.llm import json_chat
 from app.graph.services.prompts import get_prompt
@@ -34,6 +35,17 @@ _SYSTEM_PROMPT = (
     "any analytical operation on tabular data are NOT ambiguous even if they don't name a specific file. "
     "When in doubt, set ambiguous to false - it is better to attempt an answer than to block the user with "
     "a clarification question."
+)
+
+# Added to whichever version of the prompt is in use (it is administrable, see get_prompt), so a version
+# written before the questions with options still gets them.
+_QUESTIONS_INSTRUCTION = (
+    '\n\nWhen "ambiguous" is true, also give "questions" (array, in addition to "clarification_question"): '
+    f"{GUIDANCE} Each item is an object with keys "
+    '"question", "header", "multi_select" and "options" (array of objects with "label" and "description"). '
+    "If the assistant's last message in the conversation asked such questions and the current message is the "
+    'user\'s answer to them, "ambiguous" is false and "standalone_query" combines the original request with '
+    "those answers."
 )
 
 _FALLBACK: dict[str, Any] = {
@@ -77,7 +89,7 @@ def analyze_query(state: AgentState) -> dict[str, Any]:
         system_prompt, prompt_version_id = get_prompt("analyze_query", fallback=_SYSTEM_PROMPT)
         if prompt_version_id:
             prompt_usages.append(prompt_version_id)
-        analysis = json_chat(model, system_prompt, user_content, fallback=_FALLBACK)
+        analysis = json_chat(model, system_prompt + _QUESTIONS_INSTRUCTION, user_content, fallback=_FALLBACK)
         if not isinstance(analysis, dict) or "intent" not in analysis:
             analysis = _FALLBACK
 
