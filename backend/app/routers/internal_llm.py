@@ -36,7 +36,11 @@ router = APIRouter(
 # tests swap these out with monkeypatch.setattr without a live LLM hub.
 _llm_settings = LlmSettings()
 _openai_client = (
-    AsyncOpenAI(api_key=_llm_settings.OPENAI_API_KEY, base_url=_llm_settings.OPENAI_API_BASE_URL)
+    AsyncOpenAI(
+        api_key=_llm_settings.OPENAI_API_KEY,
+        base_url=_llm_settings.OPENAI_API_BASE_URL,
+        max_retries=8,
+    )
     if _llm_settings.is_configured
     else None
 )
