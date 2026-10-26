@@ -268,10 +268,9 @@ async def get_feedback_stats(collection_id: uuid.UUID, user: UserDep, service: S
 @router.post(
     "/collections/{collection_id}/evaluations",
     summary="Trigger an evaluation run against this collection's QA pairs - promptfoo "
-    "replays retrieval and judges each generated answer's factuality and context "
-    "faithfulness (runs asynchronously in a dedicated worker - see #11). Returns 200 "
-    "instead of 202 when an identical run already exists: nothing is dispatched then, "
-    "the response names it",
+    "replays retrieval and a judge scores each generated answer (runs asynchronously "
+    "in a dedicated worker - see #11). Returns 200 instead of 202 when an identical "
+    "run already exists: nothing is dispatched then, the response names it",
     status_code=status.HTTP_202_ACCEPTED,
 )
 async def trigger_evaluation(
@@ -304,8 +303,8 @@ async def trigger_evaluation(
 
 @router.get(
     "/collections/{collection_id}/evaluations",
-    summary="List this collection's evaluation runs, most recent first, with their factuality "
-    "and context faithfulness averages computed from the run's results.json artifact (see #11)",
+    summary="List this collection's evaluation runs, most recent first, with their score "
+    "averages per metric computed from the run's results.json artifact (see #11)",
     response_model=list[EvaluationRunOut],
 )
 async def list_evaluations(
@@ -320,7 +319,7 @@ async def list_evaluations(
 @router.get(
     "/collections/{collection_id}/evaluations/{run_id}/results",
     summary="One run's per-pair detail (question, expected and generated answers, retrieved "
-    "sources, factuality, context faithfulness), normalized from its results.json artifact (see #11)",
+    "sources, per-metric scores), normalized from its results.json artifact (see #11)",
     response_model=list[EvaluationResultOut],
 )
 async def list_evaluation_results(

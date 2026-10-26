@@ -761,8 +761,8 @@ async def test_list_evaluations_computes_score_averages_from_the_artifact(client
 
 async def test_list_evaluations_keeps_a_pre_context_faithfulness_artifact_readable(client, monkeypatch):
     # An artifact from before context faithfulness was scored (and before the query
-    # rename): factuality still averages, the new metric reads as None - never 0.0,
-    # which would read as a terrible score.
+    # rename): factuality still averages, and the new metric is simply absent from
+    # the dict - never averaged in as 0.0, which would read as a terrible score.
     collection_id = (await client.post("/api/collections")).json()["id"]
     await _create_evaluation_run(collection_id)
     _fake_storage(
@@ -784,7 +784,7 @@ async def test_list_evaluations_keeps_a_pre_context_faithfulness_artifact_readab
 
     assert response.status_code == 200
     run = response.json()[0]
-    assert run["metrics"] == {"factuality": 0.9, "context_faithfulness": None}
+    assert run["metrics"] == {"factuality": 0.9}
 
 
 async def test_list_evaluations_reports_null_metrics_for_a_run_without_artifact(client):
@@ -815,16 +815,15 @@ async def test_evaluation_results_detail_is_normalized_from_the_artifact(client,
         "question": "Q1",
         "expected_answer": "A1",
         "generated_answer": "Generated 1",
-        "factuality": 0.9,
-        "context_faithfulness": 0.8,
+        "named_scores": {"factuality": 0.9, "context_faithfulness": 0.8},
         "validated": True,
         "golden": False,
         "retrieved_sources": ["handbook.pdf#0"],
     }
-    # The pair the judge errored on keeps its place in the detail, scoreless - and its
-    # var predates the query rename, so the question reads through the fallback.
-    assert results[2]["factuality"] is None
-    assert results[2]["context_faithfulness"] is None
+    # The pair the judge errored on keeps its place in the detail, scoreless (no
+    # namedScores entry at all) - and its var predates the query rename, so the
+    # question reads through the fallback.
+    assert results[2]["named_scores"] == {}
     assert results[2]["question"] == "Q3"
     assert results[3]["golden"] is True
 

@@ -36,7 +36,7 @@ class EvaluationRun(UUIDMixin, TimestampMixin, Base):
     # for the breakdown.
     pair_count: Mapped[int] = mapped_column(Integer, nullable=False)
     # The judge model (the collection's "evaluation" generation model) - what the
-    # factuality and context faithfulness scores were produced with.
+    # metric scores were produced with.
     llm_model: Mapped[str] = mapped_column(String, nullable=False)
 
     # Chunking/embedding config snapshot at run time, since collection settings can change afterwards.

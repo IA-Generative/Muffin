@@ -12,6 +12,7 @@ from loguru import logger
 from app.backend_client import backend_client
 from app.celery_app import celery_app
 from app.config import settings
+from app.promptfoo.create_tests import SCORED_METRICS
 
 # At least 2 assistant turns are needed for "do these answers contradict each other" to mean
 # anything - a single-turn conversation has nothing to compare across (see #31).
@@ -92,11 +93,12 @@ def _judge_discussion(model: str, transcript: str) -> dict[str, Any]:
         return _FALLBACK_JUDGMENT
 
 
-# The metrics a run scores (create_tests.py's assertions, by their namedScores key) - part of
-# the dedup hash: a run that also scores context faithfulness must not be deduped against an
-# older one that scored factuality alone, its artifact would lack the new score. Keep in sync
-# with create_tests.py's metric names and with the backend's copy of the hash.
-_SCORED_METRICS = ["context_faithfulness", "factuality"]
+# The metrics a run scores, straight from create_tests.py (its assertions, by their
+# namedScores key) - part of the dedup hash: a run that also scores context faithfulness
+# must not be deduped against an older one that scored factuality alone, its artifact
+# would lack the new score. create_tests.py is the single source on the worker side;
+# the backend keeps its own copy of the list (it cannot import worker code - see
+# app/services/evaluation_service.py's _SCORED_METRICS).
 
 
 def _evaluation_hash(
@@ -140,7 +142,7 @@ def _evaluation_hash(
         "k": k,
         "llm_model": llm_model,
         "generator_model": generator_model,
-        "scored_metrics": _SCORED_METRICS,
+        "scored_metrics": SCORED_METRICS,
         "validated_only": validated_only,
     }
     return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()

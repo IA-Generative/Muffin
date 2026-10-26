@@ -10,12 +10,11 @@ export interface RetrievalMetric {
   runId: string
   createdAt: string
   pairCount: number
-  // The latest run's average factuality over its non-golden pairs - null when the run
-  // predates the promptfoo migration (no artifact) or the judge scored nothing.
-  factuality: number | null
-  // The same run's average context faithfulness - null additionally on the runs that
-  // predate the metric itself.
-  contextFaithfulness: number | null
+  // The latest run's score averages over its non-golden pairs, keyed by metric name -
+  // whatever the run's artifact actually scored (labels: utils/evaluationMetrics.ts).
+  // Null when the run predates the promptfoo migration (no artifact) or the judge
+  // scored nothing; a metric a run predates simply doesn't appear.
+  metrics: Record<string, number> | null
 }
 
 export interface FeedbackMetric {
@@ -93,8 +92,7 @@ function mapOverview(data: any): QualityOverview {
       runId: r.run_id,
       createdAt: r.created_at,
       pairCount: r.pair_count,
-      factuality: r.factuality ?? null,
-      contextFaithfulness: r.context_faithfulness ?? null,
+      metrics: r.metrics ?? null,
     })),
     feedback: {
       upCount: data.feedback?.up_count ?? 0,

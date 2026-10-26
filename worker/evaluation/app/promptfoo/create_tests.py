@@ -35,11 +35,19 @@ from pathlib import Path
 _FACTUALITY_THRESHOLD = 0.7
 _CONTEXT_FAITHFULNESS_THRESHOLD = 0.7
 
-# The namedScores keys the assertions write into results.json - the backend's
-# artifact reader averages exactly these names (keep in sync with
-# backend/app/services/evaluation_artifacts.py).
+# The namedScores keys the assertions write into results.json. The backend serves
+# these scores generically (whatever keys the artifact holds), so a new assertion
+# here is all a new metric needs on the worker side - except the dedup hash: the
+# backend's trigger-time copy (backend/app/services/evaluation_service.py's
+# _SCORED_METRICS) must list it too, or a new-metric run would be deduped against
+# an old artifact that lacks the new score.
 _FACTUALITY_METRIC = "factuality"
 _CONTEXT_FAITHFULNESS_METRIC = "context_faithfulness"
+
+# Every metric the tests score, by namedScores key - the task folds this list into
+# its dedup hash (see tasks.py's _evaluation_hash). Keep sorted: the hash digest is
+# order-sensitive, and the backend's copy lists the same order.
+SCORED_METRICS = sorted([_FACTUALITY_METRIC, _CONTEXT_FAITHFULNESS_METRIC])
 
 
 def create_tests(config: dict | None = None) -> list[dict]:

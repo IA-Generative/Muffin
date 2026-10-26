@@ -44,11 +44,20 @@ même queue plutôt que d'avoir son propre service - pas assez de volume pour le
      OpenAI-compatible du backend (`/api/internal/v1`, voir `backend/app/routers/
      internal_openai_compat.py`) avec deux assertions promptfoo par paire (seuil 0.7 chacune,
      couleur - un score bas n'élimine jamais un résultat) :
-     - `factuality` : la réponse générée est-elle cohérente avec la réponse attendue ?
-     - `context-faithfulness` : la réponse générée est-elle ancrée dans le contexte que le
-       pipeline a réellement récupéré (`contextTransform: output.context` - les chunks
-       renvoyés par le provider, pas une référence statique) ? La var de test s'appelle
-       `query` car les assertions RAG de promptfoo l'exigent.
+      - `factuality` : la réponse générée est-elle cohérente avec la réponse attendue ?
+      - `context-faithfulness` : la réponse générée est-elle ancrée dans le contexte que le
+        pipeline a réellement récupéré (`contextTransform: output.context` - les chunks
+        renvoyés par le provider, pas une référence statique) ? La var de test s'appelle
+        `query` car les assertions RAG de promptfoo l'exigent.
+
+      Ajouter une métrique = ajouter son assertion dans `create_tests.py` (sa clé
+      `namedScores` rejoint `SCORED_METRICS`, que `tasks.py` replie dans l'empreinte de
+      déduplication) + la recopier dans `_SCORED_METRICS` du backend
+      (`evaluation_service.py`, même empreinte calculée au déclenchement - le backend ne
+      peut pas importer le code du worker). Le reste est générique : le backend sert
+      telles quelles les clés présentes dans l'artefact, et le front affiche chaque clé
+      (label FR optionnel dans `frontend/src/utils/evaluationMetrics.ts`, sinon la clé
+      brute).
 6. Poste un `EvaluationRun` au backend (compteurs lus depuis le `results.json` produit - l'artefact
    est la vérité), puis y téléverse les deux artefacts : `results.json` et `report.html`, stockés
    dans RustFS par le backend (`evaluations/{run_id}/…`). Le modèle n'a pas d'état "en cours"

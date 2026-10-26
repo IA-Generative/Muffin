@@ -17,16 +17,6 @@ class EvaluationTriggerRequest(BaseModel):
     validated_only: bool = False
 
 
-class EvaluationMetricsOut(BaseModel):
-    """A run's score averages, computed from its results.json artifact at read
-    time (see app/services/evaluation_artifacts.py) - not stored in the database.
-    context_faithfulness is None on runs that predate the metric (their artifacts
-    only ever scored factuality)."""
-
-    factuality: float | None
-    context_faithfulness: float | None
-
-
 class EvaluationResultOut(BaseModel):
     """One QA pair's outcome in a run, normalized from the results.json artifact -
     the frontend never parses promptfoo's format itself."""
@@ -35,9 +25,10 @@ class EvaluationResultOut(BaseModel):
     question: str
     expected_answer: str
     generated_answer: str
-    # None when the judge errored on that assertion (no namedScores entry).
-    factuality: float | None
-    context_faithfulness: float | None
+    # The metrics the judge scored for this pair, keyed by their namedScores name -
+    # whatever the run's assertions actually wrote. A metric the judge errored on has
+    # no entry; an empty dict means the judge failed on every assertion.
+    named_scores: dict[str, float]
     validated: bool
     golden: bool = False
     retrieved_sources: list[str]
@@ -63,10 +54,14 @@ class EvaluationRunOut(BaseModel):
     # model + scored metrics) - present when the worker computed it for dedup (see
     # EvaluationRun.content_hash).
     content_hash: str | None = None
-    # Score averages over the non-golden / golden pairs - None when that subset is
-    # empty, or when the run predates the promptfoo migration (no artifact).
-    metrics: EvaluationMetricsOut | None
-    golden_metrics: EvaluationMetricsOut | None
+    # Score averages over the non-golden / golden pairs, keyed by metric name - the
+    # keys are whatever the run's artifact actually scored (the worker's assertions
+    # decide, see worker/evaluation/app/promptfoo/create_tests.py), so a new metric
+    # flows through with zero backend change. None when that subset is empty, when
+    # nothing was scored, or when the run predates the promptfoo migration (no
+    # artifact) - a metric a run predates simply doesn't appear in its dict.
+    metrics: dict[str, float] | None
+    golden_metrics: dict[str, float] | None
     # Whether the report/results.json artifacts exist (download links, report preview) -
     # False on the runs predating the promptfoo migration.
     has_artifacts: bool

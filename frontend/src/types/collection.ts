@@ -154,12 +154,11 @@ export interface EvaluationResult {
   question: string
   expectedAnswer: string
   generatedAnswer: string
-  // The judge's factuality score for the generated answer - null when the judge errored
-  // on this pair (no score in the artifact).
-  factuality: number | null
-  // The judge's context faithfulness score: is the generated answer supported by the
-  // context the pipeline actually retrieved? - null on the runs predating the metric.
-  contextFaithfulness: number | null
+  // The metrics the judge scored for this pair, keyed by their name - whatever the
+  // run's assertions actually wrote. A metric the judge errored on has no entry; an
+  // empty object means the judge failed on every assertion. Labels come from
+  // utils/evaluationMetrics.ts, with a raw-key fallback.
+  namedScores: Record<string, number>
   validated: boolean
   golden: boolean
   retrievedSources: string[]
@@ -181,11 +180,14 @@ export interface EvaluationRun {
   // The judge model (the collection's "evaluation" generation model).
   llmModel: string
   chunkingSnapshot: ChunkingSnapshot
-  // Score averages over the non-golden / golden pairs - null when that subset is
-  // empty, or when the run predates the promptfoo migration (no artifact).
-  // contextFaithfulness is null on the runs predating the metric.
-  metrics: { factuality: number | null; contextFaithfulness: number | null } | null
-  goldenMetrics: { factuality: number | null; contextFaithfulness: number | null } | null
+  // Score averages over the non-golden / golden pairs, keyed by metric name - the
+  // keys are whatever the run's artifact actually scored, so a new metric flows
+  // through with zero frontend model change (labels: utils/evaluationMetrics.ts).
+  // Null when that subset is empty, when nothing was scored, or when the run
+  // predates the promptfoo migration (no artifact); a metric a run predates simply
+  // doesn't appear in its object.
+  metrics: Record<string, number> | null
+  goldenMetrics: Record<string, number> | null
   // Whether the report/results.json artifacts exist (download links, report preview) -
   // false on the runs predating the promptfoo migration.
   hasArtifacts: boolean

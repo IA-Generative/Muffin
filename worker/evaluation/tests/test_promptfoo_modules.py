@@ -136,3 +136,18 @@ def test_create_tests_maps_pairs_to_scored_tests(tmp_path):
                 "metric": "context_faithfulness",
             },
         ]
+
+
+def test_scored_metrics_lists_exactly_what_the_assertions_score(tmp_path):
+    # SCORED_METRICS feeds the dedup hash: if an assertion's metric name were missing
+    # from it, a run scoring that metric would be deduped against an older artifact
+    # that lacks the score. This pins the list to the assertions actually generated.
+    pairs_file = tmp_path / "pairs.json"
+    pairs_file.write_text(
+        json.dumps([{"id": "qa-1", "question": "Q ?", "answer": "A.", "validated": True, "golden": False}])
+    )
+
+    tests = create_tests.create_tests({"pairs_file": str(pairs_file)})
+
+    scored = sorted(assert_["metric"] for test in tests for assert_ in test["assert"])
+    assert create_tests.SCORED_METRICS == scored

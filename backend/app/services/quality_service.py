@@ -140,8 +140,7 @@ class QualityService:
                     run_id=run.id,
                     created_at=run.created_at,
                     pair_count=run.pair_count,
-                    factuality=metrics.factuality if metrics else None,
-                    context_faithfulness=metrics.context_faithfulness if metrics else None,
+                    metrics=metrics,
                 )
             )
         return rows

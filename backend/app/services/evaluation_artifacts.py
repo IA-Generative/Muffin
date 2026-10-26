@@ -12,7 +12,7 @@ from loguru import logger
 
 from app.core import storage
 from app.models.evaluation import EvaluationRun
-from app.schemas.evaluation import EvaluationMetricsOut, EvaluationResultOut
+from app.schemas.evaluation import EvaluationResultOut
 
 
 def load_tests(run: EvaluationRun) -> list[dict[str, Any]] | None:
@@ -36,25 +36,23 @@ def _coerce_bool(value: Any) -> bool:
     return value is True or value == "true"
 
 
-# The namedScores keys the worker's tests write (its create_tests.py assertions) - keep in
-# sync with worker/evaluation/app/promptfoo/create_tests.py. A metric missing from an old
-# artifact (a run that predates context faithfulness) simply reads as None.
-_METRICS = ("factuality", "context_faithfulness")
-
-
-def _score(test: dict[str, Any], metric: str) -> float | None:
+def _numeric_scores(test: dict[str, Any]) -> dict[str, float]:
+    """The test's namedScores entries that hold a number - the metrics the judge
+    actually scored for that pair. A metric the judge errored on writes no entry,
+    and a non-numeric entry (promptfoo can emit strings) is ignored rather than
+    averaged in."""
     named_scores = test.get("namedScores")
     if not isinstance(named_scores, dict):
-        return None  # the judge errored on this pair - no score to average in
-    value = named_scores.get(metric)
-    return float(value) if isinstance(value, int | float) else None
+        return {}  # the judge errored on this pair - no score to average in
+    return {key: float(value) for key, value in named_scores.items() if isinstance(value, int | float)}
 
 
 def _average(tests: Sequence[dict[str, Any]], metric: str, golden: bool) -> float | None:
     scores = [
-        score
+        numeric[metric]
         for test in tests
-        if _coerce_bool(test.get("vars", {}).get("golden")) == golden and (score := _score(test, metric)) is not None
+        if _coerce_bool(test.get("vars", {}).get("golden")) == golden
+        and (numeric := _numeric_scores(test)).get(metric) is not None
     ]
     # None on an empty subset, never 0.0 - a zero would read as a terrible score
     # where there is actually nothing to score (same rule as the old metric columns).
@@ -63,18 +61,16 @@ def _average(tests: Sequence[dict[str, Any]], metric: str, golden: bool) -> floa
 
 def metrics_from_tests(
     tests: Sequence[dict[str, Any]],
-) -> tuple[EvaluationMetricsOut | None, EvaluationMetricsOut | None]:
-    """(non-golden, golden) score averages - (None, None) when nothing was scored at all.
-    A metric with no scores in the artifact (a run predating context faithfulness) stays
-    None in its metrics object rather than dragging it to 0.0."""
-    overall = {metric: _average(tests, metric, golden=False) for metric in _METRICS}
-    golden = {metric: _average(tests, metric, golden=True) for metric in _METRICS}
-    if all(score is None for score in (*overall.values(), *golden.values())):
-        return None, None
-    return (
-        EvaluationMetricsOut(**overall) if any(score is not None for score in overall.values()) else None,
-        EvaluationMetricsOut(**golden) if any(score is not None for score in golden.values()) else None,
-    )
+) -> tuple[dict[str, float] | None, dict[str, float] | None]:
+    """(non-golden, golden) score averages keyed by metric name - (None, None) when
+    nothing was scored at all. The keys are the union of whatever namedScores the
+    artifact actually holds, so the worker's assertions alone decide what gets
+    scored: a new metric flows through with zero backend change, and a run that
+    predates a metric simply doesn't list it (absent key, never a 0.0 average)."""
+    metrics = sorted({key for test in tests for key in _numeric_scores(test)})
+    overall = {metric: average for metric in metrics if (average := _average(tests, metric, golden=False)) is not None}
+    golden = {metric: average for metric in metrics if (average := _average(tests, metric, golden=True)) is not None}
+    return overall or None, golden or None
 
 
 def to_result_out(test: dict[str, Any]) -> EvaluationResultOut:
@@ -92,8 +88,7 @@ def to_result_out(test: dict[str, Any]) -> EvaluationResultOut:
         question=variables.get("query") or variables.get("question") or "",
         expected_answer=variables.get("reference") or "",
         generated_answer=output.get("answer") or "",
-        factuality=_score(test, "factuality"),
-        context_faithfulness=_score(test, "context_faithfulness"),
+        named_scores=_numeric_scores(test),
         validated=_coerce_bool(variables.get("validated")),
         golden=_coerce_bool(variables.get("golden")),
         retrieved_sources=metadata.get("sources") or [],

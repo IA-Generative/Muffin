@@ -3,6 +3,7 @@ import { computed, ref, watch, onMounted } from 'vue'
 import { useCollections } from '../composables/useCollections'
 import { useQuality } from '../composables/useQuality'
 import { useModels } from '../composables/useModels'
+import { metricLabel, metricTooltip, orderedMetricKeys } from '../utils/evaluationMetrics'
 
 const { collections } = useCollections()
 const { models } = useModels()
@@ -43,6 +44,11 @@ function getModelFilterParam(): string | null {
 // ── Computed metrics ────────────────────────────────────────────────────────
 
 const retrievalMetrics = computed(() => overview.value?.retrieval ?? [])
+// One column per metric any listed run actually scored - the union across runs, so a
+// run that predates a metric shows "—" in its column instead of hiding it.
+const retrievalMetricKeys = computed(() =>
+  orderedMetricKeys(new Set(retrievalMetrics.value.flatMap((run) => Object.keys(run.metrics ?? {})))),
+)
 const feedback = computed(() => overview.value?.feedback)
 const discussion = computed(() => overview.value?.discussion)
 const groundedness = computed(() => overview.value?.groundedness)
@@ -209,18 +215,11 @@ function toggleConversationExpand(id: string) {
                 <th>Collection</th>
                 <th>Date</th>
                 <th>Paires</th>
-                <th>
-                  Factualité
-                  <button type="button" class="quality-tooltip">
+                <th v-for="key in retrievalMetricKeys" :key="key">
+                  {{ metricLabel(key) }}
+                  <button v-if="metricTooltip(key)" type="button" class="quality-tooltip">
                     <span class="quality-tooltip__icon" aria-hidden="true">ℹ</span>
-                    <span class="quality-tooltip__text">Score moyen donné par le juge à la factualité des réponses générées (1.0 = toujours fidèles à la réponse attendue).</span>
-                  </button>
-                </th>
-                <th>
-                  Fidélité au contexte
-                  <button type="button" class="quality-tooltip">
-                    <span class="quality-tooltip__icon" aria-hidden="true">ℹ</span>
-                    <span class="quality-tooltip__text">Score moyen donné par le juge à l'ancrage des réponses générées dans le contexte réellement récupéré (1.0 = rien d'inventé hors des extraits). « — » sur les évaluations antérieures à la métrique.</span>
+                    <span class="quality-tooltip__text">{{ metricTooltip(key) }}</span>
                   </button>
                 </th>
               </tr>
@@ -230,8 +229,11 @@ function toggleConversationExpand(id: string) {
                 <td>{{ run.collectionName }}</td>
                 <td>{{ formatDate(run.createdAt) }}</td>
                 <td>{{ run.pairCount }}</td>
-                <td>{{ run.factuality !== null ? pct(run.factuality) : '—' }}</td>
-                <td>{{ run.contextFaithfulness !== null ? pct(run.contextFaithfulness) : '—' }}</td>
+                <!-- "—" when this run predates the metric (or errored on it), never a
+                     misleading 0 -->
+                <td v-for="key in retrievalMetricKeys" :key="key">
+                  {{ run.metrics?.[key] != null ? pct(run.metrics[key]) : '—' }}
+                </td>
               </tr>
             </tbody>
           </table>

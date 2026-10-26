@@ -27,7 +27,11 @@ class CollectionNotFoundError(Exception):
 # The metrics a run scores (the worker's create_tests.py assertions, by their namedScores
 # key) - part of the dedup hash: a run that also scores context faithfulness must not be
 # deduped against an older one that scored factuality alone, its artifact would lack the
-# new score. Keep in sync with the worker's copy (worker/evaluation/app/tasks.py).
+# new score. This is the ONLY place the backend still names metrics: the display path is
+# generic (it serves whatever the artifact holds, see evaluation_artifacts), but the
+# trigger-time hash must know what the worker WILL score before any artifact exists -
+# and it cannot import worker code. Keep in sync with the worker's list
+# (worker/evaluation/app/promptfoo/create_tests.py's SCORED_METRICS).
 _SCORED_METRICS = ["context_faithfulness", "factuality"]
 
 

@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useCollections } from '../composables/useCollections'
 import { usePagination } from '../composables/usePagination'
 import type { Collection, EvaluationResult } from '../types/collection'
+import { metricLabel, orderedMetricKeys } from '../utils/evaluationMetrics'
 import PaginationControls from './PaginationControls.vue'
 
 const props = defineProps<{
@@ -171,16 +172,15 @@ const goldenCount = computed(() => props.collection.qaPairs.filter((pair) => pai
             <span class="eval-tab__group-count">{{ run.goldenPairCount }} question(s)</span>
           </p>
           <div class="eval-tab__metrics">
-            <div class="eval-tab__metric">
-              <span class="eval-tab__metric-value">{{ formatScore(run.goldenMetrics.factuality) }}</span>
-              <span class="eval-tab__metric-label">Factualité (juge)</span>
-            </div>
-            <div class="eval-tab__metric">
-              <!-- "—" on the runs that predate the metric, never a misleading 0 -->
-              <span class="eval-tab__metric-value">
-                {{ run.goldenMetrics.contextFaithfulness !== null ? formatScore(run.goldenMetrics.contextFaithfulness) : '—' }}
-              </span>
-              <span class="eval-tab__metric-label">Fidélité au contexte (juge)</span>
+            <!-- One card per metric the run actually scored - a metric it predates
+                 simply doesn't appear, never a misleading 0 -->
+            <div
+              v-for="key in orderedMetricKeys(Object.keys(run.goldenMetrics))"
+              :key="key"
+              class="eval-tab__metric"
+            >
+              <span class="eval-tab__metric-value">{{ formatScore(run.goldenMetrics[key]) }}</span>
+              <span class="eval-tab__metric-label">{{ metricLabel(key) }} (juge)</span>
             </div>
           </div>
           <p v-if="run.goldenPairCount < GOLDEN_RELIABLE_COUNT" class="eval-tab__group-note">
@@ -197,16 +197,13 @@ const goldenCount = computed(() => props.collection.qaPairs.filter((pair) => pai
             </span>
           </p>
           <div class="eval-tab__metrics">
-            <div class="eval-tab__metric">
-              <span class="eval-tab__metric-value">{{ formatScore(run.metrics.factuality) }}</span>
-              <span class="eval-tab__metric-label">Factualité (juge)</span>
-            </div>
-            <div class="eval-tab__metric">
-              <!-- "—" on the runs that predate the metric, never a misleading 0 -->
-              <span class="eval-tab__metric-value">
-                {{ run.metrics.contextFaithfulness !== null ? formatScore(run.metrics.contextFaithfulness) : '—' }}
-              </span>
-              <span class="eval-tab__metric-label">Fidélité au contexte (juge)</span>
+            <div
+              v-for="key in orderedMetricKeys(Object.keys(run.metrics))"
+              :key="key"
+              class="eval-tab__metric"
+            >
+              <span class="eval-tab__metric-value">{{ formatScore(run.metrics[key]) }}</span>
+              <span class="eval-tab__metric-label">{{ metricLabel(key) }} (juge)</span>
             </div>
           </div>
         </div>
@@ -294,11 +291,14 @@ const goldenCount = computed(() => props.collection.qaPairs.filter((pair) => pai
               </div>
 
               <div class="eval-tab__result-metrics">
-                <span v-if="result.factuality !== null">Factualité {{ formatScore(result.factuality) }}</span>
-                <span v-if="result.contextFaithfulness !== null">
-                  Fidélité au contexte {{ formatScore(result.contextFaithfulness) }}
+                <!-- One line per metric the judge scored for this pair - a metric it
+                     errored on writes no entry -->
+                <span v-for="[key, score] in Object.entries(result.namedScores)" :key="key">
+                  {{ metricLabel(key) }} {{ formatScore(score) }}
                 </span>
-                <span v-if="result.factuality === null" class="eval-tab__judge-error">Juge en erreur sur cette paire</span>
+                <span v-if="!Object.keys(result.namedScores).length" class="eval-tab__judge-error">
+                  Juge en erreur sur cette paire
+                </span>
               </div>
             </div>
             <p v-if="!resultsByRunId[run.id]?.length" class="eval-tab__empty">
