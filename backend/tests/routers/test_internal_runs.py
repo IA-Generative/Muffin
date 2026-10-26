@@ -1,4 +1,5 @@
 import uuid
+from unittest.mock import patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -1005,3 +1006,13 @@ async def test_update_conversation_title_not_found(client):
         json={"title": "x"},
     )
     assert response.status_code == 404
+
+
+async def test_set_partial_answer_goes_to_redis_with_an_expiry(client):
+    run_id = await _create_run()
+    with patch("app.routers.internal_runs.redis_connector") as mock_redis:
+        response = await client.put(
+            f"/api/internal/runs/{run_id}/partial-answer", headers=_headers(), json={"text": "Leave is 25 da"}
+        )
+    assert response.status_code == 200
+    mock_redis.client.set.assert_called_once_with(f"run:{run_id}:partial_answer", "Leave is 25 da", ex=600)

@@ -4,6 +4,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.connectors import redis_connector
 from app.core import storage
 from app.core.security.worker_auth import require_worker_api_key
 from app.db import get_db
@@ -24,6 +25,7 @@ from app.schemas.internal_run import (
     QaSourceOut,
     RunErrorUpdate,
     RunEventCreate,
+    RunPartialAnswerUpdate,
     RunResultUpdate,
     RunStateUpdate,
     RunStatusUpdate,
@@ -32,6 +34,7 @@ from app.schemas.internal_run import (
     SummarySearchResultOut,
     TabularDocumentOut,
 )
+from app.services.run_service import PARTIAL_ANSWER_TTL_SECONDS, partial_answer_key
 from app.services.search_service import SearchService
 
 router = APIRouter(
@@ -111,6 +114,17 @@ async def update_run_status(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
     await repository.update_status(run, RunStatus(update.status), update.current_node, update.current_activity)
     await db.commit()
+    return {"status": "ok"}
+
+
+@router.put(
+    "/runs/{run_id}/partial-answer",
+    summary="Publish the part of the answer written so far, shown while the run is still generating it",
+)
+async def set_partial_answer(run_id: uuid.UUID, update: RunPartialAnswerUpdate) -> dict[str, str]:
+    # Not in the database: it changes every few hundred milliseconds and is worthless once the run
+    # has its answer. Expires on its own if the run dies without clearing it.
+    redis_connector.client.set(partial_answer_key(run_id), update.text, ex=PARTIAL_ANSWER_TTL_SECONDS)
     return {"status": "ok"}
 
 
