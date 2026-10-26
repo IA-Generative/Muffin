@@ -824,6 +824,33 @@ extraObjects:
   # Per-env overrides (minReplicaCount, maxReplicaCount, pollingInterval, listLength) live
   # in `values-<env>.yaml` under `extraObjects.<name>.spec`.
 
+  # NetworkPolicy: allows the KEDA operator (namespace `keda-system`) to reach the Redis pods on
+  # port 6379. Without it, a default-deny namespace policy (common on DSO/managed platforms) drops
+  # the KEDA scaler's TCP SYN and the ScaledObjects go degraded with:
+  #   "connection to redis failed: dial tcp <redis-ip>:6379: i/o timeout"
+  # The Redis pods carry the RELEASE name as `app.kubernetes.io/instance` (not the service name
+  # `muffin-redis`), so the selector uses it.
+  muffin-redis-keda-netpol:
+    apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      name: muffin-redis-allow-keda
+    spec:
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: redis
+          app.kubernetes.io/instance: "{{ .Release.Name }}"
+      policyTypes:
+      - Ingress
+      ingress:
+      - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: keda-system
+        ports:
+        - protocol: TCP
+          port: 6379
+
   # TriggerAuthentication: shared by all the worker ScaledObjects.
   muffin-keda-triggerauth:
     apiVersion: keda.sh/v1alpha1
