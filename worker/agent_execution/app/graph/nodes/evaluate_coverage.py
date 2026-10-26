@@ -25,7 +25,7 @@ _CONTENT_TOOLS = frozenset({"search", "web_search"})
 
 def evaluate_coverage(state: AgentState) -> dict[str, Any]:
     """Compares evidence against the query's actual requirements rather than a blanket "I have
-    enough documents" (§17) - the missing_information list is what replan_research targets."""
+    enough documents" (§17) - the missing_information list is what clarify_coverage asks about."""
     run_id = state["run_id"]
     if is_cancelled(run_id):
         return {"cancelled": True}

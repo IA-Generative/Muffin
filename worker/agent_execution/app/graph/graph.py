@@ -7,6 +7,7 @@ from app.graph.nodes.answer_help import answer_help
 from app.graph.nodes.answer_identity import answer_identity
 from app.graph.nodes.build_answer_context import build_answer_context
 from app.graph.nodes.build_research_plan import build_research_plan
+from app.graph.nodes.clarify_coverage import clarify_coverage
 from app.graph.nodes.create_document import delegate_create, detect_create
 from app.graph.nodes.decompose_query import decompose_query
 from app.graph.nodes.delegate_edit import delegate_edit
@@ -16,13 +17,13 @@ from app.graph.nodes.generate_answer import generate_answer
 from app.graph.nodes.load_accessible_vdbs import load_accessible_vdbs
 from app.graph.nodes.load_context import load_context
 from app.graph.nodes.merge_evidence import merge_evidence
-from app.graph.nodes.replan_research import replan_research
 from app.graph.nodes.request_clarification import request_clarification
 from app.graph.nodes.research_task import research_task
 from app.graph.nodes.targeted_research import targeted_research
 from app.graph.nodes.validate_grounding import validate_grounding
 from app.graph.routing.conditions import (
     after_analyze_query,
+    after_clarify_coverage,
     after_detect_create,
     after_detect_edit,
     after_evaluate_coverage,
@@ -60,7 +61,7 @@ def build_graph(checkpointer: BaseCheckpointSaver | None = None):
     graph.add_node("research_task", research_task, input_schema=ResearchTaskInput)
     graph.add_node("merge_evidence", merge_evidence)
     graph.add_node("evaluate_coverage", evaluate_coverage)
-    graph.add_node("replan_research", replan_research)
+    graph.add_node("clarify_coverage", clarify_coverage)
     graph.add_node("build_answer_context", build_answer_context)
     graph.add_node("generate_answer", generate_answer)
     graph.add_node("validate_grounding", validate_grounding)
@@ -127,13 +128,13 @@ def build_graph(checkpointer: BaseCheckpointSaver | None = None):
         after_evaluate_coverage,
         {
             "build_answer_context": "build_answer_context",
-            "replan_research": "replan_research",
+            "clarify_coverage": "clarify_coverage",
             "cancelled": "cancelled",
         },
     )
-    # Replan loop (§19/§20): a targeted replan re-enters the same fan-out gate rather than a
-    # separate execution path, bounded by MAX_REPLANS in after_evaluate_coverage.
-    graph.add_conditional_edges("replan_research", execute_research_plan, fan_out_targets)
+    # Insufficient coverage ends the run on questions to the user rather than looping on more research:
+    # the answer comes with their next message.
+    graph.add_conditional_edges("clarify_coverage", after_clarify_coverage, {"end": END, "cancelled": "cancelled"})
     _cancellable_edge(graph, "build_answer_context", "generate_answer")
     # Grounding is skipped for a deterministic knowledge-base lookup or a simple single-fact
     # answer (§ optimize latency) - see after_generate_answer for exactly which.
