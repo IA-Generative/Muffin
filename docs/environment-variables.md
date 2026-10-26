@@ -208,7 +208,7 @@ désactivée par défaut en amont et doit être explicitement activée côté se
 ## worker/agent_execution — budgets d'exécution de l'agent
 
 Ces variables bornent le graphe LangGraph de recherche (§28 du brief d'architecture) pour qu'une
-requête pathologique ne puisse pas faire tourner indéfiniment le fan-out, le replanning ou la
+requête pathologique ne puisse pas faire tourner indéfiniment le fan-out ou la
 boucle de vérification (« grounding »).
 
 | Variable | Définition | Défaut | Utilisée par |
@@ -218,7 +218,6 @@ boucle de vérification (« grounding »).
 | `MAX_PARALLEL_SEARCHES` | Nombre max de recherches vectorielles en parallèle au sein d'une tâche | `4` | idem |
 | `MAX_TOTAL_TASKS` | Plafond cumulé de tâches sur toute la durée d'un run | `12` | idem |
 | `MAX_TOTAL_SEARCHES` | Plafond cumulé de recherches sur toute la durée d'un run | `20` | idem |
-| `MAX_REPLANS` | Nombre max de replans autorisés | `2` | idem |
 | `MAX_GROUNDING_RESEARCHES` | Nombre max de relances de recherche déclenchées par un échec de vérification (grounding) | `1` | idem |
 | `MAX_QUESTION_ROUNDS` | Nombre max de fois de suite où l'assistant pose des questions à choix avant de poursuivre avec des hypothèses qu'il énonce (#344) | `2` | idem (`graph/nodes/request_clarification.py`) |
 | `SEARCH_RESULTS_PER_QUERY` | Nombre de résultats retournés par recherche vectorielle | `5` | idem |

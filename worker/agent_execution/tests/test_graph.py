@@ -1,5 +1,6 @@
 import json
 
+from app.config import settings
 from tests.conftest import initial_state
 
 
@@ -304,56 +305,6 @@ def test_web_search_runner_refuses_even_if_the_planner_somehow_picks_it_while_di
     assert result["deduped_evidence"] == []
 
 
-def test_replan_falls_back_to_web_search_when_the_users_own_collections_come_up_empty(
-    make_run,
-):
-    """Reproduces a real gap found in manual end-to-end testing: a query against zero/irrelevant
-    accessible collections must still be able to reach the web via the replan loop, not just via
-    decompose_query's own first-pass tool choice."""
-
-    def router(system_prompt: str) -> str:
-        if "Analyze the user" in system_prompt:
-            return _analysis()  # simple: decompose_query short-circuits straight to a "search" task
-        if "Coverage of a research query was judged insufficient" in system_prompt:
-            assert "web_search" in system_prompt  # only offered because web_search_enabled=True
-            return json.dumps(
-                [
-                    {
-                        "query": "current weather in Paris",
-                        "intent": None,
-                        "tool": "web_search",
-                    }
-                ]
-            )
-        if "Decide whether" in system_prompt:
-            return json.dumps({"status": "sufficient", "missing_information": [], "reasoning": "ok"})
-        if "Check whether every" in system_prompt:
-            return json.dumps({"valid": True, "unsupported_claims": []})
-        return "It's sunny [x]."
-
-    graph, fake = make_run(
-        [],  # no accessible collections at all - the first "search" task finds nothing
-        router,
-        web_results=[
-            {
-                "title": "Paris weather",
-                "url": "https://example.com/paris",
-                "content": "Sunny, 22°C",
-            }
-        ],
-    )
-    state = initial_state("What's the weather in Paris right now?", web_search_enabled=True)
-    result = graph.invoke(state, config=_config(state))
-
-    assert fake.searxng.queries == ["current weather in Paris"]
-    assert result["replan_count"] == 1
-    # The web result went through a real sufficiency check (evaluate_coverage), not the
-    # "meta-tool, complete the moment it runs" shortcut - proves web_search is classified as
-    # content evidence, not lumped in with list_collections/collection_summary/etc.
-    assert result["coverage_result"]["status"] == "sufficient"
-    assert result["citations"][0]["url"] == "https://example.com/paris"
-
-
 def test_evaluate_coverage_does_not_wave_through_a_web_search_result_as_meta_complete(
     make_run,
 ):
@@ -512,38 +463,71 @@ def test_failure_in_one_task_does_not_fail_the_others(make_run, monkeypatch):
     assert result["answer"] == "answer [x]."
 
 
-def test_insufficient_coverage_triggers_a_targeted_replan(make_run):
-    calls = {"coverage": 0}
-
+def _insufficient_router(calls=None):
     def router(system_prompt: str) -> str:
         if "Analyze the user" in system_prompt:
             return _analysis()
         if "select the ones relevant" in system_prompt.lower():
             return '["hr"]'
         if "Decide whether" in system_prompt:
-            calls["coverage"] += 1
-            if calls["coverage"] == 1:
-                return json.dumps(
-                    {
-                        "status": "insufficient",
-                        "missing_information": ["2025 update"],
-                        "reasoning": "stale",
-                    }
-                )
-            return json.dumps({"status": "sufficient", "missing_information": [], "reasoning": "ok"})
-        if "Coverage of a research query" in system_prompt:
-            return json.dumps([{"query": "2025 policy update", "intent": None}])
+            return json.dumps({"status": "insufficient", "missing_information": ["2025 update"], "reasoning": "stale"})
+        if "do not contain enough to answer" in system_prompt:
+            if calls is not None:
+                calls["clarify"] += 1
+            return json.dumps(
+                {
+                    "questions": [
+                        {
+                            "question": "Which policy do you mean?",
+                            "header": "Policy",
+                            "multi_select": False,
+                            "options": [
+                                {"label": "Leave", "description": "Paid leave"},
+                                {"label": "Remote", "description": "Remote work"},
+                            ],
+                        }
+                    ]
+                }
+            )
         if "Check whether every" in system_prompt:
             return json.dumps({"valid": True, "unsupported_claims": []})
         return "answer [x]."
 
-    graph, fake = make_run([{"id": "hr", "name": "HR", "description": "HR", "tags": []}], router)
+    return router
+
+
+def test_insufficient_coverage_asks_the_user_instead_of_replanning(make_run):
+    calls = {"clarify": 0}
+    graph, fake = make_run([{"id": "hr", "name": "HR", "description": "HR", "tags": []}], _insufficient_router(calls))
     state = initial_state("What is the current leave policy?")
     result = graph.invoke(state, config=_config(state))
 
-    assert result["replan_count"] == 1
-    assert result["plan_version"] == 1
-    assert any(task_id.startswith("replan-1-") for task_id in result["completed_task_ids"])
+    assert calls["clarify"] == 1
+    assert result["questions"][0]["options"][0]["label"] == "Leave"
+    assert "Which policy do you mean?" in result["answer"]
+    assert result["replan_count"] == 0
+    assert [data for type_, data in fake.event_data if type_ == "clarification_requested"]
+
+
+def test_insufficient_coverage_answers_with_assumptions_when_nobody_can_be_asked(make_run):
+    calls = {"clarify": 0}
+    graph, _fake = make_run([{"id": "hr", "name": "HR", "description": "HR", "tags": []}], _insufficient_router(calls))
+    state = initial_state("What is the current leave policy?", interactive=False)
+    result = graph.invoke(state, config=_config(state))
+
+    assert calls["clarify"] == 0
+    assert not result.get("questions")
+    assert result["answer"] == "answer [x]."
+
+
+def test_insufficient_coverage_answers_once_the_cap_on_questions_is_reached(make_run):
+    calls = {"clarify": 0}
+    graph, _fake = make_run([{"id": "hr", "name": "HR", "description": "HR", "tags": []}], _insufficient_router(calls))
+    state = initial_state("What is the current leave policy?", question_rounds=settings.MAX_QUESTION_ROUNDS)
+    result = graph.invoke(state, config=_config(state))
+
+    assert calls["clarify"] == 0
+    assert result["answer"] == "answer [x]."
 
 
 def test_grounding_failure_triggers_targeted_research(make_run):
@@ -711,7 +695,7 @@ def test_list_collections_tool_answers_from_accessible_vdbs_without_searching(ma
     assert fake.searched_collection_ids == []
     # One evidence item per collection, plus one explicit "you have exactly N" fact - never left
     # for the answer LLM to infer a count from prose alone (real model tested against would
-    # sometimes refuse to, see test_meta_tool_never_replans_into_a_pointless_search's sibling bug).
+    # sometimes refuse to, see test_meta_tool_never_asks_for_a_pointless_precision's sibling bug).
     assert len(result["deduped_evidence"]) == 3
     assert any(
         e["content"] == "You have exactly 2 accessible knowledge base collections." for e in result["deduped_evidence"]
@@ -1641,7 +1625,7 @@ def test_identity_query_short_circuits_to_answer_identity(make_run):
 
 def test_insufficient_coverage_suggests_web_search_when_not_enabled(make_run):
     """§ issue #95 - when the run never opted into web search and coverage stays insufficient
-    through every replan attempt, generate_answer must be told to suggest enabling it."""
+    when nobody can be asked, generate_answer must be told to suggest enabling it."""
 
     def router(system_prompt: str) -> str:
         if "Analyze the user" in system_prompt:
@@ -1650,14 +1634,12 @@ def test_insufficient_coverage_suggests_web_search_when_not_enabled(make_run):
             return '["hr"]'
         if "Decide whether" in system_prompt:
             return json.dumps({"status": "insufficient", "missing_information": ["2025 update"], "reasoning": "x"})
-        if "Coverage of a research query" in system_prompt:
-            return json.dumps([{"query": "2025 policy update", "intent": None}])
         if "Answer the user's query" in system_prompt:
             return "I couldn't find that, but you could enable web search."
         return "unexpected prompt"
 
     graph, fake = make_run([{"id": "hr", "name": "HR", "description": "HR", "tags": []}], router)
-    state = initial_state("What is the 2025 leave policy?", web_search_enabled=False)
+    state = initial_state("What is the 2025 leave policy?", web_search_enabled=False, interactive=False)
     graph.invoke(state, config=_config(state))
 
     answer_call = next(call for call in fake.llm_calls if "Answer the user's query" in call[0]["content"])
@@ -1674,15 +1656,13 @@ def test_insufficient_coverage_does_not_repeat_web_search_suggestion_when_alread
         if "select the ones relevant" in system_prompt.lower():
             return '["hr"]'
         if "Decide whether" in system_prompt:
-            return json.dumps({"status": "insufficient", "missing_information": ["2025 update"], "reasoning": "x"})
-        if "Coverage of a research query" in system_prompt:
             return json.dumps([{"query": "2025 policy update", "intent": None}])
         if "Answer the user's query" in system_prompt:
             return "I still couldn't find that."
         return "unexpected prompt"
 
     graph, fake = make_run([{"id": "hr", "name": "HR", "description": "HR", "tags": []}], router)
-    state = initial_state("What is the 2025 leave policy?", web_search_enabled=True)
+    state = initial_state("What is the 2025 leave policy?", web_search_enabled=True, interactive=False)
     graph.invoke(state, config=_config(state))
 
     answer_call = next(call for call in fake.llm_calls if "Answer the user's query" in call[0]["content"])

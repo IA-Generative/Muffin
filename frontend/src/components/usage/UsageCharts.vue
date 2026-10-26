@@ -26,7 +26,7 @@ const STEP_LABELS: Record<string, string> = {
   generate_answer: 'Chat · rédaction de la réponse',
   load_accessible_vdbs: 'Chat · choix des collections',
   merge_evidence: 'Chat · fusion des résultats',
-  replan_research: 'Chat · nouveau plan de recherche',
+  clarify_coverage: 'Chat · question de précision',
   targeted_research: 'Chat · recherche complémentaire',
   validate_grounding: 'Chat · vérification de la réponse',
   research_task: 'Chat · recherche',
