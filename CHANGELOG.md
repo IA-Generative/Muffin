@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.31.1](https://github.com/IA-Generative/Muffin/compare/v0.31.0...v0.31.1) (2026-10-26)
+
+
+### Bug Fixes
+
+* **helm:** allow KEDA to reach Redis ([8626258](https://github.com/IA-Generative/Muffin/commit/8626258ccb7ec9030735c234e3bcb8d06107c50e))
+
 ## [0.31.0](https://github.com/IA-Generative/Muffin/compare/v0.30.0...v0.31.0) (2026-10-23)
 
 
