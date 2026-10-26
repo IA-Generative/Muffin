@@ -157,6 +157,9 @@ export interface EvaluationResult {
   // The judge's factuality score for the generated answer - null when the judge errored
   // on this pair (no score in the artifact).
   factuality: number | null
+  // The judge's context faithfulness score: is the generated answer supported by the
+  // context the pipeline actually retrieved? - null on the runs predating the metric.
+  contextFaithfulness: number | null
   validated: boolean
   golden: boolean
   retrievedSources: string[]
@@ -178,10 +181,11 @@ export interface EvaluationRun {
   // The judge model (the collection's "evaluation" generation model).
   llmModel: string
   chunkingSnapshot: ChunkingSnapshot
-  // Factuality averages over the non-golden / golden pairs - null when that subset is
+  // Score averages over the non-golden / golden pairs - null when that subset is
   // empty, or when the run predates the promptfoo migration (no artifact).
-  metrics: { factuality: number } | null
-  goldenMetrics: { factuality: number } | null
+  // contextFaithfulness is null on the runs predating the metric.
+  metrics: { factuality: number | null; contextFaithfulness: number | null } | null
+  goldenMetrics: { factuality: number | null; contextFaithfulness: number | null } | null
   // Whether the report/results.json artifacts exist (download links, report preview) -
   // false on the runs predating the promptfoo migration.
   hasArtifacts: boolean

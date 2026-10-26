@@ -4,8 +4,9 @@ Worker Celery qui calcule des métriques de qualité pour l'agent - deux tâches
 même queue :
 
 - `run_evaluation` (voir issue #11) : un run d'évaluation pour une collection - rejoue chaque paire
-  QA à travers le pipeline (recherche + génération) et fait noter la factualité de chaque réponse
-  générée par un juge LLM, le tout orchestré par [promptfoo](https://www.promptfoo.dev/docs/intro/).
+  QA à travers le pipeline (recherche + génération) et fait noter chaque réponse générée deux fois
+  par un juge LLM (factualité face à la réponse attendue, fidélité au contexte réellement récupéré),
+  le tout orchestré par [promptfoo](https://www.promptfoo.dev/docs/intro/).
 - `score_discussion` (voir issue #31) : un jugement de qualité sur une conversation entière -
   cohérence entre les tours, bonne exploitation du contexte conversationnel - envoie un
   `DiscussionScore` au backend.
@@ -15,7 +16,7 @@ internes du backend (`app/backend_client.py`), authentifiés par `WORKER_API_KEY
 
 Dans sa propre queue Celery (`evaluation`), séparée de celles de worker/document_process et
 `agent_execution` : un run d'évaluation rejoue toutes les paires QA d'une collection - une recherche
-+ une génération + un jugement pour chacune, potentiellement long et gourmand en appels LLM, ça ne
++ une génération + deux jugements pour chacune, potentiellement long et gourmand en appels LLM, ça ne
 doit jamais faire attendre une vraie requête utilisateur ni retarder l'ingestion de documents.
 `score_discussion` est un seul appel LLM par conversation, beaucoup plus léger, mais partage cette
 même queue plutôt que d'avoir son propre service - pas assez de volume pour le justifier.
@@ -29,7 +30,8 @@ même queue plutôt que d'avoir son propre service - pas assez de volume pour le
    sans document source (`document_id`) est ignorée : sans document, la recherche n'a rien à
    retourner et le juge n'a pas de contexte.
 3. Si un run identique existe déjà (même empreinte SHA-256 des paires QA + paramètres de
-   chunking + embedding + k + juge + générateur), la tâche s'arrête là - pas de doublon.
+   chunking + embedding + k + juge + générateur + métriques notées), la tâche s'arrête là -
+   pas de doublon.
 4. Écrit un répertoire d'évaluation temporaire : `pairs.json` (les paires à évaluer), le YAML
    `promptfooconfig.yaml` et les deux modules qu'il référence (`provider.py`, `create_tests.py`,
    copiés depuis `app/promptfoo/`).
@@ -40,8 +42,13 @@ même queue plutôt que d'avoir son propre service - pas assez de volume pour le
      endpoint `/internal/search` que l'agent, puis génère une réponse via `/internal/llm/chat` ;
    - le **juge** : le modèle d'évaluation de la collection, appelé à travers le proxy
      OpenAI-compatible du backend (`/api/internal/v1`, voir `backend/app/routers/
-     internal_openai_compat.py`) avec l'assertion `factuality` de promptfoo (seuil 0.7, couleur
-     - un score bas n'élimine jamais un résultat).
+     internal_openai_compat.py`) avec deux assertions promptfoo par paire (seuil 0.7 chacune,
+     couleur - un score bas n'élimine jamais un résultat) :
+     - `factuality` : la réponse générée est-elle cohérente avec la réponse attendue ?
+     - `context-faithfulness` : la réponse générée est-elle ancrée dans le contexte que le
+       pipeline a réellement récupéré (`contextTransform: output.context` - les chunks
+       renvoyés par le provider, pas une référence statique) ? La var de test s'appelle
+       `query` car les assertions RAG de promptfoo l'exigent.
 6. Poste un `EvaluationRun` au backend (compteurs lus depuis le `results.json` produit - l'artefact
    est la vérité), puis y téléverse les deux artefacts : `results.json` et `report.html`, stockés
    dans RustFS par le backend (`evaluations/{run_id}/…`). Le modèle n'a pas d'état "en cours"

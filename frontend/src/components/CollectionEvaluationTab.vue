@@ -69,7 +69,7 @@ function formatDate(iso: string) {
   return dateFormatter.format(new Date(iso))
 }
 
-function formatFactuality(value: number) {
+function formatScore(value: number) {
   return value.toFixed(2)
 }
 
@@ -91,8 +91,9 @@ const goldenCount = computed(() => props.collection.qaPairs.filter((pair) => pai
   <div>
     <p class="eval-tab__intro">
       Mesure la qualité des réponses générées : chaque question-réponse de la collection est posée au pipeline, puis un
-      juge (modèle d'évaluation) note la factualité de la réponse générée face à la réponse attendue (en dessous de 0,7,
-      la paire est signalée en rouge dans le rapport).
+      juge (modèle d'évaluation) note chaque réponse générée deux fois — sa factualité face à la réponse attendue, et sa
+      fidélité au contexte réellement récupéré par le pipeline (en dessous de 0,7, la paire est signalée en rouge dans
+      le rapport).
     </p>
     <p class="eval-tab__intro">
       Les <strong>questions de test</strong> ({{ goldenCount }}) sont écrites par une personne et ne sont dans aucun
@@ -171,8 +172,15 @@ const goldenCount = computed(() => props.collection.qaPairs.filter((pair) => pai
           </p>
           <div class="eval-tab__metrics">
             <div class="eval-tab__metric">
-              <span class="eval-tab__metric-value">{{ formatFactuality(run.goldenMetrics.factuality) }}</span>
+              <span class="eval-tab__metric-value">{{ formatScore(run.goldenMetrics.factuality) }}</span>
               <span class="eval-tab__metric-label">Factualité (juge)</span>
+            </div>
+            <div class="eval-tab__metric">
+              <!-- "—" on the runs that predate the metric, never a misleading 0 -->
+              <span class="eval-tab__metric-value">
+                {{ run.goldenMetrics.contextFaithfulness !== null ? formatScore(run.goldenMetrics.contextFaithfulness) : '—' }}
+              </span>
+              <span class="eval-tab__metric-label">Fidélité au contexte (juge)</span>
             </div>
           </div>
           <p v-if="run.goldenPairCount < GOLDEN_RELIABLE_COUNT" class="eval-tab__group-note">
@@ -190,8 +198,15 @@ const goldenCount = computed(() => props.collection.qaPairs.filter((pair) => pai
           </p>
           <div class="eval-tab__metrics">
             <div class="eval-tab__metric">
-              <span class="eval-tab__metric-value">{{ formatFactuality(run.metrics.factuality) }}</span>
+              <span class="eval-tab__metric-value">{{ formatScore(run.metrics.factuality) }}</span>
               <span class="eval-tab__metric-label">Factualité (juge)</span>
+            </div>
+            <div class="eval-tab__metric">
+              <!-- "—" on the runs that predate the metric, never a misleading 0 -->
+              <span class="eval-tab__metric-value">
+                {{ run.metrics.contextFaithfulness !== null ? formatScore(run.metrics.contextFaithfulness) : '—' }}
+              </span>
+              <span class="eval-tab__metric-label">Fidélité au contexte (juge)</span>
             </div>
           </div>
         </div>
@@ -279,8 +294,11 @@ const goldenCount = computed(() => props.collection.qaPairs.filter((pair) => pai
               </div>
 
               <div class="eval-tab__result-metrics">
-                <span v-if="result.factuality !== null">Factualité {{ formatFactuality(result.factuality) }}</span>
-                <span v-else class="eval-tab__judge-error">Juge en erreur sur cette paire</span>
+                <span v-if="result.factuality !== null">Factualité {{ formatScore(result.factuality) }}</span>
+                <span v-if="result.contextFaithfulness !== null">
+                  Fidélité au contexte {{ formatScore(result.contextFaithfulness) }}
+                </span>
+                <span v-if="result.factuality === null" class="eval-tab__judge-error">Juge en erreur sur cette paire</span>
               </div>
             </div>
             <p v-if="!resultsByRunId[run.id]?.length" class="eval-tab__empty">

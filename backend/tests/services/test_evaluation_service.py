@@ -36,7 +36,7 @@ _VECTOR_SETTINGS = SimpleNamespace(
     index_embedding_model=None,
     embedding_model="text-embedding-3-small",
 )
-_VECTOR_DIGEST = "0ca8d8bebf1ed3ed2018d17e21493e0acb1b1debd88ce039edfbe99931cda9c4"
+_VECTOR_DIGEST = "0cfabaaab638c4a28300a93b5ea4c4e06290b926d1fffe6a2c3c45ea5bd2f4d3"
 
 
 def test_evaluation_hash_matches_the_worker_vector():

@@ -264,11 +264,11 @@ def _results_json(*tests):
     return {"results": {"results": list(tests)}}
 
 
-def _test_row(question, factuality, golden):
+def _test_row(question, factuality, context_faithfulness, golden):
     return {
-        "vars": {"question": question, "reference": "x", "validated": True, "golden": golden},
+        "vars": {"query": question, "reference": "x", "validated": True, "golden": golden},
         "response": {"output": {"answer": "y"}, "metadata": {"sources": ["a.pdf#1"]}},
-        "namedScores": {"factuality": factuality},
+        "namedScores": {"factuality": factuality, "context_faithfulness": context_faithfulness},
     }
 
 
@@ -318,16 +318,17 @@ async def test_an_evaluation_run_reports_its_golden_scores_apart(client, monkeyp
         monkeypatch,
         collection_id,
         tests=[
-            _test_row("Question générée ?", 0.5, golden=False),
-            _test_row("Question dorée ?", 1.0, golden=True),
+            _test_row("Question générée ?", 0.5, 0.4, golden=False),
+            _test_row("Question dorée ?", 1.0, 0.9, golden=True),
         ],
         golden_pair_count=1,
     )
 
     (run,) = (await client.get(f"/api/collections/{collection_id}/evaluations")).json()
 
-    assert run["golden_metrics"] == {"factuality": 1.0}
-    assert run["metrics"] == {"factuality": 0.5}  # the generated pairs' own, untouched by the golden one
+    assert run["golden_metrics"] == {"factuality": 1.0, "context_faithfulness": 0.9}
+    # the generated pairs' own, untouched by the golden one
+    assert run["metrics"] == {"factuality": 0.5, "context_faithfulness": 0.4}
 
 
 async def test_a_run_made_only_of_golden_pairs_has_no_global_aggregate(client, monkeypatch):
@@ -336,14 +337,14 @@ async def test_a_run_made_only_of_golden_pairs_has_no_global_aggregate(client, m
         client,
         monkeypatch,
         collection_id,
-        tests=[_test_row("Question dorée ?", 1.0, golden=True)],
+        tests=[_test_row("Question dorée ?", 1.0, 0.9, golden=True)],
         golden_pair_count=1,
     )
 
     (run,) = (await client.get(f"/api/collections/{collection_id}/evaluations")).json()
 
     assert run["metrics"] is None
-    assert run["golden_metrics"] == {"factuality": 1.0}
+    assert run["golden_metrics"] == {"factuality": 1.0, "context_faithfulness": 0.9}
 
 
 # -- a reference pair, written by hand, is the opposite: the assistant answers from it --------------

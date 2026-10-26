@@ -92,6 +92,13 @@ def _judge_discussion(model: str, transcript: str) -> dict[str, Any]:
         return _FALLBACK_JUDGMENT
 
 
+# The metrics a run scores (create_tests.py's assertions, by their namedScores key) - part of
+# the dedup hash: a run that also scores context faithfulness must not be deduped against an
+# older one that scored factuality alone, its artifact would lack the new score. Keep in sync
+# with create_tests.py's metric names and with the backend's copy of the hash.
+_SCORED_METRICS = ["context_faithfulness", "factuality"]
+
+
 def _evaluation_hash(
     qa_pairs: list[dict[str, Any]],
     collection_settings: dict[str, Any],
@@ -102,10 +109,10 @@ def _evaluation_hash(
 ) -> str:
     """SHA-256 of everything that affects an evaluation run's result: the QA pairs (id, question,
     answer, document_id, relevant documents, validated, golden), the chunking/embedding config, k,
-    the judge model, the generator model (it writes the answers the judge scores), and the
-    validated_only scope. If none of these changed since the last run with the same models, the
-    result would be identical and there's no reason to re-run (same dedup strategy as
-    _transcript_hash for DiscussionScore).
+    the judge model, the generator model (it writes the answers the judge scores), the scored
+    metrics (the assertions the tests carry), and the validated_only scope. If none of these
+    changed since the last run with the same models, the result would be identical and there's
+    no reason to re-run (same dedup strategy as _transcript_hash for DiscussionScore).
 
     MUST stay in sync with the backend's copy in app/services/evaluation_service.py - the
     trigger-time dedup check computes this same digest to answer "skipped" before dispatching.
@@ -133,6 +140,7 @@ def _evaluation_hash(
         "k": k,
         "llm_model": llm_model,
         "generator_model": generator_model,
+        "scored_metrics": _SCORED_METRICS,
         "validated_only": validated_only,
     }
     return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
@@ -174,7 +182,9 @@ def _write_promptfoo_dir(
         "description": f"Muffin evaluation - collection {collection_id}",
         # Never send any result to promptfoo's servers.
         "sharing": False,
-        "prompts": ["{{question}}"],
+        # The question var is named `query` - promptfoo's RAG assertions (context-faithfulness)
+        # require a var literally named `query`.
+        "prompts": ["{{query}}"],
         "providers": [
             {
                 "id": "file://provider.py",
@@ -202,7 +212,9 @@ def _write_promptfoo_dir(
                         "headers": {"X-Collection-Id": collection_id},
                     },
                 },
-                # The provider returns {answer, context}: the assertion scores the answer.
+                # The provider returns {answer, context}: factuality scores the answer against
+                # the expected one, context-faithfulness checks it against the retrieved
+                # context (via the assertion's own contextTransform: output.context).
                 "transform": "output.answer",
             }
         },
@@ -294,18 +306,20 @@ def _coerce_bool(value: Any) -> bool:
 def run_evaluation(self, collection_id: str, k: int | None = None, validated_only: bool = False) -> None:
     """Replays every QA pair of a collection through the same search the research agent uses,
     generates an answer from what was retrieved, and has the collection's "evaluation" model
-    judge each answer's factuality - all of it driven by promptfoo (see app/promptfoo/): the
-    task lays out a throwaway config directory, runs `promptfoo eval`, then posts one
-    EvaluationRun back to the backend with the two artifacts (results.json + report.html) as
-    its whole persistence (see #11 - the model has no in-progress state, so nothing is created
-    until the evaluation succeeded). The per-pair scores and every aggregate are computed from
-    the stored artifact at read time, on the backend. A golden pair can name several relevant
-    documents; any other pair has its one source document. When validated_only is True, only
-    validated QA pairs are evaluated; when False (default), all QA pairs with a source document
-    are evaluated regardless of validation status. No self.request.id Task registration here,
-    unlike worker/document_process's spawned tasks: this is a single task with no children, and
-    the backend already creates its Task row itself right after dispatching it (see
-    EvaluationService.trigger - it already knows the user at that point, no round trip needed).
+    judge each answer twice: factuality against the expected answer, and context faithfulness
+    against the context the pipeline actually retrieved - all of it driven by promptfoo (see
+    app/promptfoo/): the task lays out a throwaway config directory, runs `promptfoo eval`,
+    then posts one EvaluationRun back to the backend with the two artifacts (results.json +
+    report.html) as its whole persistence (see #11 - the model has no in-progress state, so
+    nothing is created until the evaluation succeeded). The per-pair scores and every aggregate
+    are computed from the stored artifact at read time, on the backend. A golden pair can name
+    several relevant documents; any other pair has its one source document. When validated_only
+    is True, only validated QA pairs are evaluated; when False (default), all QA pairs with a
+    source document are evaluated regardless of validation status. No self.request.id Task
+    registration here, unlike worker/document_process's spawned tasks: this is a single task
+    with no children, and the backend already creates its Task row itself right after
+    dispatching it (see EvaluationService.trigger - it already knows the user at that point,
+    no round trip needed).
     """
     k = k or settings.DEFAULT_TOP_K
     collection_settings = backend_client.get_collection_settings(collection_id)

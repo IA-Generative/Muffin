@@ -677,10 +677,11 @@ interface EvaluationRunOut {
   snapshot_chunk_size: number
   snapshot_chunk_overlap: number
   snapshot_embedding_model: string
-  // Factuality averages computed from the run's results.json artifact - null when the
-  // subset is empty or the run predates the promptfoo migration.
-  metrics: { factuality: number | null } | null
-  golden_metrics: { factuality: number | null } | null
+  // Score averages computed from the run's results.json artifact - null when the
+  // subset is empty or the run predates the promptfoo migration; context_faithfulness
+  // is null additionally on the runs predating the metric.
+  metrics: { factuality: number | null; context_faithfulness: number | null } | null
+  golden_metrics: { factuality: number | null; context_faithfulness: number | null } | null
   has_artifacts: boolean
 }
 
@@ -691,6 +692,7 @@ interface EvaluationResultOut {
   expected_answer: string
   generated_answer: string
   factuality: number | null
+  context_faithfulness: number | null
   validated: boolean
   golden: boolean
   retrieved_sources: string[]
@@ -721,11 +723,13 @@ async function refreshEvaluation(collectionId: string) {
         chunkOverlap: run.snapshot_chunk_overlap,
         embeddingModel: run.snapshot_embedding_model,
       },
-      metrics: run.metrics && run.metrics.factuality !== null ? { factuality: run.metrics.factuality } : null,
-      goldenMetrics:
-        run.golden_metrics && run.golden_metrics.factuality !== null
-          ? { factuality: run.golden_metrics.factuality }
-          : null,
+      // The backend only sends a metrics object when at least one metric was scored.
+      metrics: run.metrics
+        ? { factuality: run.metrics.factuality, contextFaithfulness: run.metrics.context_faithfulness }
+        : null,
+      goldenMetrics: run.golden_metrics
+        ? { factuality: run.golden_metrics.factuality, contextFaithfulness: run.golden_metrics.context_faithfulness }
+        : null,
       hasArtifacts: run.has_artifacts,
     }))
   } catch {
@@ -748,6 +752,7 @@ async function fetchEvaluationResults(collectionId: string, runId: string): Prom
     expectedAnswer: result.expected_answer,
     generatedAnswer: result.generated_answer,
     factuality: result.factuality,
+    contextFaithfulness: result.context_faithfulness,
     validated: result.validated,
     golden: result.golden,
     retrievedSources: result.retrieved_sources,

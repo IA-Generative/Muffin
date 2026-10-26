@@ -653,14 +653,15 @@ async def test_list_evaluations_for_unknown_collection_returns_404(client):
     assert response.status_code == 404
 
 
-# A promptfoo results.json fixture: two scored non-golden pairs, one the judge
-# errored on (no namedScores - excluded from the averages), one golden pair.
+# A promptfoo results.json fixture: two scored non-golden pairs, one the judge errored
+# on (no namedScores - excluded from the averages; it also keeps the pre-rename
+# `question` var, covering the fallback), one golden pair.
 _RESULTS_JSON = {
     "results": {
         "results": [
             {
                 "vars": {
-                    "question": "Q1",
+                    "query": "Q1",
                     "reference": "A1",
                     "validated": True,
                     "golden": False,
@@ -670,18 +671,18 @@ _RESULTS_JSON = {
                     "output": {"answer": "Generated 1", "context": ["c"]},
                     "metadata": {"sources": ["handbook.pdf#0"]},
                 },
-                "namedScores": {"factuality": 0.9},
+                "namedScores": {"factuality": 0.9, "context_faithfulness": 0.8},
             },
             {
                 "vars": {
-                    "question": "Q2",
+                    "query": "Q2",
                     "reference": "A2",
                     "validated": False,
                     "golden": False,
                     "qa_pair_id": "22222222-2222-2222-2222-222222222222",
                 },
                 "response": {"output": {"answer": "Generated 2"}, "metadata": {"sources": []}},
-                "namedScores": {"factuality": 0.5},
+                "namedScores": {"factuality": 0.5, "context_faithfulness": 0.4},
             },
             {
                 "vars": {"question": "Q3", "reference": "A3", "validated": True, "golden": False},
@@ -689,12 +690,12 @@ _RESULTS_JSON = {
                 "error": "judge failed",
             },
             {
-                "vars": {"question": "GQ", "reference": "GA", "validated": True, "golden": True},
+                "vars": {"query": "GQ", "reference": "GA", "validated": True, "golden": True},
                 "response": {
                     "output": {"answer": "Golden answer"},
                     "metadata": {"sources": ["handbook.pdf#1"]},
                 },
-                "namedScores": {"factuality": 1.0},
+                "namedScores": {"factuality": 1.0, "context_faithfulness": 1.0},
             },
         ]
     }
@@ -741,7 +742,7 @@ def _fake_storage(monkeypatch, results_json=_RESULTS_JSON, report_html=b"<html>r
     return objects
 
 
-async def test_list_evaluations_computes_factuality_averages_from_the_artifact(client, monkeypatch):
+async def test_list_evaluations_computes_score_averages_from_the_artifact(client, monkeypatch):
     collection_id = (await client.post("/api/collections")).json()["id"]
     await _create_evaluation_run(collection_id)
     _fake_storage(monkeypatch)
@@ -750,11 +751,40 @@ async def test_list_evaluations_computes_factuality_averages_from_the_artifact(c
 
     assert response.status_code == 200
     run = response.json()[0]
-    # (0.9 + 0.5) / 2 - the errored pair is excluded, never averaged in as a zero.
-    assert run["metrics"] == {"factuality": pytest.approx(0.7)}
-    assert run["golden_metrics"] == {"factuality": 1.0}
+    # (0.9 + 0.5) / 2 and (0.8 + 0.4) / 2 - the errored pair is excluded, never
+    # averaged in as a zero.
+    assert run["metrics"] == {"factuality": pytest.approx(0.7), "context_faithfulness": pytest.approx(0.6)}
+    assert run["golden_metrics"] == {"factuality": 1.0, "context_faithfulness": 1.0}
     assert run["has_artifacts"] is True
     assert run["llm_model"] == "judge-model"
+
+
+async def test_list_evaluations_keeps_a_pre_context_faithfulness_artifact_readable(client, monkeypatch):
+    # An artifact from before context faithfulness was scored (and before the query
+    # rename): factuality still averages, the new metric reads as None - never 0.0,
+    # which would read as a terrible score.
+    collection_id = (await client.post("/api/collections")).json()["id"]
+    await _create_evaluation_run(collection_id)
+    _fake_storage(
+        monkeypatch,
+        results_json={
+            "results": {
+                "results": [
+                    {
+                        "vars": {"question": "Q1", "reference": "A1", "validated": True, "golden": False},
+                        "response": {"output": {"answer": "Generated 1"}, "metadata": {"sources": []}},
+                        "namedScores": {"factuality": 0.9},
+                    },
+                ]
+            }
+        },
+    )
+
+    response = await client.get(f"/api/collections/{collection_id}/evaluations")
+
+    assert response.status_code == 200
+    run = response.json()[0]
+    assert run["metrics"] == {"factuality": 0.9, "context_faithfulness": None}
 
 
 async def test_list_evaluations_reports_null_metrics_for_a_run_without_artifact(client):
@@ -786,12 +816,16 @@ async def test_evaluation_results_detail_is_normalized_from_the_artifact(client,
         "expected_answer": "A1",
         "generated_answer": "Generated 1",
         "factuality": 0.9,
+        "context_faithfulness": 0.8,
         "validated": True,
         "golden": False,
         "retrieved_sources": ["handbook.pdf#0"],
     }
-    # The pair the judge errored on keeps its place in the detail, scoreless.
+    # The pair the judge errored on keeps its place in the detail, scoreless - and its
+    # var predates the query rename, so the question reads through the fallback.
     assert results[2]["factuality"] is None
+    assert results[2]["context_faithfulness"] is None
+    assert results[2]["question"] == "Q3"
     assert results[3]["golden"] is True
 
 

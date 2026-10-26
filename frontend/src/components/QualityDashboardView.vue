@@ -189,12 +189,13 @@ function toggleConversationExpand(id: string) {
           <h2>Évaluation des réponses</h2>
           <button type="button" class="quality-tooltip">
             <span class="quality-tooltip__icon" aria-hidden="true">ℹ</span>
-            <span class="quality-tooltip__text">Rejoue les paires Q/R de chaque collection à travers le pipeline, puis un juge note la factualité de chaque réponse générée face à la réponse attendue.</span>
+            <span class="quality-tooltip__text">Rejoue les paires Q/R de chaque collection à travers le pipeline, puis un juge note chaque réponse générée deux fois : sa factualité face à la réponse attendue, et sa fidélité au contexte réellement récupéré.</span>
           </button>
         </div>
         <p class="quality-family__description">
-          Les réponses générées sont-elles fidèles aux réponses attendues ? Chaque paire question/réponse de la
-          collection est rejouée à travers le pipeline, et un juge note la factualité de la réponse générée.
+          Les réponses générées sont-elles fidèles aux réponses attendues et ancrées dans les extraits récupérés ?
+          Chaque paire question/réponse de la collection est rejouée à travers le pipeline, et un juge note la
+          factualité et la fidélité au contexte de la réponse générée.
         </p>
 
         <div v-if="retrievalMetrics.length === 0" class="quality-family__empty">
@@ -213,7 +214,14 @@ function toggleConversationExpand(id: string) {
                   <button type="button" class="quality-tooltip">
                     <span class="quality-tooltip__icon" aria-hidden="true">ℹ</span>
                     <span class="quality-tooltip__text">Score moyen donné par le juge à la factualité des réponses générées (1.0 = toujours fidèles à la réponse attendue).</span>
-          </button>
+                  </button>
+                </th>
+                <th>
+                  Fidélité au contexte
+                  <button type="button" class="quality-tooltip">
+                    <span class="quality-tooltip__icon" aria-hidden="true">ℹ</span>
+                    <span class="quality-tooltip__text">Score moyen donné par le juge à l'ancrage des réponses générées dans le contexte réellement récupéré (1.0 = rien d'inventé hors des extraits). « — » sur les évaluations antérieures à la métrique.</span>
+                  </button>
                 </th>
               </tr>
             </thead>
@@ -223,6 +231,7 @@ function toggleConversationExpand(id: string) {
                 <td>{{ formatDate(run.createdAt) }}</td>
                 <td>{{ run.pairCount }}</td>
                 <td>{{ run.factuality !== null ? pct(run.factuality) : '—' }}</td>
+                <td>{{ run.contextFaithfulness !== null ? pct(run.contextFaithfulness) : '—' }}</td>
               </tr>
             </tbody>
           </table>

@@ -24,6 +24,13 @@ class CollectionNotFoundError(Exception):
     pass
 
 
+# The metrics a run scores (the worker's create_tests.py assertions, by their namedScores
+# key) - part of the dedup hash: a run that also scores context faithfulness must not be
+# deduped against an older one that scored factuality alone, its artifact would lack the
+# new score. Keep in sync with the worker's copy (worker/evaluation/app/tasks.py).
+_SCORED_METRICS = ["context_faithfulness", "factuality"]
+
+
 def _evaluation_hash(
     pairs: Sequence[QaPair],
     settings: CollectionSettings,
@@ -35,11 +42,12 @@ def _evaluation_hash(
     """SHA-256 of everything that affects an evaluation run's result, over the same inputs the
     worker hashes (worker/evaluation/app/tasks.py's _evaluation_hash, which fetches them through
     the internal API): the QA pairs (id, question, answer, document_id, validated, golden,
-    relevant documents), the chunking/embedding config, k, the judge model, the generator model
-    and the validated_only scope. MUST stay in sync with the worker's copy - the trigger-time
-    dedup check below only works if both produce the same digest for the same collection state.
-    Both sides pin the same fixture digest in their tests (tests/services/test_evaluation_service.py
-    and worker/evaluation/tests/test_tasks.py) so a drift breaks them.
+    relevant documents), the chunking/embedding config, k, the judge model, the generator
+    model, the scored metrics and the validated_only scope. MUST stay in sync with the
+    worker's copy - the trigger-time dedup check below only works if both produce the same
+    digest for the same collection state. Both sides pin the same fixture digest in their
+    tests (tests/services/test_evaluation_service.py and worker/evaluation/tests/test_tasks.py)
+    so a drift breaks them.
     """
     pairs_fingerprint = [
         {
@@ -63,6 +71,7 @@ def _evaluation_hash(
         "k": k,
         "llm_model": llm_model,
         "generator_model": generator_model,
+        "scored_metrics": _SCORED_METRICS,
         "validated_only": validated_only,
     }
     return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()

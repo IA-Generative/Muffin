@@ -13,6 +13,9 @@ export interface RetrievalMetric {
   // The latest run's average factuality over its non-golden pairs - null when the run
   // predates the promptfoo migration (no artifact) or the judge scored nothing.
   factuality: number | null
+  // The same run's average context faithfulness - null additionally on the runs that
+  // predate the metric itself.
+  contextFaithfulness: number | null
 }
 
 export interface FeedbackMetric {
@@ -91,6 +94,7 @@ function mapOverview(data: any): QualityOverview {
       createdAt: r.created_at,
       pairCount: r.pair_count,
       factuality: r.factuality ?? null,
+      contextFaithfulness: r.context_faithfulness ?? null,
     })),
     feedback: {
       upCount: data.feedback?.up_count ?? 0,

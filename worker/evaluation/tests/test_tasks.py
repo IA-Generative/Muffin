@@ -14,16 +14,16 @@ _RESULTS_JSON = {
     "results": {
         "results": [
             {
-                "vars": {"question": "Validated?", "validated": True, "golden": False},
-                "namedScores": {"factuality": 0.9},
+                "vars": {"query": "Validated?", "validated": True, "golden": False},
+                "namedScores": {"factuality": 0.9, "context_faithfulness": 0.8},
             },
             {
-                "vars": {"question": "Unvalidated?", "validated": False, "golden": False},
-                "namedScores": {"factuality": 0.5},
+                "vars": {"query": "Unvalidated?", "validated": False, "golden": False},
+                "namedScores": {"factuality": 0.5, "context_faithfulness": 0.4},
             },
             {
-                "vars": {"question": "Golden?", "validated": True, "golden": True},
-                "namedScores": {"factuality": 1.0},
+                "vars": {"query": "Golden?", "validated": True, "golden": True},
+                "namedScores": {"factuality": 1.0, "context_faithfulness": 1.0},
             },
         ]
     }
@@ -303,6 +303,8 @@ def test_the_generated_yaml_wires_provider_judge_and_tests(tmp_path):
 
     assert config["tests"][0]["path"] == "file://create_tests.py:create_tests"
     assert config["sharing"] is False
+    # The question var is named `query` - promptfoo's RAG assertions require it.
+    assert config["prompts"] == ["{{query}}"]
     assert config["evaluateOptions"] == {"maxConcurrency": tasks.settings.EVAL_CONCURRENCY}
 
     # The modules are copied next to the YAML (promptfoo resolves file:// relative to it)
@@ -326,10 +328,10 @@ def test_the_generated_yaml_never_contains_the_api_key(tmp_path):
 def test_a_question_can_not_inject_yaml_structure(tmp_path):
     # The YAML is safe_dumped from a dict, never string-interpolated: a question holding
     # YAML or Jinja syntax stays a plain string var.
-    malicious = "q: {{question}}\n  - injected: true"
+    malicious = "q: {{query}}\n  - injected: true"
     directory, config = _written_config(tmp_path, pairs=[_qa_pair("qa-1", malicious, "doc-1", validated=True)])
 
-    assert config["prompts"] == ["{{question}}"]
+    assert config["prompts"] == ["{{query}}"]
     assert json.loads((directory / "pairs.json").read_text())[0]["question"] == malicious
 
 
@@ -385,7 +387,7 @@ _VECTOR_SETTINGS = {
     "chunk_overlap": 50,
     "embedding_model": "text-embedding-3-small",
 }
-_VECTOR_DIGEST = "0ca8d8bebf1ed3ed2018d17e21493e0acb1b1debd88ce039edfbe99931cda9c4"
+_VECTOR_DIGEST = "0cfabaaab638c4a28300a93b5ea4c4e06290b926d1fffe6a2c3c45ea5bd2f4d3"
 
 
 def test_the_evaluation_hash_matches_the_backend_vector():

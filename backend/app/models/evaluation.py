@@ -36,7 +36,7 @@ class EvaluationRun(UUIDMixin, TimestampMixin, Base):
     # for the breakdown.
     pair_count: Mapped[int] = mapped_column(Integer, nullable=False)
     # The judge model (the collection's "evaluation" generation model) - what the
-    # factuality scores were produced with.
+    # factuality and context faithfulness scores were produced with.
     llm_model: Mapped[str] = mapped_column(String, nullable=False)
 
     # Chunking/embedding config snapshot at run time, since collection settings can change afterwards.
@@ -48,7 +48,7 @@ class EvaluationRun(UUIDMixin, TimestampMixin, Base):
     snapshot_embedding_model: Mapped[str] = mapped_column(String, nullable=False)
 
     # The golden pairs (#260), the scores worth following over time: human-written, never in the
-    # retriever. Their factuality average is reported apart from the other pairs'.
+    # retriever. Their score averages are reported apart from the other pairs'.
     golden_pair_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     # Snapshot of QaPair.validated at evaluation time - what the run's validated/unvalidated
     # breakdown is grouped by, never re-derived from the (possibly since-changed) QaPair.
@@ -62,9 +62,9 @@ class EvaluationRun(UUIDMixin, TimestampMixin, Base):
     report_html_key: Mapped[str | None] = mapped_column(String, nullable=True)
 
     # SHA-256 of (QA pairs content + chunking settings + embedding model + k + judge model +
-    # generator model) - lets the worker skip re-evaluating a collection when nothing that
-    # affects the result has changed since the last run with the same parameters (same strategy
-    # as DiscussionScore's content_hash, see #31).
+    # generator model + scored metrics) - lets the worker skip re-evaluating a collection when
+    # nothing that affects the result has changed since the last run with the same parameters
+    # (same strategy as DiscussionScore's content_hash, see #31).
     content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     __table_args__ = (

@@ -100,7 +100,7 @@ def test_the_provider_reads_the_key_from_the_configured_envar(monkeypatch):
     assert captured["headers"] == {"X-API-Key": "another-key"}
 
 
-def test_create_tests_maps_pairs_to_factuality_tests(tmp_path):
+def test_create_tests_maps_pairs_to_scored_tests(tmp_path):
     pairs_file = tmp_path / "pairs.json"
     pairs_file.write_text(
         json.dumps(
@@ -113,14 +113,26 @@ def test_create_tests_maps_pairs_to_factuality_tests(tmp_path):
 
     tests = create_tests.create_tests({"pairs_file": str(pairs_file)})
 
+    # The question rides as `query` - promptfoo's RAG assertions require a var literally
+    # named `query`.
     assert tests[0]["vars"] == {
-        "question": "Q ?",
+        "query": "Q ?",
         "reference": "A.",
         "validated": True,
         "golden": False,
         "qa_pair_id": "qa-1",
     }
     assert tests[1]["vars"]["golden"] is True
-    # The threshold colors a low score in the report - it never drops the result.
+    # Two judge-scored assertions per pair: factuality against the expected answer, context
+    # faithfulness against the context the provider itself retrieved (contextTransform).
+    # The thresholds color a low score in the report - they never drop the result.
     for test, answer in zip(tests, ["A.", "A2."], strict=True):
-        assert test["assert"] == [{"type": "factuality", "value": answer, "threshold": 0.7, "metric": "factuality"}]
+        assert test["assert"] == [
+            {"type": "factuality", "value": answer, "threshold": 0.7, "metric": "factuality"},
+            {
+                "type": "context-faithfulness",
+                "contextTransform": "output.context",
+                "threshold": 0.7,
+                "metric": "context_faithfulness",
+            },
+        ]

@@ -36,17 +36,26 @@ def _coerce_bool(value: Any) -> bool:
     return value is True or value == "true"
 
 
-def _factuality(test: dict[str, Any]) -> float | None:
+# The namedScores keys the worker's tests write (its create_tests.py assertions) - keep in
+# sync with worker/evaluation/app/promptfoo/create_tests.py. A metric missing from an old
+# artifact (a run that predates context faithfulness) simply reads as None.
+_METRICS = ("factuality", "context_faithfulness")
+
+
+def _score(test: dict[str, Any], metric: str) -> float | None:
     named_scores = test.get("namedScores")
     if not isinstance(named_scores, dict):
         return None  # the judge errored on this pair - no score to average in
-    value = named_scores.get("factuality")
+    value = named_scores.get(metric)
     return float(value) if isinstance(value, int | float) else None
 
 
-def _average(tests: Sequence[dict[str, Any]], golden: bool) -> float | None:
-    scores = [_factuality(test) for test in tests if _coerce_bool(test.get("vars", {}).get("golden")) == golden]
-    scores = [score for score in scores if score is not None]
+def _average(tests: Sequence[dict[str, Any]], metric: str, golden: bool) -> float | None:
+    scores = [
+        score
+        for test in tests
+        if _coerce_bool(test.get("vars", {}).get("golden")) == golden and (score := _score(test, metric)) is not None
+    ]
     # None on an empty subset, never 0.0 - a zero would read as a terrible score
     # where there is actually nothing to score (same rule as the old metric columns).
     return sum(scores) / len(scores) if scores else None
@@ -55,14 +64,16 @@ def _average(tests: Sequence[dict[str, Any]], golden: bool) -> float | None:
 def metrics_from_tests(
     tests: Sequence[dict[str, Any]],
 ) -> tuple[EvaluationMetricsOut | None, EvaluationMetricsOut | None]:
-    """(non-golden, golden) factuality averages - (None, None) when there are no
-    scored tests at all."""
-    overall, golden = _average(tests, golden=False), _average(tests, golden=True)
-    if overall is None and golden is None:
+    """(non-golden, golden) score averages - (None, None) when nothing was scored at all.
+    A metric with no scores in the artifact (a run predating context faithfulness) stays
+    None in its metrics object rather than dragging it to 0.0."""
+    overall = {metric: _average(tests, metric, golden=False) for metric in _METRICS}
+    golden = {metric: _average(tests, metric, golden=True) for metric in _METRICS}
+    if all(score is None for score in (*overall.values(), *golden.values())):
         return None, None
     return (
-        EvaluationMetricsOut(factuality=overall) if overall is not None else None,
-        EvaluationMetricsOut(factuality=golden) if golden is not None else None,
+        EvaluationMetricsOut(**overall) if any(score is not None for score in overall.values()) else None,
+        EvaluationMetricsOut(**golden) if any(score is not None for score in golden.values()) else None,
     )
 
 
@@ -76,10 +87,13 @@ def to_result_out(test: dict[str, Any]) -> EvaluationResultOut:
     qa_pair_id = variables.get("qa_pair_id")
     return EvaluationResultOut(
         qa_pair_id=str(qa_pair_id) if qa_pair_id else None,
-        question=variables.get("question") or "",
+        # `query` since promptfoo's RAG assertions require that var name; `question` is
+        # the pre-rename spelling, kept for artifacts of runs that predate it.
+        question=variables.get("query") or variables.get("question") or "",
         expected_answer=variables.get("reference") or "",
         generated_answer=output.get("answer") or "",
-        factuality=_factuality(test),
+        factuality=_score(test, "factuality"),
+        context_faithfulness=_score(test, "context_faithfulness"),
         validated=_coerce_bool(variables.get("validated")),
         golden=_coerce_bool(variables.get("golden")),
         retrieved_sources=metadata.get("sources") or [],

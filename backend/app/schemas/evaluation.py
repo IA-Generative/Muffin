@@ -18,10 +18,13 @@ class EvaluationTriggerRequest(BaseModel):
 
 
 class EvaluationMetricsOut(BaseModel):
-    """A run's factuality averages, computed from its results.json artifact at read
-    time (see app/services/evaluation_artifacts.py) - not stored in the database."""
+    """A run's score averages, computed from its results.json artifact at read
+    time (see app/services/evaluation_artifacts.py) - not stored in the database.
+    context_faithfulness is None on runs that predate the metric (their artifacts
+    only ever scored factuality)."""
 
     factuality: float | None
+    context_faithfulness: float | None
 
 
 class EvaluationResultOut(BaseModel):
@@ -32,8 +35,9 @@ class EvaluationResultOut(BaseModel):
     question: str
     expected_answer: str
     generated_answer: str
-    # None when the judge errored on this pair (no namedScores entry).
+    # None when the judge errored on that assertion (no namedScores entry).
     factuality: float | None
+    context_faithfulness: float | None
     validated: bool
     golden: bool = False
     retrieved_sources: list[str]
@@ -56,9 +60,10 @@ class EvaluationRunOut(BaseModel):
     validated_pair_count: int
     unvalidated_pair_count: int
     # SHA-256 of (QA pairs + chunking settings + embedding model + k + judge model + generator
-    # model) - present when the worker computed it for dedup (see EvaluationRun.content_hash).
+    # model + scored metrics) - present when the worker computed it for dedup (see
+    # EvaluationRun.content_hash).
     content_hash: str | None = None
-    # Factuality averages over the non-golden / golden pairs - None when that subset is
+    # Score averages over the non-golden / golden pairs - None when that subset is
     # empty, or when the run predates the promptfoo migration (no artifact).
     metrics: EvaluationMetricsOut | None
     golden_metrics: EvaluationMetricsOut | None
