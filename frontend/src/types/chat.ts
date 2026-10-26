@@ -94,6 +94,9 @@ export interface ChatMessage {
   // "Analyse de votre question") - ChatMessage.vue shows an animated "…" after it instead of a
   // static one, and never renders it as markdown.
   pending?: boolean
+  // True while a pending message shows the answer as it is being written (content is then markdown, the
+  // answer so far) rather than a step label.
+  streaming?: boolean
   // True when this message is an error (run failed, network error, etc.) - ChatMessage.vue
   // renders it with a distinct error style (icon + color) instead of a normal assistant bubble.
   // The technical error from the backend (run.error) is never shown to the user - only a clean

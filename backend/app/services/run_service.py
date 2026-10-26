@@ -3,6 +3,7 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import RunSettings
+from app.connectors import redis_connector
 from app.core.security.factory import RequestContext
 from app.core.tasks import enqueue_resume_agent, enqueue_run_agent, revoke_tasks
 from app.models.feedback import FeedbackSourceRole
@@ -46,6 +47,14 @@ class RunHasNoAnswerError(Exception):
     feedback to (see ConversationRepository.get_assistant_message_by_run_id)."""
 
     pass
+
+
+# The part of the answer written so far lives in Redis, not the database (see internal_runs.set_partial_answer).
+PARTIAL_ANSWER_TTL_SECONDS = 600
+
+
+def partial_answer_key(run_id: uuid.UUID | str) -> str:
+    return f"run:{run_id}:partial_answer"
 
 
 class RunService:
@@ -177,7 +186,10 @@ class RunService:
         if run.status == RunStatus.COMPLETED:
             message = await self.conversations.get_assistant_message_by_run_id(run.id)
             questions = message.questions if message is not None else None
-        return self._to_out(run, questions)
+        out = self._to_out(run, questions)
+        if run.status == RunStatus.RUNNING:
+            out.partial_answer = redis_connector.client.get(partial_answer_key(run.id))
+        return out
 
     async def list_active_runs(self, conversation_id: uuid.UUID, user: RequestContext) -> list[RunOut]:
         """Non-terminal runs for a conversation - the frontend calls this after a page

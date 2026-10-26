@@ -206,3 +206,7 @@ class DocumentPageContentOut(BaseModel):
 
 class ConversationTitleUpdate(BaseModel):
     title: str
+
+
+class RunPartialAnswerUpdate(BaseModel):
+    text: str
