@@ -1762,3 +1762,36 @@ def test_the_run_starts_from_the_frontier_pinning_already_left_unexplored(make_r
 
     assert "leave" in result["unexplored_vdb_ids"]
     assert "HR › Leave" in _answer_prompt(fake)
+
+
+def _answer_router(system_prompt: str) -> str:
+    if "Analyze the user" in system_prompt:
+        return _analysis()
+    if "select the ones relevant" in system_prompt.lower():
+        return '["hr"]'
+    if "Decide whether" in system_prompt:
+        return json.dumps({"status": "sufficient", "missing_information": [], "reasoning": "ok"})
+    if "Check whether every" in system_prompt:
+        return json.dumps({"valid": True, "unsupported_claims": []})
+    return "Leave is 25 days [x]."
+
+
+def test_answer_is_published_while_it_is_being_written(make_run):
+    graph, fake = make_run([{"id": "hr", "name": "HR", "description": "HR", "tags": []}], _answer_router)
+    state = initial_state("How many days of leave?")
+    result = graph.invoke(state, config=_config(state))
+
+    # Cleared first, then the text written so far (the last piece may fall within the publishing interval).
+    assert fake.partial_answers[0] == ""
+    assert result["answer"] == "Leave is 25 days [x]."
+    assert result["answer_prompt_tokens"] == 100
+    assert result["answer_completion_tokens"] == 50
+
+
+def test_answer_falls_back_to_one_piece_when_streaming_fails(make_run):
+    graph, fake = make_run([{"id": "hr", "name": "HR", "description": "HR", "tags": []}], _answer_router)
+    fake.stream_error = RuntimeError("stream unavailable")
+    state = initial_state("How many days of leave?")
+    result = graph.invoke(state, config=_config(state))
+
+    assert result["answer"] == "Leave is 25 days [x]."

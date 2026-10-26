@@ -1,15 +1,17 @@
 import asyncio
 import json
+from collections.abc import AsyncIterator
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from openai import AsyncOpenAI
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import LlmSettings
 from app.connectors import redis_connector
 from app.core.security.worker_auth import require_worker_api_key
-from app.db import get_db
+from app.db import async_session_factory, get_db
 from app.models.token_usage import TokenUsageKind
 from app.repositories.app_settings_repository import AppSettingsRepository
 from app.schemas.internal_pipeline import (
@@ -131,6 +133,45 @@ async def chat(request: LlmChatRequest, db: Annotated[AsyncSession, Depends(get_
         prompt_tokens=usage.prompt_tokens if usage else None,
         completion_tokens=usage.completion_tokens if usage else None,
     )
+
+
+@router.post(
+    "/llm/chat-stream",
+    summary="Run a chat completion on the worker's behalf, streamed as it is written (one JSON object per line)",
+)
+async def chat_stream(request: LlmChatRequest) -> StreamingResponse:
+    """Same call as `chat`, but the worker gets the text as the model writes it - {"delta": "..."} lines,
+    then a last {"done": true, "prompt_tokens", "completion_tokens"} line. What the worker does with the
+    partial text (showing it to the user while the answer is still being written) is its business."""
+    if _openai_client is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="LLM hub is not configured",
+        )
+    stream = await _openai_client.chat.completions.create(
+        model=request.model,
+        messages=[{"role": message.role, "content": message.content} for message in request.messages],
+        max_tokens=request.max_tokens,
+        stream=True,
+        stream_options={"include_usage": True},
+    )
+
+    async def lines() -> AsyncIterator[str]:
+        prompt_tokens: int | None = None
+        completion_tokens: int | None = None
+        async for chunk in stream:
+            if chunk.usage:
+                prompt_tokens, completion_tokens = chunk.usage.prompt_tokens, chunk.usage.completion_tokens
+            if chunk.choices and chunk.choices[0].delta.content:
+                yield json.dumps({"delta": chunk.choices[0].delta.content}) + "\n"
+        # Own session: the request's would be closed by the time a streamed body has been sent.
+        async with async_session_factory() as db:
+            await UsageService(db).record(
+                request.usage, TokenUsageKind.CHAT, request.model, prompt_tokens, completion_tokens
+            )
+        yield json.dumps({"done": True, "prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens}) + "\n"
+
+    return StreamingResponse(lines(), media_type="application/x-ndjson")
 
 
 @router.get(

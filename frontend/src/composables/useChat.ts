@@ -164,6 +164,8 @@ interface RunOut {
   current_activity: string | null
   pending_human_action: { question?: string } | null
   answer: string | null
+  // The part of the answer written so far, while the run is still generating it.
+  partial_answer?: string | null
   citations: Citation[] | null
   edit_proposal: ProposalOut | null
   unexplored_collection_ids?: string[] | null
@@ -948,6 +950,12 @@ function formatAnswerWithCitations(answer: string, citations: Citation[] | null 
   return [content, sources.length ? sources : undefined]
 }
 
+// The agent cites with the ids of its evidence, e.g. "[abc123]" - numbered footnotes are only built once the
+// run is complete, so while the answer is still coming the markers (and a half-written one) are left out.
+function withoutCitationMarkers(text: string): string {
+  return text.replace(/\s?\[[^\]\s]+\]/g, '').replace(/\s?\[[^\]\s]*$/, '')
+}
+
 function assistantMessageFor(id: string, run: RunOut): ChatMessage {
   // A run that was already waiting for an answer when questions stopped holding a run up (#344): it
   // can no longer be resumed, the question is shown and a new message goes on from there.
@@ -960,6 +968,9 @@ function assistantMessageFor(id: string, run: RunOut): ChatMessage {
     }
   }
   if (!TERMINAL_STATUSES.has(run.status)) {
+    // The answer is being written: show what exists so far instead of the step label.
+    const partial = withoutCitationMarkers(run.partial_answer ?? '')
+    if (partial) return { id, role: 'assistant', content: partial, runId: run.id, pending: true, streaming: true }
     return { id, role: 'assistant', content: activityLabel(run), runId: run.id, pending: true }
   }
   if (run.status === 'completed') {
@@ -1044,7 +1055,7 @@ function trackRun(conversationId: string, messageId: string, run: RunOut) {
         error: true,
       })
     }
-  }, 1500)
+  }, 700)
   activePolls.set(messageId, interval)
 }
 

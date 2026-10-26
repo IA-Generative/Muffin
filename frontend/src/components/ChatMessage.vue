@@ -49,7 +49,7 @@ const emit = defineEmits<{
 // it is the only content that can carry it - a pending placeholder (a step label like "Analyse
 // de votre question") is never markdown either, it's just plain text with animated dots after it.
 const renderedContent = computed(() =>
-  props.message.role === 'assistant' && !props.message.pending
+  props.message.role === 'assistant' && (!props.message.pending || props.message.streaming)
     ? DOMPurify.sanitize(marked.parse(props.message.content, { async: false }))
     : props.message.content,
 )
@@ -214,7 +214,9 @@ onBeforeUnmount(() => {
             <span class="chat-message__dots" aria-hidden="true"><span>.</span><span>.</span><span>.</span></span>
             <span class="chat-message__elapsed">{{ elapsedLabel }}</span>
           </div>
-          <p class="chat-message__text">{{ renderedContent }}</p>
+          <!-- eslint-disable-next-line vue/no-v-html -->
+          <div v-if="message.streaming" class="chat-message__markdown" v-html="renderedContent" />
+          <p v-else class="chat-message__text">{{ renderedContent }}</p>
         </div>
         <!-- Questions with options (#344): the card says them, and takes the answer. -->
         <ChatQuestions v-else-if="message.questions?.length" :message="message" />

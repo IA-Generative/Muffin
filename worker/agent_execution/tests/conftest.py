@@ -1,5 +1,5 @@
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from typing import Any
 
 import pytest
@@ -62,6 +62,9 @@ class FakeBackend:
         # the router callback only ever sees the system prompt, so tests that need to assert on
         # the user content (e.g. a hint injected into it) read it from here instead.
         self.llm_calls: list[list[dict[str, str]]] = []
+        # What the streamed answer published while it was being written, and a failure to simulate.
+        self.partial_answers: list[str] = []
+        self.stream_error: Exception | None = None
         # Delegating an edit of a living document (#171): what the backend says the user may edit,
         # the states the draft goes through (the first answers create_edit_request, each later one a
         # poll, the last repeats), and what the agent asked for.
@@ -216,6 +219,22 @@ class FakeBackend:
 
     def add_prompt_usages(self, run_id: str, prompt_version_ids: list[str]) -> None:
         self.recorded_prompt_usages.extend(prompt_version_ids)
+
+    def llm_chat_stream(
+        self, model: str, messages: list[dict[str, str]], max_tokens: int | None = None
+    ) -> Iterator[dict[str, Any]]:
+        """Same contract as the real backend_client: the router's content in two deltas, then the usage."""
+        if self.stream_error is not None:
+            raise self.stream_error
+        self.llm_calls.append(messages)
+        content = self.llm_router(messages[0]["content"])
+        half = len(content) // 2
+        yield {"delta": content[:half]}
+        yield {"delta": content[half:]}
+        yield {"done": True, "prompt_tokens": 100, "completion_tokens": 50}
+
+    def set_partial_answer(self, run_id: str, text: str) -> None:
+        self.partial_answers.append(text)
 
 
 class FakeSearxng:

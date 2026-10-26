@@ -1,6 +1,8 @@
 import time
 from typing import Any
 
+from loguru import logger
+
 from app.ask_user import NOBODY_TO_ASK
 from app.backend_client import backend_client
 from app.graph.services.events import emit, is_cancelled, set_activity
@@ -27,6 +29,36 @@ _SYSTEM_PROMPT = (
     "- Keep the answer concise: lead with the direct answer, then the supporting table or breakdown.\n"
     "- Respond in the same language as the user's query."
 )
+
+
+_PARTIAL_PUBLISH_INTERVAL_SECONDS = 0.4
+
+
+def _write_answer(run_id: str, model: str, messages: list[dict[str, str]]) -> dict[str, Any]:
+    """Has the model write the answer, publishing the text written so far (at most every
+    _PARTIAL_PUBLISH_INTERVAL_SECONDS) so the chat shows it while it is still coming. Same result as
+    llm_chat_with_usage. A stream that fails before anything was written falls back to the plain call,
+    so streaming can never be the reason an answer is lost."""
+    text = ""
+    prompt_tokens = completion_tokens = None
+    last_published = 0.0
+    try:
+        backend_client.set_partial_answer(run_id, "")
+        for item in backend_client.llm_chat_stream(model, messages):
+            if item.get("done"):
+                prompt_tokens, completion_tokens = item.get("prompt_tokens"), item.get("completion_tokens")
+                continue
+            text += item.get("delta", "")
+            now = time.monotonic()
+            if now - last_published >= _PARTIAL_PUBLISH_INTERVAL_SECONDS:
+                backend_client.set_partial_answer(run_id, text)
+                last_published = now
+    except Exception:
+        if text:
+            raise
+        logger.exception("Streaming the answer failed, asking for it in one piece instead")
+        return backend_client.llm_chat_with_usage(model, messages)
+    return {"content": text, "prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens}
 
 
 def generate_answer(state: AgentState) -> dict[str, Any]:
@@ -95,7 +127,8 @@ def generate_answer(state: AgentState) -> dict[str, Any]:
         f"\n\n{evidence_block}"
     )
     start = time.monotonic()
-    result = backend_client.llm_chat_with_usage(
+    result = _write_answer(
+        run_id,
         model,
         [
             {"role": "system", "content": system_prompt},

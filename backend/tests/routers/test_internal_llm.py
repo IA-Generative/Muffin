@@ -169,3 +169,40 @@ async def test_default_embedding_model_falls_back_to_hub_discovery(client, monke
 
     assert response.status_code == 200
     assert response.json() == {"model": "text-embedding-3-small"}
+
+
+def _fake_streaming_client(pieces: list[str]) -> SimpleNamespace:
+    async def create_chat(**kwargs):
+        assert kwargs["stream"] is True
+
+        async def chunks():
+            for piece in pieces:
+                yield SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content=piece))], usage=None)
+            # The last chunk of a stream asked with include_usage: no choice, only the usage.
+            yield SimpleNamespace(choices=[], usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5))
+
+        return chunks()
+
+    return SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=AsyncMock(side_effect=create_chat))))
+
+
+async def test_chat_stream_sends_the_text_as_it_is_written_then_the_usage(client, monkeypatch):
+    monkeypatch.setattr(internal_llm, "_openai_client", _fake_streaming_client(["Hel", "lo"]))
+
+    response = await client.post(
+        "/api/internal/llm/chat-stream",
+        headers=_headers(),
+        json={"model": "gpt-4o", "messages": [{"role": "user", "content": "hi"}]},
+    )
+
+    assert response.status_code == 200
+    assert [json.loads(line) for line in response.text.splitlines()] == [
+        {"delta": "Hel"},
+        {"delta": "lo"},
+        {"done": True, "prompt_tokens": 10, "completion_tokens": 5},
+    ]
+
+
+async def test_chat_stream_requires_api_key(client):
+    response = await client.post("/api/internal/llm/chat-stream", json={"model": "gpt-4o", "messages": []})
+    assert response.status_code == 401

@@ -9,7 +9,7 @@ from app.core.security.factory import RequestContext, get_current_user
 from app.db import async_session_factory
 from app.main import app
 from app.models.conversation import Conversation
-from app.models.run import Run
+from app.models.run import Run, RunStatus
 from app.models.task import Task
 
 
@@ -447,3 +447,26 @@ async def test_create_run_does_not_duplicate_an_already_pinned_temporary_collect
     async with async_session_factory() as session:
         run = await session.get(Run, uuid.UUID(second.json()["id"]))
     assert run.pinned_collection_ids == [str(temp_collection.id)]
+
+
+async def test_get_run_exposes_the_partial_answer_only_while_it_is_running(client):
+    run_id = (await _create_run(client)).json()["id"]
+    async with async_session_factory() as session:
+        run = await session.get(Run, uuid.UUID(run_id))
+        run.status = RunStatus.RUNNING
+        await session.commit()
+
+    with patch("app.services.run_service.redis_connector") as mock_redis:
+        mock_redis.client.get.return_value = "Leave is 25 da"
+        running = (await client.get(f"/api/runs/{run_id}")).json()
+    assert running["partial_answer"] == "Leave is 25 da"
+    mock_redis.client.get.assert_called_once_with(f"run:{run_id}:partial_answer")
+
+    async with async_session_factory() as session:
+        run = await session.get(Run, uuid.UUID(run_id))
+        run.status = RunStatus.COMPLETED
+        await session.commit()
+    with patch("app.services.run_service.redis_connector") as mock_redis:
+        completed = (await client.get(f"/api/runs/{run_id}")).json()
+    assert completed["partial_answer"] is None
+    mock_redis.client.get.assert_not_called()

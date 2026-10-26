@@ -1,3 +1,5 @@
+import json
+from collections.abc import Iterator
 from typing import Any
 
 import httpx
@@ -251,6 +253,29 @@ class BackendClient:
             "prompt_tokens": data.get("prompt_tokens"),
             "completion_tokens": data.get("completion_tokens"),
         }
+
+    def llm_chat_stream(
+        self, model: str, messages: list[dict[str, str]], max_tokens: int | None = None
+    ) -> Iterator[dict[str, Any]]:
+        """Same call as llm_chat_with_usage, but yields what the model writes as it writes it:
+        {"delta": "..."} items, then a last {"done": True, "prompt_tokens", "completion_tokens"}."""
+        with self._client.stream(
+            "POST",
+            "/api/internal/llm/chat-stream",
+            json={"model": model, "messages": messages, "max_tokens": max_tokens, "usage": current_usage()},
+        ) as response:
+            response.raise_for_status()
+            for line in response.iter_lines():
+                if line:
+                    yield json.loads(line)
+
+    def set_partial_answer(self, run_id: str, text: str) -> None:
+        """Publishes the part of the answer written so far, for the chat to show while it is still being
+        written. Best effort: a missed update only means the text shows up a little later."""
+        try:
+            self._client.put(f"/api/internal/runs/{run_id}/partial-answer", json={"text": text}).raise_for_status()
+        except httpx.HTTPError:
+            pass
 
     def get_default_chat_model(self) -> str | None:
         response = self._client.get("/api/internal/llm/default-chat-model")
