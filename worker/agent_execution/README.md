@@ -33,8 +33,11 @@ backend - aucune donnée utilisateur n'y est stockée, ce n'est qu'un aller-reto
    recherche web (toggle du composer de chat, désactivé par défaut - voir
    `AgentState.web_search_enabled`, double vérification dans `decompose_query.py` et
    `research_task.py`).
-5. `merge_evidence` → `evaluate_coverage` → `replan_research` (boucle bornée par `MAX_REPLANS`) -
-   vérifie que les preuves collectées suffisent à répondre, relance une recherche ciblée sinon.
+5. `merge_evidence` → `evaluate_coverage` → `clarify_coverage` -
+   vérifie que les preuves collectées suffisent à répondre ; sinon le run **se termine sur 1 à 4 questions
+   à choix** ("vouliez-vous dire A ou B ?") au lieu de relancer une recherche, pour ne jamais boucler. Sans
+   personne à qui demander (run non interactif) ou après `MAX_QUESTION_ROUNDS` questions de suite, l'agent
+   répond avec ce qu'il a et dit ce qui n'a pu être établi.
 6. `build_answer_context` → `generate_answer` - génère la réponse finale avec citations.
 7. `validate_grounding` → `targeted_research` (boucle bornée par `MAX_GROUNDING_RESEARCHES`) -
    vérifie que chaque affirmation citée est bien supportée par une preuve réelle ; relance une

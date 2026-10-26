@@ -86,9 +86,9 @@ def _fan_out(state: AgentState, batch: list) -> list[Send]:
 
 
 def execute_research_plan(state: AgentState):
-    """Dynamic fan-out (§9/§10) from build_research_plan/replan_research - one Send per task
+    """Dynamic fan-out (§9/§10) from build_research_plan - one Send per task
     currently ready. The number of branches is never hardcoded, it falls out of however many
-    tasks decompose_query/replan_research produced."""
+    tasks decompose_query produced."""
     if state.get("cancelled") or is_cancelled(state["run_id"]):
         return "cancelled"
 
@@ -99,7 +99,7 @@ def execute_research_plan(state: AgentState):
 def continue_dag_or_evaluate(state: AgentState):
     """Re-entered after every merge_evidence (§9/§27): a task blocked on a dependency that just
     completed becomes ready here and is fanned out again, *before* evaluate_coverage ever runs -
-    the DAG must fully drain on its own, not rely on the coverage/replan loop to progress it."""
+    the DAG must fully drain on its own, not rely on the coverage check to progress it."""
     if state.get("cancelled") or is_cancelled(state["run_id"]):
         return "cancelled"
 
@@ -110,14 +110,23 @@ def continue_dag_or_evaluate(state: AgentState):
 def after_evaluate_coverage(state: AgentState) -> str:
     if state.get("cancelled") or is_cancelled(state["run_id"]):
         return "cancelled"
-    coverage = state["coverage_result"]
-    if coverage["status"] == "sufficient":
+    if state["coverage_result"]["status"] == "sufficient":
         return "build_answer_context"
-    if state["replan_count"] >= settings.MAX_REPLANS:
-        # Budget exhausted (§20): proceed with what we have rather than loop forever - the
-        # final answer must say plainly that some information couldn't be established.
-        return "build_answer_context"
-    return "replan_research"
+    # Not enough to answer: ask the user what they meant instead of searching again (#344), as long as
+    # someone can answer and the assistant hasn't already asked too many times in a row.
+    # Never after the grounding loop: an answer was already written by then.
+    can_ask = state.get("interactive", True) and state.get("question_rounds", 0) < settings.MAX_QUESTION_ROUNDS
+    if can_ask and not state.get("grounding_research_count"):
+        return "clarify_coverage"
+    # Nobody to ask, or the cap on asking is reached: answer with what we have - the final answer must
+    # say plainly that some information couldn't be established.
+    return "build_answer_context"
+
+
+def after_clarify_coverage(state: AgentState) -> str:
+    if state.get("cancelled") or is_cancelled(state["run_id"]):
+        return "cancelled"
+    return "end"
 
 
 def after_generate_answer(state: AgentState) -> str:
