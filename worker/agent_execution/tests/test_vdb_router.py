@@ -221,3 +221,66 @@ def test_pinned_collections_are_always_kept(monkeypatch):
     result = select_relevant_vdbs("query", _tree(), "model", pinned_ids=["A2"])
 
     assert _ids(result.selected) == ["B", "A2"]
+
+
+# --- Routing confidence ---
+
+
+class _FakeProbe(_FakeBackendClient):
+    def __init__(self, probe_hits: list[dict] | None = None, raises: bool = False, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.probe_hits = probe_hits or []
+        self.probe_raises = raises
+        self.probed: list[list[str]] = []
+
+    def probe_collections(self, collection_ids: list[str], query: str, limit: int) -> list[dict]:
+        self.probed.append(collection_ids)
+        if self.probe_raises:
+            raise RuntimeError("search unreachable")
+        return self.probe_hits
+
+
+def _confidence(monkeypatch, vdbs: list[dict], backend: _FakeProbe):
+    monkeypatch.setattr(vdb_router_module, "backend_client", backend)
+    return vdb_router_module.routing_confidence("query", vdbs)
+
+
+def _hits(**ranks: float) -> list[dict]:
+    return [{"collection_id": collection_id, "rank": rank} for collection_id, rank in ranks.items()]
+
+
+def test_a_collection_holding_most_of_the_hits_is_clear(monkeypatch):
+    result = _confidence(monkeypatch, _vdbs(3), _FakeProbe(_hits(c0=0.7, c1=0.2, c2=0.1)))
+
+    assert result.decision == "clear"
+    assert [(v["id"], round(share, 2)) for v, share in result.ranked] == [("c0", 0.7), ("c1", 0.2), ("c2", 0.1)]
+
+
+def test_a_collection_ahead_of_the_next_is_a_lean(monkeypatch):
+    assert _confidence(monkeypatch, _vdbs(3), _FakeProbe(_hits(c0=0.5, c1=0.3, c2=0.2))).decision == "lean"
+
+
+def test_close_collections_are_flat(monkeypatch):
+    assert _confidence(monkeypatch, _vdbs(3), _FakeProbe(_hits(c0=0.4, c1=0.35, c2=0.25))).decision == "flat"
+
+
+def test_a_probe_without_hits_or_that_fails_is_unknown(monkeypatch):
+    assert _confidence(monkeypatch, _vdbs(3), _FakeProbe()).decision == "unknown"
+    assert _confidence(monkeypatch, _vdbs(3), _FakeProbe(raises=True)).decision == "unknown"
+
+
+def test_a_hit_outside_the_accessible_set_is_ignored(monkeypatch):
+    result = _confidence(monkeypatch, _vdbs(2), _FakeProbe(_hits(c0=0.1, elsewhere=0.9)))
+
+    assert result.decision == "clear"
+    assert [v["id"] for v, _share in result.ranked] == ["c0"]
+
+
+def test_a_large_set_is_narrowed_before_the_probe(monkeypatch):
+    backend = _FakeProbe(
+        _hits(c0=1.0), hits=[{"collection_id": "c0", "score": 0.9}, {"collection_id": "c1", "score": 0.8}]
+    )
+
+    _confidence(monkeypatch, _vdbs(60), backend)
+
+    assert backend.probed == [["c0", "c1"]]

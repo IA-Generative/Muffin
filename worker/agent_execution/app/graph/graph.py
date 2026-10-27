@@ -19,6 +19,7 @@ from app.graph.nodes.load_context import load_context
 from app.graph.nodes.merge_evidence import merge_evidence
 from app.graph.nodes.request_clarification import request_clarification
 from app.graph.nodes.research_task import research_task
+from app.graph.nodes.route_collections import route_collections
 from app.graph.nodes.targeted_research import targeted_research
 from app.graph.nodes.validate_grounding import validate_grounding
 from app.graph.routing.conditions import (
@@ -29,9 +30,9 @@ from app.graph.routing.conditions import (
     after_evaluate_coverage,
     after_generate_answer,
     after_request_clarification,
+    after_route_collections,
     after_validate_grounding,
     continue_dag_or_evaluate,
-    execute_research_plan,
     route_or_cancel,
 )
 from app.graph.services.node_metrics import measured
@@ -57,6 +58,7 @@ def build_graph(checkpointer: BaseCheckpointSaver | None = None):
     graph.add_node("request_clarification", measured("request_clarification", request_clarification))
     graph.add_node("decompose_query", measured("decompose_query", decompose_query))
     graph.add_node("build_research_plan", measured("build_research_plan", build_research_plan))
+    graph.add_node("route_collections", measured("route_collections", route_collections))
     # `research_task` runs with the narrower ResearchTaskInput schema (§11) - each fan-out branch
     # only sees its own task, never the others (input_schema pins that at the graph level too).
     graph.add_node("research_task", measured("research_task", research_task), input_schema=ResearchTaskInput)
@@ -113,8 +115,13 @@ def build_graph(checkpointer: BaseCheckpointSaver | None = None):
     _cancellable_edge(graph, "decompose_query", "build_research_plan")
     # Dynamic fan-out (§9/§10): however many tasks are ready becomes that many Send()s to
     # research_task, capped by the parallelism/total-task budgets (§28).
-    fan_out_targets = ["research_task", "merge_evidence", "cancelled"]
-    graph.add_conditional_edges("build_research_plan", execute_research_plan, fan_out_targets)
+    _cancellable_edge(graph, "build_research_plan", "route_collections")
+    # Nothing dominating where to search ends the run on a question; otherwise the fan-out goes ahead.
+    graph.add_conditional_edges(
+        "route_collections",
+        after_route_collections,
+        {"research_task": "research_task", "merge_evidence": "merge_evidence", "cancelled": "cancelled", "end": END},
+    )
     graph.add_edge("research_task", "merge_evidence")
     # A task blocked on a dependency becomes ready only once that dependency shows up in
     # completed_task_ids (§27) - re-entering the fan-out gate here (instead of going straight to
