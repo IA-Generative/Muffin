@@ -171,6 +171,9 @@ désactivée par défaut en amont et doit être explicitement activée côté se
 | `LOG_LEVEL` | Niveau de log sur stdout (`DEBUG`, `INFO`, `WARNING`, ...) | `INFO` | idem |
 | `TASK_LOG_LEVEL` | Niveau à partir duquel les lignes d'une tâche sont envoyées au backend (#305), pour être suivies en direct dans Muffin | `INFO` | **tous les workers** |
 | `TASK_LOG_RETENTION_DAYS` | Durée de conservation des lignes de log des tâches (purgées chaque heure par le beat de `document_process`) | `7` | **backend** |
+| `ENERGY_WATTS_PER_CORE` | Puissance d'un cœur de CPU qui travaille, pour estimer l'énergie (Wh) affichée dans « Ma consommation » à partir du temps CPU des tâches des workers | `10` | **backend** (`app/config/energy.py`) |
+| `ENERGY_WATTS_PER_GB` | Puissance de la mémoire occupée par une tâche, par Go et pendant sa durée | `0.375` | **backend** |
+| `ENERGY_PUE` | PUE du centre de données (refroidissement et distribution électrique ajoutés à la consommation des machines) | `1.2` | **backend** |
 
 ## worker/document_process — spécifique OCR
 

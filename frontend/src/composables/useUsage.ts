@@ -1,5 +1,5 @@
 import { ref, watch, type Ref } from 'vue'
-import type { Usage, UsageSums } from '../types/usage'
+import type { Execution, ExecutionSums, Usage, UsageSums } from '../types/usage'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
 
@@ -10,6 +10,21 @@ interface SumsOut {
   calls: number
 }
 
+interface ExecutionSumsOut {
+  count: number
+  duration_seconds: number
+  cpu_seconds: number
+  peak_rss_bytes: number
+  energy_wh: number
+}
+
+interface ExecutionOut {
+  totals: ExecutionSumsOut
+  by_step: (ExecutionSumsOut & { kind: 'task' | 'node'; step: string })[]
+  by_day: (ExecutionSumsOut & { day: string })[]
+  assumptions: { watts_per_core: number; watts_per_gb: number; pue: number }
+}
+
 interface UsageOut {
   days: number
   totals: SumsOut
@@ -17,6 +32,7 @@ interface UsageOut {
   by_day: (SumsOut & { day: string })[]
   by_model: (SumsOut & { model: string })[]
   by_user: (SumsOut & { user_id: string | null; display: string | null })[]
+  execution: ExecutionOut
 }
 
 function toSums(raw: SumsOut): UsageSums {
@@ -28,6 +44,29 @@ function toSums(raw: SumsOut): UsageSums {
   }
 }
 
+function toExecutionSums(raw: ExecutionSumsOut): ExecutionSums {
+  return {
+    count: raw.count,
+    durationSeconds: raw.duration_seconds,
+    cpuSeconds: raw.cpu_seconds,
+    peakRssBytes: raw.peak_rss_bytes,
+    energyWh: raw.energy_wh,
+  }
+}
+
+function toExecution(raw: ExecutionOut): Execution {
+  return {
+    totals: toExecutionSums(raw.totals),
+    byStep: raw.by_step.map((row) => ({ kind: row.kind, step: row.step, ...toExecutionSums(row) })),
+    byDay: raw.by_day.map((row) => ({ day: row.day, ...toExecutionSums(row) })),
+    assumptions: {
+      wattsPerCore: raw.assumptions.watts_per_core,
+      wattsPerGb: raw.assumptions.watts_per_gb,
+      pue: raw.assumptions.pue,
+    },
+  }
+}
+
 function toUsage(raw: UsageOut): Usage {
   return {
     days: raw.days,
@@ -36,6 +75,7 @@ function toUsage(raw: UsageOut): Usage {
     byDay: raw.by_day.map((row) => ({ day: row.day, ...toSums(row) })),
     byModel: raw.by_model.map((row) => ({ model: row.model, ...toSums(row) })),
     byUser: raw.by_user.map((row) => ({ userId: row.user_id, display: row.display, ...toSums(row) })),
+    execution: toExecution(raw.execution),
   }
 }
 
