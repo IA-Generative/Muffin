@@ -291,6 +291,10 @@ def _written_config(tmp_path, **kwargs):
 def test_the_generated_yaml_wires_provider_judge_and_tests(tmp_path):
     directory, config = _written_config(tmp_path)
 
+    # The evaluated collection is a first-class promptfoo tag (filterable, shown in the
+    # report), not only a metadata entry.
+    assert config["tags"] == {"collection_id": "col-1"}
+
     provider = config["providers"][0]
     assert provider["id"] == "file://provider.py"
     assert provider["config"]["collection_id"] == "col-1"
