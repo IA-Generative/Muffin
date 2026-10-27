@@ -21,6 +21,7 @@ from app.schemas.internal_pipeline import (
     LlmEmbedRequest,
     LlmEmbedResponse,
 )
+from app.services import llm_model_discovery
 from app.services.usage_service import UsageService
 
 # Not user-facing: the worker's only path to the LLM hub, so it never needs
@@ -70,25 +71,19 @@ async def _supports_embeddings(model_id: str) -> bool:
         return False
 
 
-async def _first_supported_model(cache_key: str, probe) -> str | None:  # noqa: ANN001
+async def _first_supported_model(cache_key: str, operation: str, probe) -> str | None:  # noqa: ANN001
     """The alphabetically-first model the hub reports that supports the capability - what a
     pipeline step with no model configured for it falls back to, so processing works out of the
     box instead of silently skipping that step.
 
     Reads the shared discovery cache (populated by the models router for the UI) when it is warm;
-    otherwise probes the hub's models in order and stops at the first success. Probing only until
-    the first - rather than sweeping every model at once - is what keeps this off the hub's rate
-    limiter: the callers here only ever want the first model, never the whole list (the UI's
-    /models route does that, with its own full discovery)."""
+    otherwise asks the hub directly. It never writes the full-list cache - that is the UI's
+    /models route's job - so it only ever needs the first model, not the whole list."""
     cached = redis_connector.client.get(cache_key)
     if cached is not None:
         model_ids = json.loads(cached)
         return model_ids[0] if model_ids else None
-    available = await _openai_client.models.list()
-    for model_id in sorted(model.id for model in available.data):
-        if await probe(model_id):
-            return model_id
-    return None
+    return await llm_model_discovery.first_supported_model(_openai_client, operation, probe)
 
 
 async def _default_chat_model() -> str | None:
@@ -97,7 +92,7 @@ async def _default_chat_model() -> str | None:
     box instead of silently skipping that step."""
     if _openai_client is None:
         return None
-    return await _first_supported_model(_CHAT_MODELS_CACHE_KEY, _supports_chat)
+    return await _first_supported_model(_CHAT_MODELS_CACHE_KEY, "chat", _supports_chat)
 
 
 async def _default_embedding_model(db: AsyncSession) -> str | None:
@@ -110,7 +105,7 @@ async def _default_embedding_model(db: AsyncSession) -> str | None:
         return app_settings.embedding_model
     if _openai_client is None:
         return None
-    return await _first_supported_model(_EMBEDDING_MODELS_CACHE_KEY, _supports_embeddings)
+    return await _first_supported_model(_EMBEDDING_MODELS_CACHE_KEY, "embed", _supports_embeddings)
 
 
 @router.post(

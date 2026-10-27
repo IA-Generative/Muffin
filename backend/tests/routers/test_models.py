@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from app.routers import models as models_router
+from app.services import llm_model_discovery
 
 
 def _fake_openai_client(
@@ -34,7 +35,7 @@ def test_list_models_discovers_and_caches_chat_capable_models(client, monkeypatc
     )
     monkeypatch.setattr(models_router, "_openai_client", fake_client)
 
-    with patch("app.routers.models.redis_connector") as mock_redis:
+    with patch("app.services.llm_model_discovery.redis_connector") as mock_redis:
         mock_redis.client.get.return_value = None
 
         response = client.get("/api/models")
@@ -61,7 +62,7 @@ def test_list_models_reads_capabilities_without_probing(client, monkeypatch):
     )
     monkeypatch.setattr(models_router, "_openai_client", fake_client)
 
-    with patch("app.routers.models.redis_connector") as mock_redis:
+    with patch("app.services.llm_model_discovery.redis_connector") as mock_redis:
         mock_redis.client.get.return_value = None
         response = client.get("/api/models")
 
@@ -90,19 +91,19 @@ def test_list_models_probes_with_limited_concurrency(client, monkeypatch):
     )
     monkeypatch.setattr(models_router, "_openai_client", fake_client)
 
-    with patch("app.routers.models.redis_connector") as mock_redis:
+    with patch("app.services.llm_model_discovery.redis_connector") as mock_redis:
         mock_redis.client.get.return_value = None
         response = client.get("/api/models")
 
     assert response.status_code == 200
-    assert peak <= models_router._MODEL_PROBE_CONCURRENCY
+    assert peak <= llm_model_discovery._PROBE_CONCURRENCY
 
 
 def test_list_models_uses_cache_without_calling_the_hub(client, monkeypatch):
     fake_client = _fake_openai_client(all_ids=[])
     monkeypatch.setattr(models_router, "_openai_client", fake_client)
 
-    with patch("app.routers.models.redis_connector") as mock_redis:
+    with patch("app.services.llm_model_discovery.redis_connector") as mock_redis:
         mock_redis.client.get.return_value = json.dumps(["cached-model"])
 
         response = client.get("/api/models")
@@ -118,7 +119,7 @@ def test_list_models_does_not_cache_an_empty_result(client, monkeypatch):
     fake_client = _fake_openai_client(all_ids=["gpt-4o"], chat_capable_ids=set())
     monkeypatch.setattr(models_router, "_openai_client", fake_client)
 
-    with patch("app.routers.models.redis_connector") as mock_redis:
+    with patch("app.services.llm_model_discovery.redis_connector") as mock_redis:
         mock_redis.client.get.return_value = None
 
         response = client.get("/api/models")
@@ -143,7 +144,7 @@ def test_list_embedding_models_discovers_and_caches_embedding_capable_models(cli
     )
     monkeypatch.setattr(models_router, "_openai_client", fake_client)
 
-    with patch("app.routers.models.redis_connector") as mock_redis:
+    with patch("app.services.llm_model_discovery.redis_connector") as mock_redis:
         mock_redis.client.get.return_value = None
 
         response = client.get("/api/embedding-models")

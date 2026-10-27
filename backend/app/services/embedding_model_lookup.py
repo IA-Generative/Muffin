@@ -1,12 +1,9 @@
-import asyncio
-import json
-
 from openai import AsyncOpenAI
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import LlmSettings
-from app.connectors import redis_connector
 from app.repositories.app_settings_repository import AppSettingsRepository
+from app.services import llm_model_discovery
 
 # Same module-level-client pattern as app/routers/models.py and app/routers/internal_llm.py -
 # duplicated (not imported) so each caller's tests can monkeypatch its own client in isolation.
@@ -31,17 +28,13 @@ async def _supports_embeddings(model_id: str) -> bool:
 
 
 async def _discover_embedding_models() -> list[str]:
-    cached = redis_connector.client.get(_EMBEDDING_MODELS_CACHE_KEY)
-    if cached is not None:
-        return json.loads(cached)
-    available = await _openai_client.models.list()
-    candidate_ids = [model.id for model in available.data]
-    supported = await asyncio.gather(*(_supports_embeddings(model_id) for model_id in candidate_ids))
-    model_ids = sorted(model_id for model_id, ok in zip(candidate_ids, supported, strict=True) if ok)
-    redis_connector.client.set(
-        _EMBEDDING_MODELS_CACHE_KEY, json.dumps(model_ids), ex=_llm_settings.CHAT_MODELS_CACHE_TTL_SECONDS
+    return await llm_model_discovery.cached_models(
+        _openai_client,
+        _EMBEDDING_MODELS_CACHE_KEY,
+        "embed",
+        _supports_embeddings,
+        _llm_settings.CHAT_MODELS_CACHE_TTL_SECONDS,
     )
-    return model_ids
 
 
 async def default_embedding_model(db: AsyncSession) -> str | None:
