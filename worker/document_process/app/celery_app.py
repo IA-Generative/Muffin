@@ -2,7 +2,10 @@ from celery import Celery
 from celery.schedules import crontab
 from kombu import Exchange, Queue
 
-from app import task_logging  # noqa: F401 - loguru everywhere, and each task's lines to the backend (#305)
+from app import (  # noqa: F401 - loguru everywhere, each task's lines (#305) and its time, CPU and memory, to the backend
+    execution_metrics,
+    task_logging,
+)
 from app.config import settings
 from app.task_revocation import RevocableTask
 

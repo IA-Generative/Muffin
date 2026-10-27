@@ -34,6 +34,7 @@ from app.graph.routing.conditions import (
     execute_research_plan,
     route_or_cancel,
 )
+from app.graph.services.node_metrics import measured
 from app.graph.state import AgentState, ResearchTaskInput
 
 
@@ -44,28 +45,28 @@ def _cancellable_edge(graph: StateGraph, source: str, target: str) -> None:
 def build_graph(checkpointer: BaseCheckpointSaver | None = None):
     graph = StateGraph(AgentState)
 
-    graph.add_node("load_context", load_context)
-    graph.add_node("load_accessible_vdbs", load_accessible_vdbs)
-    graph.add_node("detect_edit", detect_edit)
-    graph.add_node("detect_create", detect_create)
-    graph.add_node("delegate_create", delegate_create)
-    graph.add_node("delegate_edit", delegate_edit)
-    graph.add_node("analyze_query", analyze_query)
-    graph.add_node("answer_identity", answer_identity)
-    graph.add_node("answer_help", answer_help)
-    graph.add_node("request_clarification", request_clarification)
-    graph.add_node("decompose_query", decompose_query)
-    graph.add_node("build_research_plan", build_research_plan)
+    graph.add_node("load_context", measured("load_context", load_context))
+    graph.add_node("load_accessible_vdbs", measured("load_accessible_vdbs", load_accessible_vdbs))
+    graph.add_node("detect_edit", measured("detect_edit", detect_edit))
+    graph.add_node("detect_create", measured("detect_create", detect_create))
+    graph.add_node("delegate_create", measured("delegate_create", delegate_create))
+    graph.add_node("delegate_edit", measured("delegate_edit", delegate_edit))
+    graph.add_node("analyze_query", measured("analyze_query", analyze_query))
+    graph.add_node("answer_identity", measured("answer_identity", answer_identity))
+    graph.add_node("answer_help", measured("answer_help", answer_help))
+    graph.add_node("request_clarification", measured("request_clarification", request_clarification))
+    graph.add_node("decompose_query", measured("decompose_query", decompose_query))
+    graph.add_node("build_research_plan", measured("build_research_plan", build_research_plan))
     # `research_task` runs with the narrower ResearchTaskInput schema (§11) - each fan-out branch
     # only sees its own task, never the others (input_schema pins that at the graph level too).
-    graph.add_node("research_task", research_task, input_schema=ResearchTaskInput)
-    graph.add_node("merge_evidence", merge_evidence)
-    graph.add_node("evaluate_coverage", evaluate_coverage)
-    graph.add_node("clarify_coverage", clarify_coverage)
-    graph.add_node("build_answer_context", build_answer_context)
-    graph.add_node("generate_answer", generate_answer)
-    graph.add_node("validate_grounding", validate_grounding)
-    graph.add_node("targeted_research", targeted_research)
+    graph.add_node("research_task", measured("research_task", research_task), input_schema=ResearchTaskInput)
+    graph.add_node("merge_evidence", measured("merge_evidence", merge_evidence))
+    graph.add_node("evaluate_coverage", measured("evaluate_coverage", evaluate_coverage))
+    graph.add_node("clarify_coverage", measured("clarify_coverage", clarify_coverage))
+    graph.add_node("build_answer_context", measured("build_answer_context", build_answer_context))
+    graph.add_node("generate_answer", measured("generate_answer", generate_answer))
+    graph.add_node("validate_grounding", measured("validate_grounding", validate_grounding))
+    graph.add_node("targeted_research", measured("targeted_research", targeted_research))
     # Cancellation (§30) is a fan-in target: any routing function may send the run here instead
     # of its normal next node, and every path converges on the same clean exit.
     graph.add_node("cancelled", lambda _state: {"execution_status": "cancelled"})
