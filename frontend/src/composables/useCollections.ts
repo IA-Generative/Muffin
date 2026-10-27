@@ -745,24 +745,32 @@ async function refreshEvaluation(collectionId: string) {
   }
 }
 
-// The in-progress flag (evaluatingCollectionIds) is in-memory only, so a reload would lose
-// it while the worker keeps running. Ask the backend whether an evaluation is still queued
-// or running for this collection, and if so restore the flag and resume polling.
-async function refreshEvaluationStatus(collectionId: string) {
+// Whether the backend still has an evaluation queued or running for this collection. Returns
+// null when the status can't be read (network error, non-OK response): the caller then keeps
+// polling rather than concluding the run is over.
+async function fetchEvaluationRunning(collectionId: string): Promise<boolean | null> {
   try {
     const response = await fetch(
       `${API_BASE_URL}/api/collections/${collectionId}/evaluations/status`,
       { credentials: 'include' },
     )
-    if (!response.ok) return
+    if (!response.ok) return null
     const body: { running: boolean } = await response.json()
-    if (!body.running) return
-    evaluatingCollectionIds.value.add(collectionId)
-    evaluatingCollectionIds.value = new Set(evaluatingCollectionIds.value)
-    pollEvaluationWhileRunning(collectionId)
+    return body.running
   } catch {
-    // Ignored: same as refreshEvaluation above.
+    return null
   }
+}
+
+// The in-progress flag (evaluatingCollectionIds) is in-memory only, so a reload would lose
+// it while the worker keeps running. Ask the backend whether an evaluation is still queued
+// or running for this collection, and if so restore the flag and resume polling.
+async function refreshEvaluationStatus(collectionId: string) {
+  const running = await fetchEvaluationRunning(collectionId)
+  if (running !== true) return
+  evaluatingCollectionIds.value.add(collectionId)
+  evaluatingCollectionIds.value = new Set(evaluatingCollectionIds.value)
+  pollEvaluationWhileRunning(collectionId)
 }
 
 // A run's per-pair results, loaded on demand when the user expands it in the UI - the
@@ -1400,6 +1408,17 @@ function pollEvaluationWhileRunning(collectionId: string) {
   const previousRunCount = collections.value.find((item) => item.id === collectionId)?.evaluationRuns.length ?? 0
   let attempts = 0
   const maxAttempts = 150 // 5 min at 2s intervals
+
+  const stop = () => {
+    const handle = evaluationPolls.get(collectionId)
+    if (handle) {
+      clearInterval(handle)
+      evaluationPolls.delete(collectionId)
+    }
+    evaluatingCollectionIds.value.delete(collectionId)
+    evaluatingCollectionIds.value = new Set(evaluatingCollectionIds.value)
+  }
+
   evaluationPolls.set(
     collectionId,
     setInterval(async () => {
@@ -1407,14 +1426,32 @@ function pollEvaluationWhileRunning(collectionId: string) {
       await refreshEvaluation(collectionId)
       const collection = collections.value.find((item) => item.id === collectionId)
       const currentRuns = collection?.evaluationRuns ?? []
-      if (currentRuns.length > previousRunCount || attempts >= maxAttempts) {
-        const handle = evaluationPolls.get(collectionId)
-        if (handle) {
-          clearInterval(handle)
-          evaluationPolls.delete(collectionId)
-        }
-        evaluatingCollectionIds.value.delete(collectionId)
-        evaluatingCollectionIds.value = new Set(evaluatingCollectionIds.value)
+      if (currentRuns.length > previousRunCount) {
+        stop()
+        return
+      }
+      // No new run yet. If the backend no longer has the task queued or running, it finished
+      // without producing a run - the worker skipped it (no chat model, no evaluable pair...).
+      // Stop and say so instead of polling for the full 5 minutes with nothing to show.
+      const running = await fetchEvaluationRunning(collectionId)
+      if (running === false) {
+        stop()
+        pushToast(
+          'warning',
+          'Évaluation sans résultat',
+          "L'évaluation s'est terminée sans produire de résultat. Vérifiez qu'un modèle de chat est configuré pour la collection, puis relancez-la.",
+          8000,
+        )
+        return
+      }
+      if (attempts >= maxAttempts) {
+        stop()
+        pushToast(
+          'warning',
+          'Évaluation toujours en cours',
+          "L'évaluation n'a pas abouti dans le délai attendu. Elle continue peut-être en arrière-plan : rechargez la page dans quelques minutes.",
+          8000,
+        )
       }
     }, 2000),
   )
