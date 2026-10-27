@@ -71,6 +71,7 @@
   ],
   "users": [
     {
+      "id": "d09b2ad4-3ee0-4e56-9692-57075845bb5e",
       "username": "michou",
       "email": "michou@example.com",
       "firstName": "Michou",
@@ -84,6 +85,7 @@
       }
     },
     {
+      "id": "eb935287-c603-4be7-8338-f943f7e6ad0f",
       "username": "julie",
       "email": "julie@example.com",
       "firstName": "Julie",

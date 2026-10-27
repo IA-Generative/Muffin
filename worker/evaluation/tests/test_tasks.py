@@ -278,6 +278,9 @@ def _written_config(tmp_path, **kwargs):
         "judge_model": "judge-model",
         "generator_model": "generator-model",
         "pairs": [_qa_pair("qa-1", "Question ?", "doc-1", validated=True)],
+        "collection_settings": _fake_settings(),
+        "validated_only": False,
+        "content_hash": "hash-1",
     }
     parameters.update(kwargs)
     tasks._write_promptfoo_dir(directory, **parameters)
@@ -306,6 +309,21 @@ def test_the_generated_yaml_wires_provider_judge_and_tests(tmp_path):
     # The question var is named `query` - promptfoo's RAG assertions require it.
     assert config["prompts"] == ["{{query}}"]
     assert config["evaluateOptions"] == {"maxConcurrency": tasks.settings.EVAL_CONCURRENCY}
+
+    # metadata.config_muffin: the run's whole configuration, replayed into results.json so
+    # the stored artifact is self-describing.
+    metadata = config["metadata"]["config_muffin"]
+    assert metadata["collection_id"] == "col-1"
+    assert metadata["k"] == 5
+    assert metadata["judge_model"] == "judge-model"
+    assert metadata["generator_model"] == "generator-model"
+    assert metadata["chunking_strategy"] == "paragraph"
+    assert metadata["chunk_size"] == 500
+    assert metadata["chunk_overlap"] == 50
+    assert metadata["embedding_model"] == "text-embedding-3-small"
+    assert metadata["validated_only"] is False
+    assert metadata["content_hash"] == "hash-1"
+    assert len(metadata["provider_code_sha256"]) == 64
 
     # The modules are copied next to the YAML (promptfoo resolves file:// relative to it)
     # and the pairs ride along as JSON.

@@ -165,6 +165,9 @@ def _write_promptfoo_dir(
     judge_model: str,
     generator_model: str,
     pairs: list[dict[str, Any]],
+    collection_settings: dict[str, Any],
+    validated_only: bool,
+    content_hash: str,
 ) -> None:
     """Lays out everything promptfoo needs in one throwaway directory: the generated YAML, the
     provider and test-loader modules copied next to it (promptfoo resolves file:// paths relative
@@ -175,6 +178,10 @@ def _write_promptfoo_dir(
     (apiKeyEnvar) and the provider (api_key_envar) read WORKER_API_KEY from the environment the
     subprocess inherits, because promptfoo replays the whole config into results.json - a stored
     artifact.
+
+    metadata.config_muffin records the run's whole configuration (models, k, chunking/embedding
+    snapshot, scope, dedup hash, provider code digest) so the stored artifact is self-describing:
+    everything that made the results what they is readable from results.json itself.
     """
     for module in ("provider.py", "create_tests.py"):
         shutil.copy2(Path(__file__).parent / "promptfoo" / module, directory / module)
@@ -182,6 +189,25 @@ def _write_promptfoo_dir(
 
     config = {
         "description": f"Muffin evaluation - collection {collection_id}",
+        "metadata": {
+            "config_muffin": {
+                "collection_id": collection_id,
+                "k": k,
+                "judge_model": judge_model,
+                "generator_model": generator_model,
+                "chunking_strategy": collection_settings["chunking_strategy"],
+                "chunk_size": collection_settings["chunk_size"],
+                "chunk_overlap": collection_settings["chunk_overlap"],
+                "embedding_model": collection_settings["embedding_model"],
+                "validated_only": validated_only,
+                "content_hash": content_hash,
+                # The generation prompt and code live in provider.py, copied next to the YAML -
+                # their digest is the only trace of the worker's own version in the artifact.
+                "provider_code_sha256": hashlib.sha256(
+                    (Path(__file__).parent / "promptfoo" / "provider.py").read_bytes()
+                ).hexdigest(),
+            }
+        },
         # Never send any result to promptfoo's servers.
         "sharing": False,
         # The question var is named `query` - promptfoo's RAG assertions (context-faithfulness)
@@ -375,6 +401,9 @@ def run_evaluation(self, collection_id: str, k: int | None = None, validated_onl
             judge_model=judge_model,
             generator_model=generator_model,
             pairs=evaluable_pairs,
+            collection_settings=collection_settings,
+            validated_only=validated_only,
+            content_hash=content_hash,
         )
         results_json, report_html = _run_promptfoo(directory)
 

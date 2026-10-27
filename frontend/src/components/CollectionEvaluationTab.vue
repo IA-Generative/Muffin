@@ -303,9 +303,6 @@ const goldenCount = computed(() => props.collection.qaPairs.filter((pair) => pai
                   </span>
                 </div>
               </div>
-              <p v-if="!resultsByRunId[run.id]?.length" class="eval-tab__empty">
-                Aucun résultat détaillé pour cette évaluation.
-              </p>
             </template>
           </div>
         </div>
