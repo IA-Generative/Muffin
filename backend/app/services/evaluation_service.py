@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import json
 import uuid
@@ -9,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import storage
 from app.core.security.factory import RequestContext
-from app.core.tasks import RUN_EVALUATION_TASK, enqueue_run_evaluation
+from app.core.tasks import ACTIVE_TASK_STATES, RUN_EVALUATION_TASK, enqueue_run_evaluation, get_task_status
 from app.models.collection import CollectionSettings
 from app.models.qa import QaPair
 from app.repositories.collection_repository import CollectionRepository
@@ -156,6 +157,17 @@ class EvaluationService:
         )
         await self.db.commit()
         return EvaluationTriggerResult(celery_task_id=celery_task_id)
+
+    async def is_running(self, collection_id: uuid.UUID, user: RequestContext) -> bool:
+        """Whether an evaluation is currently queued or running for the collection - read from
+        the most recent run_evaluation Task row's live Celery status, so the UI can show the
+        in-progress state after a reload (the frontend's own flag is in-memory only)."""
+        await self._get_accessible(collection_id, user)
+        task = await self.tasks.latest_by_collection_and_name(collection_id, RUN_EVALUATION_TASK)
+        if task is None:
+            return False
+        # Redis is called off the event loop, same as TaskService.revoke.
+        return await asyncio.to_thread(get_task_status, task.celery_task_id) in ACTIVE_TASK_STATES
 
     async def delete_run(self, collection_id: uuid.UUID, run_id: uuid.UUID, user: RequestContext) -> None:
         await self._get_accessible(collection_id, user)

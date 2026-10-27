@@ -17,6 +17,13 @@ class EvaluationTriggerRequest(BaseModel):
     validated_only: bool = False
 
 
+class EvaluationStatusOut(BaseModel):
+    """Whether an evaluation is currently queued or running for a collection - lets the UI
+    restore its in-progress state after a reload (see EvaluationService.is_running)."""
+
+    running: bool
+
+
 class EvaluationResultOut(BaseModel):
     """One QA pair's outcome in a run, normalized from the results.json artifact -
     the frontend never parses promptfoo's format itself."""

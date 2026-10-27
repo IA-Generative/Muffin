@@ -313,7 +313,10 @@ const TAB_LOADERS: Record<string, (id: string) => void | Promise<void>> = {
   qa: refreshQaPairs,
   chunks: refreshChunks,
   relations: refreshEntitiesAndRelations,
-  evaluation: refreshEvaluation,
+  evaluation: async (id) => {
+    await refreshEvaluation(id)
+    await refreshEvaluationStatus(id)
+  },
   settings: async (id) => {
     await Promise.all([refreshShares(id), refreshIndexRebuild(id)])
   },
@@ -739,6 +742,26 @@ async function refreshEvaluation(collectionId: string) {
     }))
   } catch {
     // Ignored: same as refreshQaPairs above.
+  }
+}
+
+// The in-progress flag (evaluatingCollectionIds) is in-memory only, so a reload would lose
+// it while the worker keeps running. Ask the backend whether an evaluation is still queued
+// or running for this collection, and if so restore the flag and resume polling.
+async function refreshEvaluationStatus(collectionId: string) {
+  try {
+    const response = await fetch(
+      `${API_BASE_URL}/api/collections/${collectionId}/evaluations/status`,
+      { credentials: 'include' },
+    )
+    if (!response.ok) return
+    const body: { running: boolean } = await response.json()
+    if (!body.running) return
+    evaluatingCollectionIds.value.add(collectionId)
+    evaluatingCollectionIds.value = new Set(evaluatingCollectionIds.value)
+    pollEvaluationWhileRunning(collectionId)
+  } catch {
+    // Ignored: same as refreshEvaluation above.
   }
 }
 

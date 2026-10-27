@@ -43,6 +43,18 @@ class TaskRepository:
         result = await self.db.execute(select(Task).where(Task.celery_task_id == celery_task_id))
         return result.scalar_one_or_none()
 
+    async def latest_by_collection_and_name(self, collection_id: uuid.UUID, task_name: str) -> Task | None:
+        """The most recent root task of this name dispatched for the collection - what a
+        collection-scoped status check (e.g. "is an evaluation running?") reads, since a
+        fresh trigger always creates a newer row than the one it supersedes."""
+        result = await self.db.execute(
+            select(Task)
+            .where(Task.collection_id == collection_id, Task.task_name == task_name, Task.parent_id.is_(None))
+            .order_by(Task.created_at.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
     async def list_root_runs_by_owner(self, owner_id: str, *, limit: int, offset: int) -> tuple[Sequence[Task], int]:
         """Paginates over top-level runs (parent_id IS NULL) rather than raw
         rows - a run's children are fetched separately via

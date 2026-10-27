@@ -653,6 +653,55 @@ async def test_list_evaluations_for_unknown_collection_returns_404(client):
     assert response.status_code == 404
 
 
+async def _create_evaluation_task(collection_id: str, celery_task_id: str = "celery-eval-status") -> None:
+    async with async_session_factory() as session:
+        session.add(
+            Task(
+                celery_task_id=celery_task_id,
+                task_name="app.tasks.run_evaluation",
+                owner_id="dev-user",
+                collection_id=uuid.UUID(collection_id),
+            )
+        )
+        await session.commit()
+
+
+async def test_evaluation_status_is_false_without_a_task(client):
+    collection_id = (await client.post("/api/collections")).json()["id"]
+
+    response = await client.get(f"/api/collections/{collection_id}/evaluations/status")
+
+    assert response.status_code == 200
+    assert response.json() == {"running": False}
+
+
+async def test_evaluation_status_is_true_while_the_task_is_active(client):
+    collection_id = (await client.post("/api/collections")).json()["id"]
+    await _create_evaluation_task(collection_id)
+
+    with patch("app.services.evaluation_service.get_task_status", return_value="STARTED"):
+        response = await client.get(f"/api/collections/{collection_id}/evaluations/status")
+
+    assert response.status_code == 200
+    assert response.json() == {"running": True}
+
+
+async def test_evaluation_status_is_false_once_the_task_finished(client):
+    collection_id = (await client.post("/api/collections")).json()["id"]
+    await _create_evaluation_task(collection_id)
+
+    with patch("app.services.evaluation_service.get_task_status", return_value="SUCCESS"):
+        response = await client.get(f"/api/collections/{collection_id}/evaluations/status")
+
+    assert response.status_code == 200
+    assert response.json() == {"running": False}
+
+
+async def test_evaluation_status_for_unknown_collection_returns_404(client):
+    response = await client.get(f"/api/collections/{uuid.uuid4()}/evaluations/status")
+    assert response.status_code == 404
+
+
 # A promptfoo results.json fixture: two scored non-golden pairs, one the judge errored
 # on (no namedScores - excluded from the averages; it also keeps the pre-rename
 # `question` var, covering the fallback), one golden pair.

@@ -26,7 +26,12 @@ from app.schemas.collection import (
     ShareOut,
     VisibilityUpdate,
 )
-from app.schemas.evaluation import EvaluationResultOut, EvaluationRunOut, EvaluationTriggerRequest
+from app.schemas.evaluation import (
+    EvaluationResultOut,
+    EvaluationRunOut,
+    EvaluationStatusOut,
+    EvaluationTriggerRequest,
+)
 from app.schemas.feedback import FeedbackStatsOut
 from app.schemas.pagination import Page, PaginationParams
 from app.services.collection_hierarchy_service import (
@@ -312,6 +317,21 @@ async def list_evaluations(
 ) -> list[EvaluationRunOut]:
     try:
         return await service.list_runs(collection_id, user)
+    except EvaluationCollectionNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
+
+
+@router.get(
+    "/collections/{collection_id}/evaluations/status",
+    summary="Whether an evaluation is currently queued or running for this collection - lets "
+    "the UI restore its in-progress state after a reload (see #11)",
+    response_model=EvaluationStatusOut,
+)
+async def get_evaluation_status(
+    collection_id: uuid.UUID, user: UserDep, service: EvaluationServiceDep
+) -> EvaluationStatusOut:
+    try:
+        return EvaluationStatusOut(running=await service.is_running(collection_id, user))
     except EvaluationCollectionNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
 
