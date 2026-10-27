@@ -191,6 +191,10 @@ export interface EvaluationRun {
   // The share of golden (test) pairs that passed (every assertion at or above its
   // threshold), in [0, 1] - null when the run has no golden pair or no artifact.
   goldenPassRate: number | null
+  // The same share over the reference (non-golden) pairs, and over every pair of the
+  // run - each null when its subset is empty or the run has no artifact.
+  referencePassRate: number | null
+  overallPassRate: number | null
   // Whether the report/results.json artifacts exist (download links, report preview) -
   // false on the runs predating the promptfoo migration.
   hasArtifacts: boolean

@@ -686,6 +686,8 @@ interface EvaluationRunOut {
   metrics: Record<string, number> | null
   golden_metrics: Record<string, number> | null
   golden_pass_rate: number | null
+  reference_pass_rate: number | null
+  overall_pass_rate: number | null
   has_artifacts: boolean
 }
 
@@ -731,6 +733,8 @@ async function refreshEvaluation(collectionId: string) {
       metrics: run.metrics,
       goldenMetrics: run.golden_metrics,
       goldenPassRate: run.golden_pass_rate,
+      referencePassRate: run.reference_pass_rate,
+      overallPassRate: run.overall_pass_rate,
       hasArtifacts: run.has_artifacts,
     }))
   } catch {

@@ -141,10 +141,6 @@ const goldenCount = computed(() => props.collection.qaPairs.filter((pair) => pai
               <span class="eval-tab__run-date">{{ formatDate(run.runAt) }} · {{ run.pairCount }} paire(s) · k={{ run.k }}</span>
             </span>
             <span class="eval-tab__run-tail">
-              <span v-if="run.goldenPassRate !== null" class="eval-tab__run-pass">
-                <span class="eval-tab__run-pass-value">{{ formatPassRate(run.goldenPassRate) }}</span>
-                <span class="eval-tab__run-pass-label">réussite des tests</span>
-              </span>
               <svg
                 viewBox="0 0 24 24"
                 width="16"
@@ -169,6 +165,21 @@ const goldenCount = computed(() => props.collection.qaPairs.filter((pair) => pai
               <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
             </svg>
           </button>
+        </div>
+
+        <div class="eval-tab__run-passes">
+          <div v-if="run.goldenPassRate !== null" class="eval-tab__run-pass">
+            <span class="eval-tab__run-pass-value">{{ formatPassRate(run.goldenPassRate) }}</span>
+            <span class="eval-tab__run-pass-label">réussite sur les questions de test</span>
+          </div>
+          <div v-if="run.referencePassRate !== null" class="eval-tab__run-pass">
+            <span class="eval-tab__run-pass-value">{{ formatPassRate(run.referencePassRate) }}</span>
+            <span class="eval-tab__run-pass-label">réussite sur les questions de référence</span>
+          </div>
+          <div v-if="run.overallPassRate !== null" class="eval-tab__run-pass">
+            <span class="eval-tab__run-pass-value">{{ formatPassRate(run.overallPassRate) }}</span>
+            <span class="eval-tab__run-pass-label">réussite globale</span>
+          </div>
         </div>
 
         <div v-if="expandedRunId === run.id" class="eval-tab__run-detail">
@@ -404,10 +415,19 @@ const goldenCount = computed(() => props.collection.qaPairs.filter((pair) => pai
   margin-top: 0;
 }
 
+/* The three pass rates, on their own row under the header so they have room to
+   breathe - always visible, collapsed or not. */
+.eval-tab__run-passes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  margin-top: 0.75rem;
+}
+
 .eval-tab__run-pass {
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
+  align-items: flex-start;
   line-height: 1.15;
 }
 

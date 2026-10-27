@@ -80,13 +80,21 @@ def _passed(test: dict[str, Any]) -> bool:
     return test.get("success") is True
 
 
-def golden_pass_rate(tests: Sequence[dict[str, Any]]) -> float | None:
-    """The share of golden (test) pairs that passed, in [0, 1] - None when the run has
-    no golden pair (nothing to rate, never a misleading 0)."""
-    golden = [test for test in tests if _coerce_bool(test.get("vars", {}).get("golden"))]
-    if not golden:
+def _pass_rate(tests: Sequence[dict[str, Any]]) -> float | None:
+    """The share of tests promptfoo marked as passed, in [0, 1] - None on an empty
+    subset (nothing to rate, never a misleading 0)."""
+    if not tests:
         return None
-    return sum(_passed(test) for test in golden) / len(golden)
+    return sum(_passed(test) for test in tests) / len(tests)
+
+
+def pass_rates(tests: Sequence[dict[str, Any]]) -> tuple[float | None, float | None, float | None]:
+    """(golden, reference, overall) pass rates - the share of test questions, of
+    reference questions, and of every pair, that passed. Each is None when its subset
+    is empty (a run with no golden pair has no golden rate, never a misleading 0)."""
+    golden = [test for test in tests if _coerce_bool(test.get("vars", {}).get("golden"))]
+    reference = [test for test in tests if not _coerce_bool(test.get("vars", {}).get("golden"))]
+    return _pass_rate(golden), _pass_rate(reference), _pass_rate(tests)
 
 
 def to_result_out(test: dict[str, Any]) -> EvaluationResultOut:

@@ -760,6 +760,10 @@ async def test_list_evaluations_computes_score_averages_from_the_artifact(client
     assert run["golden_metrics"] == {"factuality": 1.0, "context_faithfulness": 1.0}
     # The single golden pair passed (promptfoo's `success`).
     assert run["golden_pass_rate"] == 1.0
+    # One of the three reference pairs passed - the judge-errored one counts as failed.
+    assert run["reference_pass_rate"] == pytest.approx(1 / 3)
+    # Two of the four pairs passed.
+    assert run["overall_pass_rate"] == 0.5
     assert run["has_artifacts"] is True
     assert run["llm_model"] == "judge-model"
 
@@ -801,6 +805,9 @@ async def test_list_evaluations_computes_the_golden_pass_rate_from_the_artifact(
 
     assert response.status_code == 200
     assert response.json()[0]["golden_pass_rate"] == 0.5
+    # The one reference pair passed, and two of the three pairs overall.
+    assert response.json()[0]["reference_pass_rate"] == 1.0
+    assert response.json()[0]["overall_pass_rate"] == pytest.approx(2 / 3)
 
 
 async def test_list_evaluations_reports_null_golden_pass_rate_without_a_golden_pair(client, monkeypatch):
@@ -826,6 +833,9 @@ async def test_list_evaluations_reports_null_golden_pass_rate_without_a_golden_p
 
     assert response.status_code == 200
     assert response.json()[0]["golden_pass_rate"] is None
+    # No golden pair, but the reference and overall rates still stand on their own.
+    assert response.json()[0]["reference_pass_rate"] == 1.0
+    assert response.json()[0]["overall_pass_rate"] == 1.0
 
 
 async def test_list_evaluations_keeps_a_pre_context_faithfulness_artifact_readable(client, monkeypatch):
