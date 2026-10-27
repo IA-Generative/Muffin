@@ -28,6 +28,47 @@ class UserUsage(UsageSums):
     display: str | None
 
 
+class ExecutionSums(BaseModel):
+    count: int = 0
+    duration_seconds: float = 0.0
+    cpu_seconds: float = 0.0
+    # The most memory one execution held; 0 for a node, which has none of its own.
+    peak_rss_bytes: int = 0
+    # Estimated, see EnergySettings: never a measure.
+    energy_wh: float = 0.0
+
+
+class ExecutionStep(ExecutionSums):
+    kind: str
+    step: str
+
+
+class ExecutionDay(ExecutionSums):
+    day: date
+
+
+class ExecutionUser(ExecutionSums):
+    user_id: str | None
+    display: str | None
+
+
+class EnergyAssumptions(BaseModel):
+    watts_per_core: float
+    watts_per_gb: float
+    pue: float
+
+
+class ExecutionOut(BaseModel):
+    """What the worker tasks cost the machines that ran them. `totals` and `by_day` count the tasks only:
+    the nodes of the agent run inside a task, `by_step` lists both (each with its kind)."""
+
+    totals: ExecutionSums
+    by_step: list[ExecutionStep]
+    by_day: list[ExecutionDay]
+    by_user: list[ExecutionUser]
+    assumptions: EnergyAssumptions
+
+
 class UsageOut(BaseModel):
     days: int
     totals: UsageSums
@@ -36,3 +77,4 @@ class UsageOut(BaseModel):
     by_model: list[ModelUsage]
     # Administrators only - always empty on a user's own report.
     by_user: list[UserUsage]
+    execution: ExecutionOut

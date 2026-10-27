@@ -3,11 +3,27 @@ from datetime import UTC, datetime, timedelta
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import EnergySettings
 from app.core.security.factory import RequestContext
+from app.models.execution_metric import ExecutionMetric
 from app.models.token_usage import TokenUsage, TokenUsageKind
+from app.repositories.execution_metric_repository import ExecutionMetricRepository
 from app.repositories.token_usage_repository import TokenUsageRepository
-from app.schemas.internal_pipeline import LlmUsageContext
-from app.schemas.usage import DayUsage, ModelUsage, StepUsage, UsageOut, UsageSums, UserUsage
+from app.schemas.internal_pipeline import ExecutionMetricIn, LlmUsageContext
+from app.schemas.usage import (
+    DayUsage,
+    EnergyAssumptions,
+    ExecutionDay,
+    ExecutionOut,
+    ExecutionStep,
+    ExecutionSums,
+    ExecutionUser,
+    ModelUsage,
+    StepUsage,
+    UsageOut,
+    UsageSums,
+    UserUsage,
+)
 
 
 class NotAdminError(Exception):
@@ -23,6 +39,16 @@ def _sums(row) -> dict:  # noqa: ANN001
     }
 
 
+def _execution_sums(row) -> dict:  # noqa: ANN001
+    return {
+        "count": row.count,
+        "duration_seconds": row.duration_seconds,
+        "cpu_seconds": row.cpu_seconds,
+        "peak_rss_bytes": row.peak_rss_bytes,
+        "energy_wh": row.energy_wh,
+    }
+
+
 def _display(user: RequestContext) -> str:
     return " ".join(part for part in (user.first_name, user.last_name) if part) or user.email or user.user_id
 
@@ -34,6 +60,8 @@ class UsageService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
         self.usage = TokenUsageRepository(db)
+        self.energy = EnergySettings()
+        self.executions = ExecutionMetricRepository(db, self.energy)
 
     async def record(
         self,
@@ -65,6 +93,34 @@ class UsageService:
             await self.db.commit()
         except Exception:
             logger.exception("Failed to record LLM token usage")
+            await self.db.rollback()
+
+    async def record_execution(self, metric: ExecutionMetricIn) -> None:
+        """Best-effort, like record: a worker task that already ran must not fail because its cost
+        could not be written down."""
+        try:
+            context = LlmUsageContext(
+                user_id=metric.user_id,
+                run_id=metric.run_id,
+                document_id=metric.document_id,
+                collection_id=metric.collection_id,
+            )
+            await self.executions.add(
+                ExecutionMetric(
+                    user_id=await self._resolve_user(context),
+                    kind=metric.kind,
+                    step=metric.step,
+                    duration_seconds=metric.duration_seconds,
+                    cpu_seconds=metric.cpu_seconds,
+                    peak_rss_bytes=metric.peak_rss_bytes,
+                    run_id=metric.run_id,
+                    document_id=metric.document_id,
+                    collection_id=metric.collection_id,
+                )
+            )
+            await self.db.commit()
+        except Exception:
+            logger.exception("Failed to record an execution metric")
             await self.db.rollback()
 
     async def _resolve_user(self, context: LlmUsageContext) -> str | None:
@@ -113,4 +169,29 @@ class UsageService:
             ]
             if with_users
             else [],
+            execution=await self._execution(since, user_id, with_users),
+        )
+
+    async def _execution(self, since: datetime, user_id: str | None, with_users: bool) -> ExecutionOut:
+        return ExecutionOut(
+            totals=ExecutionSums(**_execution_sums(await self.executions.totals(since, user_id))),
+            by_step=[
+                ExecutionStep(kind=row.kind, step=row.step, **_execution_sums(row))
+                for row in await self.executions.by_step(since, user_id)
+            ],
+            by_day=[
+                ExecutionDay(day=row.day, **_execution_sums(row))
+                for row in await self.executions.by_day(since, user_id)
+            ],
+            by_user=[
+                ExecutionUser(user_id=row.user_id, display=row.display, **_execution_sums(row))
+                for row in await self.executions.by_user(since)
+            ]
+            if with_users
+            else [],
+            assumptions=EnergyAssumptions(
+                watts_per_core=self.energy.ENERGY_WATTS_PER_CORE,
+                watts_per_gb=self.energy.ENERGY_WATTS_PER_GB,
+                pue=self.energy.ENERGY_PUE,
+            ),
         )

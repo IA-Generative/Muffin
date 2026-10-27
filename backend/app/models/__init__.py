@@ -34,6 +34,7 @@ from app.models.evaluation import (
     EvaluationResultSource,
     EvaluationRun,
 )
+from app.models.execution_metric import ExecutionMetric
 from app.models.feedback import (
     Feedback,
     FeedbackReason,
@@ -118,6 +119,7 @@ __all__ = [
     "Source",
     "Task",
     "TaskLogEntry",
+    "ExecutionMetric",
     "TokenUsage",
     "TokenUsageKind",
     "UserProfile",

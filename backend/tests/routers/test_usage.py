@@ -9,6 +9,7 @@ from app.core.security.factory import get_current_user
 from app.db import async_session_factory
 from app.main import app
 from app.models.collection import Collection
+from app.models.execution_metric import ExecutionMetric
 from app.models.token_usage import TokenUsage, UserProfile
 from app.routers import internal_llm
 from tests.routers.test_collections import _as_user
@@ -33,6 +34,7 @@ async def client():
         yield async_client
     async with async_session_factory() as session:
         await session.execute(delete(TokenUsage))
+        await session.execute(delete(ExecutionMetric))
         await session.execute(delete(UserProfile))
         await session.execute(delete(Collection))
         await session.commit()
@@ -100,3 +102,65 @@ async def test_admin_usage_is_admin_only(client):
     app.dependency_overrides[get_current_user] = _as_user("viewer", "viewer@example.com")
     assert (await client.get("/api/admin/usage")).status_code == 403
     assert (await client.get("/api/usage/me")).status_code == 200
+
+
+# --- Execution metrics: time, CPU and memory of the worker tasks ---
+
+
+async def _record(client, **metric) -> None:
+    body = {"kind": "task", "step": "summarize_document", "duration_seconds": 10.0, "cpu_seconds": 4.0, **metric}
+    response = await client.post("/api/internal/execution-metrics", headers={"X-API-Key": API_KEY}, json=body)
+    assert response.status_code == 204
+
+
+async def test_a_task_for_a_collection_counts_for_its_owner_with_an_estimated_energy(client):
+    collection_id = (await client.post("/api/collections")).json()["id"]
+
+    await _record(client, collection_id=collection_id, peak_rss_bytes=2_000_000_000)
+
+    execution = (await client.get("/api/usage/me")).json()["execution"]
+    assert execution["totals"]["count"] == 1
+    assert execution["totals"]["duration_seconds"] == 10.0
+    assert execution["totals"]["cpu_seconds"] == 4.0
+    assert execution["totals"]["peak_rss_bytes"] == 2_000_000_000
+    # (4 s x 10 W + 2 GB x 10 s x 0.375 W/GB) / 3600 x 1.2 PUE
+    assert execution["totals"]["energy_wh"] == pytest.approx((40 + 7.5) / 3600 * 1.2)
+    assert [(row["kind"], row["step"]) for row in execution["by_step"]] == [("task", "summarize_document")]
+    assert execution["assumptions"] == {"watts_per_core": 10.0, "watts_per_gb": 0.375, "pue": 1.2}
+    assert execution["by_user"] == []
+
+
+async def test_the_nodes_of_a_task_are_listed_by_step_but_never_added_to_its_totals(client):
+    collection_id = (await client.post("/api/collections")).json()["id"]
+
+    await _record(client, collection_id=collection_id, step="run_agent", duration_seconds=8.0, cpu_seconds=3.0)
+    await _record(
+        client, collection_id=collection_id, kind="node", step="analyze_query", duration_seconds=2.0, cpu_seconds=1.0
+    )
+
+    execution = (await client.get("/api/usage/me")).json()["execution"]
+    assert execution["totals"]["count"] == 1
+    assert execution["totals"]["duration_seconds"] == 8.0
+    assert execution["totals"]["cpu_seconds"] == 3.0
+    assert sorted((row["kind"], row["step"]) for row in execution["by_step"]) == [
+        ("node", "analyze_query"),
+        ("task", "run_agent"),
+    ]
+    assert len(execution["by_day"]) == 1
+    assert execution["by_day"][0]["count"] == 1
+
+
+async def test_a_task_nobody_owns_is_not_in_anyones_report(client):
+    await _record(client)
+
+    execution = (await client.get("/api/usage/me")).json()["execution"]
+    assert execution["totals"]["count"] == 0
+
+
+async def test_an_invalid_metric_is_refused(client):
+    response = await client.post(
+        "/api/internal/execution-metrics",
+        headers={"X-API-Key": API_KEY},
+        json={"kind": "thread", "step": "x", "duration_seconds": 1, "cpu_seconds": 1},
+    )
+    assert response.status_code == 422

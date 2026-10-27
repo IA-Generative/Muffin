@@ -1,5 +1,6 @@
 from .database import DatabaseSettings
 from .documents import DocumentSettings
+from .energy import EnergySettings
 from .keycloak import KeycloakSettings
 from .llm import LlmSettings
 from .logging import LoggingSettings
@@ -13,6 +14,7 @@ from .worker import WorkerSettings
 __all__ = [
     "DatabaseSettings",
     "DocumentSettings",
+    "EnergySettings",
     "KeycloakSettings",
     "LlmSettings",
     "LoggingSettings",
