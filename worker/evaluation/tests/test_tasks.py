@@ -1,12 +1,18 @@
 import json
 import os
+import shutil
 import stat
+import subprocess
 from unittest.mock import MagicMock
 
 import pytest
 import yaml
 
 from app import task_logging, tasks
+
+# The real promptfoo binary, when the test runs somewhere it is installed (the worker image
+# bundles it - see worker/evaluation/Dockerfile). Only the integration test below needs it.
+_PROMPTFOO_BINARY = shutil.which("promptfoo")
 
 # A minimal promptfoo results.json: the shape _counts_from_results and the backend's
 # artifact reader both walk is results.results[*].vars + namedScores.
@@ -348,6 +354,64 @@ def test_the_generated_yaml_never_contains_the_api_key(tmp_path):
     assert config["defaultTest"]["options"]["provider"]["config"]["apiKeyEnvar"] == "WORKER_API_KEY"
     if tasks.settings.WORKER_API_KEY:  # empty in tests, set in production - both must hold
         assert tasks.settings.WORKER_API_KEY not in yaml.safe_dump(config)
+
+
+# A stand-in for the real provider.py: returns the shape promptfoo expects without hitting
+# the network, so the eval below runs offline.
+_MOCK_PROVIDER = (
+    "def call_api(prompt, options, context):\n"
+    '    return {"output": {"answer": "a", "context": ["c"]}, "context": ["c"], "metadata": {"sources": []}}\n'
+)
+
+
+@pytest.mark.integration
+def test_the_promptfoo_results_never_contain_the_api_key(monkeypatch, tmp_path):
+    # promptfoo replays the whole config into results.json - a stored artifact. The YAML
+    # test above pins that the config only names the envar; this runs the real promptfoo
+    # (the version the worker image pins) over that config with a sentinel key in the
+    # environment, and asserts the key never lands in the artifact. Needs the real binary:
+    # it runs in its own CI job (see .github/workflows/unit-tests.yml), never in the default
+    # suite, so a missing binary fails loudly here instead of hiding as a silent skip.
+    assert _PROMPTFOO_BINARY is not None, (
+        "promptfoo is required for integration tests - see worker/evaluation/Dockerfile"
+    )
+    sentinel = "sentinel-worker-api-key-1234567890"
+    monkeypatch.setenv("WORKER_API_KEY", sentinel)
+
+    directory, config = _written_config(tmp_path)
+    # The provider and the judge would both hit the network; swap them for a mock provider
+    # and promptfoo's echo provider, and drop the judge-scored assertions. What is under
+    # test is the config's api_key_envar/apiKeyEnvar placement, left exactly as generated.
+    (directory / "provider.py").write_text(_MOCK_PROVIDER)
+    config["defaultTest"]["options"]["provider"]["id"] = "echo"
+    config["tests"] = [{"vars": {"query": "hello"}}]
+    (directory / "promptfooconfig.yaml").write_text(yaml.safe_dump(config, sort_keys=False))
+
+    completed = subprocess.run(  # noqa: S603
+        [
+            _PROMPTFOO_BINARY,
+            "eval",
+            "--config",
+            "promptfooconfig.yaml",
+            "--output",
+            "results.json",
+            "--no-cache",
+            "--no-progress-bar",
+            "--no-table",
+            "--no-write",
+        ],
+        cwd=directory,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert completed.returncode in (0, 100), completed.stderr
+
+    results = (directory / "results.json").read_text()
+    # The config really was replayed into the artifact (it is self-describing)...
+    assert "config_muffin" in results
+    # ...and the key is nowhere in it.
+    assert sentinel not in results
 
 
 def test_a_question_can_not_inject_yaml_structure(tmp_path):
