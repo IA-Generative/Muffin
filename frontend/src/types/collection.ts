@@ -188,6 +188,9 @@ export interface EvaluationRun {
   // doesn't appear in its object.
   metrics: Record<string, number> | null
   goldenMetrics: Record<string, number> | null
+  // The share of golden (test) pairs that passed (every assertion at or above its
+  // threshold), in [0, 1] - null when the run has no golden pair or no artifact.
+  goldenPassRate: number | null
   // Whether the report/results.json artifacts exist (download links, report preview) -
   // false on the runs predating the promptfoo migration.
   hasArtifacts: boolean

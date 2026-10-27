@@ -671,6 +671,7 @@ _RESULTS_JSON = {
                     "output": {"answer": "Generated 1", "context": ["c"]},
                     "metadata": {"sources": ["handbook.pdf#0"]},
                 },
+                "success": True,
                 "namedScores": {"factuality": 0.9, "context_faithfulness": 0.8},
             },
             {
@@ -682,6 +683,7 @@ _RESULTS_JSON = {
                     "qa_pair_id": "22222222-2222-2222-2222-222222222222",
                 },
                 "response": {"output": {"answer": "Generated 2"}, "metadata": {"sources": []}},
+                "success": False,
                 "namedScores": {"factuality": 0.5, "context_faithfulness": 0.4},
             },
             {
@@ -695,6 +697,7 @@ _RESULTS_JSON = {
                     "output": {"answer": "Golden answer"},
                     "metadata": {"sources": ["handbook.pdf#1"]},
                 },
+                "success": True,
                 "namedScores": {"factuality": 1.0, "context_faithfulness": 1.0},
             },
         ]
@@ -755,8 +758,74 @@ async def test_list_evaluations_computes_score_averages_from_the_artifact(client
     # averaged in as a zero.
     assert run["metrics"] == {"factuality": pytest.approx(0.7), "context_faithfulness": pytest.approx(0.6)}
     assert run["golden_metrics"] == {"factuality": 1.0, "context_faithfulness": 1.0}
+    # The single golden pair passed (promptfoo's `success`).
+    assert run["golden_pass_rate"] == 1.0
     assert run["has_artifacts"] is True
     assert run["llm_model"] == "judge-model"
+
+
+async def test_list_evaluations_computes_the_golden_pass_rate_from_the_artifact(client, monkeypatch):
+    # Two golden pairs, one passed and one failed: the rate is the share that passed,
+    # and a non-golden pair never counts towards it.
+    collection_id = (await client.post("/api/collections")).json()["id"]
+    await _create_evaluation_run(collection_id)
+    _fake_storage(
+        monkeypatch,
+        results_json={
+            "results": {
+                "results": [
+                    {
+                        "vars": {"query": "G1", "reference": "A1", "validated": True, "golden": True},
+                        "response": {"output": {"answer": "ok"}, "metadata": {}},
+                        "success": True,
+                        "namedScores": {"factuality": 0.9},
+                    },
+                    {
+                        "vars": {"query": "G2", "reference": "A2", "validated": True, "golden": True},
+                        "response": {"output": {"answer": "bad"}, "metadata": {}},
+                        "success": False,
+                        "namedScores": {"factuality": 0.3},
+                    },
+                    {
+                        "vars": {"query": "Q1", "reference": "A1", "validated": False, "golden": False},
+                        "response": {"output": {"answer": "ok"}, "metadata": {}},
+                        "success": True,
+                        "namedScores": {"factuality": 1.0},
+                    },
+                ]
+            }
+        },
+    )
+
+    response = await client.get(f"/api/collections/{collection_id}/evaluations")
+
+    assert response.status_code == 200
+    assert response.json()[0]["golden_pass_rate"] == 0.5
+
+
+async def test_list_evaluations_reports_null_golden_pass_rate_without_a_golden_pair(client, monkeypatch):
+    collection_id = (await client.post("/api/collections")).json()["id"]
+    await _create_evaluation_run(collection_id)
+    _fake_storage(
+        monkeypatch,
+        results_json={
+            "results": {
+                "results": [
+                    {
+                        "vars": {"query": "Q1", "reference": "A1", "validated": True, "golden": False},
+                        "response": {"output": {"answer": "ok"}, "metadata": {}},
+                        "success": True,
+                        "namedScores": {"factuality": 0.9},
+                    },
+                ]
+            }
+        },
+    )
+
+    response = await client.get(f"/api/collections/{collection_id}/evaluations")
+
+    assert response.status_code == 200
+    assert response.json()[0]["golden_pass_rate"] is None
 
 
 async def test_list_evaluations_keeps_a_pre_context_faithfulness_artifact_readable(client, monkeypatch):

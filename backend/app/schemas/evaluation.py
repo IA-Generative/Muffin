@@ -62,6 +62,9 @@ class EvaluationRunOut(BaseModel):
     # artifact) - a metric a run predates simply doesn't appear in its dict.
     metrics: dict[str, float] | None
     golden_metrics: dict[str, float] | None
+    # The share of golden (test) pairs that passed (every assertion at or above its
+    # threshold), in [0, 1] - None when the run has no golden pair or no artifact.
+    golden_pass_rate: float | None = None
     # Whether the report/results.json artifacts exist (download links, report preview) -
     # False on the runs predating the promptfoo migration.
     has_artifacts: bool

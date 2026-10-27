@@ -74,6 +74,12 @@ function formatScore(value: number) {
   return value.toFixed(2)
 }
 
+// The golden pass rate as a whole percentage - no decimals: it is a share of a
+// handful of test questions, not a precise score.
+function formatPassRate(value: number) {
+  return `${Math.round(value * 100)} %`
+}
+
 const STRATEGY_LABEL: Record<string, string> = {
   paragraph: 'Par paragraphe',
   fixed: 'Taille fixe',
@@ -134,18 +140,24 @@ const goldenCount = computed(() => props.collection.qaPairs.filter((pair) => pai
             <span class="eval-tab__run-header-text">
               <span class="eval-tab__run-date">{{ formatDate(run.runAt) }} · {{ run.pairCount }} paire(s) · k={{ run.k }}</span>
             </span>
-            <svg
-              viewBox="0 0 24 24"
-              width="16"
-              height="16"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.5"
-              :style="{ transform: expandedRunId === run.id ? 'rotate(180deg)' : 'none' }"
-              aria-hidden="true"
-            >
-              <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
-            </svg>
+            <span class="eval-tab__run-tail">
+              <span v-if="run.goldenPassRate !== null" class="eval-tab__run-pass">
+                <span class="eval-tab__run-pass-value">{{ formatPassRate(run.goldenPassRate) }}</span>
+                <span class="eval-tab__run-pass-label">réussite des tests</span>
+              </span>
+              <svg
+                viewBox="0 0 24 24"
+                width="16"
+                height="16"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                :style="{ transform: expandedRunId === run.id ? 'rotate(180deg)' : 'none' }"
+                aria-hidden="true"
+              >
+                <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+              </svg>
+            </span>
           </button>
           <button
             type="button"
@@ -378,6 +390,35 @@ const goldenCount = computed(() => props.collection.qaPairs.filter((pair) => pai
 .eval-tab__run-toggle svg {
   flex-shrink: 0;
   margin-top: 0.125rem;
+}
+
+/* The pass rate and the expand arrow, kept together on the right of the header. */
+.eval-tab__run-tail {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-shrink: 0;
+}
+
+.eval-tab__run-tail svg {
+  margin-top: 0;
+}
+
+.eval-tab__run-pass {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.15;
+}
+
+.eval-tab__run-pass-value {
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.eval-tab__run-pass-label {
+  font-size: 0.6875rem;
+  color: var(--text-mention-grey);
 }
 
 .eval-tab__delete-btn {

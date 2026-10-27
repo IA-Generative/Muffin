@@ -73,6 +73,22 @@ def metrics_from_tests(
     return overall or None, golden or None
 
 
+def _passed(test: dict[str, Any]) -> bool:
+    """Whether promptfoo marked the test as passed: every assertion scored at or above
+    its threshold. A test the judge errored on carries no `success` and counts as not
+    passed."""
+    return test.get("success") is True
+
+
+def golden_pass_rate(tests: Sequence[dict[str, Any]]) -> float | None:
+    """The share of golden (test) pairs that passed, in [0, 1] - None when the run has
+    no golden pair (nothing to rate, never a misleading 0)."""
+    golden = [test for test in tests if _coerce_bool(test.get("vars", {}).get("golden"))]
+    if not golden:
+        return None
+    return sum(_passed(test) for test in golden) / len(golden)
+
+
 def to_result_out(test: dict[str, Any]) -> EvaluationResultOut:
     """Normalizes one promptfoo test into the shape the evaluations UI consumes -
     the mapping is kept here so a promptfoo format change only touches this module."""

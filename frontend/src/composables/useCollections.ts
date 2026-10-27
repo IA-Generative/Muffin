@@ -684,6 +684,7 @@ interface EvaluationRunOut {
   // migration; a metric a run predates simply doesn't appear.
   metrics: Record<string, number> | null
   golden_metrics: Record<string, number> | null
+  golden_pass_rate: number | null
   has_artifacts: boolean
 }
 
@@ -728,6 +729,7 @@ async function refreshEvaluation(collectionId: string) {
       // and the metric names are their own keys, so the dicts pass through as-is.
       metrics: run.metrics,
       goldenMetrics: run.golden_metrics,
+      goldenPassRate: run.golden_pass_rate,
       hasArtifacts: run.has_artifacts,
     }))
   } catch {
