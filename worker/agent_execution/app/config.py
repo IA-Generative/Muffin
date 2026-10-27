@@ -41,6 +41,18 @@ class WorkerSettings(BaseSettings):
     # (#233) - each is one index query. Picks over this cap are reported back as unexplored so
     # the user can ask to go further.
     MAX_ROUTED_COLLECTIONS: int = 15
+    # Routing confidence: before searching, one probe over the chunks of the accessible collections
+    # (the best ROUTING_PROBE_RESULTS hits) says which collections the question lands in. A collection
+    # holding at least ROUTING_CLEAR_SHARE of the hits is the obvious one; one holding at least
+    # ROUTING_LEAN_SHARE and ROUTING_LEAN_RATIO times the next is a likely one; otherwise nothing
+    # dominates and the user is asked. ROUTING_PROBE_MAX_COLLECTIONS bounds the probe for a user with
+    # many collections (the description pre-filter keeps the closest).
+    ROUTING_PROBE_RESULTS: int = 30
+    ROUTING_PROBE_MAX_COLLECTIONS: int = 40
+    ROUTING_CLEAR_SHARE: float = 0.6
+    ROUTING_LEAN_SHARE: float = 0.4
+    ROUTING_LEAN_RATIO: float = 1.5
+    ROUTING_MAX_OPTIONS: int = 4
 
     # Delegating an edit of a living document to the editing agent (#171): how long the run waits
     # for it, and how often it asks the backend where it stands. The editing agent itself is

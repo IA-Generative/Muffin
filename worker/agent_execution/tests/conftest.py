@@ -43,6 +43,10 @@ class FakeBackend:
         self.event_data: list[tuple[str, dict[str, Any] | None]] = []
         self.activities: list[tuple[str, str]] = []  # [(node, activity), ...]
         self.searched_collection_ids: list[list[str]] = []
+        # [] by default - routing confidence is then "unknown" and routing goes on as it always did,
+        # unless a test seeds the probe's hits ({"collection_id", "rank"}) to make it clear or flat.
+        self.probe_hits: list[dict[str, Any]] = []
+        self.probed_collection_ids: list[list[str]] = []
         self.accessible_collections_groups_requested: list[list[str]] = []
         # [] by default - the vector pre-filter (§124) then falls back to every accessible VDB,
         # same as today's behaviour, unless a test seeds a scored subset here.
@@ -170,6 +174,10 @@ class FakeBackend:
     def search_collections(self, collection_ids: list[str], query: str, limit: int) -> list[dict[str, Any]]:
         self.collection_search_calls.append(collection_ids)
         return self.collection_search_hits
+
+    def probe_collections(self, collection_ids: list[str], query: str, limit: int) -> list[dict[str, Any]]:
+        self.probed_collection_ids.append(collection_ids)
+        return self.probe_hits
 
     def search(self, collection_ids: list[str], query: str, limit: int) -> list[dict[str, Any]]:
         self.searched_collection_ids.append(collection_ids)

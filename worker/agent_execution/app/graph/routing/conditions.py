@@ -51,6 +51,13 @@ def after_request_clarification(state: AgentState) -> str:
     return "end" if state.get("questions") else "decompose_query"
 
 
+def after_route_collections(state: AgentState):
+    """Routing found nothing dominant and asked (the run ends on the question), or the research carries on."""
+    if state.get("cancelled") or is_cancelled(state["run_id"]):
+        return "cancelled"
+    return "end" if state.get("questions") else execute_research_plan(state)
+
+
 def _ready_batch(state: AgentState) -> list:
     """Tasks currently runnable, capped by the parallelism and total-task budgets (§27/§28) - a
     dependency is never started before every task it depends on is in completed_task_ids."""

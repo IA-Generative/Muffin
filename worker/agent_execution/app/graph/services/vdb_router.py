@@ -41,7 +41,7 @@ class RoutingResult(NamedTuple):
     unexplored: list[dict[str, Any]]
 
 
-def _vector_prefilter(query: str, accessible_vdbs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def vector_prefilter(query: str, accessible_vdbs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Narrows a large accessible set down to `_VECTOR_PREFILTER_TOP_K` candidates by comparing
     the query's embedding to each collection's description embedding (§124) - never the security
     boundary itself (that's `accessible_vdbs`, already filtered by the backend), just a relevance
@@ -59,6 +59,56 @@ def _vector_prefilter(query: str, accessible_vdbs: list[dict[str, Any]]) -> list
         return accessible_vdbs
     kept_ids = {str(item["collection_id"]) for item in scored}
     return [v for v in accessible_vdbs if str(v["id"]) in kept_ids]
+
+
+class RoutingConfidence(NamedTuple):
+    # "clear": one collection holds the question. "lean": one is ahead but not by much. "flat": nothing
+    # dominates. "unknown": the probe found nothing (or failed) - routing carries on as it always did.
+    decision: str
+    # (collection, share of the probe's hits), best first - only the collections the probe found something in.
+    ranked: list[tuple[dict[str, Any], float]]
+
+
+def routing_confidence(query: str, accessible_vdbs: list[dict[str, Any]]) -> RoutingConfidence:
+    """How sure the routing can be of where the question lives (#233 follow-up): one hybrid search over
+    the chunks of the accessible collections, each collection scored by its share of the best hits - what
+    the collections actually hold, not what their description says. Like the rest of routing it can only
+    narrow `accessible_vdbs`, and any failure is "unknown" rather than an error."""
+    if len(accessible_vdbs) < 2:
+        return RoutingConfidence("unknown", [])
+    candidates = accessible_vdbs
+    if len(candidates) > settings.ROUTING_PROBE_MAX_COLLECTIONS:
+        candidates = vector_prefilter(query, candidates)[: settings.ROUTING_PROBE_MAX_COLLECTIONS]
+    try:
+        hits = backend_client.probe_collections(
+            [str(v["id"]) for v in candidates], query, settings.ROUTING_PROBE_RESULTS
+        )
+    except Exception:
+        logger.exception("Routing probe failed, routing without a confidence")
+        return RoutingConfidence("unknown", [])
+
+    by_id = {str(v["id"]): v for v in candidates}
+    mass: dict[str, float] = defaultdict(float)
+    for hit in hits:
+        collection_id = str(hit.get("collection_id"))
+        if collection_id in by_id:
+            mass[collection_id] += max(float(hit.get("rank") or 0.0), 0.0)
+    total = sum(mass.values())
+    if total <= 0:
+        return RoutingConfidence("unknown", [])
+
+    ranked = sorted(((by_id[i], m / total) for i, m in mass.items()), key=lambda item: item[1], reverse=True)
+    return RoutingConfidence(_decide([share for _vdb, share in ranked]), ranked)
+
+
+def _decide(shares: list[float]) -> str:
+    top = shares[0]
+    second = shares[1] if len(shares) > 1 else 0.0
+    if top >= settings.ROUTING_CLEAR_SHARE:
+        return "clear"
+    if top >= settings.ROUTING_LEAN_SHARE and top >= settings.ROUTING_LEAN_RATIO * second:
+        return "lean"
+    return "flat"
 
 
 def select_relevant_vdbs(
@@ -162,7 +212,7 @@ def _route(
 
     candidates = candidates_pool
     if len(candidates_pool) > _VECTOR_PREFILTER_THRESHOLD:
-        candidates = _vector_prefilter(query, candidates_pool)
+        candidates = vector_prefilter(query, candidates_pool)
         # A pinned collection the pre-filter dropped must still reach the LLM catalogue - it's
         # the user's explicit choice, not a relevance guess the pre-filter gets to override.
         missing_pinned = [v for v in pinned if v not in candidates]
