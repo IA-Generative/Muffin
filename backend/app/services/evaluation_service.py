@@ -4,7 +4,7 @@ import json
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,6 +34,11 @@ class CollectionNotFoundError(Exception):
 # and it cannot import worker code. Keep in sync with the worker's list
 # (worker/evaluation/app/promptfoo/create_tests.py's SCORED_METRICS).
 _SCORED_METRICS = ["context_faithfulness", "factuality"]
+
+# How long after dispatch a run_evaluation task may still be considered queued or running
+# (see EvaluationService.is_running) - generous for the longest realistic evaluation, short
+# enough that a stale task whose Celery result is gone never reads as "in progress" for ever.
+EVALUATION_RUNNING_WINDOW = timedelta(hours=1)
 
 
 def _evaluation_hash(
@@ -165,6 +170,12 @@ class EvaluationService:
         await self._get_accessible(collection_id, user)
         task = await self.tasks.latest_by_collection_and_name(collection_id, RUN_EVALUATION_TASK)
         if task is None:
+            return False
+        # Celery reports PENDING for a task id it no longer knows (its result expired, or the
+        # result backend was flushed) - indistinguishable from a task still waiting in the
+        # queue. A task older than this window can't still be queued or running, so it's not
+        # reported as such: without this, an old run would read as "in progress" for ever.
+        if task.created_at < datetime.now(UTC) - EVALUATION_RUNNING_WINDOW:
             return False
         # Redis is called off the event loop, same as TaskService.revoke.
         return await asyncio.to_thread(get_task_status, task.celery_task_id) in ACTIVE_TASK_STATES

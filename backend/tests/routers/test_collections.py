@@ -1,5 +1,6 @@
 import json
 import uuid
+from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
 import pytest
@@ -653,16 +654,19 @@ async def test_list_evaluations_for_unknown_collection_returns_404(client):
     assert response.status_code == 404
 
 
-async def _create_evaluation_task(collection_id: str, celery_task_id: str = "celery-eval-status") -> None:
+async def _create_evaluation_task(
+    collection_id: str, celery_task_id: str = "celery-eval-status", created_at: datetime | None = None
+) -> None:
+    task = Task(
+        celery_task_id=celery_task_id,
+        task_name="app.tasks.run_evaluation",
+        owner_id="dev-user",
+        collection_id=uuid.UUID(collection_id),
+    )
+    if created_at is not None:
+        task.created_at = created_at
     async with async_session_factory() as session:
-        session.add(
-            Task(
-                celery_task_id=celery_task_id,
-                task_name="app.tasks.run_evaluation",
-                owner_id="dev-user",
-                collection_id=uuid.UUID(collection_id),
-            )
-        )
+        session.add(task)
         await session.commit()
 
 
@@ -691,6 +695,19 @@ async def test_evaluation_status_is_false_once_the_task_finished(client):
     await _create_evaluation_task(collection_id)
 
     with patch("app.services.evaluation_service.get_task_status", return_value="SUCCESS"):
+        response = await client.get(f"/api/collections/{collection_id}/evaluations/status")
+
+    assert response.status_code == 200
+    assert response.json() == {"running": False}
+
+
+async def test_evaluation_status_is_false_for_a_stale_task(client):
+    # Celery reports PENDING for a task id it no longer knows (its result expired) - an old
+    # task must not read as "in progress" for ever, however Celery answers.
+    collection_id = (await client.post("/api/collections")).json()["id"]
+    await _create_evaluation_task(collection_id, created_at=datetime.now(UTC) - timedelta(days=5))
+
+    with patch("app.services.evaluation_service.get_task_status", return_value="PENDING"):
         response = await client.get(f"/api/collections/{collection_id}/evaluations/status")
 
     assert response.status_code == 200
