@@ -133,13 +133,6 @@ const goldenCount = computed(() => props.collection.qaPairs.filter((pair) => pai
           <button type="button" class="eval-tab__run-toggle" @click="toggleExpand(run.id)">
             <span class="eval-tab__run-header-text">
               <span class="eval-tab__run-date">{{ formatDate(run.runAt) }} · {{ run.pairCount }} paire(s) · k={{ run.k }}</span>
-              <span class="eval-tab__run-config">
-                {{ STRATEGY_LABEL[run.chunkingSnapshot.strategy] }}
-                <template v-if="run.chunkingSnapshot.strategy === 'paragraph' || run.chunkingSnapshot.strategy === 'fixed'">
-                  ({{ run.chunkingSnapshot.chunkSize }} tokens, chevauchement {{ run.chunkingSnapshot.chunkOverlap }})
-                </template>
-                · embedding {{ run.chunkingSnapshot.embeddingModel }} · juge {{ run.llmModel }}
-              </span>
             </span>
             <svg
               viewBox="0 0 24 24"
@@ -166,145 +159,155 @@ const goldenCount = computed(() => props.collection.qaPairs.filter((pair) => pai
           </button>
         </div>
 
-        <div v-if="run.goldenMetrics" class="eval-tab__group eval-tab__group--golden">
-          <p class="eval-tab__group-title">
-            Questions de test
-            <span class="eval-tab__group-count">{{ run.goldenPairCount }} question(s)</span>
+        <div v-if="expandedRunId === run.id" class="eval-tab__run-detail">
+          <p class="eval-tab__run-config">
+            {{ STRATEGY_LABEL[run.chunkingSnapshot.strategy] }}
+            <template v-if="run.chunkingSnapshot.strategy === 'paragraph' || run.chunkingSnapshot.strategy === 'fixed'">
+              ({{ run.chunkingSnapshot.chunkSize }} tokens, chevauchement {{ run.chunkingSnapshot.chunkOverlap }})
+            </template>
+            · embedding {{ run.chunkingSnapshot.embeddingModel }} · juge {{ run.llmModel }}
           </p>
-          <div class="eval-tab__metrics">
-            <!-- One card per metric the run actually scored - a metric it predates
-                 simply doesn't appear, never a misleading 0 -->
-            <div
-              v-for="key in orderedMetricKeys(Object.keys(run.goldenMetrics))"
-              :key="key"
-              class="eval-tab__metric"
-            >
-              <span class="eval-tab__metric-value">{{ formatScore(run.goldenMetrics[key]) }}</span>
-              <span class="eval-tab__metric-label">{{ metricLabel(key) }} (juge)</span>
-            </div>
-          </div>
-          <p v-if="run.goldenPairCount < GOLDEN_RELIABLE_COUNT" class="eval-tab__group-note">
-            Seulement {{ run.goldenPairCount }} question(s) : une variation de score d'un test à l'autre peut
-            n'être que du bruit.
-          </p>
-        </div>
 
-        <div v-if="run.metrics" class="eval-tab__group">
-          <p class="eval-tab__group-title">
-            Questions générées et de référence
-            <span class="eval-tab__group-count">
-              {{ run.validatedPairCount }} validée(s) · {{ run.unvalidatedPairCount }} non validée(s)
-            </span>
-          </p>
-          <div class="eval-tab__metrics">
-            <div
-              v-for="key in orderedMetricKeys(Object.keys(run.metrics))"
-              :key="key"
-              class="eval-tab__metric"
-            >
-              <span class="eval-tab__metric-value">{{ formatScore(run.metrics[key]) }}</span>
-              <span class="eval-tab__metric-label">{{ metricLabel(key) }} (juge)</span>
-            </div>
-          </div>
-        </div>
-
-        <div v-if="run.hasArtifacts" class="eval-tab__artifacts">
-          <a
-            class="fr-btn fr-btn--sm fr-btn--tertiary"
-            :href="`${API_BASE_URL}/api/collections/${collection.id}/evaluations/${run.id}/report`"
-            target="_blank"
-            rel="noopener"
-          >
-            Ouvrir le rapport détaillé dans un onglet
-          </a>
-          <div class="eval-tab__download">
-            <button
-              type="button"
-              class="fr-btn fr-btn--sm fr-btn--tertiary eval-tab__download-btn"
-              :aria-expanded="downloadMenuRunId === run.id"
-              aria-haspopup="menu"
-              @click="toggleDownloadMenu(run.id)"
-            >
-              Télécharger le rapport
-              <svg
-                viewBox="0 0 24 24"
-                width="14"
-                height="14"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.5"
-                :style="{ transform: downloadMenuRunId === run.id ? 'rotate(180deg)' : 'none' }"
-                aria-hidden="true"
-              >
-                <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
-              </svg>
-            </button>
-            <div v-if="downloadMenuRunId === run.id" class="eval-tab__download-menu" role="menu">
-              <a
-                class="eval-tab__download-item"
-                role="menuitem"
-                :href="`${API_BASE_URL}/api/collections/${collection.id}/evaluations/${run.id}/report?download=1`"
-                download
-                @click="downloadMenuRunId = undefined"
-              >
-                Rapport HTML
-              </a>
-              <a
-                class="eval-tab__download-item"
-                role="menuitem"
-                :href="`${API_BASE_URL}/api/collections/${collection.id}/evaluations/${run.id}/results.json`"
-                download
-                @click="downloadMenuRunId = undefined"
-              >
-                Rapport JSON
-              </a>
-            </div>
-          </div>
-        </div>
-
-        <div v-if="expandedRunId === run.id" class="eval-tab__results">
-          <p v-if="loadingRunId === run.id" class="eval-tab__empty">Chargement des résultats…</p>
-          <template v-else>
-            <div v-for="result in resultsByRunId[run.id]" :key="result.qaPairId" class="eval-tab__result">
-              <p class="eval-tab__result-question">
-                <span v-if="result.golden" class="eval-tab__badge">Test</span>
-                <span v-else-if="result.validated" class="eval-tab__badge eval-tab__badge--validated">Validée</span>
-                {{ result.question }}
-              </p>
-
-              <div class="eval-tab__result-answers">
-                <div>
-                  <span class="eval-tab__label">Réponse attendue</span>
-                  <p>{{ result.expectedAnswer }}</p>
-                </div>
-                <div>
-                  <span class="eval-tab__label">Réponse générée</span>
-                  <p>{{ result.generatedAnswer }}</p>
-                </div>
-              </div>
-
-              <div class="eval-tab__result-sources">
-                <span class="eval-tab__label">Sources récupérées</span>
-                <span v-for="source in result.retrievedSources" :key="source" class="eval-tab__chip">
-                  {{ source }}
-                </span>
-              </div>
-
-              <div class="eval-tab__result-metrics">
-                <!-- One line per metric the judge scored for this pair - a metric it
-                     errored on writes no entry -->
-                <span v-for="[key, score] in Object.entries(result.namedScores)" :key="key">
-                  {{ metricLabel(key) }} {{ formatScore(score) }}
-                </span>
-                <span v-if="!Object.keys(result.namedScores).length" class="eval-tab__judge-error">
-                  Juge en erreur sur cette paire
-                </span>
-              </div>
-            </div>
-            <p v-if="!resultsByRunId[run.id]?.length" class="eval-tab__empty">
-              Aucun résultat détaillé pour cette évaluation.
+          <div v-if="run.goldenMetrics" class="eval-tab__group eval-tab__group--golden">
+            <p class="eval-tab__group-title">
+              Questions de test
+              <span class="eval-tab__group-count">{{ run.goldenPairCount }} question(s)</span>
             </p>
-          </template>
+            <div class="eval-tab__metrics">
+              <!-- One card per metric the run actually scored - a metric it predates
+                   simply doesn't appear, never a misleading 0 -->
+              <div
+                v-for="key in orderedMetricKeys(Object.keys(run.goldenMetrics))"
+                :key="key"
+                class="eval-tab__metric"
+              >
+                <span class="eval-tab__metric-value">{{ formatScore(run.goldenMetrics[key]) }}</span>
+                <span class="eval-tab__metric-label">{{ metricLabel(key) }} (juge)</span>
+              </div>
+            </div>
+            <p v-if="run.goldenPairCount < GOLDEN_RELIABLE_COUNT" class="eval-tab__group-note">
+              Seulement {{ run.goldenPairCount }} question(s) : une variation de score d'un test à l'autre peut
+              n'être que du bruit.
+            </p>
+          </div>
+
+          <div v-if="run.metrics" class="eval-tab__group">
+            <p class="eval-tab__group-title">
+              Questions générées et de référence
+              <span class="eval-tab__group-count">
+                {{ run.validatedPairCount }} validée(s) · {{ run.unvalidatedPairCount }} non validée(s)
+              </span>
+            </p>
+            <div class="eval-tab__metrics">
+              <div
+                v-for="key in orderedMetricKeys(Object.keys(run.metrics))"
+                :key="key"
+                class="eval-tab__metric"
+              >
+                <span class="eval-tab__metric-value">{{ formatScore(run.metrics[key]) }}</span>
+                <span class="eval-tab__metric-label">{{ metricLabel(key) }} (juge)</span>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="run.hasArtifacts" class="eval-tab__artifacts">
+            <a
+              class="fr-btn fr-btn--sm fr-btn--tertiary"
+              :href="`${API_BASE_URL}/api/collections/${collection.id}/evaluations/${run.id}/report`"
+              target="_blank"
+              rel="noopener"
+            >
+              Ouvrir le rapport détaillé dans un onglet
+            </a>
+            <div class="eval-tab__download">
+              <button
+                type="button"
+                class="fr-btn fr-btn--sm fr-btn--tertiary eval-tab__download-btn"
+                :aria-expanded="downloadMenuRunId === run.id"
+                aria-haspopup="menu"
+                @click="toggleDownloadMenu(run.id)"
+              >
+                Télécharger le rapport
+                <svg
+                  viewBox="0 0 24 24"
+                  width="14"
+                  height="14"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  :style="{ transform: downloadMenuRunId === run.id ? 'rotate(180deg)' : 'none' }"
+                  aria-hidden="true"
+                >
+                  <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+                </svg>
+              </button>
+              <div v-if="downloadMenuRunId === run.id" class="eval-tab__download-menu" role="menu">
+                <a
+                  class="eval-tab__download-item"
+                  role="menuitem"
+                  :href="`${API_BASE_URL}/api/collections/${collection.id}/evaluations/${run.id}/report?download=1`"
+                  download
+                  @click="downloadMenuRunId = undefined"
+                >
+                  Rapport HTML
+                </a>
+                <a
+                  class="eval-tab__download-item"
+                  role="menuitem"
+                  :href="`${API_BASE_URL}/api/collections/${collection.id}/evaluations/${run.id}/results.json`"
+                  download
+                  @click="downloadMenuRunId = undefined"
+                >
+                  Rapport JSON
+                </a>
+              </div>
+            </div>
+          </div>
+
+          <div class="eval-tab__results">
+            <p v-if="loadingRunId === run.id" class="eval-tab__empty">Chargement des résultats…</p>
+            <template v-else>
+              <div v-for="result in resultsByRunId[run.id]" :key="result.qaPairId" class="eval-tab__result">
+                <p class="eval-tab__result-question">
+                  <span v-if="result.golden" class="eval-tab__badge">Test</span>
+                  <span v-else-if="result.validated" class="eval-tab__badge eval-tab__badge--validated">Validée</span>
+                  {{ result.question }}
+                </p>
+
+                <div class="eval-tab__result-answers">
+                  <div>
+                    <span class="eval-tab__label">Réponse attendue</span>
+                    <p>{{ result.expectedAnswer }}</p>
+                  </div>
+                  <div>
+                    <span class="eval-tab__label">Réponse générée</span>
+                    <p>{{ result.generatedAnswer }}</p>
+                  </div>
+                </div>
+
+                <div class="eval-tab__result-sources">
+                  <span class="eval-tab__label">Sources récupérées</span>
+                  <span v-for="source in result.retrievedSources" :key="source" class="eval-tab__chip">
+                    {{ source }}
+                  </span>
+                </div>
+
+                <div class="eval-tab__result-metrics">
+                  <!-- One line per metric the judge scored for this pair - a metric it
+                       errored on writes no entry -->
+                  <span v-for="[key, score] in Object.entries(result.namedScores)" :key="key">
+                    {{ metricLabel(key) }} {{ formatScore(score) }}
+                  </span>
+                  <span v-if="!Object.keys(result.namedScores).length" class="eval-tab__judge-error">
+                    Juge en erreur sur cette paire
+                  </span>
+                </div>
+              </div>
+              <p v-if="!resultsByRunId[run.id]?.length" class="eval-tab__empty">
+                Aucun résultat détaillé pour cette évaluation.
+              </p>
+            </template>
+          </div>
         </div>
       </li>
     </ul>
@@ -397,12 +400,22 @@ const goldenCount = computed(() => props.collection.qaPairs.filter((pair) => pai
 }
 
 .eval-tab__run-config {
+  margin: 0;
   font-size: 0.75rem;
   color: var(--text-mention-grey);
 }
 
+.eval-tab__run-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 0.875rem;
+  padding-top: 0.875rem;
+  border-top: 1px solid var(--border-default-grey);
+}
+
 .eval-tab__group {
-  margin-top: 0.75rem;
+  margin: 0;
 }
 
 .eval-tab__group--golden {
@@ -470,7 +483,6 @@ const goldenCount = computed(() => props.collection.qaPairs.filter((pair) => pai
   display: flex;
   align-items: center;
   gap: 1.25rem;
-  margin-top: 0.75rem;
   font-size: 0.8125rem;
 }
 
@@ -514,7 +526,6 @@ const goldenCount = computed(() => props.collection.qaPairs.filter((pair) => pai
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  margin-top: 1rem;
 }
 
 .eval-tab__result {
