@@ -103,5 +103,10 @@ class BackendClient:
         response = self._client.post("/api/internal/task-logs", json={"entries": lines}, timeout=5.0)
         response.raise_for_status()
 
+    def add_execution_metric(self, metric: dict) -> None:
+        """A short timeout: it is sent from a thread of its own and dropped if it fails, a task never waits on it."""
+        response = self._client.post("/api/internal/execution-metrics", json=metric, timeout=5.0)
+        response.raise_for_status()
+
 
 backend_client = BackendClient()
