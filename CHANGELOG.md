@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.32.0](https://github.com/IA-Generative/Muffin/compare/v0.31.1...v0.32.0) (2026-10-27)
+
+
+### Features
+
+* **agent:** ask which collection to search when none stands out ([b7b71af](https://github.com/IA-Generative/Muffin/commit/b7b71af5b226d192a5c51f1e4cab4ee119c8fa7c))
+* **agent:** stream the answer to the chat while it is being written ([1ded1e0](https://github.com/IA-Generative/Muffin/commit/1ded1e0faa255fef770b0949867c8f7b232fba31))
+* **frontend:** picture the estimated energy as the time of a LED bulb and as AA batteries ([8b5c38b](https://github.com/IA-Generative/Muffin/commit/8b5c38b74d1ad0cfacf594f9a342711954ac29f8))
+* **frontend:** show the time, CPU, memory and estimated energy of the tasks in the usage page ([cb16625](https://github.com/IA-Generative/Muffin/commit/cb16625cd1d8f8d0eee582cf9c144cc60a79d50c))
+* **frontend:** usage page with water and energy side by side, tabs, and a charging phone battery ([ccad415](https://github.com/IA-Generative/Muffin/commit/ccad4156bdc55bd9299fa76629938d4557c10a3b))
+* **usage:** record the time, CPU and memory of the worker tasks and the agent's steps ([84f3c37](https://github.com/IA-Generative/Muffin/commit/84f3c373351ecb706f14eb6df8f7f926ad7a95f9))
+* **workers:** report the time, CPU and memory of each task, and of each step of the agent ([41fab90](https://github.com/IA-Generative/Muffin/commit/41fab90f2a15bb938b372cb942427f603d7d9a60))
+
+
+### Bug Fixes
+
+* **agent:** ask the user what they meant instead of replanning when the results are not enough ([cd6adbc](https://github.com/IA-Generative/Muffin/commit/cd6adbca73310a91362996e85c86af5831d9c995))
+
 ## [0.32.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.31.1...v0.32.0-rc) (2026-10-27)
 
 
