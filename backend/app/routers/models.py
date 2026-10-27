@@ -68,7 +68,10 @@ async def _list_models(cache_key: str, probe: Callable[[str], Awaitable[bool]]) 
         model_ids = json.loads(cached)
     else:
         model_ids = await _discover_models(probe)
-        redis_connector.client.set(cache_key, json.dumps(model_ids), ex=_llm_settings.CHAT_MODELS_CACHE_TTL_SECONDS)
+        # An empty result means the hub is unreachable or misconfigured, not that it has no
+        # models: caching it would break every caller for the whole TTL. Re-probe instead.
+        if model_ids:
+            redis_connector.client.set(cache_key, json.dumps(model_ids), ex=_llm_settings.CHAT_MODELS_CACHE_TTL_SECONDS)
 
     return LlmModelsResponse(models=[LlmModel(id=model_id) for model_id in model_ids])
 

@@ -61,6 +61,22 @@ def test_list_models_uses_cache_without_calling_the_hub(client, monkeypatch):
     fake_client.models.list.assert_not_called()
 
 
+def test_list_models_does_not_cache_an_empty_result(client, monkeypatch):
+    # An empty discovery means the hub is unreachable or misconfigured, not that it has no
+    # models: caching it would break every caller for the whole TTL.
+    fake_client = _fake_openai_client(all_ids=["gpt-4o"], chat_capable_ids=set())
+    monkeypatch.setattr(models_router, "_openai_client", fake_client)
+
+    with patch("app.routers.models.redis_connector") as mock_redis:
+        mock_redis.client.get.return_value = None
+
+        response = client.get("/api/models")
+
+    assert response.status_code == 200
+    assert response.json()["models"] == []
+    mock_redis.client.set.assert_not_called()
+
+
 def test_list_models_returns_503_when_llm_hub_is_not_configured(client, monkeypatch):
     monkeypatch.setattr(models_router, "_openai_client", None)
 

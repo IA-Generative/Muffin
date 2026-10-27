@@ -79,7 +79,11 @@ async def _discover_models(cache_key: str, probe) -> list[str]:  # noqa: ANN001
     candidate_ids = [model.id for model in available.data]
     supported = await asyncio.gather(*(probe(model_id) for model_id in candidate_ids))
     model_ids = sorted(model_id for model_id, ok in zip(candidate_ids, supported, strict=True) if ok)
-    redis_connector.client.set(cache_key, json.dumps(model_ids), ex=_llm_settings.CHAT_MODELS_CACHE_TTL_SECONDS)
+    # An empty result means the hub is unreachable or misconfigured, not that it has no models:
+    # caching it would break every caller for the whole TTL (a transient probe failure once left
+    # the default chat model null for an hour, silently skipping every evaluation). Re-probe.
+    if model_ids:
+        redis_connector.client.set(cache_key, json.dumps(model_ids), ex=_llm_settings.CHAT_MODELS_CACHE_TTL_SECONDS)
     return model_ids
 
 

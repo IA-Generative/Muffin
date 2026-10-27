@@ -121,6 +121,22 @@ async def test_default_chat_model_uses_cache(client, monkeypatch):
     fake_client.models.list.assert_not_called()
 
 
+async def test_default_chat_model_does_not_cache_an_empty_result(client, monkeypatch):
+    # An empty discovery means the hub is unreachable or misconfigured, not that it has no
+    # models: caching it would leave the default chat model null for the whole TTL, silently
+    # skipping every evaluation that falls back to it.
+    fake_client = _fake_openai_client(["gpt-4o"], chat_capable_ids=set())
+    monkeypatch.setattr(internal_llm, "_openai_client", fake_client)
+
+    with patch("app.routers.internal_llm.redis_connector") as mock_redis:
+        mock_redis.client.get.return_value = None
+        response = await client.get("/api/internal/llm/default-chat-model", headers=_headers())
+
+    assert response.status_code == 200
+    assert response.json() == {"model": None}
+    mock_redis.client.set.assert_not_called()
+
+
 async def test_default_chat_model_returns_none_when_not_configured(client, monkeypatch):
     monkeypatch.setattr(internal_llm, "_openai_client", None)
     response = await client.get("/api/internal/llm/default-chat-model", headers=_headers())
