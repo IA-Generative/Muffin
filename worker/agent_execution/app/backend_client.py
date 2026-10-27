@@ -201,6 +201,11 @@ class BackendClient:
         response.raise_for_status()
         return response.json()
 
+    def probe_collections(self, collection_ids: list[str], query: str, limit: int) -> list[dict[str, Any]]:
+        """The same chunk search as `search`, used to see which collections a question lands in
+        (routing confidence) rather than to read what it finds - kept apart so the two are never mixed up."""
+        return self.search(collection_ids, query, limit)
+
     def search_qa(self, collection_ids: list[str], query: str, limit: int) -> list[dict[str, Any]]:
         response = self._client.post(
             "/api/internal/qa-search",
