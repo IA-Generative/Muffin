@@ -37,6 +37,14 @@ const { toasts, dismissToast } = useToast()
   max-width: min(26rem, calc(100vw - 2rem));
 }
 
+/* DSFR alerts draw only their borders (the fill gradient is neutralised by the
+   background-size list), so on a floating toast the page shows through. Give it
+   an opaque background and a shadow to lift it off the content. */
+.toast-host .fr-alert {
+  background-color: var(--background-default-grey);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
 .toast-enter-active,
 .toast-leave-active {
   transition:
