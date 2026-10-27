@@ -1,76 +1,73 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, useId, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
 import {
-  AA_BATTERY_WH,
   LED_BULB_WATTS,
-  batteryCount,
+  PHONE_BATTERY_WH,
   bulbSeconds,
   formatDuration,
+  foldFull,
   formatEnergy,
-} from "../../utils/execution";
+  phoneCharges,
+} from '../../utils/execution'
 
 const props = defineProps<{
-  energyWh: number;
-  period: string;
-}>();
+  energyWh: number
+  period: string
+}>()
 
-const MAX_BATTERIES = 10;
+const MAX_BATTERIES = 6
 
-// Inside the battery (viewBox 0 0 30 80): the charge goes from the bottom of the body to its top.
-const BODY = { x: 3, y: 8, width: 24, height: 68, radius: 4 };
+// Inside a battery (viewBox 0 0 60 28): the charge fills the track from the left.
+const TRACK = { x: 3.5, y: 3.5, width: 45, height: 21, radius: 5.5 }
+const SHINE_WIDTH = 16
 
-const clipId = useId();
-const reducedMotion = window.matchMedia(
-  "(prefers-reduced-motion: reduce)",
-).matches;
+const clipId = useId()
+const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
-const count = computed(() => batteryCount(props.energyWh));
-const total = computed(() => Math.max(1, Math.ceil(count.value)));
-const levels = computed(() =>
-  Array.from({ length: Math.min(total.value, MAX_BATTERIES) }, (_, index) =>
-    Math.min(1, Math.max(0, count.value - index)),
-  ),
-);
-const hidden = computed(() => total.value - levels.value.length);
+const charges = computed(() => phoneCharges(props.energyWh))
+const total = computed(() => Math.max(1, Math.ceil(charges.value)))
+const fold = computed(() => foldFull(total.value, MAX_BATTERIES))
 
-// The figure counts up and the batteries charge from empty, replayed whenever the energy changes.
-const shownSeconds = ref(0);
-const charged = ref(false);
-let frame = 0;
+// The figures count up and the batteries charge one after the other, replayed whenever the energy changes.
+const progress = ref(0)
+let frame = 0
 
 function animate() {
-  cancelAnimationFrame(frame);
-  charged.value = false;
-  const target = bulbSeconds(props.energyWh);
+  cancelAnimationFrame(frame)
   if (reducedMotion) {
-    shownSeconds.value = target;
-    charged.value = true;
-    return;
+    progress.value = 1
+    return
   }
-  const start = performance.now();
+  progress.value = 0
+  const start = performance.now()
   frame = requestAnimationFrame(function tick(now) {
-    charged.value = true;
-    const progress = Math.min(1, (now - start) / 1600);
-    shownSeconds.value = target * (1 - (1 - progress) ** 3);
-    if (progress < 1) frame = requestAnimationFrame(tick);
-  });
+    const elapsed = Math.min(1, (now - start) / 2000)
+    progress.value = 1 - (1 - elapsed) ** 3
+    if (elapsed < 1) frame = requestAnimationFrame(tick)
+  })
 }
 
-onMounted(animate);
-watch(() => props.energyWh, animate);
-onBeforeUnmount(() => cancelAnimationFrame(frame));
+onMounted(animate)
+watch(() => props.energyWh, animate)
+onBeforeUnmount(() => cancelAnimationFrame(frame))
 
-function chargeOffset(level: number) {
-  return charged.value ? BODY.height * (1 - level) : BODY.height;
-}
+const shownSeconds = computed(() => bulbSeconds(props.energyWh) * progress.value)
+// The batteries drawn are the last ones, so the one still filling is always seen; the full ones before them
+// are a count, that grows as the charge goes by.
+const levels = computed(() =>
+  Array.from({ length: fold.value.shown }, (_, index) =>
+    Math.min(1, Math.max(0, charges.value * progress.value - (fold.value.folded + index))),
+  ),
+)
+const foldedFull = computed(() => Math.min(fold.value.folded, Math.floor(charges.value * progress.value)))
+const percent = (level: number) => `${Math.round(level * 100)} %`
 
-const batteriesLabel = computed(() => {
-  const value = count.value;
+const chargesLabel = computed(() => {
+  const value = charges.value
   if (value < 1)
-    return `${(value * 100).toLocaleString("fr-FR", { maximumFractionDigits: 1 })} % d’une pile AA`;
-  const full = Math.floor(value);
-  return `soit ${value.toLocaleString("fr-FR", { maximumFractionDigits: 1 })} pile${value >= 2 ? "s" : ""} AA (${full.toLocaleString("fr-FR")} pleine${full >= 2 ? "s" : ""})`;
-});
+    return `${(value * 100).toLocaleString('fr-FR', { maximumFractionDigits: 0 })} % d’une batterie de smartphone`
+  return `soit ${value.toLocaleString('fr-FR', { maximumFractionDigits: 1 })} charges de smartphone`
+})
 </script>
 
 <template>
@@ -79,88 +76,89 @@ const batteriesLabel = computed(() => {
     <div class="energy__body">
       <div class="energy__figure">
         <span class="energy__bulb-line">
-          <svg viewBox="0 0 24 32" class="energy__bulb" aria-hidden="true">
+          <svg viewBox="-4 -5 32 39" class="energy__bulb" aria-hidden="true">
+            <g class="energy__rays">
+              <path d="M12 -3.5V-0.5M3 -0.5L1 -2.5M21 -0.5L23 -2.5M0.5 9H-2.5M23.5 9H26.5" />
+            </g>
             <path
               d="M12 2a8 8 0 0 0-4.5 14.6c.9.7 1.5 1.7 1.5 2.9V21h6v-1.5c0-1.2.6-2.2 1.5-2.9A8 8 0 0 0 12 2Z"
               class="energy__bulb-glass"
             />
             <path d="M9 24h6M10 27.5h4" class="energy__bulb-base" />
           </svg>
-          <span
-            class="energy__time"
-            :aria-label="formatDuration(bulbSeconds(energyWh))"
-          >
+          <span class="energy__time" :aria-label="formatDuration(bulbSeconds(energyWh))">
             {{ formatDuration(shownSeconds) }}
           </span>
         </span>
-        <span class="energy__caption"
-          >d’une ampoule LED de {{ LED_BULB_WATTS }} W allumée</span
-        >
-        <span class="energy__caption">{{ batteriesLabel }}</span>
+        <span class="energy__caption">d’une ampoule LED de {{ LED_BULB_WATTS }} W allumée</span>
+        <span class="energy__caption">{{ chargesLabel }}</span>
       </div>
       <div
         class="energy__batteries"
         role="img"
-        :aria-label="`${formatEnergy(energyWh)}, soit ${count.toLocaleString('fr-FR', { maximumFractionDigits: 1 })} pile AA`"
+        :aria-label="`${formatEnergy(energyWh)}, soit ${charges.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} charge de smartphone`"
       >
-        <svg
-          v-for="(level, index) in levels"
-          :key="index"
-          viewBox="0 0 30 80"
-          class="energy__battery"
-          aria-hidden="true"
-        >
-          <defs>
-            <clipPath :id="`${clipId}-${index}`">
-              <rect
-                :x="BODY.x"
-                :y="BODY.y"
-                :width="BODY.width"
-                :height="BODY.height"
-                :rx="BODY.radius"
-              />
-            </clipPath>
-          </defs>
-          <g :clip-path="`url(#${clipId}-${index})`">
+        <span v-if="fold.folded > 0" class="energy__more">
+          {{ foldedFull.toLocaleString('fr-FR') }} batteries pleines
+        </span>
+        <div v-for="(level, index) in levels" :key="index" class="energy__phone">
+          <svg viewBox="0 0 60 28" class="energy__battery" aria-hidden="true">
+            <defs>
+              <clipPath :id="`${clipId}-${index}`">
+                <rect :x="TRACK.x" :y="TRACK.y" :width="TRACK.width" :height="TRACK.height" :rx="TRACK.radius" />
+              </clipPath>
+              <linearGradient :id="`${clipId}-shine`" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0" stop-color="#fff" stop-opacity="0" />
+                <stop offset="0.5" stop-color="#fff" stop-opacity="0.55" />
+                <stop offset="1" stop-color="#fff" stop-opacity="0" />
+              </linearGradient>
+            </defs>
+            <rect x="1" y="1" width="50" height="26" rx="8" class="energy__outline" />
+            <rect x="53.5" y="9.5" width="4" height="9" rx="2" class="energy__nub" />
             <rect
-              :x="BODY.x"
-              :y="BODY.y"
-              :width="BODY.width"
-              :height="BODY.height"
-              class="energy__charge"
-              :style="{
-                transform: `translateY(${chargeOffset(level)}px)`,
-                transitionDelay: `${index * 140}ms`,
-              }"
+              :x="TRACK.x"
+              :y="TRACK.y"
+              :width="TRACK.width"
+              :height="TRACK.height"
+              :rx="TRACK.radius"
+              class="energy__track"
             />
-          </g>
-          <rect
-            :x="BODY.x"
-            :y="BODY.y"
-            :width="BODY.width"
-            :height="BODY.height"
-            :rx="BODY.radius"
-            class="energy__outline"
-          />
-          <rect
-            x="10"
-            y="2"
-            width="10"
-            height="6"
-            rx="1.5"
-            class="energy__terminal"
-          />
-        </svg>
-        <span v-if="hidden > 0" class="energy__more"
-          >+ {{ hidden.toLocaleString("fr-FR") }}</span
-        >
+            <g :clip-path="`url(#${clipId}-${index})`">
+              <rect
+                :x="TRACK.x"
+                :y="TRACK.y"
+                :width="TRACK.width * level"
+                :height="TRACK.height"
+                class="energy__charge"
+              />
+              <svg
+                :x="TRACK.x"
+                :y="TRACK.y"
+                :width="TRACK.width * level"
+                :height="TRACK.height"
+                class="energy__shine-clip"
+              >
+                <rect
+                  x="0"
+                  y="0"
+                  :width="SHINE_WIDTH"
+                  :height="TRACK.height"
+                  :fill="`url(#${clipId}-shine)`"
+                  class="energy__shine"
+                  :style="{ animationDelay: `${index * 250}ms` }"
+                />
+              </svg>
+            </g>
+            <path v-if="level > 0 && level < 1" d="M31 5 24 15.5h4.5L27 23l7-10.5h-4.5z" class="energy__bolt" />
+          </svg>
+          <span class="energy__percent">{{ percent(level) }}</span>
+        </div>
       </div>
     </div>
     <p class="energy__note">
-      Pour se représenter {{ formatEnergy(energyWh) }} (estimation, voir plus
-      bas) : une ampoule LED de {{ LED_BULB_WATTS }} W, ou une pile alcaline AA
-      de {{ AA_BATTERY_WH.toLocaleString("fr-FR") }} Wh. Des ordres de grandeur,
-      pas des mesures.
+      Pour se représenter {{ formatEnergy(energyWh) }} (une estimation) : une ampoule LED de {{ LED_BULB_WATTS }} W, ou
+      la batterie d’un smartphone de {{ PHONE_BATTERY_WH.toLocaleString('fr-FR') }} Wh. Des ordres de grandeur, pas des
+      mesures.
     </p>
   </section>
 </template>
@@ -200,13 +198,23 @@ const batteriesLabel = computed(() => {
 }
 
 .energy__bulb {
-  width: 1.5rem;
-  height: 2rem;
+  width: 2rem;
+  height: 2.4rem;
+  overflow: visible;
 }
 
 .energy__bulb-glass {
-  fill: var(--background-action-high-blue-france);
-  opacity: 0.8;
+  fill: #fcc63a;
+  filter: drop-shadow(0 0 6px rgb(252 198 58 / 0.85));
+  animation: energy-flicker 3.2s linear infinite;
+}
+
+.energy__rays {
+  fill: none;
+  stroke: #fcc63a;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  animation: energy-flicker 3.2s linear infinite;
 }
 
 .energy__bulb-base {
@@ -236,35 +244,130 @@ const batteriesLabel = computed(() => {
 .energy__batteries {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 0.375rem;
+  align-items: center;
+  gap: 0.5rem 1rem;
+}
+
+.energy__phone {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .energy__battery {
   flex-shrink: 0;
-  width: 1.875rem;
-  height: 5rem;
+  width: 4.5rem;
+  height: 2.1rem;
 }
 
-.energy__charge {
-  fill: var(--background-action-high-blue-france);
-  opacity: 0.8;
-  transition: transform 1600ms cubic-bezier(0.22, 1, 0.36, 1);
+.energy__percent {
+  min-width: 3rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 .energy__outline {
   fill: none;
   stroke: var(--text-mention-grey);
+  stroke-opacity: 0.55;
   stroke-width: 1.5;
 }
 
-.energy__terminal {
+.energy__nub {
   fill: var(--text-mention-grey);
+  fill-opacity: 0.55;
+}
+
+.energy__track {
+  fill: var(--text-mention-grey);
+  fill-opacity: 0.18;
+}
+
+.energy__charge {
+  fill: #34c759;
+}
+
+.energy__shine-clip {
+  overflow: hidden;
+}
+
+/* The light sweeping along the charge, as on a phone that is plugged in. */
+.energy__shine {
+  animation: energy-sweep 1.9s ease-in-out infinite;
+}
+
+.energy__bolt {
+  fill: #fff;
+  stroke: rgb(0 0 0 / 0.35);
+  stroke-width: 0.8;
+  stroke-linejoin: round;
+  animation: energy-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes energy-sweep {
+  from {
+    transform: translateX(-16px);
+  }
+
+  to {
+    transform: translateX(46px);
+  }
+}
+
+@keyframes energy-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/* A bulb that is not quite steady: mostly on, with brief dips. */
+@keyframes energy-flicker {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  8% {
+    opacity: 0.8;
+  }
+
+  10% {
+    opacity: 1;
+  }
+
+  41% {
+    opacity: 0.9;
+  }
+
+  43% {
+    opacity: 0.6;
+  }
+
+  45% {
+    opacity: 1;
+  }
+
+  72% {
+    opacity: 0.85;
+  }
+
+  74% {
+    opacity: 1;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .energy__charge {
-    transition: none;
+  .energy__bulb-glass,
+  .energy__rays,
+  .energy__shine,
+  .energy__bolt {
+    animation: none;
   }
 }
 </style>

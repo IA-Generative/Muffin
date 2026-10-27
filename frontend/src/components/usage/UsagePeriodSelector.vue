@@ -1,8 +1,8 @@
 <script setup lang="ts">
 // 365 days is the longest period the API gives.
-const PERIODS = [7, 30, 90, 365] as const;
+const PERIODS = [7, 30, 90, 365] as const
 
-const days = defineModel<number>({ required: true });
+const days = defineModel<number>({ required: true })
 </script>
 
 <template>
@@ -16,7 +16,7 @@ const days = defineModel<number>({ required: true });
       :aria-pressed="days === period"
       @click="days = period"
     >
-      {{ period === 365 ? "1 an" : `${period} jours` }}
+      {{ period === 365 ? '1 an' : `${period} jours` }}
     </button>
   </div>
 </template>
