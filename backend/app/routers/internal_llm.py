@@ -1,4 +1,3 @@
-import asyncio
 import json
 from collections.abc import AsyncIterator
 from typing import Annotated
@@ -71,20 +70,25 @@ async def _supports_embeddings(model_id: str) -> bool:
         return False
 
 
-async def _discover_models(cache_key: str, probe) -> list[str]:  # noqa: ANN001
+async def _first_supported_model(cache_key: str, probe) -> str | None:  # noqa: ANN001
+    """The alphabetically-first model the hub reports that supports the capability - what a
+    pipeline step with no model configured for it falls back to, so processing works out of the
+    box instead of silently skipping that step.
+
+    Reads the shared discovery cache (populated by the models router for the UI) when it is warm;
+    otherwise probes the hub's models in order and stops at the first success. Probing only until
+    the first - rather than sweeping every model at once - is what keeps this off the hub's rate
+    limiter: the callers here only ever want the first model, never the whole list (the UI's
+    /models route does that, with its own full discovery)."""
     cached = redis_connector.client.get(cache_key)
     if cached is not None:
-        return json.loads(cached)
+        model_ids = json.loads(cached)
+        return model_ids[0] if model_ids else None
     available = await _openai_client.models.list()
-    candidate_ids = [model.id for model in available.data]
-    supported = await asyncio.gather(*(probe(model_id) for model_id in candidate_ids))
-    model_ids = sorted(model_id for model_id, ok in zip(candidate_ids, supported, strict=True) if ok)
-    # An empty result means the hub is unreachable or misconfigured, not that it has no models:
-    # caching it would break every caller for the whole TTL (a transient probe failure once left
-    # the default chat model null for an hour, silently skipping every evaluation). Re-probe.
-    if model_ids:
-        redis_connector.client.set(cache_key, json.dumps(model_ids), ex=_llm_settings.CHAT_MODELS_CACHE_TTL_SECONDS)
-    return model_ids
+    for model_id in sorted(model.id for model in available.data):
+        if await probe(model_id):
+            return model_id
+    return None
 
 
 async def _default_chat_model() -> str | None:
@@ -93,8 +97,7 @@ async def _default_chat_model() -> str | None:
     box instead of silently skipping that step."""
     if _openai_client is None:
         return None
-    model_ids = await _discover_models(_CHAT_MODELS_CACHE_KEY, _supports_chat)
-    return model_ids[0] if model_ids else None
+    return await _first_supported_model(_CHAT_MODELS_CACHE_KEY, _supports_chat)
 
 
 async def _default_embedding_model(db: AsyncSession) -> str | None:
@@ -107,8 +110,7 @@ async def _default_embedding_model(db: AsyncSession) -> str | None:
         return app_settings.embedding_model
     if _openai_client is None:
         return None
-    model_ids = await _discover_models(_EMBEDDING_MODELS_CACHE_KEY, _supports_embeddings)
-    return model_ids[0] if model_ids else None
+    return await _first_supported_model(_EMBEDDING_MODELS_CACHE_KEY, _supports_embeddings)
 
 
 @router.post(

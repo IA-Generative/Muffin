@@ -93,8 +93,11 @@ async def test_chat_returns_completion_content(client, monkeypatch):
     }
 
 
-async def test_default_chat_model_discovers_and_caches(client, monkeypatch):
-    fake_client = _fake_openai_client(["gpt-4o", "mistral-small"], chat_capable_ids={"gpt-4o", "mistral-small"})
+async def test_default_chat_model_probes_until_the_first_supported_model(client, monkeypatch):
+    # The default path only ever wants the first model: it probes in order and stops at the
+    # first success, rather than sweeping every model at once (which trips the hub's rate
+    # limiter). It never writes the full-list cache - that is the UI's /models route's job.
+    fake_client = _fake_openai_client(["a-embed", "b-chat", "c-chat"], chat_capable_ids={"b-chat", "c-chat"})
     monkeypatch.setattr(internal_llm, "_openai_client", fake_client)
 
     with patch("app.routers.internal_llm.redis_connector") as mock_redis:
@@ -102,10 +105,10 @@ async def test_default_chat_model_discovers_and_caches(client, monkeypatch):
         response = await client.get("/api/internal/llm/default-chat-model", headers=_headers())
 
     assert response.status_code == 200
-    assert response.json() == {"model": "gpt-4o"}
-    cached_key, cached_value = mock_redis.client.set.call_args[0]
-    assert cached_key == internal_llm._CHAT_MODELS_CACHE_KEY
-    assert json.loads(cached_value) == ["gpt-4o", "mistral-small"]
+    assert response.json() == {"model": "b-chat"}
+    # a-embed (not chat-capable) then b-chat: two probes, and c-chat is never reached.
+    assert fake_client.chat.completions.create.await_count == 2
+    mock_redis.client.set.assert_not_called()
 
 
 async def test_default_chat_model_uses_cache(client, monkeypatch):
@@ -121,10 +124,7 @@ async def test_default_chat_model_uses_cache(client, monkeypatch):
     fake_client.models.list.assert_not_called()
 
 
-async def test_default_chat_model_does_not_cache_an_empty_result(client, monkeypatch):
-    # An empty discovery means the hub is unreachable or misconfigured, not that it has no
-    # models: caching it would leave the default chat model null for the whole TTL, silently
-    # skipping every evaluation that falls back to it.
+async def test_default_chat_model_returns_none_when_no_model_supports_chat(client, monkeypatch):
     fake_client = _fake_openai_client(["gpt-4o"], chat_capable_ids=set())
     monkeypatch.setattr(internal_llm, "_openai_client", fake_client)
 
