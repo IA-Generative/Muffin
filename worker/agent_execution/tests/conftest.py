@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 
 import app.backend_client as backend_client_module
+import app.execution_metrics as execution_metrics_module
 import app.graph.nodes.answer_help as answer_help_module
 import app.graph.nodes.answer_identity as answer_identity_module
 import app.graph.nodes.build_research_plan as build_research_plan_module
@@ -20,6 +21,13 @@ import app.graph.services.llm as llm_module
 import app.graph.services.prompts as prompts_module
 import app.graph.services.vdb_router as vdb_router_module
 from app.graph.graph import build_graph
+
+
+@pytest.fixture(autouse=True)
+def _no_execution_metrics_sent(monkeypatch) -> None:
+    """The steps of the graphs the tests run report what they cost, to a thread that sends them in the
+    background: nothing of it may reach a backend, nor linger in that thread's queue for a later test."""
+    monkeypatch.setattr(execution_metrics_module.backend_client, "add_execution_metric", lambda _metric: None)
 
 
 class FakeBackend:

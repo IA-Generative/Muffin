@@ -10,6 +10,8 @@ from app.graph.services.node_metrics import measured
 
 @pytest.fixture
 def sent(monkeypatch) -> list[dict]:
+    # What other tests left in the sender's queue goes out before this one starts listening.
+    execution_metrics._sender.flush()
     metrics: list[dict] = []
     monkeypatch.setattr(execution_metrics.backend_client, "add_execution_metric", metrics.append)
     return metrics
