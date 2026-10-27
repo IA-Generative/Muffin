@@ -10,7 +10,8 @@ from app.db import get_db
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.task_log_repository import TaskLogRepository
 from app.repositories.task_repository import TaskRepository
-from app.schemas.internal_pipeline import TaskCreate, TaskLogEntriesIn, TaskLogsUpdate
+from app.schemas.internal_pipeline import ExecutionMetricIn, TaskCreate, TaskLogEntriesIn, TaskLogsUpdate
+from app.services.usage_service import UsageService
 
 _logging_settings = LoggingSettings()
 
@@ -55,6 +56,15 @@ async def create_task(body: TaskCreate, db: Annotated[AsyncSession, Depends(get_
 async def add_task_logs(body: TaskLogEntriesIn, db: Annotated[AsyncSession, Depends(get_db)]) -> None:
     await TaskLogRepository(db).add_many([entry.model_dump() for entry in body.entries])
     await db.commit()
+
+
+@router.post(
+    "/execution-metrics",
+    summary="Record the time, CPU and memory a worker task, or a step of the agent, used - sent when it ends",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def add_execution_metric(body: ExecutionMetricIn, db: Annotated[AsyncSession, Depends(get_db)]) -> None:
+    await UsageService(db).record_execution(body)
 
 
 @router.delete("/task-logs", summary="Purge the task log lines past their retention (run by the beat)")

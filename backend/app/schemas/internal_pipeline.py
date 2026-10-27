@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -168,6 +168,21 @@ class LlmUsageContext(BaseModel):
     not attributed to anyone."""
 
     step: str | None = None
+    user_id: str | None = None
+    run_id: uuid.UUID | None = None
+    document_id: uuid.UUID | None = None
+    collection_id: uuid.UUID | None = None
+
+
+class ExecutionMetricIn(BaseModel):
+    """What one worker task, or one step of the agent's graph, cost - sent when it ends. The ids say
+    what it was for (the same as an LLM call's), so the backend can tell whose consumption it is."""
+
+    kind: Literal["task", "node"]
+    step: str = Field(min_length=1, max_length=200)
+    duration_seconds: float = Field(ge=0)
+    cpu_seconds: float = Field(ge=0)
+    peak_rss_bytes: int | None = Field(default=None, ge=0)
     user_id: str | None = None
     run_id: uuid.UUID | None = None
     document_id: uuid.UUID | None = None
