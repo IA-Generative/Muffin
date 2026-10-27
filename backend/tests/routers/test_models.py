@@ -1,3 +1,4 @@
+import asyncio
 import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -45,6 +46,56 @@ def test_list_models_discovers_and_caches_chat_capable_models(client, monkeypatc
     cached_key, cached_value = mock_redis.client.set.call_args[0]
     assert cached_key == models_router.CHAT_CACHE_KEY
     assert json.loads(cached_value) == ["gpt-4o", "mistral-small"]
+
+
+def test_list_models_reads_capabilities_without_probing(client, monkeypatch):
+    # The hub reports each model's operations in its /models payload: no probe needed, and
+    # probing every model is what trips its rate limiter.
+    models_data = [
+        SimpleNamespace(id="chat-a", capabilities={"operations": ["chat"]}),
+        SimpleNamespace(id="embed-a", capabilities={"operations": ["embed"]}),
+    ]
+    fake_client = SimpleNamespace(
+        models=SimpleNamespace(list=AsyncMock(return_value=SimpleNamespace(data=models_data))),
+        chat=SimpleNamespace(completions=SimpleNamespace(create=AsyncMock())),
+    )
+    monkeypatch.setattr(models_router, "_openai_client", fake_client)
+
+    with patch("app.routers.models.redis_connector") as mock_redis:
+        mock_redis.client.get.return_value = None
+        response = client.get("/api/models")
+
+    assert response.status_code == 200
+    assert [m["id"] for m in response.json()["models"]] == ["chat-a"]
+    fake_client.chat.completions.create.assert_not_called()
+
+
+def test_list_models_probes_with_limited_concurrency(client, monkeypatch):
+    # The hub rate-limits a burst of probes: the discovery must not fire every model at once.
+    in_flight = 0
+    peak = 0
+
+    async def create_chat(model, **_kwargs):
+        nonlocal in_flight, peak
+        in_flight += 1
+        peak = max(peak, in_flight)
+        await asyncio.sleep(0.01)
+        in_flight -= 1
+        return SimpleNamespace()
+
+    models_data = [SimpleNamespace(id=f"model-{i}") for i in range(20)]
+    fake_client = SimpleNamespace(
+        models=SimpleNamespace(list=AsyncMock(return_value=SimpleNamespace(data=models_data))),
+        chat=SimpleNamespace(completions=SimpleNamespace(create=AsyncMock(side_effect=create_chat))),
+    )
+    monkeypatch.setattr(models_router, "_openai_client", fake_client)
+
+    with patch("app.routers.models.redis_connector") as mock_redis:
+        mock_redis.client.get.return_value = None
+        response = client.get("/api/models")
+
+    assert response.status_code == 200
+    assert peak <= models_router._MODEL_PROBE_CONCURRENCY
 
 
 def test_list_models_uses_cache_without_calling_the_hub(client, monkeypatch):

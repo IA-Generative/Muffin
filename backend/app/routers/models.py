@@ -28,9 +28,10 @@ _openai_client = (
 
 
 async def _supports_chat(model_id: str) -> bool:
-    """The hub's /models endpoint lists everything it serves (embeddings, TTS,
-    vision-only, ...), not just chat models - the only reliable way to tell
-    them apart is to actually try a chat completion."""
+    """Fallback for a hub that doesn't report capabilities: the /models endpoint lists everything
+    it serves (embeddings, TTS, vision-only, ...), so the only way to tell them apart is to
+    actually try a chat completion. See _reported_operation - the hub we target reports
+    capabilities, so this is only reached when it doesn't."""
     try:
         await _openai_client.chat.completions.create(
             model=model_id,
@@ -52,14 +53,53 @@ async def _supports_embeddings(model_id: str) -> bool:
         return False
 
 
-async def _discover_models(probe: Callable[[str], Awaitable[bool]]) -> list[str]:
+# The hub rate-limits a burst of probes (one chat/embedding call per model) with a per-window
+# quota, not a concurrency one: probing every model at once trips it, and the SDK then honours
+# the 429's Retry-After, stalling the discovery for a minute. The hub reports each model's
+# capabilities in its /models payload, so probing is only a fallback for hubs that don't.
+_MODEL_PROBE_CONCURRENCY = 4
+
+
+def _reported_operation(model: object, operation: str) -> bool | None:
+    """Whether the hub reports this model as serving `operation` (chat, embed, ...), read from
+    the /models payload's capabilities.operations. None when the hub doesn't report capabilities
+    - the caller then falls back to probing."""
+    capabilities = getattr(model, "capabilities", None)
+    if not isinstance(capabilities, dict):
+        return None
+    operations = capabilities.get("operations")
+    if not isinstance(operations, list):
+        return None
+    return operation in operations
+
+
+async def _discover_models(operation: str, probe: Callable[[str], Awaitable[bool]]) -> list[str]:
     available = await _openai_client.models.list()
-    candidate_ids = [model.id for model in available.data]
-    supported = await asyncio.gather(*(probe(model_id) for model_id in candidate_ids))
-    return sorted(model_id for model_id, ok in zip(candidate_ids, supported, strict=True) if ok)
+    supported: list[str] = []
+    unknown: list[str] = []
+    for model in available.data:
+        reported = _reported_operation(model, operation)
+        if reported is None:
+            unknown.append(model.id)
+        elif reported:
+            supported.append(model.id)
+
+    # Only the models the hub didn't report on need a probe, and even then a small pool keeps
+    # the burst off the rate limiter.
+    if unknown:
+        semaphore = asyncio.Semaphore(_MODEL_PROBE_CONCURRENCY)
+
+        async def probe_limited(model_id: str) -> bool:
+            async with semaphore:
+                return await probe(model_id)
+
+        results = await asyncio.gather(*(probe_limited(model_id) for model_id in unknown))
+        supported.extend(model_id for model_id, ok in zip(unknown, results, strict=True) if ok)
+
+    return sorted(supported)
 
 
-async def _list_models(cache_key: str, probe: Callable[[str], Awaitable[bool]]) -> LlmModelsResponse:
+async def _list_models(cache_key: str, operation: str, probe: Callable[[str], Awaitable[bool]]) -> LlmModelsResponse:
     if _openai_client is None:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="LLM hub is not configured")
 
@@ -67,7 +107,7 @@ async def _list_models(cache_key: str, probe: Callable[[str], Awaitable[bool]]) 
     if cached is not None:
         model_ids = json.loads(cached)
     else:
-        model_ids = await _discover_models(probe)
+        model_ids = await _discover_models(operation, probe)
         # An empty result means the hub is unreachable or misconfigured, not that it has no
         # models: caching it would break every caller for the whole TTL. Re-probe instead.
         if model_ids:
@@ -82,7 +122,7 @@ async def _list_models(cache_key: str, probe: Callable[[str], Awaitable[bool]]) 
     response_model=LlmModelsResponse,
 )
 async def list_models(_: Annotated[RequestContext, Depends(get_current_user)]) -> LlmModelsResponse:
-    return await _list_models(CHAT_CACHE_KEY, _supports_chat)
+    return await _list_models(CHAT_CACHE_KEY, "chat", _supports_chat)
 
 
 @router.get(
@@ -91,4 +131,4 @@ async def list_models(_: Annotated[RequestContext, Depends(get_current_user)]) -
     response_model=LlmModelsResponse,
 )
 async def list_embedding_models(_: Annotated[RequestContext, Depends(get_current_user)]) -> LlmModelsResponse:
-    return await _list_models(EMBEDDING_CACHE_KEY, _supports_embeddings)
+    return await _list_models(EMBEDDING_CACHE_KEY, "embed", _supports_embeddings)
