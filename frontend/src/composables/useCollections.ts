@@ -410,8 +410,8 @@ function descendantsOf(id: string): Collection[] {
   return collections.value.filter((collection) => collection.path.some((item) => item.id === id))
 }
 
-// CollectionOut doesn't embed documents/qaPairs/entities/relations/chunks/shares (see
-// toCollection's comments) - every PATCH response would otherwise wipe whatever was already
+// CollectionOut doesn't embed documents/qaPairs/entities/relations/chunks/evaluationRuns/shares
+// (see toCollection's comments) - every PATCH response would otherwise wipe whatever was already
 // loaded for those. Carries the previous entry's sub-resources forward instead of losing them.
 function replaceCollection(id: string, next: Collection) {
   const index = collections.value.findIndex((item) => item.id === id)
@@ -424,6 +424,7 @@ function replaceCollection(id: string, next: Collection) {
     entities: previous.entities,
     relations: previous.relations,
     chunks: previous.chunks,
+    evaluationRuns: previous.evaluationRuns,
     shares: previous.shares,
   }
 }
