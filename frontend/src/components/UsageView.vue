@@ -16,13 +16,14 @@ const { usage, isLoading, error } = useUsage(days)
     </div>
     <p class="usage-view__intro">
       Les tokens consommés par vos questions dans le chat et par le traitement des documents que vous ajoutez (résumé,
-      questions-réponses, découpage, extraction, tags…).
+      questions-réponses, découpage, extraction, tags…), avec le temps, le CPU, la mémoire et l’énergie estimée que ce
+      traitement demande.
     </p>
 
     <div class="usage-view__content">
       <p v-if="error" class="usage-view__error" role="alert">{{ error }}</p>
       <p v-else-if="isLoading && !usage" class="usage-view__empty">Chargement…</p>
-      <p v-else-if="usage && usage.totals.calls === 0" class="usage-view__empty">
+      <p v-else-if="usage && usage.totals.calls === 0 && usage.execution.byStep.length === 0" class="usage-view__empty">
         Aucune consommation sur les {{ days }} derniers jours.
       </p>
       <UsageCharts v-else-if="usage" :usage="usage" />

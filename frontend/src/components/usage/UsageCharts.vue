@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import type { Usage, UsageSums } from '../../types/usage'
+import ExecutionPanel from './ExecutionPanel.vue'
+import { STEP_LABELS } from './stepLabels'
 import WaterBottles from './WaterBottles.vue'
 
 const props = defineProps<{
@@ -12,44 +14,6 @@ const props = defineProps<{
 const emit = defineEmits<{
   selectUser: [userId: string | null]
 }>()
-
-// What each step is: an agent graph node (worker/agent_execution) or a worker task. An unknown
-// step (a new one) shows under its own name.
-const STEP_LABELS: Record<string, string> = {
-  analyze_query: 'Chat · analyse de la question',
-  answer_identity: 'Chat · présentation de l’assistant',
-  build_answer_context: 'Chat · préparation de la réponse',
-  build_research_plan: 'Chat · plan de recherche',
-  decompose_query: 'Chat · découpage de la question',
-  detect_edit: 'Chat · détection d’une modification',
-  evaluate_coverage: 'Chat · vérification des résultats',
-  generate_answer: 'Chat · rédaction de la réponse',
-  load_accessible_vdbs: 'Chat · choix des collections',
-  merge_evidence: 'Chat · fusion des résultats',
-  clarify_coverage: 'Chat · question de précision',
-  targeted_research: 'Chat · recherche complémentaire',
-  validate_grounding: 'Chat · vérification de la réponse',
-  research_task: 'Chat · recherche',
-  run_agent: 'Chat',
-  resume_agent: 'Chat',
-  process_document: 'Documents · extraction du contenu',
-  process_tabular_document: 'Documents · données tabulaires',
-  chunk_document: 'Documents · découpage et embeddings',
-  summarize_document: 'Documents · résumé',
-  tag_document: 'Documents · tags',
-  generate_qa_window: 'Documents · questions-réponses',
-  extract_entities_window: 'Documents · entités et relations',
-  update_collection_description: 'Collections · description',
-  update_collection_tags: 'Collections · tags',
-  rollup_collection_description: 'Collections · description des sous-collections',
-  generate_collection_qa: 'Collections · questions-réponses',
-  import_zip: 'Collections · import ZIP',
-  edit_document: 'Documents vivants · modification',
-  insert_images: 'Documents vivants · images',
-  run_evaluation: 'Évaluation',
-  score_discussion: 'Évaluation · score des discussions',
-  unknown: 'Non précisé',
-}
 
 const count = (value: number) => value.toLocaleString('fr-FR')
 const compact = (value: number) =>
@@ -190,6 +154,8 @@ function barWidth(row: UsageSums, rows: UsageSums[]) {
         </ul>
       </section>
     </div>
+
+    <ExecutionPanel :execution="usage.execution" :days="usage.days" />
 
     <section v-if="userRows.length" class="usage-charts__card">
       <div class="usage-charts__card-header">
