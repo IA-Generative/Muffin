@@ -36,6 +36,7 @@ def _fake_settings(**overrides):
         "chunk_size": 500,
         "chunk_overlap": 50,
         "embedding_model": "text-embedding-3-small",
+        "name": "Ma collection",
         "generation_models": {},
     }
     settings.update(overrides)
@@ -294,6 +295,8 @@ def test_the_generated_yaml_wires_provider_judge_and_tests(tmp_path):
     # The evaluated collection is a first-class promptfoo tag (filterable, shown in the
     # report), not only a metadata entry.
     assert config["tags"] == {"collection_id": "col-1"}
+    # The description names the collection by its title, not its opaque id.
+    assert config["description"] == "Muffin evaluation - Ma collection"
 
     provider = config["providers"][0]
     assert provider["id"] == "file://provider.py"

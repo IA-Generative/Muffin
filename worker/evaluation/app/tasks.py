@@ -188,7 +188,7 @@ def _write_promptfoo_dir(
     (directory / "pairs.json").write_text(json.dumps(pairs, ensure_ascii=False))
 
     config = {
-        "description": f"Muffin evaluation - collection {collection_id}",
+        "description": f"Muffin evaluation - {collection_settings['name']}",
         # A first-class promptfoo tag (filterable, shown in the report) naming the
         # collection this run evaluated - the same id also rides in metadata.config_muffin,
         # but a tag is what promptfoo's own tooling reads.

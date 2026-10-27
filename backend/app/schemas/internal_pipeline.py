@@ -16,6 +16,9 @@ class CollectionSettingsInternalOut(BaseModel):
     chunk_size: int
     chunk_overlap: int
     embedding_model: str
+    # The collection's title - the worker labels its artifacts with it (e.g. the
+    # promptfoo run description) instead of the opaque id.
+    name: str
     instructions: dict[str, str]
     generation_models: dict[str, str | None]
     pipeline_windows: dict[str, Any]
