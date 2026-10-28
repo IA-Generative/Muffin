@@ -1,0 +1,41 @@
+[project]
+name = "muffin-worker-ocr-layout"
+version = "0.32.0"
+description = "Celery worker that finds the typed regions of a scanned page and their reading order (PP-DocLayoutV3)"
+requires-python = ">=3.12"
+dependencies = [
+    "celery[redis]>=5.6.0",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.15.0",
+    "loguru>=0.7.3",
+    "boto3>=1.43.98",
+    "pillow>=11.0.0",
+    "numpy>=2.0",
+    # PaddleOCR runs the ONNX models of PaddlePaddle's own Hugging Face organization through ONNX Runtime:
+    # PaddlePaddle itself is not installed.
+    "paddleocr>=3.7.0",
+    "onnxruntime>=1.20.0",
+]
+
+[dependency-groups]
+test = [
+    "pytest>=9.1.1",
+    "ruff>=0.15.0",
+]
+dev = [{ include-group = "test" }]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+markers = ["slow: needs the real model in MODELS_DIR - skipped when it is not there"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
