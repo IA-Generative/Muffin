@@ -154,6 +154,11 @@ document_process:
   - secretRef:
       name: "muffin-redis"
   env:
+    # The scanned pages are read by the OCR pods (ocr_layout, ocr below), with Tesseract as the fallback of a page they
+    # cannot read. The SAME value in every pod of worker/document_process: the chunking and the summary run in the
+    # enrichment pod and fingerprint the extraction they follow (app/reuse.py) - a pod that disagrees breaks the
+    # reuse of a file's results across documents, silently.
+    OCR_ENGINE: "layout"
     BACKEND_API_URL: "http://muffin-backend:8000"
     AWS_ENDPOINT_URL: "https://s3.fr-par.scw.cloud"
     OCR_LANGUAGE: "fra"
@@ -193,6 +198,11 @@ document_enrichment:
   - secretRef:
       name: "muffin-redis"
   env:
+    # The scanned pages are read by the OCR pods (ocr_layout, ocr below), with Tesseract as the fallback of a page they
+    # cannot read. The SAME value in every pod of worker/document_process: the chunking and the summary run in the
+    # enrichment pod and fingerprint the extraction they follow (app/reuse.py) - a pod that disagrees breaks the
+    # reuse of a file's results across documents, silently.
+    OCR_ENGINE: "layout"
     BACKEND_API_URL: "http://muffin-backend:8000"
     AWS_ENDPOINT_URL: "https://s3.fr-par.scw.cloud"
 
@@ -315,6 +325,11 @@ index_rebuild:
   - secretRef:
       name: "muffin-redis"
   env:
+    # The scanned pages are read by the OCR pods (ocr_layout, ocr below), with Tesseract as the fallback of a page they
+    # cannot read. The SAME value in every pod of worker/document_process: the chunking and the summary run in the
+    # enrichment pod and fingerprint the extraction they follow (app/reuse.py) - a pod that disagrees breaks the
+    # reuse of a file's results across documents, silently.
+    OCR_ENGINE: "layout"
     BACKEND_API_URL: "http://muffin-backend:8000"
     AWS_ENDPOINT_URL: "https://s3.fr-par.scw.cloud"
 
