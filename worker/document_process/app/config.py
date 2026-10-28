@@ -22,6 +22,14 @@ class WorkerSettings(BaseSettings):
     # release, so what was queued before the deploy is not lost. To remove after.
     LEGACY_QUEUE_NAME: str = "document_processing"
 
+    # Extraction of the scanned pages by layout analysis, one pod per model (see app/ocr/). Worker-only
+    # queues: unlike the ones above, the backend never sends to them.
+    LAYOUT_QUEUE_NAME: str = "document_layout"
+    OCR_QUEUE_NAME: str = "document_ocr"
+    TABLE_QUEUE_NAME: str = "document_table"
+    # Reserved: the vision pod comes after the others.
+    VISION_QUEUE_NAME: str = "document_vision"
+
     BACKEND_API_URL: str = "http://localhost:8000"
     WORKER_API_KEY: str = ""
 
@@ -33,6 +41,21 @@ class WorkerSettings(BaseSettings):
     # Tesseract language code (ISO 639-2). "fra" covers French by default;
     # override per-deployment if most documents are in another language.
     OCR_LANGUAGE: str = "fra"
+    # What reads a scanned page: "tesseract" (liteparse's own OCR, the default) or "layout" (the OCR pods).
+    OCR_ENGINE: Literal["tesseract", "layout"] = "tesseract"
+    # The DPI the pages handed to the OCR pods are rendered at.
+    OCR_PAGE_DPI: int = 200
+    # Which regions of a page are kept: under the score or the size (in pixels, on the smaller side), a
+    # region is dropped as noise; over the count, the lowest scores go.
+    OCR_REGION_MIN_SCORE: float = 0.5
+    OCR_REGION_MIN_PIXELS: int = 32
+    OCR_MAX_REGIONS_PER_PAGE: int = 200
+    # Where the models are in the image of a pod (read-only: nothing is downloaded when it runs).
+    MODELS_DIR: str = "/models"
+    # The soft limit of a page's task in each pod - an exception raised in it, never a kill (#294).
+    LAYOUT_TASK_SOFT_TIME_LIMIT_SECONDS: int = 5 * 60
+    OCR_TASK_SOFT_TIME_LIMIT_SECONDS: int = 5 * 60
+    TABLE_TASK_SOFT_TIME_LIMIT_SECONDS: int = 5 * 60
 
     # What bounds a task (#294): no task is killed for being big, only an operation that does not
     # come back is. A hung parse is killed after OCR_PARSE_TIMEOUT_SECONDS (the parser's own worker

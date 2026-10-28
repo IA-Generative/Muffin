@@ -71,3 +71,28 @@ def test_the_image_starts_as_the_extraction_pod_with_the_beat():
     dockerfile = (Path(__file__).parent.parent / "Dockerfile").read_text()
     queues = f"{settings.EXTRACTION_QUEUE_NAME},{settings.LEGACY_QUEUE_NAME}"
     assert f'"-Q", "{queues}"' in dockerfile and '"-B"' in dockerfile
+
+
+def test_the_ocr_pods_have_their_own_queues_that_the_backend_never_sends_to():
+    from app.ocr import routing
+
+    assert _queue_of(routing.LAYOUT_PAGE_TASK) == settings.LAYOUT_QUEUE_NAME == "document_layout"
+    assert _queue_of(routing.OCR_REGIONS_TASK) == settings.OCR_QUEUE_NAME == "document_ocr"
+    assert _queue_of(routing.TABLE_REGIONS_TASK) == settings.TABLE_QUEUE_NAME == "document_table"
+    assert _queue_of(routing.DESCRIBE_REGIONS_TASK) == settings.VISION_QUEUE_NAME == "document_vision"
+
+
+def test_the_ocr_queues_are_declared_so_this_worker_can_send_to_them():
+    declared = {queue.name for queue in celery_app.conf.task_queues}
+    assert {
+        settings.LAYOUT_QUEUE_NAME,
+        settings.OCR_QUEUE_NAME,
+        settings.TABLE_QUEUE_NAME,
+        settings.VISION_QUEUE_NAME,
+    } <= declared
+
+
+def test_the_extraction_pod_does_not_consume_the_ocr_queues():
+    dockerfile = (Path(__file__).parent.parent / "Dockerfile").read_text()
+    for name in (settings.LAYOUT_QUEUE_NAME, settings.OCR_QUEUE_NAME, settings.TABLE_QUEUE_NAME):
+        assert name not in dockerfile
