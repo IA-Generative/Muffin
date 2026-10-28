@@ -224,6 +224,25 @@ désactivée par défaut en amont et doit être explicitement activée côté se
 | `ZIP_IMPORT_MAX_DEPTH` | Profondeur maximale de dossiers dans un ZIP ; un fichier plus profond est ignoré. Non défini : pas de limite | aucune | idem |
 | `TESSDATA_PATH` | Chemin vers les fichiers de données Tesseract, si non standard — le `Dockerfile` du worker le fixe au chemin du paquet apt `tesseract-ocr-fra` | `None` | idem |
 
+## worker/document_process — fichiers tabulaires (#431)
+
+Un fichier tabulaire (CSV, TSV, PSV, XLSX, XLS, ODS, JSON, JSONL, Parquet) est lu en flux, feuille par feuille : le profil
+de chaque feuille est calculé en un passage, avec une mémoire bornée quelle que soit la taille du fichier. Ces bornes se
+règlent par variables d'environnement du worker d'extraction.
+
+| Variable | Rôle | Défaut |
+|---|---|---|
+| `TABULAR_MAX_FILE_BYTES` | Taille maximale du fichier, refusé avant d'être téléchargé | `209715200` (200 Mo) |
+| `TABULAR_MAX_UNCOMPRESSED_BYTES` | Taille maximale décompressée d'un XLSX/ODS (protège des archives piégées) | `2147483648` (2 Go) |
+| `TABULAR_MAX_SHEETS` | Nombre maximal de feuilles lues | `100` |
+| `TABULAR_MAX_ROWS_PER_SHEET` | Lignes lues par feuille ; au-delà, la feuille est marquée « tronquée » | `1000000` |
+| `TABULAR_MAX_COLUMNS` | Colonnes lues par feuille | `500` |
+| `TABULAR_MAX_DISTINCT` | Valeurs distinctes comptées exactement par colonne ; au-delà, le compte est un minorant (« ≥ N ») | `1000` |
+| `TABULAR_RESERVOIR_SIZE` | Taille de l'échantillon qui donne la médiane et les quartiles d'une colonne numérique | `2000` |
+| `TABULAR_PAGE_MAX_ROWS` | Lignes de chaque feuille reprises dans le texte de la page du document (les données restent entières dans leur copie Parquet) | `10000` |
+
+Les profils des documents indexés avant #431 n'ont qu'une feuille : réindexer le document (#340) donne toutes les feuilles.
+
 ## worker/layout, worker/ocr et worker/table — pods d'OCR par layout (#406, #407, #410)
 
 Chacun est une image à part (`worker-ocr-layout`, `worker-ocr`, `worker-ocr-table`) avec ses modèles ONNX officiels de PaddlePaddle embarqués.
