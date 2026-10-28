@@ -1,0 +1,25 @@
+{{- if .Values.enabled }}
+{{- if eq .Values.tabular.deploymentType "StatefulSet" }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "helper.componentFullname" (dict "root" . "componentName" "tabular") }}
+  labels: {{- include "helper.labels" (dict "root" . "componentName" "tabular") | nindent 4 }}
+spec:
+  {{- if not .Values.tabular.autoscaling.enabled }}
+  replicas: {{ .Values.tabular.replicaCount }}
+  {{- end }}
+  revisionHistoryLimit: {{ .Values.tabular.revisionHistoryLimit | default 10 }}
+  selector:
+    matchLabels: {{- include "helper.selectorLabels" (dict "root" . "componentName" "tabular") | nindent 6 }}
+  serviceName: {{ include "helper.componentFullname" (dict "root" . "componentName" "tabular") }}
+  {{- with .Values.tabular.updateStrategy }}
+  updateStrategy: {{- toYaml . | nindent 4 }}
+  {{- end }}
+  template:
+    {{- include "helper.component.podTemplate" (dict "root" . "name" "tabular" "component" .Values.tabular) | nindent 4 }}
+  {{- if or .Values.tabular.volumeClaims .Values.tabular.extraVolumeClaims }}
+  volumeClaimTemplates: {{- toYaml (concat (default (list) .Values.tabular.volumeClaims) (default (list) .Values.tabular.extraVolumeClaims)) | nindent 2 }}
+  {{- end }}
+{{- end }}
+{{- end }}

@@ -65,6 +65,16 @@
         },
         {
           "type": "toml",
+          "path": "worker/tabular/pyproject.toml",
+          "jsonpath": "project.version"
+        },
+        {
+          "type": "toml",
+          "path": "worker/tabular/uv.lock",
+          "jsonpath": "$.package[?(@.name.value=='muffin-worker-tabular')].version"
+        },
+        {
+          "type": "toml",
           "path": "worker/table/pyproject.toml",
           "jsonpath": "project.version"
         },

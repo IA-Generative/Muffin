@@ -340,6 +340,47 @@ ocr_table:
       cpu: "4"
       memory: "3Gi"
 
+# Celery worker - read-only SQL over the typed copies of tabular files (DuckDB, locked down, #432). Each query is
+# bounded to 512 MB (QUERY_MEMORY_LIMIT) plus its spill in /tmp, two at a time per pod.
+tabular:
+  image:
+    registry: "harbor.sdid.cpin.numerique-interieur.com"
+    repository: "{{ .Values.global.project }}/muffin-worker-tabular"
+    pullPolicy: "Always"
+  serviceAccount:
+    enabled: true
+    create: true
+  # Probes disabled - see document_process above for rationale.
+  probes:
+    startupProbe: null
+    readinessProbe: null
+    livenessProbe: null
+  args:
+  - "celery"
+  - "-A"
+  - "app.celery_app"
+  - "worker"
+  - "--loglevel=info"
+  - "-Q"
+  - "tabular_sql"
+  - "-c"
+  - "2"
+  envFrom:
+  # A read-only key to the bucket, not the one of the other workers: this pod only reads the typed copies.
+  - secretRef:
+      name: "muffin-s3-readonly"
+  - secretRef:
+      name: "muffin-redis"
+  env:
+    AWS_ENDPOINT_URL: "https://s3.fr-par.scw.cloud"
+  resources:
+    requests:
+      cpu: "1"
+      memory: "1Gi"
+    limits:
+      cpu: "2"
+      memory: "2Gi"
+
 # Celery worker - long I/O jobs: the blue/green index rebuilds (#12) and the ZIP imports (#223), so
 # that neither holds up the ingestion of new documents. Prefork, a couple at a time; no beat.
 index_rebuild:
@@ -1173,6 +1214,32 @@ extraObjects:
           address: "muffin-redis.{{ .Release.Namespace }}.svc.cluster.local:6379"
           listName: "document_table"
           listLength: "10"
+        authenticationRef:
+          name: muffin-keda-triggerauth
+
+  # ScaledObject for tabular (queue: tabular_sql): to zero when nothing is asked of it. A query is short (30 s at
+  # most), but acks_late takes it off the list while it runs: the cooldown outlasts it before the last pod stops.
+  muffin-keda-tabular:
+    apiVersion: keda.sh/v1alpha1
+    kind: ScaledObject
+    metadata:
+      name: muffin-tabular
+    spec:
+      scaleTargetRef:
+        name: muffin-tabular
+        kind: Deployment
+        apiVersion: apps/v1
+      minReplicaCount: 0
+      maxReplicaCount: 3
+      pollingInterval: 15
+      cooldownPeriod: 300
+      triggers:
+      - type: redis
+        metricType: AverageValue
+        metadata:
+          address: "muffin-redis.{{ .Release.Namespace }}.svc.cluster.local:6379"
+          listName: "tabular_sql"
+          listLength: "5"
         authenticationRef:
           name: muffin-keda-triggerauth
 
