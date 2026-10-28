@@ -50,9 +50,9 @@ def _evaluation_hash(
     validated_only: bool,
 ) -> str:
     """SHA-256 of everything that affects an evaluation run's result, over the same inputs the
-    worker hashes (worker/evaluation/app/tasks.py's _evaluation_hash, which fetches them through
-    the internal API): the QA pairs (id, question, answer, document_id, validated, golden,
-    relevant documents), the chunking/embedding config, k, the judge model, the generator
+    worker hashes (worker/evaluation/app/tasks.py's EvaluationConfig.content_hash, which fetches
+    them through the internal API): the QA pairs (id, question, answer, document_id, validated,
+    golden, relevant documents), the chunking/embedding config, k, the judge model, the generator
     model, the scored metrics and the validated_only scope. MUST stay in sync with the
     worker's copy - the trigger-time dedup check below only works if both produce the same
     digest for the same collection state. Both sides pin the same fixture digest in their

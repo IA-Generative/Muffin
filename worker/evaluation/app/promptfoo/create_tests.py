@@ -52,7 +52,7 @@ _CONTEXT_FAITHFULNESS_METRIC = "context_faithfulness"
 _CONTEXT_CHUNK_COUNT_METRIC = "context_chunk_count"
 
 # Every metric the tests score, by namedScores key - the task folds this list into
-# its dedup hash (see tasks.py's _evaluation_hash). Keep sorted: the hash digest is
+# its dedup hash (see tasks.py's EvaluationConfig.content_hash). Keep sorted: the hash digest is
 # order-sensitive, and the backend's copy lists the same order.
 SCORED_METRICS = sorted([_FACTUALITY_METRIC, _CONTEXT_FAITHFULNESS_METRIC, _CONTEXT_CHUNK_COUNT_METRIC])
 

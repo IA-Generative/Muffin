@@ -1,6 +1,6 @@
 """The trigger-time dedup hash must equal the worker's: the backend answers "skipped" before
 dispatching by computing the digest the worker's run_evaluation would compute over the same
-collection state (worker/evaluation/app/tasks.py's _evaluation_hash). Both sides pin the same
+collection state (worker/evaluation/app/tasks.py's EvaluationConfig.content_hash). Both sides pin the same
 fixture digest here and in worker/evaluation/tests/test_tasks.py, so either drifting breaks
 tests."""
 

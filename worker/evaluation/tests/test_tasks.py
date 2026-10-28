@@ -280,13 +280,19 @@ def _written_config(tmp_path, **kwargs):
     directory = tmp_path / "eval"
     directory.mkdir()
     parameters = {
-        "collection_id": "col-1",
-        "k": 5,
-        "judge_model": "judge-model",
-        "generator_model": "generator-model",
+        "config": tasks.EvaluationConfig(
+            collection_id="col-1",
+            collection_name="Ma collection",
+            k=5,
+            judge_model="judge-model",
+            generator_model="generator-model",
+            chunking_strategy="paragraph",
+            chunk_size=500,
+            chunk_overlap=50,
+            embedding_model="text-embedding-3-small",
+            validated_only=False,
+        ),
         "pairs": [_qa_pair("qa-1", "Question ?", "doc-1", validated=True)],
-        "collection_settings": _fake_settings(),
-        "validated_only": False,
         "content_hash": "hash-1",
     }
     parameters.update(kwargs)
@@ -427,20 +433,36 @@ def test_a_question_can_not_inject_yaml_structure(tmp_path):
 # -- the dedup hash ------------------------------------------------------------------
 
 
+def _config(**overrides):
+    values = {
+        "collection_id": "col-1",
+        "collection_name": "Ma collection",
+        "k": 5,
+        "judge_model": "judge",
+        "generator_model": "gen",
+        "chunking_strategy": "paragraph",
+        "chunk_size": 500,
+        "chunk_overlap": 50,
+        "embedding_model": "text-embedding-3-small",
+        "validated_only": False,
+    }
+    values.update(overrides)
+    return tasks.EvaluationConfig(**values)
+
+
 def test_the_evaluation_hash_covers_judge_generator_and_golden_pairs():
-    settings = _fake_settings()
     generated = [_qa_pair("qa-1", "q", "doc-1", validated=True)]
     golden = {**_qa_pair("qa-2", "q2", "doc-1", validated=True), "golden": True, "relevant_document_ids": ["doc-1"]}
 
-    base = tasks._evaluation_hash(generated, settings, 5, "judge", "gen")
+    base = _config().content_hash(generated)
     assert (
         len(
             {
                 base,
-                tasks._evaluation_hash(generated, settings, 5, "other-judge", "gen"),
-                tasks._evaluation_hash(generated, settings, 5, "judge", "other-gen"),
-                tasks._evaluation_hash([*generated, golden], settings, 5, "judge", "gen"),
-                tasks._evaluation_hash(generated, settings, 8, "judge", "gen"),
+                _config(judge_model="other-judge").content_hash(generated),
+                _config(generator_model="other-gen").content_hash(generated),
+                _config().content_hash([*generated, golden]),
+                _config(k=8).content_hash(generated),
             }
         )
         == 5
@@ -480,9 +502,10 @@ _VECTOR_DIGEST = "d3e7f82d4a4799222175523743967e92b1d4dcddafec047443b3b2a4c32c28
 
 
 def test_the_evaluation_hash_matches_the_backend_vector():
-    assert (
-        tasks._evaluation_hash(_VECTOR_PAIRS, _VECTOR_SETTINGS, 5, "judge-model", "gen-model", False) == _VECTOR_DIGEST
+    config = tasks.EvaluationConfig.from_collection(
+        "col-1", {**_VECTOR_SETTINGS, "name": "Ma collection"}, 5, "judge-model", "gen-model", False
     )
+    assert config.content_hash(_VECTOR_PAIRS) == _VECTOR_DIGEST
 
 
 def test_counts_from_results_coerce_string_vars():

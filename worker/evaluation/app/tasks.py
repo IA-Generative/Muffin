@@ -8,6 +8,7 @@ from typing import Any
 
 import yaml
 from loguru import logger
+from pydantic import BaseModel
 
 from app.backend_client import backend_client
 from app.celery_app import celery_app
@@ -101,27 +102,103 @@ def _judge_discussion(model: str, transcript: str) -> dict[str, Any]:
 # app/services/evaluation_service.py's _SCORED_METRICS).
 
 
-def _evaluation_hash(
-    qa_pairs: list[dict[str, Any]],
-    collection_settings: dict[str, Any],
-    k: int,
-    llm_model: str,
-    generator_model: str | None = None,
-    validated_only: bool = False,
-) -> str:
-    """SHA-256 of everything that affects an evaluation run's result: the QA pairs (id, question,
-    answer, document_id, relevant documents, validated, golden), the chunking/embedding config, k,
-    the judge model, the generator model (it writes the answers the judge scores), the scored
-    metrics (the assertions the tests carry), and the validated_only scope. If none of these
-    changed since the last run with the same models, the result would be identical and there's
-    no reason to re-run (same dedup strategy as _transcript_hash for DiscussionScore).
+class EvaluationConfig(BaseModel):
+    """Every parameter that shapes an evaluation run, in one place: the collection and its
+    chunking/embedding snapshot, k, the judge and generator models, and the validated_only
+    scope. It is the single source for both the dedup hash (content_hash) and the run's
+    self-describing metadata.config_muffin block, so the two can never drift apart.
 
-    MUST stay in sync with the backend's copy in app/services/evaluation_service.py - the
-    trigger-time dedup check computes this same digest to answer "skipped" before dispatching.
-    Both sides pin the same fixture digest in their tests (tests/test_tasks.py here,
-    tests/services/test_evaluation_service.py there) so a drift breaks them.
+    MUST stay in sync with the backend's copy of the hash in
+    app/services/evaluation_service.py - the trigger-time dedup check computes the same
+    digest to answer "skipped" before dispatching. Both sides pin the same fixture digest
+    in their tests (tests/test_tasks.py here, tests/services/test_evaluation_service.py
+    there) so a drift breaks them.
     """
-    pairs_fingerprint = [
+
+    collection_id: str
+    # Display name only - it titles the promptfoo report, it never enters the hash.
+    collection_name: str
+    k: int
+    judge_model: str
+    generator_model: str
+    chunking_strategy: str
+    chunk_size: int
+    chunk_overlap: int
+    embedding_model: str
+    validated_only: bool
+
+    @classmethod
+    def from_collection(
+        cls,
+        collection_id: str,
+        collection_settings: dict[str, Any],
+        k: int,
+        judge_model: str,
+        generator_model: str,
+        validated_only: bool,
+    ) -> "EvaluationConfig":
+        """Builds the run's config from the collection's settings snapshot and the resolved
+        models - the one place the internal settings payload is unpacked."""
+        return cls(
+            collection_id=collection_id,
+            collection_name=collection_settings["name"],
+            k=k,
+            judge_model=judge_model,
+            generator_model=generator_model,
+            chunking_strategy=collection_settings["chunking_strategy"],
+            chunk_size=collection_settings["chunk_size"],
+            chunk_overlap=collection_settings["chunk_overlap"],
+            embedding_model=collection_settings["embedding_model"],
+            validated_only=validated_only,
+        )
+
+    def content_hash(self, qa_pairs: list[dict[str, Any]]) -> str:
+        """SHA-256 of everything that affects the run's result: the QA pairs (id, question,
+        answer, document_id, relevant documents, validated, golden), the chunking/embedding
+        config, k, the judge model, the generator model (it writes the answers the judge
+        scores), the scored metrics (the assertions the tests carry), and the validated_only
+        scope. If none of these changed since the last run with the same models, the result
+        would be identical and there's no reason to re-run (same dedup strategy as
+        _transcript_hash for DiscussionScore).
+        """
+        payload = {
+            "qa_pairs": _pairs_fingerprint(qa_pairs),
+            "chunking_strategy": self.chunking_strategy,
+            "chunk_size": self.chunk_size,
+            "chunk_overlap": self.chunk_overlap,
+            "embedding_model": self.embedding_model,
+            "k": self.k,
+            # The hash key is llm_model (the DB column); the domain term is judge_model.
+            "llm_model": self.judge_model,
+            "generator_model": self.generator_model,
+            "scored_metrics": SCORED_METRICS,
+            "validated_only": self.validated_only,
+        }
+        return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+
+    def config_muffin(self, content_hash: str, provider_code_sha256: str) -> dict[str, Any]:
+        """The run's whole configuration, replayed into results.json so the stored artifact
+        is self-describing: everything that made the results what they are is readable from
+        results.json itself."""
+        return {
+            "collection_id": self.collection_id,
+            "k": self.k,
+            "judge_model": self.judge_model,
+            "generator_model": self.generator_model,
+            "chunking_strategy": self.chunking_strategy,
+            "chunk_size": self.chunk_size,
+            "chunk_overlap": self.chunk_overlap,
+            "embedding_model": self.embedding_model,
+            "validated_only": self.validated_only,
+            "content_hash": content_hash,
+            "provider_code_sha256": provider_code_sha256,
+        }
+
+
+def _pairs_fingerprint(qa_pairs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The QA pairs reduced to exactly what the dedup hash covers, sorted by id so the digest
+    is order-independent."""
+    return [
         {
             "id": p["id"],
             "question": p["question"],
@@ -133,19 +210,6 @@ def _evaluation_hash(
         }
         for p in sorted(qa_pairs, key=lambda p: p["id"])
     ]
-    payload = {
-        "qa_pairs": pairs_fingerprint,
-        "chunking_strategy": collection_settings["chunking_strategy"],
-        "chunk_size": collection_settings["chunk_size"],
-        "chunk_overlap": collection_settings["chunk_overlap"],
-        "embedding_model": collection_settings["embedding_model"],
-        "k": k,
-        "llm_model": llm_model,
-        "generator_model": generator_model,
-        "scored_metrics": SCORED_METRICS,
-        "validated_only": validated_only,
-    }
-    return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
 def _relevant_documents(pair: dict[str, Any]) -> list[str]:
@@ -160,13 +224,8 @@ def _relevant_documents(pair: dict[str, Any]) -> list[str]:
 def _write_promptfoo_dir(
     directory: Path,
     *,
-    collection_id: str,
-    k: int,
-    judge_model: str,
-    generator_model: str,
+    config: EvaluationConfig,
     pairs: list[dict[str, Any]],
-    collection_settings: dict[str, Any],
-    validated_only: bool,
     content_hash: str,
 ) -> None:
     """Lays out everything promptfoo needs in one throwaway directory: the generated YAML, the
@@ -187,30 +246,20 @@ def _write_promptfoo_dir(
         shutil.copy2(Path(__file__).parent / "promptfoo" / module, directory / module)
     (directory / "pairs.json").write_text(json.dumps(pairs, ensure_ascii=False))
 
-    config = {
-        "description": f"Muffin evaluation - {collection_settings['name']}",
+    # The generation prompt and code live in provider.py, copied next to the YAML - their
+    # digest is the only trace of the worker's own version in the artifact.
+    provider_code_sha256 = hashlib.sha256(
+        (Path(__file__).parent / "promptfoo" / "provider.py").read_bytes()
+    ).hexdigest()
+
+    promptfoo_config = {
+        "description": f"Muffin evaluation - {config.collection_name}",
         # A first-class promptfoo tag (filterable, shown in the report) naming the
         # collection this run evaluated - the same id also rides in metadata.config_muffin,
         # but a tag is what promptfoo's own tooling reads.
-        "tags": {"collection_id": collection_id},
+        "tags": {"collection_id": config.collection_id},
         "metadata": {
-            "config_muffin": {
-                "collection_id": collection_id,
-                "k": k,
-                "judge_model": judge_model,
-                "generator_model": generator_model,
-                "chunking_strategy": collection_settings["chunking_strategy"],
-                "chunk_size": collection_settings["chunk_size"],
-                "chunk_overlap": collection_settings["chunk_overlap"],
-                "embedding_model": collection_settings["embedding_model"],
-                "validated_only": validated_only,
-                "content_hash": content_hash,
-                # The generation prompt and code live in provider.py, copied next to the YAML -
-                # their digest is the only trace of the worker's own version in the artifact.
-                "provider_code_sha256": hashlib.sha256(
-                    (Path(__file__).parent / "promptfoo" / "provider.py").read_bytes()
-                ).hexdigest(),
-            }
+            "config_muffin": config.config_muffin(content_hash, provider_code_sha256),
         },
         # Never send any result to promptfoo's servers.
         "sharing": False,
@@ -224,9 +273,9 @@ def _write_promptfoo_dir(
                 "config": {
                     "backend_url": settings.BACKEND_API_URL,
                     "api_key_envar": "WORKER_API_KEY",
-                    "collection_id": collection_id,
-                    "k": k,
-                    "generator_model": generator_model,
+                    "collection_id": config.collection_id,
+                    "k": config.k,
+                    "generator_model": config.generator_model,
                 },
             }
         ],
@@ -236,12 +285,12 @@ def _write_promptfoo_dir(
                 # OpenAI-compatible proxy. X-Collection-Id makes the proxy attribute the
                 # judge's tokens to the collection's owner.
                 "provider": {
-                    "id": f"openai:chat:{judge_model}",
+                    "id": f"openai:chat:{config.judge_model}",
                     "config": {
                         "apiBaseUrl": f"{settings.BACKEND_API_URL}/api/internal/v1",
                         "apiKeyEnvar": "WORKER_API_KEY",
                         "temperature": 0,
-                        "headers": {"X-Collection-Id": collection_id},
+                        "headers": {"X-Collection-Id": config.collection_id},
                     },
                 },
                 # The provider returns {answer, context}: factuality scores the answer against
@@ -258,7 +307,7 @@ def _write_promptfoo_dir(
         ],
         "evaluateOptions": {"maxConcurrency": settings.EVAL_CONCURRENCY},
     }
-    (directory / "promptfooconfig.yaml").write_text(yaml.safe_dump(config, sort_keys=False))
+    (directory / "promptfooconfig.yaml").write_text(yaml.safe_dump(promptfoo_config, sort_keys=False))
 
 
 # promptfoo exits 100 when at least one test failed its threshold - that is a legitimate
@@ -382,7 +431,10 @@ def run_evaluation(self, collection_id: str, k: int | None = None, validated_onl
     # Dedup: if an identical run already exists (same QA pairs content, same chunking/embedding
     # settings, same k, same judge AND generator models, same validated_only scope), skip - the
     # result would be identical. Same strategy as score_discussion's content_hash skip (see #31).
-    content_hash = _evaluation_hash(qa_pairs, collection_settings, k, judge_model, generator_model, validated_only)
+    config = EvaluationConfig.from_collection(
+        collection_id, collection_settings, k, judge_model, generator_model, validated_only
+    )
+    content_hash = config.content_hash(qa_pairs)
     existing_id = backend_client.find_evaluation_run(collection_id, content_hash, judge_model)
     if existing_id is not None:
         logger.info(
@@ -398,26 +450,16 @@ def run_evaluation(self, collection_id: str, k: int | None = None, validated_onl
 
     with tempfile.TemporaryDirectory(prefix="muffin-eval-") as temp_dir:
         directory = Path(temp_dir)
-        _write_promptfoo_dir(
-            directory,
-            collection_id=collection_id,
-            k=k,
-            judge_model=judge_model,
-            generator_model=generator_model,
-            pairs=evaluable_pairs,
-            collection_settings=collection_settings,
-            validated_only=validated_only,
-            content_hash=content_hash,
-        )
+        _write_promptfoo_dir(directory, config=config, pairs=evaluable_pairs, content_hash=content_hash)
         results_json, report_html = _run_promptfoo(directory)
 
     payload = {
-        "k": k,
-        "llm_model": judge_model,
-        "snapshot_chunking_strategy": collection_settings["chunking_strategy"],
-        "snapshot_chunk_size": collection_settings["chunk_size"],
-        "snapshot_chunk_overlap": collection_settings["chunk_overlap"],
-        "snapshot_embedding_model": collection_settings["embedding_model"],
+        "k": config.k,
+        "llm_model": config.judge_model,
+        "snapshot_chunking_strategy": config.chunking_strategy,
+        "snapshot_chunk_size": config.chunk_size,
+        "snapshot_chunk_overlap": config.chunk_overlap,
+        "snapshot_embedding_model": config.embedding_model,
         "content_hash": content_hash,
         **_counts_from_results(results_json),
     }
