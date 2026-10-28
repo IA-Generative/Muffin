@@ -45,6 +45,26 @@
         },
         {
           "type": "toml",
+          "path": "worker/layout/pyproject.toml",
+          "jsonpath": "project.version"
+        },
+        {
+          "type": "toml",
+          "path": "worker/layout/uv.lock",
+          "jsonpath": "$.package[?(@.name.value=='muffin-worker-ocr-layout')].version"
+        },
+        {
+          "type": "toml",
+          "path": "worker/ocr/pyproject.toml",
+          "jsonpath": "project.version"
+        },
+        {
+          "type": "toml",
+          "path": "worker/ocr/uv.lock",
+          "jsonpath": "$.package[?(@.name.value=='muffin-worker-ocr')].version"
+        },
+        {
+          "type": "toml",
           "path": "worker/document_process/pyproject.toml",
           "jsonpath": "project.version"
         },

@@ -131,6 +131,37 @@ services:
     depends_on: *document-process-depends-on
     restart: unless-stopped
 
+  # The OCR pods of the scanned pages (#403): one service, one image per model. Nothing sends them work
+  # until OCR_ENGINE=layout on the extraction worker, so they are off unless asked for:
+  #   docker compose --profile ocr up
+  # Each loads its model once per process (about 1 GB): -c is how many pages it reads at once.
+  worker-ocr-layout:
+    profiles: ["ocr"]
+    build:
+      context: ./worker/layout
+      dockerfile: Dockerfile
+    environment: &ocr-pod-env
+      REDIS_URL: redis://redis:6379/0
+      AWS_ENDPOINT_URL: http://rustfs:9000
+      AWS_ACCESS_KEY_ID: rustfsadmin
+      AWS_SECRET_ACCESS_KEY: rustfsadmin
+      AWS_BUCKET: muffin-documents
+    depends_on: &ocr-pod-depends-on
+      redis:
+        condition: service_healthy
+      rustfs:
+        condition: service_healthy
+    restart: unless-stopped
+
+  worker-ocr:
+    profiles: ["ocr"]
+    build:
+      context: ./worker/ocr
+      dockerfile: Dockerfile
+    environment: *ocr-pod-env
+    depends_on: *ocr-pod-depends-on
+    restart: unless-stopped
+
   worker-agent-execution:
     build:
       context: ./worker/agent_execution
