@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useCollections } from '../composables/useCollections'
 import { usePagination } from '../composables/usePagination'
-import type { Collection, EvaluationResult } from '../types/collection'
+import type { Collection, EvaluationResult, EvaluationRun } from '../types/collection'
 import { metricLabel, orderedMetricKeys } from '../utils/evaluationMetrics'
 import PaginationControls from './PaginationControls.vue'
 
@@ -70,14 +70,31 @@ function formatDate(iso: string) {
   return dateFormatter.format(new Date(iso))
 }
 
-function formatScore(value: number) {
-  return value.toFixed(2)
+// A metric a run didn't score, or a subset with nothing to score, reads as "—" - never a
+// misleading 0.
+function formatScore(value: number | null | undefined) {
+  return value == null ? '—' : value.toFixed(2)
 }
 
 // The golden pass rate as a whole percentage - no decimals: it is a share of a
 // handful of test questions, not a precise score.
-function formatPassRate(value: number) {
-  return `${Math.round(value * 100)} %`
+function formatPassRate(value: number | null) {
+  return value == null ? '—' : `${Math.round(value * 100)} %`
+}
+
+// The metrics to show as table rows: the union of whatever the run scored over any subset,
+// in the registry's stable order (utils/evaluationMetrics.ts).
+function metricKeys(run: EvaluationRun): string[] {
+  const keys = new Set<string>()
+  for (const source of [run.goldenMetrics, run.metrics, run.allMetrics]) {
+    if (source) for (const key of Object.keys(source)) keys.add(key)
+  }
+  return orderedMetricKeys(keys)
+}
+
+// The reference (non-golden) pairs: every evaluated pair that isn't a test question.
+function referencePairCount(run: EvaluationRun): number {
+  return run.pairCount - run.goldenPairCount
 }
 
 const STRATEGY_LABEL: Record<string, string> = {
@@ -191,46 +208,50 @@ const goldenCount = computed(() => props.collection.qaPairs.filter((pair) => pai
             · embedding {{ run.chunkingSnapshot.embeddingModel }} · juge {{ run.llmModel }}
           </p>
 
-          <div v-if="run.goldenMetrics" class="eval-tab__group eval-tab__group--golden">
-            <p class="eval-tab__group-title">
-              Questions de test
-              <span class="eval-tab__group-count">{{ run.goldenPairCount }} question(s)</span>
+          <div v-if="run.hasArtifacts" class="eval-tab__table-wrap">
+            <table class="eval-tab__table">
+              <thead>
+                <tr>
+                  <th scope="col">Métrique</th>
+                  <th scope="col">
+                    Questions de test
+                    <span class="eval-tab__table-count">{{ run.goldenPairCount }}</span>
+                  </th>
+                  <th scope="col">
+                    Questions de référence
+                    <span class="eval-tab__table-count">{{ referencePairCount(run) }}</span>
+                  </th>
+                  <th scope="col">
+                    Toutes les questions
+                    <span class="eval-tab__table-count">{{ run.pairCount }}</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th scope="row">Taux de succès</th>
+                  <td>{{ formatPassRate(run.goldenPassRate) }}</td>
+                  <td>{{ formatPassRate(run.referencePassRate) }}</td>
+                  <td>{{ formatPassRate(run.overallPassRate) }}</td>
+                </tr>
+                <!-- One row per metric the run actually scored - a metric it predates
+                     simply doesn't appear, never a misleading 0 -->
+                <tr v-for="key in metricKeys(run)" :key="key">
+                  <th scope="row">{{ metricLabel(key) }}</th>
+                  <td>{{ formatScore(run.goldenMetrics?.[key]) }}</td>
+                  <td>{{ formatScore(run.metrics?.[key]) }}</td>
+                  <td>{{ formatScore(run.allMetrics?.[key]) }}</td>
+                </tr>
+              </tbody>
+            </table>
+            <p class="eval-tab__group-note">
+              Questions de référence : {{ run.validatedPairCount }} validée(s) ·
+              {{ run.unvalidatedPairCount }} non validée(s).
             </p>
-            <div class="eval-tab__metrics">
-              <!-- One card per metric the run actually scored - a metric it predates
-                   simply doesn't appear, never a misleading 0 -->
-              <div
-                v-for="key in orderedMetricKeys(Object.keys(run.goldenMetrics))"
-                :key="key"
-                class="eval-tab__metric"
-              >
-                <span class="eval-tab__metric-value">{{ formatScore(run.goldenMetrics[key]) }}</span>
-                <span class="eval-tab__metric-label">{{ metricLabel(key) }} (juge)</span>
-              </div>
-            </div>
             <p v-if="run.goldenPairCount < GOLDEN_RELIABLE_COUNT" class="eval-tab__group-note">
-              Seulement {{ run.goldenPairCount }} question(s) : une variation de score d'un test à l'autre peut
+              Seulement {{ run.goldenPairCount }} question(s) de test : une variation de score d'un test à l'autre peut
               n'être que du bruit.
             </p>
-          </div>
-
-          <div v-if="run.metrics" class="eval-tab__group">
-            <p class="eval-tab__group-title">
-              Questions générées et de référence
-              <span class="eval-tab__group-count">
-                {{ run.validatedPairCount }} validée(s) · {{ run.unvalidatedPairCount }} non validée(s)
-              </span>
-            </p>
-            <div class="eval-tab__metrics">
-              <div
-                v-for="key in orderedMetricKeys(Object.keys(run.metrics))"
-                :key="key"
-                class="eval-tab__metric"
-              >
-                <span class="eval-tab__metric-value">{{ formatScore(run.metrics[key]) }}</span>
-                <span class="eval-tab__metric-label">{{ metricLabel(key) }} (juge)</span>
-              </div>
-            </div>
           </div>
 
           <div v-if="run.hasArtifacts" class="eval-tab__artifacts">
@@ -499,6 +520,50 @@ const goldenCount = computed(() => props.collection.qaPairs.filter((pair) => pai
   margin: 0.5rem 0 0;
   font-size: 0.75rem;
   color: var(--text-mention-grey);
+}
+
+/* The scores as a grid: one row per metric, one column per question subset. */
+.eval-tab__table-wrap {
+  overflow-x: auto;
+}
+
+.eval-tab__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+
+.eval-tab__table th,
+.eval-tab__table td {
+  padding: 0.5rem 0.75rem;
+  text-align: right;
+  border-bottom: 1px solid var(--border-default-grey);
+}
+
+.eval-tab__table th:first-child,
+.eval-tab__table td:first-child {
+  text-align: left;
+}
+
+.eval-tab__table thead th {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-mention-grey);
+  vertical-align: bottom;
+}
+
+.eval-tab__table tbody th {
+  font-weight: 700;
+}
+
+.eval-tab__table tbody td {
+  font-variant-numeric: tabular-nums;
+}
+
+.eval-tab__table-count {
+  display: block;
+  font-weight: 400;
+  font-size: 0.6875rem;
 }
 
 .eval-tab__badge {

@@ -61,14 +61,15 @@ class EvaluationRunOut(BaseModel):
     # model + scored metrics) - present when the worker computed it for dedup (see
     # EvaluationRun.content_hash).
     content_hash: str | None = None
-    # Score averages over the non-golden / golden pairs, keyed by metric name - the
-    # keys are whatever the run's artifact actually scored (the worker's assertions
+    # Score averages over the reference (non-golden) / golden / every pair, keyed by metric
+    # name - the keys are whatever the run's artifact actually scored (the worker's assertions
     # decide, see worker/evaluation/app/promptfoo/create_tests.py), so a new metric
     # flows through with zero backend change. None when that subset is empty, when
     # nothing was scored, or when the run predates the promptfoo migration (no
     # artifact) - a metric a run predates simply doesn't appear in its dict.
     metrics: dict[str, float] | None
     golden_metrics: dict[str, float] | None
+    all_metrics: dict[str, float] | None
     # The share of golden (test) pairs that passed (every assertion at or above its
     # threshold), in [0, 1] - None when the run has no golden pair or no artifact.
     golden_pass_rate: float | None = None

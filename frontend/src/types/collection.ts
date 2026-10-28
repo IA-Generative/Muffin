@@ -180,14 +180,15 @@ export interface EvaluationRun {
   // The judge model (the collection's "evaluation" generation model).
   llmModel: string
   chunkingSnapshot: ChunkingSnapshot
-  // Score averages over the non-golden / golden pairs, keyed by metric name - the
-  // keys are whatever the run's artifact actually scored, so a new metric flows
+  // Score averages over the reference (non-golden) / golden / every pair, keyed by metric
+  // name - the keys are whatever the run's artifact actually scored, so a new metric flows
   // through with zero frontend model change (labels: utils/evaluationMetrics.ts).
   // Null when that subset is empty, when nothing was scored, or when the run
   // predates the promptfoo migration (no artifact); a metric a run predates simply
   // doesn't appear in its object.
   metrics: Record<string, number> | null
   goldenMetrics: Record<string, number> | null
+  allMetrics: Record<string, number> | null
   // The share of golden (test) pairs that passed (every assertion at or above its
   // threshold), in [0, 1] - null when the run has no golden pair or no artifact.
   goldenPassRate: number | null

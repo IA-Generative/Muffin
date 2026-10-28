@@ -824,6 +824,8 @@ async def test_list_evaluations_computes_score_averages_from_the_artifact(client
     # averaged in as a zero.
     assert run["metrics"] == {"factuality": pytest.approx(0.7), "context_faithfulness": pytest.approx(0.6)}
     assert run["golden_metrics"] == {"factuality": 1.0, "context_faithfulness": 1.0}
+    # Every pair, golden included: (0.9 + 0.5 + 1.0) / 3 and (0.8 + 0.4 + 1.0) / 3.
+    assert run["all_metrics"] == {"factuality": pytest.approx(0.8), "context_faithfulness": pytest.approx(2.2 / 3)}
     # The single golden pair passed (promptfoo's `success`).
     assert run["golden_pass_rate"] == 1.0
     # One of the three reference pairs passed - the judge-errored one counts as failed.
@@ -943,6 +945,7 @@ async def test_list_evaluations_reports_null_metrics_for_a_run_without_artifact(
     run = response.json()[0]
     assert run["metrics"] is None
     assert run["golden_metrics"] is None
+    assert run["all_metrics"] is None
     assert run["has_artifacts"] is False
 
 

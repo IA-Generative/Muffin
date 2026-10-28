@@ -238,7 +238,9 @@ class EvaluationService:
 
     async def _to_out(self, run) -> EvaluationRunOut:  # noqa: ANN001
         tests = evaluation_artifacts.load_tests(run)
-        metrics, golden_metrics = evaluation_artifacts.metrics_from_tests(tests) if tests else (None, None)
+        metrics, golden_metrics, all_metrics = (
+            evaluation_artifacts.metrics_from_tests(tests) if tests else (None, None, None)
+        )
         golden_pass_rate, reference_pass_rate, overall_pass_rate = (
             evaluation_artifacts.pass_rates(tests) if tests else (None, None, None)
         )
@@ -259,6 +261,7 @@ class EvaluationService:
             content_hash=run.content_hash,
             metrics=metrics,
             golden_metrics=golden_metrics,
+            all_metrics=all_metrics,
             golden_pass_rate=golden_pass_rate,
             reference_pass_rate=reference_pass_rate,
             overall_pass_rate=overall_pass_rate,

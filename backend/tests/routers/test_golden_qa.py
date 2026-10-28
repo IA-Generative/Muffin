@@ -329,6 +329,8 @@ async def test_an_evaluation_run_reports_its_golden_scores_apart(client, monkeyp
     assert run["golden_metrics"] == {"factuality": 1.0, "context_faithfulness": 0.9}
     # the generated pairs' own, untouched by the golden one
     assert run["metrics"] == {"factuality": 0.5, "context_faithfulness": 0.4}
+    # every pair, golden included: (0.5 + 1.0) / 2 and (0.4 + 0.9) / 2
+    assert run["all_metrics"] == {"factuality": 0.75, "context_faithfulness": 0.65}
 
 
 async def test_a_run_made_only_of_golden_pairs_has_no_global_aggregate(client, monkeypatch):
@@ -345,6 +347,8 @@ async def test_a_run_made_only_of_golden_pairs_has_no_global_aggregate(client, m
 
     assert run["metrics"] is None
     assert run["golden_metrics"] == {"factuality": 1.0, "context_faithfulness": 0.9}
+    # no reference pair, so the all-pairs average is the golden one
+    assert run["all_metrics"] == {"factuality": 1.0, "context_faithfulness": 0.9}
 
 
 # -- a reference pair, written by hand, is the opposite: the assistant answers from it --------------

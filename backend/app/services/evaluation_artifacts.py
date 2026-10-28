@@ -47,11 +47,13 @@ def _numeric_scores(test: dict[str, Any]) -> dict[str, float]:
     return {key: float(value) for key, value in named_scores.items() if isinstance(value, int | float)}
 
 
-def _average(tests: Sequence[dict[str, Any]], metric: str, golden: bool) -> float | None:
+def _average(tests: Sequence[dict[str, Any]], metric: str, golden: bool | None) -> float | None:
+    """The metric's average over the tests of one subset: golden=True for the test
+    questions, golden=False for the reference ones, golden=None for every pair."""
     scores = [
         numeric[metric]
         for test in tests
-        if _coerce_bool(test.get("vars", {}).get("golden")) == golden
+        if (golden is None or _coerce_bool(test.get("vars", {}).get("golden")) == golden)
         and (numeric := _numeric_scores(test)).get(metric) is not None
     ]
     # None on an empty subset, never 0.0 - a zero would read as a terrible score
@@ -61,16 +63,19 @@ def _average(tests: Sequence[dict[str, Any]], metric: str, golden: bool) -> floa
 
 def metrics_from_tests(
     tests: Sequence[dict[str, Any]],
-) -> tuple[dict[str, float] | None, dict[str, float] | None]:
-    """(non-golden, golden) score averages keyed by metric name - (None, None) when
-    nothing was scored at all. The keys are the union of whatever namedScores the
-    artifact actually holds, so the worker's assertions alone decide what gets
+) -> tuple[dict[str, float] | None, dict[str, float] | None, dict[str, float] | None]:
+    """(reference, golden, all) score averages keyed by metric name - each None when
+    nothing was scored over that subset. The keys are the union of whatever namedScores
+    the artifact actually holds, so the worker's assertions alone decide what gets
     scored: a new metric flows through with zero backend change, and a run that
     predates a metric simply doesn't list it (absent key, never a 0.0 average)."""
     metrics = sorted({key for test in tests for key in _numeric_scores(test)})
-    overall = {metric: average for metric in metrics if (average := _average(tests, metric, golden=False)) is not None}
-    golden = {metric: average for metric in metrics if (average := _average(tests, metric, golden=True)) is not None}
-    return overall or None, golden or None
+
+    def averages(golden: bool | None) -> dict[str, float] | None:
+        scored = {metric: average for metric in metrics if (average := _average(tests, metric, golden)) is not None}
+        return scored or None
+
+    return averages(golden=False), averages(golden=True), averages(golden=None)
 
 
 def _passed(test: dict[str, Any]) -> bool:
