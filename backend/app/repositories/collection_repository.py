@@ -17,8 +17,10 @@ from app.models.collection import (
     ShareSubjectType,
 )
 from app.models.document import Document, DocumentPage, DocumentStatus
+from app.models.document_revision import DocumentRevision
 from app.models.document_tabular_profile import DocumentTabularProfile
 from app.models.document_tabular_sheet import DocumentTabularSheet
+from app.models.evaluation import EvaluationRun
 from app.repositories.document_repository import legacy_tabular_copy_key
 
 
@@ -403,10 +405,11 @@ class CollectionRepository:
         return embedding_model_changed
 
     async def list_rustfs_keys(self, collection_ids: Sequence[uuid.UUID]) -> list[str]:
-        """Every RustFS object under these collections - uploaded files and page
-        screenshots - collected before the cascade delete removes the rows
-        that reference them. Several ids because deleting a collection deletes
-        its whole sub-collection subtree with it (#213)."""
+        """Every RustFS object under these collections - uploaded files, page
+        screenshots, living documents' revisions and evaluation artifacts -
+        collected before the cascade delete removes the rows that reference
+        them. Several ids because deleting a collection deletes its whole
+        sub-collection subtree with it (#213)."""
         storage_keys = await self.db.scalars(
             select(Document.storage_key).where(
                 Document.collection_id.in_(collection_ids), Document.storage_key.is_not(None)
@@ -416,6 +419,13 @@ class CollectionRepository:
             select(DocumentPage.screenshot)
             .join(Document, DocumentPage.document_id == Document.id)
             .where(Document.collection_id.in_(collection_ids), DocumentPage.screenshot.is_not(None))
+        )
+        # A living document's past revisions each own a file (#166) - same as the single-document
+        # delete path (DocumentRepository.list_rustfs_keys_for_document).
+        revision_keys = await self.db.scalars(
+            select(DocumentRevision.storage_key)
+            .join(Document, DocumentRevision.document_id == Document.id)
+            .where(Document.collection_id.in_(collection_ids))
         )
         # The typed copies of tabular files (#431), and the single copy written before there were sheets.
         copy_keys = await self.db.scalars(
@@ -429,7 +439,22 @@ class CollectionRepository:
             .where(Document.collection_id.in_(collection_ids))
         )
         legacy = [legacy_tabular_copy_key(collection, document) for collection, document in profiled.all()]
-        return [*storage_keys.all(), *screenshot_keys.all(), *copy_keys.all(), *legacy]
+        # The run's promptfoo artifacts (results.json / report.html) - the rows cascade with the
+        # collection, but the objects live in RustFS (see EvaluationService.delete_run).
+        artifacts = await self.db.execute(
+            select(EvaluationRun.results_json_key, EvaluationRun.report_html_key).where(
+                EvaluationRun.collection_id.in_(collection_ids)
+            )
+        )
+        evaluation_keys = [key for row in artifacts.all() for key in row if key]
+        return [
+            *storage_keys.all(),
+            *screenshot_keys.all(),
+            *revision_keys.all(),
+            *copy_keys.all(),
+            *legacy,
+            *evaluation_keys,
+        ]
 
     async def delete(self, collection: Collection) -> None:
         await self.db.delete(collection)
