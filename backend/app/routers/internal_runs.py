@@ -1,5 +1,5 @@
 import uuid
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,6 +34,7 @@ from app.schemas.internal_run import (
     SearchResultOut,
     SummarySearchResultOut,
     TabularDocumentOut,
+    TabularSheetRef,
 )
 from app.services.run_service import PARTIAL_ANSWER_TTL_SECONDS, partial_answer_key
 from app.services.search_service import SearchService
@@ -284,6 +285,24 @@ async def list_collection_documents(
     ]
 
 
+def _column_hint(column: dict[str, Any]) -> dict[str, Any]:
+    """A column of a sheet's analysis, trimmed to what helps the agent write a query."""
+    numeric, dates = column.get("numeric") or {}, column.get("dates") or {}
+    hint: dict[str, Any] = {
+        "name": column.get("name"),
+        "type": column.get("type"),
+        "null": column.get("null"),
+        "distinct": column.get("distinct"),
+        "distinct_exact": column.get("distinct_exact", True),
+        "top_values": [entry.get("value") for entry in (column.get("top_values") or [])[:5]],
+    }
+    if numeric:
+        hint.update(min=numeric.get("min"), max=numeric.get("max"))
+    elif dates:
+        hint.update(min=dates.get("min"), max=dates.get("max"))
+    return hint
+
+
 @router.get(
     "/users/{user_id}/collections/{collection_id}/tabular-documents",
     summary="List tabular documents the agent can query with DuckDB (storage_key + profile) - "
@@ -295,12 +314,13 @@ async def list_tabular_documents(
 ) -> list[TabularDocumentOut]:
     if await CollectionRepository(db).get(collection_id, user_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found")
-    pairs = await DocumentRepository(db).list_tabular_documents(collection_id)
+    repository = DocumentRepository(db)
+    pairs = await repository.list_tabular_documents(collection_id)
+    sheets = {document.id: await repository.list_tabular_sheets(document.id) for document, _ in pairs}
     return [
         TabularDocumentOut(
             id=document.id,
             name=document.name,
-            storage_key=document.storage_key,
             format=profile.format,
             row_count=profile.row_count,
             column_count=profile.column_count,
@@ -308,6 +328,19 @@ async def list_tabular_documents(
             measures=profile.measures,
             dimensions=profile.dimensions,
             text_columns=profile.text_columns,
+            sheets=[
+                TabularSheetRef(
+                    index=sheet.index,
+                    name=sheet.name,
+                    rows=sheet.rows,
+                    truncated=sheet.truncated,
+                    parquet_key=sheet.parquet_key,
+                    columns=(sheet.table or {}).get("columns", []),
+                    profile=[_column_hint(column) for column in sheet.columns],
+                )
+                for sheet in sheets[document.id]
+                if sheet.parquet_key and sheet.table
+            ],
         )
         for document, profile in pairs
     ]
