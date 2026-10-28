@@ -4,6 +4,7 @@ version = "0.33.1"
 description = "Celery worker that runs read-only SQL over the Parquet copies of tabular files (DuckDB, locked down)"
 requires-python = ">=3.12"
 dependencies = [
+    "matplotlib>=3.9",
     "celery[redis]>=5.6.0",
     "pydantic>=2.0",
     "pydantic-settings>=2.15.0",
@@ -17,6 +18,7 @@ test = [
     "pytest>=9.1.1",
     "ruff>=0.15.0",
     "pyarrow>=26.0.0",
+    "pillow>=13.0.0",
 ]
 dev = [{ include-group = "test" }]
 

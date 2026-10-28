@@ -20,6 +20,11 @@ class WorkerSettings(BaseSettings):
     TABULAR_POLL_SECONDS: float = 0.3
     # The files one task may query: the SQL worker's own limit (QUERY_MAX_FILES).
     TABULAR_MAX_FILES: int = 10
+    # Charts one answer may carry (#434) - the backend refuses more - and the wait for one to be drawn.
+    TABULAR_MAX_CHARTS: int = 6
+    # Categories a chart stays readable up to (the SQL worker's CHART_MAX_CATEGORIES): what the model is told.
+    TABULAR_MAX_CATEGORIES_HINT: int = 40
+    TABULAR_CHART_TIMEOUT_SECONDS: float = 90
     # Rows of a result the model reads back, and rows kept in the evidence under the answer.
     TABULAR_PROMPT_ROWS: int = 50
     TABULAR_EVIDENCE_ROWS: int = 100

@@ -152,4 +152,8 @@ feuilles, sans exécuter de SQL ni lire de fichier lui-même : chaque requête p
   qui ne répond pas en `TABULAR_QUERY_TIMEOUT_SECONDS` fait échouer la tâche avec un message clair.
 - **Preuve** : une seule, dans la forme historique (SQL, résultat en tableau Markdown, sources), qui porte **tous** les
   appels de la boucle, y compris ceux en erreur ; chaque autre fichier lu est une source citable à part.
+- **Graphiques** (#434) : `{"action": "create_chart", "query": N, "chart": {...}}` dessine le résultat de la requête N. Le worker
+  rejoue la requête et rend le PNG ; l'agent le confie au backend (`POST /api/internal/runs/{id}/charts`), qui rend le
+  Markdown de l'image (`![titre](/api/conversations/{c}/charts/{g}.png)`), mis dans la preuve. Six au plus par réponse. Un
+  graphique que le modèle n'a pas écrit dans sa réponse est **ajouté à la fin** (`with_missing_charts`).
 - `app/tabular_contracts.py` est une **copie** de `worker/tabular/app/contracts.py` : un test échoue si elles divergent.

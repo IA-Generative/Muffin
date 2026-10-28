@@ -1,9 +1,13 @@
+import asyncio
 import uuid
 
+from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import storage
 from app.core.security.factory import RequestContext
 from app.core.tasks import SCORE_DISCUSSION_TASK, enqueue_score_discussion
+from app.repositories.chart_repository import ChartRepository
 from app.repositories.conversation_repository import ConversationRepository
 from app.repositories.discussion_feedback_repository import DiscussionFeedbackRepository
 from app.repositories.discussion_score_repository import DiscussionScoreRepository
@@ -23,6 +27,7 @@ class ConversationService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
         self.conversations = ConversationRepository(db)
+        self.charts = ChartRepository(db)
         self.discussion_scores = DiscussionScoreRepository(db)
         self.discussion_feedbacks = DiscussionFeedbackRepository(db)
         self.tasks = TaskRepository(db)
@@ -87,8 +92,27 @@ class ConversationService:
 
     async def delete_conversation(self, conversation_id: uuid.UUID, user: RequestContext) -> None:
         conversation = await self._get_owned(conversation_id, user)
+        # The rows of the charts go with the conversation; their images are in the bucket, which has no cascade.
+        chart_keys = list(await self.charts.keys_for_conversation(conversation.id))
         await self.conversations.delete(conversation)
         await self.db.commit()
+        if chart_keys:
+            try:
+                await asyncio.to_thread(storage.delete_objects, chart_keys)
+            except Exception as error:  # the conversation is gone either way: an orphan image is the cost
+                logger.warning(
+                    f"Could not delete {len(chart_keys)} chart image(s) of conversation {conversation_id}: {error}"
+                )
+
+    async def get_chart_image(
+        self, conversation_id: uuid.UUID, chart_id: uuid.UUID, user: RequestContext
+    ) -> tuple[bytes, str]:
+        """The PNG of a chart, for whoever may read its conversation - the conversation's owner, as for its messages."""
+        conversation = await self._get_owned(conversation_id, user)
+        chart = await self.charts.get_in_conversation(chart_id, conversation.id)
+        if chart is None:
+            raise ConversationNotFoundError
+        return await asyncio.to_thread(storage.get_object, chart.s3_key)
 
     async def trigger_discussion_score(self, conversation_id: uuid.UUID, user: RequestContext) -> str:
         conversation = await self._get_owned(conversation_id, user)

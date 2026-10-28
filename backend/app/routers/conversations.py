@@ -1,7 +1,7 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security.factory import RequestContext, get_current_user
@@ -208,6 +208,26 @@ async def delete_conversation(conversation_id: uuid.UUID, user: UserDep, service
         await service.delete_conversation(conversation_id, user)
     except ConversationNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found") from error
+
+
+@router.get(
+    "/conversations/{conversation_id}/charts/{chart_id}.png",
+    summary="A chart the assistant drew (#434), streamed by the backend with the rights of its conversation",
+    responses={200: {"content": {"image/png": {}}}},
+)
+async def get_chart_image(
+    conversation_id: uuid.UUID, chart_id: uuid.UUID, user: UserDep, service: ConversationServiceDep
+) -> Response:
+    try:
+        content, _ = await service.get_chart_image(conversation_id, chart_id, user)
+    except ConversationNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chart not found") from error
+    # Whatever the bucket said, it is a PNG we checked on the way in. Private: it is a user's data.
+    return Response(
+        content=content,
+        media_type="image/png",
+        headers={"Cache-Control": "private, max-age=3600", "X-Content-Type-Options": "nosniff"},
+    )
 
 
 @router.post(

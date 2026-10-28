@@ -1,6 +1,7 @@
 from app.models.app_settings import AppSettings
 from app.models.base import Base
 from app.models.cgu import CguAcceptance, CguVersion
+from app.models.chart import Chart
 from app.models.chunk import Chunk
 from app.models.collection import (
     ChunkingStrategy,
@@ -63,6 +64,7 @@ __all__ = [
     "Base",
     "CguAcceptance",
     "CguVersion",
+    "Chart",
     "Chunk",
     "ChunkingStrategy",
     "Collection",

@@ -1766,3 +1766,40 @@ def test_answer_falls_back_to_one_piece_when_streaming_fails(make_run):
     result = graph.invoke(state, config=_config(state))
 
     assert result["answer"] == "Leave is 25 days [x]."
+
+
+def test_a_chart_the_model_forgot_is_added_at_the_end_of_the_answer():
+    from app.graph.nodes.generate_answer import with_missing_charts
+
+    shown = {"markdown": "![A](/api/conversations/c/charts/a.png)", "url": "/api/conversations/c/charts/a.png"}
+    forgotten = {"markdown": "![B](/api/conversations/c/charts/b.png)", "url": "/api/conversations/c/charts/b.png"}
+    excerpts = [{"charts": [shown, forgotten]}, {"charts": [forgotten]}, {}]
+
+    answer = with_missing_charts(f"Voici : {shown['markdown']} et c'est tout.", excerpts)
+
+    assert answer.startswith("Voici : ![A]") and answer.endswith(forgotten["markdown"])
+    assert answer.count(forgotten["markdown"]) == 1 and answer.count(shown["markdown"]) == 1
+    assert with_missing_charts("Rien à illustrer.", [{"charts": []}]) == "Rien à illustrer."
+
+
+def test_a_chart_drawn_for_the_answer_ends_up_in_it_even_if_the_model_does_not_write_it(make_run, monkeypatch):
+    chart = {"type": "bar", "x": "category", "y": ["total"], "title": "Total par catégorie"}
+    steps = [
+        _query('SELECT category, SUM(amount) AS total FROM f1."sales_data" GROUP BY 1'),
+        json.dumps({"action": "create_chart", "query": 1, "chart": chart}),
+    ]
+    graph, fake = make_run(_hr_eng_vdbs(), _tabular_router(steps, answer="Le total est de 5000 [t1]."))
+    fake.tabular_documents_by_collection["hr"] = [_tabular_doc()]
+    _fake_worker(monkeypatch, _worker_result(["category", "total"], [["books", 1500]]))
+    monkeypatch.setattr(
+        "app.graph.services.tabular_query.render_remote_chart",
+        lambda payload, *a, **k: {"status": "completed", "png_base64": "UE5H", "width": 900, "height": 540},
+    )
+
+    state = initial_state("Show the total by category as a chart")
+    result = graph.invoke(state, config=_config(state))
+
+    [(run_id, stored)] = fake.charts
+    assert run_id == state["run_id"] and stored["spec"] == chart
+    assert result["answer"].startswith("Le total est de 5000")
+    assert result["answer"].endswith("![Total par catégorie](/api/conversations/conv-1/charts/chart-1.png)")

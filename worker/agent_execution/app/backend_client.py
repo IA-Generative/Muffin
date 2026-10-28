@@ -169,6 +169,13 @@ class BackendClient:
         response = self._client.patch(f"/api/internal/runs/{run_id}/error", json={"error": error})
         response.raise_for_status()
 
+    def create_chart(self, run_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        """Stores a chart the SQL worker drew (#434). The backend keeps the PNG and serves it with the rights of the
+        conversation; it answers the URL and the Markdown that shows it."""
+        response = self._client.post(f"/api/internal/runs/{run_id}/charts", json=body)
+        response.raise_for_status()
+        return response.json()
+
     def add_run_event(
         self,
         run_id: str,

@@ -30,6 +30,10 @@ class TabularSettings(BaseSettings):
     QUERY_MAX_TABLE_BYTES: int = 500 * 1024 * 1024
     QUERY_MAX_FILES: int = 10
     QUERY_MAX_SHEETS: int = 100
+    # Charts (#434): the points drawn (the query runs again with room for more than the agent sees), and the categories
+    # a bar or a slice stays readable up to.
+    CHART_MAX_POINTS: int = 5000
+    CHART_MAX_CATEGORIES: int = 40
     # Where a query's private folder is made (the pod's writable volume).
     QUERY_WORK_DIR: str | None = None
 

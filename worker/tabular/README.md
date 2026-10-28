@@ -27,6 +27,22 @@ tabulaire (#431). C'est ce que l'agent appellera pour interroger les données (#
 - **Droits S3** : le pod n'a besoin que de lire. Le chart lui donne le secret `muffin-s3-readonly` (une clé d'accès en
   lecture seule, distincte de celle des autres workers) ; il ne lit que les clés de copies de feuilles.
 
+## Graphiques (#434)
+
+Tâche `app.tasks.render_chart(payload)`, sur la même queue : la requête de l'agent est **rejouée** sur les mêmes feuilles
+(jusqu'à `CHART_MAX_POINTS` lignes, davantage que ce que l'agent voit), et son résultat est dessiné avec `matplotlib`.
+
+- La demande (`ChartRequest`) est celle d'une requête plus une `spec` : `type` (`bar`, `barh`, `line`, `area`, `pie`,
+  `scatter`, `histogram`), `x`, `y` (jusqu'à 6 colonnes), `color`, `title`, `x_label`, `y_label`, `stacked`, `sort`.
+  C'est une **description**, jamais du code. Le rendu réutilise le moteur de requête : il ne lit que les feuilles de la
+  demande.
+- La réponse est le PNG en base64 (`ChartResult`) : **le pod n'écrit rien dans le bucket** (sa clé est en lecture seule),
+  c'est le backend qui le garde. Un graphique impossible (colonne inconnue, `y` non numérique, trop de catégories ou de
+  séries, valeur négative dans un camembert) rend un `ChartFailure` qui dit quoi changer et donne les colonnes du résultat.
+- Taille fixe (900 × 540 px à 125 dpi), palette lisible par les daltoniens, séparateur de milliers à la française, police
+  DejaVu (accents, `€`). Le texte est dessiné tel quel : un `$` dans un titre n'ouvre pas de formule.
+- `matplotlib` n'est dans l'image que de ce pod (pas dans l'image d'extraction) : elle fait environ 540 Mo.
+
 ## Mesures
 
 Sur 5 millions de lignes (Parquet de 81 Mo, 5 colonnes), mémoire limitée à 512 Mo : une agrégation par catégorie ou

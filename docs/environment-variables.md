@@ -258,6 +258,8 @@ Image à part (`worker-tabular`), sans modèle : DuckDB sur les copies Parquet d
 | `QUERY_MEMORY_LIMIT` | Mémoire de DuckDB pour une requête ; au-delà il écrit sur disque, puis la requête échoue (pas le pod) | `512MB` |
 | `QUERY_THREADS` | Threads de DuckDB pour une requête | `2` |
 | `QUERY_MAX_TABLE_BYTES` | Octets de Parquet téléchargés pour une requête | `524288000` (500 Mo) |
+| `CHART_MAX_POINTS` | Lignes de la requête dessinées dans un graphique (elle est rejouée, avec plus de place que ce que l'agent voit) | `5000` |
+| `CHART_MAX_CATEGORIES` | Catégories (barres, tranches) au-delà desquelles un graphique n'est pas lisible : on demande d'agréger | `40` |
 | `QUERY_MAX_FILES` / `QUERY_MAX_SHEETS` | Fichiers (schémas) et feuilles qu'une requête peut joindre | `10` / `100` |
 | `QUERY_WORK_DIR` | Où est fait le dossier privé de chaque requête (le volume inscriptible du pod) | `/tmp` (image) |
 | `SQL_TASK_SOFT_TIME_LIMIT_SECONDS` | Limite souple de la tâche, téléchargement compris | `180` |
@@ -303,6 +305,9 @@ boucle de vérification (« grounding »).
 | `TABULAR_QUERY_TIMEOUT_SECONDS` | Attente de la réponse du worker pour une requête ; au-delà, la tâche échoue avec un message clair | `120` | idem |
 | `TABULAR_POLL_SECONDS` | Intervalle entre deux regards sur le résultat (la révocation est regardée à chaque fois) | `0.3` | idem |
 | `TABULAR_MAX_FILES` | Fichiers qu'une tâche peut interroger (la limite `QUERY_MAX_FILES` du worker) ; les autres sont signalés | `10` | idem |
+| `TABULAR_MAX_CHARTS` | Graphiques qu'une réponse peut porter (le backend en refuse davantage) | `6` | idem |
+| `TABULAR_CHART_TIMEOUT_SECONDS` | Attente du dessin d'un graphique par le worker | `90` | idem |
+| `TABULAR_MAX_CATEGORIES_HINT` | Nombre de catégories que le modèle est invité à ne pas dépasser (à aligner sur `CHART_MAX_CATEGORIES`) | `40` | idem |
 | `TABULAR_PROMPT_ROWS` / `TABULAR_EVIDENCE_ROWS` | Lignes d'un résultat relues par le modèle / gardées dans la preuve sous la réponse | `50` / `100` | idem |
 
 L'agent n'exécute plus de SQL ni ne lit de fichier : il n'a plus de variables `AWS_*` ni de DuckDB (#433).
