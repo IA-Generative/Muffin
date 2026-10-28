@@ -1,0 +1,10 @@
+{{- if .Values.enabled }}
+{{- if and .Values.ocr_table.serviceAccount.enabled .Values.ocr_table.serviceAccount.clusterRole.create .Values.ocr_table.serviceAccount.clusterRole.rules }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "helper.componentFullname" (dict "root" . "componentName" "ocr_table") }}
+  labels: {{- (include "helper.labels" (dict "root" . "componentName" "ocr_table")) | nindent 4 }}
+rules: {{- toYaml .Values.ocr_table.serviceAccount.clusterRole.rules | nindent 0 }}
+{{- end }}
+{{- end }}

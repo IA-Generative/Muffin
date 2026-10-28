@@ -223,9 +223,9 @@ désactivée par défaut en amont et doit être explicitement activée côté se
 | `ZIP_IMPORT_MAX_DEPTH` | Profondeur maximale de dossiers dans un ZIP ; un fichier plus profond est ignoré. Non défini : pas de limite | aucune | idem |
 | `TESSDATA_PATH` | Chemin vers les fichiers de données Tesseract, si non standard — le `Dockerfile` du worker le fixe au chemin du paquet apt `tesseract-ocr-fra` | `None` | idem |
 
-## worker/layout et worker/ocr — pods d'OCR par layout (#406, #407)
+## worker/layout, worker/ocr et worker/table — pods d'OCR par layout (#406, #407, #410)
 
-Chacun est une image à part (`worker-ocr-layout`, `worker-ocr`) avec son modèle ONNX officiel de PaddlePaddle embarqué.
+Chacun est une image à part (`worker-ocr-layout`, `worker-ocr`, `worker-ocr-table`) avec ses modèles ONNX officiels de PaddlePaddle embarqués.
 Ils partagent avec le worker d'extraction `REDIS_URL`, `AWS_*`, `STORAGE_*_TIMEOUT_SECONDS`, le nom de leur queue
 (`LAYOUT_QUEUE_NAME` / `OCR_QUEUE_NAME`), `MODELS_DIR`, `OCR_REGION_MIN_SCORE`, `OCR_REGION_MIN_PIXELS`,
 `OCR_MAX_REGIONS_PER_PAGE` (layout) et la limite souple de leur tâche : voir plus haut. Propres aux pods :
@@ -239,6 +239,10 @@ Ils partagent avec le worker d'extraction `REDIS_URL`, `AWS_*`, `STORAGE_*_TIMEO
 | `OCR_REGION_PADDING_PIXELS` | Pixels ajoutés autour d'une région avant de la lire, pour ne pas couper le bord d'un glyphe | `8` | idem |
 | `OCR_CROP_BORDER_PIXELS` | Bordure blanche autour du recadrage lu : sans elle, le détecteur coupe un recadrage très plat (un titre) en morceaux - « Rapport annuel d'activité » sortait en trois lignes, et en une dès 16 pixels | `32` | idem |
 | `OCR_LINE_MIN_SCORE` | Score minimal d'une ligne lue ; en dessous, elle est écartée. `0` garde toutes les lignes avec leur score, à l'appelant de juger d'une lecture médiocre | `0.0` | idem |
+| `TABLE_MODEL_NAME` | Dossier, sous `MODELS_DIR`, du modèle SLANet_plus (export ONNX officiel) qui lit la structure d'un tableau. Le pod `table` lit aussi le texte des cellules avec les modèles `OCR_DET_MODEL_NAME` / `OCR_REC_MODEL_NAME` du pod `ocr` | `SLANet_plus_onnx` | **worker/table** (`app/config.py`, `app/tables.py`) |
+| `TABLE_CROP_MARGIN_PIXELS` | Pixels de la page gardés autour d'un tableau avant de le lire, pour ne pas perdre une bordure que le layout a coupée de près | `8` | idem |
+| `TABLE_MAX_CELLS` | Au-delà de ce nombre de cellules, un tableau n'est pas lu (un tableur ne se lit pas sur un scan) et la page retombe sur la lecture de secours | `5000` | idem |
+| `TABLE_MAX_PER_PAGE` | Nombre maximal de tableaux lus par page | `20` | idem |
 | `ONNX_INTRA_OP_THREADS` | Threads qu'ONNX Runtime peut utiliser pour une page ou une région (`0` : son choix). À régler sur les CPU du pod divisés par la concurrence du worker | `0` | les deux pods |
 
 ## worker/agent_execution — budgets d'exécution de l'agent
