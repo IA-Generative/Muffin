@@ -247,6 +247,16 @@ onBeforeUnmount(() => {
         <!-- eslint-enable vue/no-v-html -->
       </template>
 
+      <!-- The answer rests on consulted excerpts but cites none (#402): said, not left to look sourced. -->
+      <p
+        v-if="message.role === 'assistant' && message.noSources && !message.pending && !message.error"
+        class="chat-message__no-source"
+        role="note"
+      >
+        <span class="fr-badge fr-badge--sm fr-badge--warning fr-badge--no-icon">Sans source</span>
+        Cette réponse ne cite aucune source : vérifiez-la avant de vous y fier.
+      </p>
+
       <button
         v-if="sourcesLabel"
         type="button"
@@ -620,6 +630,16 @@ onBeforeUnmount(() => {
 .chat-message__markdown pre code {
   background: none;
   padding: 0;
+}
+
+.chat-message__no-source {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.625rem 0 0;
+  font-size: 0.8125rem;
+  color: var(--text-mention-grey);
 }
 
 .chat-message__sources-chip {

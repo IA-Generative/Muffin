@@ -5,6 +5,7 @@ from loguru import logger
 
 from app.ask_user import NOBODY_TO_ASK
 from app.backend_client import backend_client
+from app.graph.services.citations import CITATION_RULE, RETRY_MESSAGE, cited_ids, without_invented_markers
 from app.graph.services.events import emit, is_cancelled, set_activity
 from app.graph.services.prompts import get_prompt
 from app.graph.services.vdb_router import collection_path, collection_path_names
@@ -102,7 +103,11 @@ def generate_answer(state: AgentState) -> dict[str, Any]:
         }
 
     system_prompt, prompt_version_id = get_prompt("generate_answer", fallback=_SYSTEM_PROMPT)
-    evidence_block = "\n\n".join(f"[{e['id']}] (source: {e['source']})\n{e['content']}" for e in context["excerpts"])
+    # Appended here, not in the prompt (administrable, see get_prompt): an overridden prompt keeps the rule (#402).
+    system_prompt += CITATION_RULE
+    evidence_block = "\n\n".join(
+        f"[{e['id']}] (source: {e['source'] or e['tool']})\n{e['content']}" for e in context["excerpts"]
+    )
     missing_note = (
         f"\n\nNote: the following could not be established from accessible sources: "
         f"{context['missing_information']}.{web_search_hint}"
@@ -129,18 +134,34 @@ def generate_answer(state: AgentState) -> dict[str, Any]:
         f"\n\n{evidence_block}"
     )
     start = time.monotonic()
-    result = _write_answer(
-        run_id,
-        model,
-        [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_content},
-        ],
-    )
-    latency_ms = int((time.monotonic() - start) * 1000)
-    answer = with_missing_charts(result["content"], context["excerpts"])
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_content},
+    ]
+    result = _write_answer(run_id, model, messages)
     prompt_tokens = result.get("prompt_tokens")
     completion_tokens = result.get("completion_tokens")
+    valid_ids = {e["id"] for e in context["excerpts"]}
+    written = without_invented_markers(result["content"], valid_ids)
+    if not cited_ids(written, valid_ids):
+        # Evidence was given and the answer cites none of it (#402): the model is asked once to write it again with its
+        # citations. If it still cites nothing, the answer stands and the interface says that it has no source.
+        logger.warning(f"Run {run_id}: the answer cites no evidence, asking for it again")
+        emit(run_id, "answer_citations_retry")
+        retry = backend_client.llm_chat_with_usage(
+            model,
+            [*messages, {"role": "assistant", "content": written}, {"role": "user", "content": RETRY_MESSAGE}],
+        )
+        retried = without_invented_markers(retry["content"], valid_ids)
+        prompt_tokens = (prompt_tokens or 0) + (retry.get("prompt_tokens") or 0) or None
+        completion_tokens = (completion_tokens or 0) + (retry.get("completion_tokens") or 0) or None
+        if cited_ids(retried, valid_ids):
+            written = retried
+        else:
+            logger.warning(f"Run {run_id}: the answer still cites no evidence")
+    cited = set(cited_ids(written, valid_ids))
+    latency_ms = int((time.monotonic() - start) * 1000)
+    answer = with_missing_charts(written, context["excerpts"])
     by_id = {str(vdb["id"]): vdb for vdb in state["accessible_vdbs"]}
     citations = [
         {
@@ -154,6 +175,8 @@ def generate_answer(state: AgentState) -> dict[str, Any]:
             "evidence_kind": e["evidence_kind"],
             "document_id": e["document_id"],
             "chunk_id": e["chunk_id"],
+            # Whether the answer cites this excerpt or it was only consulted (#402): the interface shows the cited.
+            "cited": e["id"] in cited,
             # Where a cited question-answer pair comes from (#351): the document, page and passage to open.
             "qa_source": e.get("qa_source"),
             "page_number": e["page_number"],
