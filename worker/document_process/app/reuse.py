@@ -69,6 +69,9 @@ def _ocr_pods() -> dict[str, Any]:
         "min_pixels": worker_settings.OCR_REGION_MIN_PIXELS,
         "max_regions": worker_settings.OCR_MAX_REGIONS_PER_PAGE,
         "tables_as_text": worker_settings.OCR_READ_TABLES_AS_TEXT,
+        # The pages carry their layout (#409): an extraction made before has none, and a document extracted now must
+        # not be given pages without it.
+        "regions": 1,
     }
 
 
