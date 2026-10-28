@@ -27,7 +27,6 @@ from app.schemas.collection import (
     VisibilityUpdate,
 )
 from app.schemas.evaluation import (
-    EvaluationResultOut,
     EvaluationRunOut,
     EvaluationStatusOut,
     EvaluationTriggerRequest,
@@ -334,23 +333,6 @@ async def get_evaluation_status(
         return EvaluationStatusOut(running=await service.is_running(collection_id, user))
     except EvaluationCollectionNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
-
-
-@router.get(
-    "/collections/{collection_id}/evaluations/{run_id}/results",
-    summary="One run's per-pair detail (question, expected and generated answers, retrieved "
-    "sources, per-metric scores), normalized from its results.json artifact (see #11)",
-    response_model=list[EvaluationResultOut],
-)
-async def list_evaluation_results(
-    collection_id: uuid.UUID, run_id: uuid.UUID, user: UserDep, service: EvaluationServiceDep
-) -> list[EvaluationResultOut]:
-    try:
-        return await service.run_results(collection_id, run_id, user)
-    except EvaluationCollectionNotFoundError as error:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
-    except EvaluationRunNotFoundError as error:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Evaluation run not found") from error
 
 
 @router.get(

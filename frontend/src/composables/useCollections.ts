@@ -10,7 +10,6 @@ import type {
   CollectionPathItem,
   CollectionVisibility,
   Entity,
-  EvaluationResult,
   EvaluationRun,
   IndexRebuild,
   FieldStamp,
@@ -666,8 +665,7 @@ async function refreshEntitiesAndRelations(collectionId: string) {
 }
 
 // Backend EvaluationRunOut is snake_case - we map to the EvaluationRun shape the UI
-// expects. The per-pair results are NOT in this response: they are loaded on demand
-// (fetchEvaluationResults) so listing the runs stays cheap.
+// expects.
 interface EvaluationRunOut {
   id: string
   created_at: string
@@ -693,18 +691,6 @@ interface EvaluationRunOut {
   reference_pass_rate: number | null
   overall_pass_rate: number | null
   has_artifacts: boolean
-}
-
-// Backend EvaluationResultOut, normalized from the results.json artifact.
-interface EvaluationResultOut {
-  qa_pair_id: string | null
-  question: string
-  expected_answer: string
-  generated_answer: string
-  named_scores: Record<string, number>
-  validated: boolean
-  golden: boolean
-  retrieved_sources: string[]
 }
 
 async function refreshEvaluation(collectionId: string) {
@@ -773,27 +759,6 @@ async function refreshEvaluationStatus(collectionId: string) {
   evaluatingCollectionIds.value.add(collectionId)
   evaluatingCollectionIds.value = new Set(evaluatingCollectionIds.value)
   pollEvaluationWhileRunning(collectionId)
-}
-
-// A run's per-pair results, loaded on demand when the user expands it in the UI - the
-// list endpoint deliberately leaves them out.
-async function fetchEvaluationResults(collectionId: string, runId: string): Promise<EvaluationResult[]> {
-  const response = await fetch(
-    `${API_BASE_URL}/api/collections/${collectionId}/evaluations/${runId}/results`,
-    { credentials: 'include' },
-  )
-  if (!response.ok) return []
-  const results: EvaluationResultOut[] = await response.json()
-  return results.map((result) => ({
-    qaPairId: result.qa_pair_id ?? '',
-    question: result.question,
-    expectedAnswer: result.expected_answer,
-    generatedAnswer: result.generated_answer,
-    namedScores: result.named_scores,
-    validated: result.validated,
-    golden: result.golden,
-    retrievedSources: result.retrieved_sources,
-  }))
 }
 
 function pollDocumentsWhileProcessing(collectionId: string) {
@@ -1520,7 +1485,6 @@ export function useCollections() {
     refreshChunks,
     refreshEntitiesAndRelations,
     refreshEvaluation,
-    fetchEvaluationResults,
     loadTabData,
     updateChunkingSettings,
     updateEmbeddingModel,

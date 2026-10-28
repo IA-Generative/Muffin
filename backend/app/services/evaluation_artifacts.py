@@ -20,7 +20,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.core import storage
 from app.models.evaluation import EvaluationRun
-from app.schemas.evaluation import EvaluationResultOut
 
 
 def _coerce_bool(value: Any) -> bool:
@@ -32,33 +31,16 @@ def _coerce_bool(value: Any) -> bool:
 
 
 class TestVars(BaseModel):
-    """The vars promptfoo echoes back for one test - the QA pair's identity and scope."""
+    """The vars promptfoo echoes back for one test - only the scope the backend reads."""
 
     model_config = ConfigDict(extra="ignore")
 
-    query: str | None = None
-    # The pre-rename spelling, kept for artifacts of runs that predate it.
-    question: str | None = None
-    reference: str | None = None
-    validated: bool = False
     golden: bool = False
-    qa_pair_id: str | None = None
 
-    @field_validator("validated", "golden", mode="before")
+    @field_validator("golden", mode="before")
     @classmethod
     def _bool_from_var(cls, value: Any) -> bool:
         return _coerce_bool(value)
-
-
-class TestResponse(BaseModel):
-    """The provider's response as promptfoo stores it. `output` is the *transformed* value
-    (the generated YAML sets `transform: output.answer`), so it is the generated answer
-    string - not the provider's {answer, context} dict, which promptfoo does not keep."""
-
-    model_config = ConfigDict(extra="ignore")
-
-    output: str | None = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class EvaluationTest(BaseModel):
@@ -67,7 +49,6 @@ class EvaluationTest(BaseModel):
     model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
     vars: TestVars = Field(default_factory=TestVars)
-    response: TestResponse = Field(default_factory=TestResponse)
     named_scores: dict[str, float] = Field(default_factory=dict, alias="namedScores")
     success: bool = False
 
@@ -149,20 +130,3 @@ def pass_rates(tests: Sequence[EvaluationTest]) -> tuple[float | None, float | N
     golden = [test for test in tests if test.vars.golden]
     reference = [test for test in tests if not test.vars.golden]
     return _pass_rate(golden), _pass_rate(reference), _pass_rate(tests)
-
-
-def to_result_out(test: EvaluationTest) -> EvaluationResultOut:
-    """Normalizes one promptfoo test into the shape the evaluations UI consumes -
-    the mapping is kept here so a promptfoo format change only touches this module."""
-    return EvaluationResultOut(
-        qa_pair_id=test.vars.qa_pair_id,
-        # `query` since promptfoo's RAG assertions require that var name; `question` is
-        # the pre-rename spelling, kept for artifacts of runs that predate it.
-        question=test.vars.query or test.vars.question or "",
-        expected_answer=test.vars.reference or "",
-        generated_answer=test.response.output or "",
-        named_scores=test.named_scores,
-        validated=test.vars.validated,
-        golden=test.vars.golden,
-        retrieved_sources=test.response.metadata.get("sources") or [],
-    )

@@ -17,7 +17,7 @@ from app.repositories.collection_repository import CollectionRepository
 from app.repositories.evaluation_repository import EvaluationRepository
 from app.repositories.qa_pair_repository import QaPairRepository
 from app.repositories.task_repository import TaskRepository
-from app.schemas.evaluation import EvaluationResultOut, EvaluationRunOut
+from app.schemas.evaluation import EvaluationRunOut
 from app.services import evaluation_artifacts
 
 
@@ -194,16 +194,6 @@ class EvaluationService:
         await self._get_accessible(collection_id, user)
         runs = await self.evaluations.list_by_collection(collection_id)
         return [await self._to_out(run) for run in runs]
-
-    async def run_results(
-        self, collection_id: uuid.UUID, run_id: uuid.UUID, user: RequestContext
-    ) -> list[EvaluationResultOut]:
-        """The per-pair detail of one run, normalized from its results.json artifact -
-        empty for a run with no artifact (the runs predating the promptfoo migration)."""
-        await self._get_accessible(collection_id, user)
-        run = await self._get_run(collection_id, run_id)
-        tests = evaluation_artifacts.load_tests(run)
-        return [evaluation_artifacts.to_result_out(test) for test in tests] if tests else []
 
     async def run_report(self, collection_id: uuid.UUID, run_id: uuid.UUID, user: RequestContext) -> bytes:
         """The run's promptfoo HTML report - served through the backend so every access

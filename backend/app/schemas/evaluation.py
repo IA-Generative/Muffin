@@ -24,23 +24,6 @@ class EvaluationStatusOut(BaseModel):
     running: bool
 
 
-class EvaluationResultOut(BaseModel):
-    """One QA pair's outcome in a run, normalized from the results.json artifact -
-    the frontend never parses promptfoo's format itself."""
-
-    qa_pair_id: str | None
-    question: str
-    expected_answer: str
-    generated_answer: str
-    # The metrics the judge scored for this pair, keyed by their namedScores name -
-    # whatever the run's assertions actually wrote. A metric the judge errored on has
-    # no entry; an empty dict means the judge failed on every assertion.
-    named_scores: dict[str, float]
-    validated: bool
-    golden: bool = False
-    retrieved_sources: list[str]
-
-
 class EvaluationRunOut(BaseModel):
     id: uuid.UUID
     collection_id: uuid.UUID

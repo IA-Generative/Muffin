@@ -147,23 +147,6 @@ export interface IndexingEstimate {
   collectionMax: number
 }
 
-// One QA pair's outcome in a run, normalized by the backend from the run's results.json
-// artifact - the frontend never parses promptfoo's format itself.
-export interface EvaluationResult {
-  qaPairId: string
-  question: string
-  expectedAnswer: string
-  generatedAnswer: string
-  // The metrics the judge scored for this pair, keyed by their name - whatever the
-  // run's assertions actually wrote. A metric the judge errored on has no entry; an
-  // empty object means the judge failed on every assertion. Labels come from
-  // utils/evaluationMetrics.ts, with a raw-key fallback.
-  namedScores: Record<string, number>
-  validated: boolean
-  golden: boolean
-  retrievedSources: string[]
-}
-
 export interface ChunkingSnapshot extends ChunkingSettings {
   embeddingModel: string
 }
@@ -199,8 +182,6 @@ export interface EvaluationRun {
   // Whether the report/results.json artifacts exist (download links, report preview) -
   // false on the runs predating the promptfoo migration.
   hasArtifacts: boolean
-  // Not in the list response: the per-pair results are loaded on demand when a run is
-  // expanded (fetchEvaluationResults in useCollections).
 }
 
 export type CollectionVisibility = 'private' | 'public'

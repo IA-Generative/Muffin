@@ -949,43 +949,6 @@ async def test_list_evaluations_reports_null_metrics_for_a_run_without_artifact(
     assert run["has_artifacts"] is False
 
 
-async def test_evaluation_results_detail_is_normalized_from_the_artifact(client, monkeypatch):
-    collection_id = (await client.post("/api/collections")).json()["id"]
-    run_id = await _create_evaluation_run(collection_id)
-    _fake_storage(monkeypatch)
-
-    response = await client.get(f"/api/collections/{collection_id}/evaluations/{run_id}/results")
-
-    assert response.status_code == 200
-    results = response.json()
-    assert results[0] == {
-        "qa_pair_id": "11111111-1111-1111-1111-111111111111",
-        "question": "Q1",
-        "expected_answer": "A1",
-        "generated_answer": "Generated 1",
-        "named_scores": {"factuality": 0.9, "context_faithfulness": 0.8},
-        "validated": True,
-        "golden": False,
-        "retrieved_sources": ["handbook.pdf#0"],
-    }
-    # The pair the judge errored on keeps its place in the detail, scoreless (no
-    # namedScores entry at all) - and its var predates the query rename, so the
-    # question reads through the fallback.
-    assert results[2]["named_scores"] == {}
-    assert results[2]["question"] == "Q3"
-    assert results[3]["golden"] is True
-
-
-async def test_evaluation_results_detail_empty_for_a_run_without_artifact(client):
-    collection_id = (await client.post("/api/collections")).json()["id"]
-    run_id = await _create_evaluation_run(collection_id, results_json_key=None, report_html_key=None)
-
-    response = await client.get(f"/api/collections/{collection_id}/evaluations/{run_id}/results")
-
-    assert response.status_code == 200
-    assert response.json() == []
-
-
 async def test_evaluation_report_is_served_inline_or_as_a_download(client, monkeypatch):
     collection_id = (await client.post("/api/collections")).json()["id"]
     run_id = await _create_evaluation_run(collection_id)
@@ -1032,11 +995,9 @@ async def test_evaluation_endpoints_404_for_unknown_run(client):
     collection_id = (await client.post("/api/collections")).json()["id"]
 
     report = await client.get(f"/api/collections/{collection_id}/evaluations/{uuid.uuid4()}/report")
-    results = await client.get(f"/api/collections/{collection_id}/evaluations/{uuid.uuid4()}/results")
     raw = await client.get(f"/api/collections/{collection_id}/evaluations/{uuid.uuid4()}/results.json")
 
     assert report.status_code == 404
-    assert results.status_code == 404
     assert raw.status_code == 404
 
 

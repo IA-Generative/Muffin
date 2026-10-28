@@ -2,15 +2,15 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useCollections } from '../composables/useCollections'
 import { usePagination } from '../composables/usePagination'
-import type { Collection, EvaluationResult, EvaluationRun } from '../types/collection'
-import { isHiddenMetric, metricLabel, orderedMetricKeys } from '../utils/evaluationMetrics'
+import type { Collection, EvaluationRun } from '../types/collection'
+import { metricLabel, orderedMetricKeys } from '../utils/evaluationMetrics'
 import PaginationControls from './PaginationControls.vue'
 
 const props = defineProps<{
   collection: Collection
 }>()
 
-const { runEvaluation, isEvaluating, deleteEvaluation, loadTabData, fetchEvaluationResults } = useCollections()
+const { runEvaluation, isEvaluating, deleteEvaluation, loadTabData } = useCollections()
 
 // The counts below come from the QA pairs, which are otherwise only loaded by their own tab.
 onMounted(() => loadTabData(props.collection.id, 'qa'))
@@ -21,24 +21,9 @@ const { page, pageCount, paged: pagedRuns } = usePagination(evaluationRuns)
 const evaluating = computed(() => isEvaluating(props.collection.id))
 
 const expandedRunId = ref<string>()
-// Per-pair results are not part of the list response: loaded the first time a run is
-// expanded, then cached - expanding again must not refetch.
-const resultsByRunId = ref<Record<string, EvaluationResult[]>>({})
-const loadingRunId = ref<string>()
 
-async function toggleExpand(runId: string) {
-  if (expandedRunId.value === runId) {
-    expandedRunId.value = undefined
-    return
-  }
-  expandedRunId.value = runId
-  if (resultsByRunId.value[runId]) return
-  loadingRunId.value = runId
-  try {
-    resultsByRunId.value[runId] = await fetchEvaluationResults(props.collection.id, runId)
-  } finally {
-    loadingRunId.value = undefined
-  }
+function toggleExpand(runId: string) {
+  expandedRunId.value = expandedRunId.value === runId ? undefined : runId
 }
 
 // The run's promptfoo report is served by the backend (every access is checked) and
@@ -90,12 +75,6 @@ function metricKeys(run: EvaluationRun): string[] {
 // The reference (non-golden) pairs: every evaluated pair that isn't a test question.
 function referencePairCount(run: EvaluationRun): number {
   return run.pairCount - run.goldenPairCount
-}
-
-// The per-pair scores the UI shows: the judge's metrics, minus the hidden diagnostics
-// (the chunk count is recorded but never displayed here).
-function visibleScores(scores: Record<string, number>): [string, number][] {
-  return Object.entries(scores).filter(([key]) => !isHiddenMetric(key))
 }
 
 const STRATEGY_LABEL: Record<string, string> = {
@@ -308,48 +287,6 @@ const goldenCount = computed(() => props.collection.qaPairs.filter((pair) => pai
               </div>
             </div>
           </div>
-
-          <div class="eval-tab__results">
-            <p v-if="loadingRunId === run.id" class="eval-tab__empty">Chargement des résultats…</p>
-            <template v-else>
-              <div v-for="result in resultsByRunId[run.id]" :key="result.qaPairId" class="eval-tab__result">
-                <p class="eval-tab__result-question">
-                  <span v-if="result.golden" class="eval-tab__badge">Test</span>
-                  <span v-else-if="result.validated" class="eval-tab__badge eval-tab__badge--validated">Validée</span>
-                  {{ result.question }}
-                </p>
-
-                <div class="eval-tab__result-answers">
-                  <div>
-                    <span class="eval-tab__label">Réponse attendue</span>
-                    <p>{{ result.expectedAnswer }}</p>
-                  </div>
-                  <div>
-                    <span class="eval-tab__label">Réponse générée</span>
-                    <p>{{ result.generatedAnswer }}</p>
-                  </div>
-                </div>
-
-                <div class="eval-tab__result-sources">
-                  <span class="eval-tab__label">Sources récupérées</span>
-                  <span v-for="source in result.retrievedSources" :key="source" class="eval-tab__chip">
-                    {{ source }}
-                  </span>
-                </div>
-
-                <div class="eval-tab__result-metrics">
-                  <!-- One line per metric the judge scored for this pair - a metric it
-                       errored on writes no entry -->
-                  <span v-for="[key, score] in visibleScores(result.namedScores)" :key="key">
-                    {{ metricLabel(key) }} {{ formatPercent(score) }}
-                  </span>
-                  <span v-if="!visibleScores(result.namedScores).length" class="eval-tab__judge-error">
-                    Juge en erreur sur cette paire
-                  </span>
-                </div>
-              </div>
-            </template>
-          </div>
         </div>
       </li>
     </ul>
@@ -494,29 +431,6 @@ const goldenCount = computed(() => props.collection.qaPairs.filter((pair) => pai
   border-top: 1px solid var(--border-default-grey);
 }
 
-.eval-tab__group {
-  margin: 0;
-}
-
-.eval-tab__group--golden {
-  padding: 0.625rem 0.875rem;
-  border-left: 3px solid var(--border-action-high-blue-france);
-  background: var(--background-alt-blue-france);
-  border-radius: 0.25rem;
-}
-
-.eval-tab__group-title {
-  margin: 0;
-  font-size: 0.8125rem;
-  font-weight: 700;
-}
-
-.eval-tab__group-count {
-  margin-left: 0.5rem;
-  font-weight: 400;
-  color: var(--text-mention-grey);
-}
-
 .eval-tab__group-note {
   margin: 0.5rem 0 0;
   font-size: 0.75rem;
@@ -567,42 +481,6 @@ const goldenCount = computed(() => props.collection.qaPairs.filter((pair) => pai
   font-size: 0.6875rem;
 }
 
-.eval-tab__badge {
-  margin-right: 0.375rem;
-  padding: 0.0625rem 0.5rem;
-  border-radius: 0.75rem;
-  background: var(--background-alt-blue-france);
-  color: var(--text-action-high-blue-france);
-  font-size: 0.6875rem;
-  font-weight: 700;
-}
-
-.eval-tab__badge--validated {
-  background: var(--background-alt-grey);
-  color: var(--text-mention-grey);
-}
-
-.eval-tab__metrics {
-  display: flex;
-  gap: 1.5rem;
-  margin-top: 0.375rem;
-}
-
-.eval-tab__metric {
-  display: flex;
-  flex-direction: column;
-}
-
-.eval-tab__metric-value {
-  font-size: 1.25rem;
-  font-weight: 700;
-}
-
-.eval-tab__metric-label {
-  font-size: 0.75rem;
-  color: var(--text-mention-grey);
-}
-
 .eval-tab__artifacts {
   display: flex;
   align-items: center;
@@ -644,77 +522,6 @@ const goldenCount = computed(() => props.collection.qaPairs.filter((pair) => pai
 
 .eval-tab__download-item:hover {
   background: var(--background-alt-grey-hover);
-}
-
-.eval-tab__results {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.eval-tab__result {
-  padding: 0.75rem;
-  border-radius: 0.375rem;
-  background: var(--background-alt-grey);
-  font-size: 0.8125rem;
-}
-
-.eval-tab__result-question {
-  margin: 0 0 0.5rem;
-  font-weight: 700;
-}
-
-.eval-tab__label {
-  display: block;
-  font-size: 0.6875rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
-  color: var(--text-mention-grey);
-  margin-bottom: 0.125rem;
-}
-
-.eval-tab__result-answers {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.75rem;
-}
-
-.eval-tab__result-answers p {
-  margin: 0;
-}
-
-.eval-tab__result-sources {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.375rem;
-  margin-top: 0.625rem;
-}
-
-.eval-tab__result-sources .eval-tab__label {
-  margin-bottom: 0;
-}
-
-.eval-tab__chip {
-  padding: 0.0625rem 0.5rem;
-  border-radius: 0.75rem;
-  background: var(--background-default-grey);
-  font-size: 0.75rem;
-}
-
-.eval-tab__result-metrics {
-  display: flex;
-  gap: 1rem;
-  margin-top: 0.625rem;
-  padding-top: 0.5rem;
-  border-top: 1px solid var(--border-default-grey);
-  font-size: 0.75rem;
-  color: var(--text-mention-grey);
-}
-
-.eval-tab__judge-error {
-  color: var(--text-default-warning);
 }
 
 .eval-tab__empty {
