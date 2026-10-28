@@ -58,6 +58,20 @@ def _base(stage: str, content_hash: str) -> dict[str, Any]:
     return {"version": FINGERPRINT_VERSION, "stage": stage, "file": content_hash}
 
 
+def _ocr_pods() -> dict[str, Any]:
+    """What the OCR pods' reading of a scanned page depends on (#403). The models are in the pods, not here:
+    OCR_PIPELINE_VERSION is raised when they change."""
+    return {
+        "pipeline": worker_settings.OCR_PIPELINE_VERSION,
+        "dpi": worker_settings.OCR_PAGE_DPI,
+        "scanned_min_chars": worker_settings.OCR_SCANNED_MIN_CHARS,
+        "min_score": worker_settings.OCR_REGION_MIN_SCORE,
+        "min_pixels": worker_settings.OCR_REGION_MIN_PIXELS,
+        "max_regions": worker_settings.OCR_MAX_REGIONS_PER_PAGE,
+        "tables_as_text": worker_settings.OCR_READ_TABLES_AS_TEXT,
+    }
+
+
 def extraction(content_hash: str) -> str:
     return _digest(
         {
@@ -70,6 +84,9 @@ def extraction(content_hash: str) -> str:
             # The pages carry their positioned text (#350): an extraction made before has none, and a document
             # extracted now must not be given pages without it.
             "layout": 1,
+            # The scanned pages read by the OCR pods are not the ones Tesseract reads. Only then: the fingerprints
+            # of the default engine stay what they were, and what it extracted is still reused.
+            **({"ocr_pods": _ocr_pods()} if worker_settings.OCR_ENGINE == "layout" else {}),
         }
     )
 

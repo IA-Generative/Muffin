@@ -207,6 +207,40 @@ Les pods : [`worker/layout`](../layout/README.md) (régions et ordre de lecture,
 de PaddlePaddle, lancés par ONNX Runtime. Restent à faire : l'orchestration ici (#408), les recadrages (#409), les
 tableaux (#410) et la vision (#411).
 
+## L'orchestration (#408)
+
+Avec `OCR_ENGINE=layout` (défaut : `tesseract`, rien ne change), liteparse parse le fichier **sans OCR** et dit, page par
+page (`include_complexity`), si elle a besoin d'un OCR. `app/ocr/scanned.py` (`read_scanned_pages`, appelé par
+`process_document` et par `parse_page_range` juste après le parsing) envoie ces pages aux pods :
+
+- **Quelles pages** (`is_scanned`) : liteparse dit « scanned » ou texte illisible, ou moins de `OCR_SCANNED_MIN_CHARS`
+  caractères natifs avec des images dessus. Le drapeau `needs_ocr` seul est trop gourmand (il se lève aussi sur une page de
+  titre à peu de texte) ; une page blanche n'est pas envoyée.
+- **L'image** de la page à `OCR_PAGE_DPI` : la capture que liteparse a déjà faite si elle est assez nette, sinon la page
+  est rendue à nouveau. Elle passe par S3 (`ocr-pages/{document}/page-{n}.png`).
+- **L'enchaînement** : `layout_page`, puis `ocr_regions` avec les régions du layout, `OCR_PAGE_WINDOW` pages à la fois. La
+  tâche **attend en interrogeant l'état des résultats** (pas de `get()` bloquant) ; entre deux interrogations elle regarde si
+  elle a été révoquée (#326) et, si oui, révoque ce qu'elle a envoyé. Son emplacement dans le pod d'extraction est occupé
+  pendant ce temps.
+- **Le markdown** (`app/ocr/assemble.py`) : titres (`#` pour le titre du document, `##` pour une section), paragraphes,
+  listes ; ni image, ni formule, ni sigle, ni en-tête, ni pied de page, ni numéro. Les lignes sont des `TextItem` de
+  liteparse, dans l'ordre du markdown, donc `build_text_boxes` les y retrouve toutes (`char_start`/`char_end`) et le
+  surlignage des passages cités (#350) marche. Les lignes d'un paragraphe sont recollées avec une espace, jamais
+  dé-césurées : « peut- » / « être » est aussi probablement un mot composé qu'une coupure, et une ligne qui n'est plus
+  dans le texte ne peut plus être placée.
+- **Les tableaux**, tant que le pod `table` n'existe pas (#410) : lus comme du texte (`OCR_READ_TABLES_AS_TEXT`), pour ne
+  pas perdre leur contenu.
+- **Le repli** : une page que les pods ne lisent pas (pod arrêté ou en erreur, réponse inattendue, aucune région, rien de
+  lu, `OCR_STAGE_TIMEOUT_SECONDS` dépassé) retombe sur liteparse + Tesseract pour cette page seulement ; c'est dans les
+  logs de la tâche (niveau `WARNING`) et le fichier continue. Il échoue seulement si ce repli échoue aussi.
+- **Le nettoyage** : les images d'une plage sont supprimées de S3 à la fin, quelle que soit l'issue (révocation comprise) ;
+  seules les siennes, car les plages d'un long PDF tournent en même temps.
+- **L'empreinte** (`app/reuse.py`) : avec `layout`, elle compte le moteur, `OCR_PIPELINE_VERSION`, le DPI, les seuils des
+  régions et des pages scannées ; avec `tesseract`, elle est exactement ce qu'elle était.
+
+Pour l'activer : `OCR_ENGINE=layout` sur le worker d'extraction (`env` du composant `document_process` du chart), et les
+pods `ocr_layout` et `ocr` démarrés (KEDA les monte quand leur queue se remplit).
+
 Ce que le socle (#405) pose, dans `app/ocr/` :
 
 - `contracts.py` : ce que les pods échangent - les régions d'une page (type, score, ordre de lecture, boîte

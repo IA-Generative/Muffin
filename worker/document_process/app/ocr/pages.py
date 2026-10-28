@@ -28,3 +28,9 @@ def get_page_image(storage, key: str) -> bytes:
 def delete_page_images(storage, document_id: str) -> int:
     """Drops every temporary image of a document; gives how many there were."""
     return storage.delete_prefix(page_images_prefix(document_id))
+
+
+def delete_pages_images(storage, document_id: str, page_numbers: list[int]) -> None:
+    """Drops the temporary images of some pages of a document - the ranges of a long PDF are read at the same time,
+    each only drops its own."""
+    storage.delete_objects([page_image_key(document_id, number) for number in page_numbers])
