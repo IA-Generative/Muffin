@@ -128,9 +128,8 @@ class QualityService:
         result = await self.db.execute(query)
         rows = []
         for run, name in result.all():
-            # The scores live in the run's results.json artifact, not in columns (see
-            # docs/promptfoo-evaluation-plan.md) - read at display time, degrading to
-            # None when there is no artifact.
+            # The scores live in the run's results.json artifact, not in columns -
+            # read at display time, degrading to None when there is no artifact.
             tests = evaluation_artifacts.load_tests(run)
             metrics = evaluation_artifacts.metrics_from_tests(tests)[0] if tests else None
             rows.append(

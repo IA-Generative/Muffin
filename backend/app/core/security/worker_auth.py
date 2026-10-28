@@ -18,7 +18,7 @@ api_key_scheme = APIKeyHeader(name="X-API-Key", auto_error=False)
 _api_key_security = Security(api_key_scheme)
 
 # The OpenAI wire format authenticates with "Authorization: Bearer <key>" - what
-# promptfoo's openai provider (the evaluation judge, see docs/promptfoo-evaluation-plan.md)
+# promptfoo's openai provider (the evaluation judge)
 # sends. HTTPBearer rather than a plain Header() for the same OpenAPI-registration
 # reason as above; auto_error=False for the same fall-through reason.
 _bearer_scheme = HTTPBearer(auto_error=False)

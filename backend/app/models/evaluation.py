@@ -18,7 +18,7 @@ from app.models.collection import ChunkingStrategy
 
 class EvaluationRun(UUIDMixin, TimestampMixin, Base):
     """An evaluation run against a collection's QA pairs, executed by promptfoo in
-    worker/evaluation (see docs/promptfoo-evaluation-plan.md) - both validated and
+    worker/evaluation - both validated and
     not-yet-validated pairs are evaluated, so a low score can be told apart from
     "these questions were never reviewed" rather than looking like a quality problem.
 

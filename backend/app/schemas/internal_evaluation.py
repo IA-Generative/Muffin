@@ -26,7 +26,7 @@ class EvaluationQaPairOut(BaseModel):
 class EvaluationRunCreate(BaseModel):
     """A completed promptfoo run's metadata - the scores themselves are not posted
     here: they live in the run's results.json artifact, uploaded right after via
-    /evaluation-runs/{run_id}/artifacts (see docs/promptfoo-evaluation-plan.md)."""
+    /evaluation-runs/{run_id}/artifacts."""
 
     k: int
     pair_count: int

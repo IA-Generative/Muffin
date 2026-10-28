@@ -17,7 +17,7 @@ from app.services.usage_service import UsageService
 # The evaluation judge (promptfoo's factuality grader) only speaks the OpenAI wire
 # format - "Authorization: Bearer <key>" and POST /v1/chat/completions - so this
 # router exposes exactly that against the LLM hub, keeping the architecture rule
-# that a worker never talks to the hub directly (see docs/promptfoo-evaluation-plan.md).
+# that a worker never talks to the hub directly.
 # The rest of the workers keep using /internal/llm/chat's simpler request shape.
 router = APIRouter(
     prefix="/internal/v1",

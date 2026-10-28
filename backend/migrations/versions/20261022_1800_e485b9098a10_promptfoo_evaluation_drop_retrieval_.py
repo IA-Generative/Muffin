@@ -1,6 +1,6 @@
 """promptfoo evaluation: drop retrieval metric columns, store artifacts in RustFS
 
-The evaluation engine becomes promptfoo (see docs/promptfoo-evaluation-plan.md):
+The evaluation engine becomes promptfoo:
 scores are no longer stored per column, the run's results.json / report.html
 artifacts in RustFS are the source of truth, read back at display time.
 

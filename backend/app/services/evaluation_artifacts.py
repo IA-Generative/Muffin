@@ -1,5 +1,5 @@
 """Reads a run's promptfoo results.json artifact back out of RustFS - the source of
-truth for everything scored in an evaluation run (see docs/promptfoo-evaluation-plan.md).
+truth for everything scored in an evaluation run.
 The scores are deliberately not copied into database columns: the artifact is written
 once by the worker and read here at display time, so there is no second representation
 to keep in sync.
