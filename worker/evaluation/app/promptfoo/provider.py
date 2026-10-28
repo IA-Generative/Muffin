@@ -54,7 +54,7 @@ def _generate(base_url: str, headers: dict, config: dict, question: str, excerpt
                 {"role": "system", "content": _ANSWER_SYSTEM_PROMPT},
                 {"role": "user", "content": f"Question: {question}\n\nExcerpts:\n{excerpts}"},
             ],
-            "usage": {"collection_id": config["collection_id"]},
+            "usage": {"step": "run_evaluation", "collection_id": config["collection_id"]},
         },
         headers=headers,
         timeout=120.0,
