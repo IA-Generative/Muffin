@@ -11,22 +11,29 @@ class EvaluationRepository:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
-    async def create_run(self, collection_id: uuid.UUID, data: dict) -> EvaluationRun:
+    async def create_run(
+        self,
+        collection_id: uuid.UUID,
+        data: dict,
+        *,
+        run_id: uuid.UUID,
+        results_json_key: str,
+        report_html_key: str,
+    ) -> EvaluationRun:
         """One shot: the model has no in-progress state (no status column, see
-        app/models/evaluation.py) - a run only ever exists once fully computed, so there's
-        nothing to create-then-update. worker/evaluation runs promptfoo, posts the run's
-        metadata here, then uploads its artifacts right after (attach_artifacts)."""
-        run = EvaluationRun(collection_id=collection_id, **data)
+        app/models/evaluation.py) - a run only ever exists once fully computed, so its
+        metadata and both artifact keys are written together, after the worker has stored
+        the files. There is no create-then-attach step."""
+        run = EvaluationRun(
+            id=run_id,
+            collection_id=collection_id,
+            results_json_key=results_json_key,
+            report_html_key=report_html_key,
+            **data,
+        )
         self.db.add(run)
         await self.db.flush()
         return run
-
-    async def attach_artifacts(self, run: EvaluationRun, results_json_key: str, report_html_key: str) -> None:
-        """Records where the run's promptfoo artifacts live in RustFS - the second half
-        of a run's creation, once the worker has uploaded both files."""
-        run.results_json_key = results_json_key
-        run.report_html_key = report_html_key
-        await self.db.flush()
 
     async def list_by_collection(self, collection_id: uuid.UUID) -> Sequence[EvaluationRun]:
         result = await self.db.execute(

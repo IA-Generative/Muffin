@@ -101,7 +101,7 @@ def test_run_evaluation_posts_one_run_with_both_artifacts(monkeypatch, tmp_path)
     fake = _run(monkeypatch, [_qa_pair("qa-1", "q", "doc-1", validated=True)], tmp_path=tmp_path)
 
     fake.create_evaluation_run.assert_called_once()
-    collection_id, payload = fake.create_evaluation_run.call_args.args
+    collection_id, payload, results_json, report_html = fake.create_evaluation_run.call_args.args
     assert collection_id == "col-1"
     # The slim metadata payload: no scores, no per-pair results - those live in the artifact.
     assert payload["llm_model"] == "generator-model"  # no "evaluation" model configured: default
@@ -111,10 +111,7 @@ def test_run_evaluation_posts_one_run_with_both_artifacts(monkeypatch, tmp_path)
     assert payload["golden_pair_count"] == 1
     assert payload["validated_pair_count"] == 1
     assert payload["unvalidated_pair_count"] == 1
-
-    fake.upload_evaluation_artifacts.assert_called_once()
-    _, run_id, results_json, report_html = fake.upload_evaluation_artifacts.call_args.args
-    assert run_id == "run-1"
+    # Both artifacts ride in the same request as the metadata.
     assert json.loads(results_json) == _RESULTS_JSON
     assert report_html == b"<html>report</html>"
 
@@ -130,7 +127,6 @@ def test_run_evaluation_accepts_failed_tests_as_results(monkeypatch, tmp_path):
     )
 
     fake.create_evaluation_run.assert_called_once()
-    fake.upload_evaluation_artifacts.assert_called_once()
 
 
 def test_run_evaluation_fails_without_artifacts_when_promptfoo_breaks(monkeypatch, tmp_path):
@@ -232,7 +228,7 @@ def test_run_evaluation_prefers_a_configured_evaluation_model(monkeypatch, tmp_p
     evaluation.run_evaluation("col-1", 5)
 
     # The judge is the configured model; the generator stays the default one.
-    _, payload = fake.create_evaluation_run.call_args.args
+    _, payload, _, _ = fake.create_evaluation_run.call_args.args
     assert payload["llm_model"] == "judge-model"
 
 

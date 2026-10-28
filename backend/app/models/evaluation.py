@@ -44,9 +44,9 @@ class EvaluationRun(UUIDMixin, TimestampMixin, Base):
     validated_pair_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     unvalidated_pair_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
-    # RustFS object keys of the run's promptfoo artifacts - NULL on the runs predating the
-    # promptfoo migration (their scores are lost, accepted) and until the worker uploads
-    # them right after creating the run.
+    # RustFS object keys of the run's promptfoo artifacts - NULL only on the runs predating
+    # the promptfoo migration (their scores are lost, accepted): a run is created with both
+    # keys already set, in the same request that stores the files.
     results_json_key: Mapped[str | None] = mapped_column(String, nullable=True)
     report_html_key: Mapped[str | None] = mapped_column(String, nullable=True)
 

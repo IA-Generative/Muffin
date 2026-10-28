@@ -273,7 +273,7 @@ def _test_row(question, factuality, context_faithfulness, golden):
 
 
 async def _run_with_artifact(client, monkeypatch, collection_id, tests, golden_pair_count):
-    """Creates the run then uploads its promptfoo artifact, RustFS mocked out."""
+    """Creates the run with its promptfoo artifact in one request, RustFS mocked out."""
     objects: dict[str, bytes] = {}
     monkeypatch.setattr("app.core.storage.put_object", lambda key, data, content_type: objects.update({key: data}))
     monkeypatch.setattr(
@@ -282,7 +282,7 @@ async def _run_with_artifact(client, monkeypatch, collection_id, tests, golden_p
     )
     created = await client.post(
         f"/api/internal/collections/{collection_id}/evaluation-runs",
-        json={
+        data={
             "pair_count": len(tests),
             "llm_model": "test-model",
             "content_hash": f"hash-{uuid.uuid4()}",
@@ -290,20 +290,14 @@ async def _run_with_artifact(client, monkeypatch, collection_id, tests, golden_p
             "validated_pair_count": len(tests) - golden_pair_count,
             "unvalidated_pair_count": 0,
         },
-        headers=WORKER,
-    )
-    assert created.status_code == 201
-    run_id = created.json()["id"]
-    uploaded = await client.post(
-        f"/api/internal/collections/{collection_id}/evaluation-runs/{run_id}/artifacts",
-        headers=WORKER,
         files={
             "results": ("results.json", json.dumps(_results_json(*tests)).encode(), "application/json"),
             "report": ("report.html", b"<html></html>", "text/html"),
         },
+        headers=WORKER,
     )
-    assert uploaded.status_code == 201
-    return run_id
+    assert created.status_code == 201
+    return created.json()["id"]
 
 
 async def test_an_evaluation_run_reports_its_golden_scores_apart(client, monkeypatch):

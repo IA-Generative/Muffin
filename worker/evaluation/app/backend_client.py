@@ -44,25 +44,24 @@ class BackendClient:
         response.raise_for_status()
         return response.json()["model"]
 
-    def create_evaluation_run(self, collection_id: str, payload: dict[str, Any]) -> str:
-        response = self._client.post(f"/api/internal/collections/{collection_id}/evaluation-runs", json=payload)
-        response.raise_for_status()
-        return response.json()["id"]
-
-    def upload_evaluation_artifacts(
-        self, collection_id: str, run_id: str, results_json: bytes, report_html: bytes
-    ) -> None:
-        """Posts the two promptfoo artifacts of a run - the machine-readable scores and the
-        human-readable report - as multipart files. Called right after create_evaluation_run;
-        together they are the run's whole persistence (no per-pair rows anymore)."""
+    def create_evaluation_run(
+        self, collection_id: str, payload: dict[str, Any], results_json: bytes, report_html: bytes
+    ) -> str:
+        """Posts a completed run - its metadata and both promptfoo artifacts (the
+        machine-readable scores and the human-readable report) - in one multipart request.
+        Together they are the run's whole persistence (no per-pair rows anymore), and the
+        backend only creates the row once both files are stored: a run is never visible
+        without its artifacts."""
         response = self._client.post(
-            f"/api/internal/collections/{collection_id}/evaluation-runs/{run_id}/artifacts",
+            f"/api/internal/collections/{collection_id}/evaluation-runs",
+            data=payload,
             files={
                 "results": ("results.json", results_json, "application/json"),
                 "report": ("report.html", report_html, "text/html"),
             },
         )
         response.raise_for_status()
+        return response.json()["id"]
 
     def find_evaluation_run(self, collection_id: str, content_hash: str, llm_model: str) -> str | None:
         """Returns the id of an already-persisted run for this exact (collection, content, model)

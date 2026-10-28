@@ -363,8 +363,9 @@ def run_evaluation(collection_id: str, k: int | None = None, validated_only: boo
     against the context the pipeline actually retrieved - all of it driven by promptfoo (see
     app/promptfoo/): it lays out a throwaway config directory, runs `promptfoo eval`,
     then posts one EvaluationRun back to the backend with the two artifacts (results.json +
-    report.html) as its whole persistence (see #11 - the model has no in-progress state, so
-    nothing is created until the evaluation succeeded). The per-pair scores and every aggregate
+    report.html) in a single request as its whole persistence (see #11 - the model has no
+    in-progress state, so nothing is created until the evaluation succeeded, and the row is
+    only written once both artifacts are stored). The per-pair scores and every aggregate
     are computed from the stored artifact at read time, on the backend. A golden pair can name
     several relevant documents; any other pair has its one source document. When validated_only
     is True, only validated QA pairs are evaluated; when False (default), all QA pairs with a
@@ -423,8 +424,7 @@ def run_evaluation(collection_id: str, k: int | None = None, validated_only: boo
         results_json, report_html = _run_promptfoo(directory)
 
     payload = config.run_payload(content_hash, _counts_from_results(results_json))
-    run_id = backend_client.create_evaluation_run(collection_id, payload)
-    backend_client.upload_evaluation_artifacts(collection_id, run_id, results_json, report_html)
+    run_id = backend_client.create_evaluation_run(collection_id, payload, results_json, report_html)
     logger.info(
         f"Evaluation run {run_id} created for collection {collection_id}: {payload['pair_count']} pair(s) evaluated"
     )

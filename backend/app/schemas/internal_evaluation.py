@@ -23,8 +23,8 @@ class EvaluationQaPairOut(BaseModel):
 
 class EvaluationRunCreate(BaseModel):
     """A completed promptfoo run's metadata - the scores themselves are not posted
-    here: they live in the run's results.json artifact, uploaded right after via
-    /evaluation-runs/{run_id}/artifacts."""
+    here: they live in the run's results.json artifact, uploaded in the same request
+    as this metadata (see the internal evaluation-runs endpoint)."""
 
     pair_count: int
     # The judge model (the collection's "evaluation" generation model).

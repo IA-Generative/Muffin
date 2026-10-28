@@ -2,7 +2,7 @@ import uuid
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from app.core.security import worker_auth
 from app.db import async_session_factory
@@ -66,11 +66,22 @@ async def _create_collection_with_document() -> tuple[uuid.UUID, uuid.UUID]:
         return collection.id, document.id
 
 
-async def _create_run(client, collection_id: uuid.UUID) -> uuid.UUID:
+async def _create_run(
+    client,
+    collection_id: uuid.UUID,
+    *,
+    payload: dict | None = None,
+    results: bytes = b'{"results": {"results": []}}',
+    report: bytes = b"<html>report</html>",
+) -> uuid.UUID:
     response = await client.post(
         f"/api/internal/collections/{collection_id}/evaluation-runs",
         headers=_headers(),
-        json=_run_payload(),
+        data=payload or _run_payload(),
+        files={
+            "results": ("results.json", results, "application/json"),
+            "report": ("report.html", report, "text/html"),
+        },
     )
     assert response.status_code == 201
     return uuid.UUID(response.json()["id"])
@@ -116,18 +127,24 @@ async def test_list_qa_pairs_for_evaluation_for_unknown_collection_returns_404(c
     assert response.status_code == 404
 
 
-async def test_create_evaluation_run_persists_metadata_only(client):
+async def test_create_evaluation_run_persists_metadata_and_artifacts(client, monkeypatch):
+    stored: dict[str, tuple[bytes, str]] = {}
+    monkeypatch.setattr(
+        "app.core.storage.put_object",
+        lambda key, data, content_type: stored.update({key: (data, content_type)}),
+    )
     collection_id, _ = await _create_collection_with_document()
 
-    response = await client.post(
-        f"/api/internal/collections/{collection_id}/evaluation-runs",
-        headers=_headers(),
-        json=_run_payload(golden_pair_count=1, unvalidated_pair_count=2, validated_pair_count=0),
+    run_id = await _create_run(
+        client,
+        collection_id,
+        payload=_run_payload(golden_pair_count=1, unvalidated_pair_count=2, validated_pair_count=0),
     )
 
-    assert response.status_code == 201
-    run_id = uuid.UUID(response.json()["id"])
-
+    assert stored == {
+        f"evaluations/{run_id}/results.json": (b'{"results": {"results": []}}', "application/json"),
+        f"evaluations/{run_id}/report.html": (b"<html>report</html>", "text/html"),
+    }
     async with async_session_factory() as session:
         run = await session.get(EvaluationRun, run_id)
         assert run is not None
@@ -137,88 +154,31 @@ async def test_create_evaluation_run_persists_metadata_only(client):
         assert run.validated_pair_count == 0
         assert run.unvalidated_pair_count == 2
         assert run.content_hash == "abc123"
-        # No artifacts yet - they follow via the artifacts endpoint.
-        assert run.results_json_key is None
-        assert run.report_html_key is None
+        # The row is only written once both artifacts are stored.
+        assert run.results_json_key == f"evaluations/{run_id}/results.json"
+        assert run.report_html_key == f"evaluations/{run_id}/report.html"
 
 
 async def test_create_evaluation_run_for_unknown_collection_returns_404(client):
     response = await client.post(
         f"/api/internal/collections/{uuid.uuid4()}/evaluation-runs",
         headers=_headers(),
-        json=_run_payload(),
-    )
-    assert response.status_code == 404
-
-
-async def test_upload_artifacts_stores_both_files_and_references_them(client, monkeypatch):
-    stored: dict[str, tuple[bytes, str]] = {}
-    monkeypatch.setattr(
-        "app.core.storage.put_object",
-        lambda key, data, content_type: stored.update({key: (data, content_type)}),
-    )
-    collection_id, _ = await _create_collection_with_document()
-    run_id = await _create_run(client, collection_id)
-
-    response = await client.post(
-        f"/api/internal/collections/{collection_id}/evaluation-runs/{run_id}/artifacts",
-        headers=_headers(),
-        files={
-            "results": ("results.json", b'{"results": {"results": []}}', "application/json"),
-            "report": ("report.html", b"<html>report</html>", "text/html"),
-        },
-    )
-
-    assert response.status_code == 201
-    assert stored == {
-        f"evaluations/{run_id}/results.json": (b'{"results": {"results": []}}', "application/json"),
-        f"evaluations/{run_id}/report.html": (b"<html>report</html>", "text/html"),
-    }
-    async with async_session_factory() as session:
-        run = await session.get(EvaluationRun, run_id)
-        assert run.results_json_key == f"evaluations/{run_id}/results.json"
-        assert run.report_html_key == f"evaluations/{run_id}/report.html"
-
-
-async def test_upload_artifacts_for_unknown_run_returns_404(client):
-    collection_id, _ = await _create_collection_with_document()
-
-    response = await client.post(
-        f"/api/internal/collections/{collection_id}/evaluation-runs/{uuid.uuid4()}/artifacts",
-        headers=_headers(),
+        data=_run_payload(),
         files={
             "results": ("results.json", b"{}", "application/json"),
             "report": ("report.html", b"<html></html>", "text/html"),
         },
     )
-
     assert response.status_code == 404
 
 
-async def test_upload_artifacts_for_run_of_another_collection_returns_404(client):
+async def test_create_evaluation_run_rejects_oversized_artifact(client):
     collection_id, _ = await _create_collection_with_document()
-    other_collection_id, _ = await _create_collection_with_document()
-    run_id = await _create_run(client, collection_id)
 
     response = await client.post(
-        f"/api/internal/collections/{other_collection_id}/evaluation-runs/{run_id}/artifacts",
+        f"/api/internal/collections/{collection_id}/evaluation-runs",
         headers=_headers(),
-        files={
-            "results": ("results.json", b"{}", "application/json"),
-            "report": ("report.html", b"<html></html>", "text/html"),
-        },
-    )
-
-    assert response.status_code == 404
-
-
-async def test_upload_artifacts_rejects_oversized_file(client):
-    collection_id, _ = await _create_collection_with_document()
-    run_id = await _create_run(client, collection_id)
-
-    response = await client.post(
-        f"/api/internal/collections/{collection_id}/evaluation-runs/{run_id}/artifacts",
-        headers=_headers(),
+        data=_run_payload(),
         files={
             "results": ("results.json", b"x" * (50 * 1024 * 1024 + 1), "application/json"),
             "report": ("report.html", b"<html></html>", "text/html"),
@@ -226,3 +186,26 @@ async def test_upload_artifacts_rejects_oversized_file(client):
     )
 
     assert response.status_code == 413
+
+
+async def test_create_evaluation_run_creates_no_row_when_storage_fails(client, monkeypatch):
+    def boom(key, data, content_type):
+        raise RuntimeError("RustFS is down")
+
+    monkeypatch.setattr("app.core.storage.put_object", boom)
+    collection_id, _ = await _create_collection_with_document()
+
+    with pytest.raises(RuntimeError, match="RustFS is down"):
+        await client.post(
+            f"/api/internal/collections/{collection_id}/evaluation-runs",
+            headers=_headers(),
+            data=_run_payload(),
+            files={
+                "results": ("results.json", b"{}", "application/json"),
+                "report": ("report.html", b"<html></html>", "text/html"),
+            },
+        )
+
+    async with async_session_factory() as session:
+        runs = (await session.execute(select(EvaluationRun))).scalars().all()
+        assert runs == []

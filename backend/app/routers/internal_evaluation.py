@@ -1,7 +1,7 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import storage
@@ -52,40 +52,19 @@ async def list_qa_pairs_for_evaluation(
 
 @router.post(
     "/collections/{collection_id}/evaluation-runs",
-    summary="Record a completed promptfoo evaluation run's metadata (see #11) - its "
-    "results.json/report.html artifacts follow via /evaluation-runs/{run_id}/artifacts",
+    summary="Record a completed promptfoo evaluation run (see #11) - its metadata and both "
+    "artifacts (results.json + report.html) in one request, so a run never exists without them",
     status_code=status.HTTP_201_CREATED,
 )
 async def create_evaluation_run(
     collection_id: uuid.UUID,
-    body: EvaluationRunCreate,
-    db: Annotated[AsyncSession, Depends(get_db)],
-) -> dict[str, str]:
-    if await CollectionRepository(db).get_by_id(collection_id) is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found")
-    run = await EvaluationRepository(db).create_run(collection_id, body.model_dump(mode="python"))
-    await db.commit()
-    return {"status": "ok", "id": str(run.id)}
-
-
-@router.post(
-    "/collections/{collection_id}/evaluation-runs/{run_id}/artifacts",
-    summary="Store a run's promptfoo artifacts (results.json + report.html) in RustFS and "
-    "reference them on the run - the second half of recording a run (see #11)",
-    status_code=status.HTTP_201_CREATED,
-)
-async def upload_evaluation_artifacts(
-    collection_id: uuid.UUID,
-    run_id: uuid.UUID,
+    body: Annotated[EvaluationRunCreate, Form()],
     results: Annotated[UploadFile, File(description="promptfoo's results.json")],
     report: Annotated[UploadFile, File(description="promptfoo's report.html")],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict[str, str]:
     if await CollectionRepository(db).get_by_id(collection_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found")
-    run = await EvaluationRepository(db).get(run_id)
-    if run is None or run.collection_id != collection_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Evaluation run not found")
     results_bytes = await results.read()
     report_bytes = await report.read()
     if len(results_bytes) > _MAX_ARTIFACT_BYTES or len(report_bytes) > _MAX_ARTIFACT_BYTES:
@@ -93,13 +72,23 @@ async def upload_evaluation_artifacts(
             status_code=status.HTTP_413_CONTENT_TOO_LARGE,
             detail="Evaluation artifacts exceed the size limit",
         )
+    # Store both artifacts before creating the row: a run must never be visible without them
+    # (the list endpoint reads results.json to compute its scores). If storage fails, no row
+    # is created; if the commit fails, the objects are orphaned but harmless (see delete_run).
+    run_id = uuid.uuid4()
     results_key = f"evaluations/{run_id}/results.json"
     report_key = f"evaluations/{run_id}/report.html"
     storage.put_object(results_key, results_bytes, "application/json")
     storage.put_object(report_key, report_bytes, "text/html")
-    await EvaluationRepository(db).attach_artifacts(run, results_key, report_key)
+    run = await EvaluationRepository(db).create_run(
+        collection_id,
+        body.model_dump(mode="python"),
+        run_id=run_id,
+        results_json_key=results_key,
+        report_html_key=report_key,
+    )
     await db.commit()
-    return {"status": "ok", "results_json_key": results_key, "report_html_key": report_key}
+    return {"status": "ok", "id": str(run.id)}
 
 
 @router.get(
