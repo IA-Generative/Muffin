@@ -13,6 +13,10 @@ dependencies = [
     "liteparse>=2.14.4",
     "scrapling[rag]>=0.3.9",
     "duckdb>=1.1.0",
+    # The spreadsheets (app/tabular/sheets/): read as a stream, and written back as typed Parquet.
+    "openpyxl>=3.1.5",
+    "xlrd>=2.0.2",
+    "pyarrow>=26.0.0",
     # Crops a region out of the image of a page (app/ocr/crop.py).
     "pillow>=11.0.0",
 ]
@@ -22,6 +26,7 @@ test = [
     "pytest>=9.1.1",
     "pytest-dotenv>=0.5.2",
     "pyyaml>=6.0",
+    "xlwt>=1.3.0",
     "ruff>=0.15.0",
 ]
 dev = [{ include-group = "test" }]
