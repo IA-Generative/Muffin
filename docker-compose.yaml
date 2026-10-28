@@ -175,6 +175,22 @@ services:
     depends_on: *ocr-pod-depends-on
     restart: unless-stopped
 
+  # Read-only SQL over the typed copies of tabular files (#432): DuckDB, locked down, nothing but S3 and Redis.
+  worker-tabular:
+    build:
+      context: ./worker/tabular
+      dockerfile: Dockerfile
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      AWS_ENDPOINT_URL: http://rustfs:9000
+      AWS_ACCESS_KEY_ID: rustfsadmin
+      AWS_SECRET_ACCESS_KEY: rustfsadmin
+      AWS_BUCKET: muffin-documents
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
   worker-agent-execution:
     build:
       context: ./worker/agent_execution
