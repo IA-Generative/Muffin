@@ -70,15 +70,10 @@ function formatDate(iso: string) {
   return dateFormatter.format(new Date(iso))
 }
 
-// A metric a run didn't score, or a subset with nothing to score, reads as "—" - never a
-// misleading 0.
-function formatScore(value: number | null | undefined) {
-  return value == null ? '—' : value.toFixed(2)
-}
-
-// The golden pass rate as a whole percentage - no decimals: it is a share of a
-// handful of test questions, not a precise score.
-function formatPassRate(value: number | null) {
+// A metric score or a pass rate as a whole percentage - no decimals: these are shares of a
+// handful of questions, not precise scores. A metric a run didn't score, or a subset with
+// nothing to score, reads as "—" - never a misleading 0.
+function formatPercent(value: number | null | undefined) {
   return value == null ? '—' : `${Math.round(value * 100)} %`
 }
 
@@ -186,15 +181,15 @@ const goldenCount = computed(() => props.collection.qaPairs.filter((pair) => pai
 
         <div class="eval-tab__run-passes">
           <div v-if="run.goldenPassRate !== null" class="eval-tab__run-pass">
-            <span class="eval-tab__run-pass-value">{{ formatPassRate(run.goldenPassRate) }}</span>
+            <span class="eval-tab__run-pass-value">{{ formatPercent(run.goldenPassRate) }}</span>
             <span class="eval-tab__run-pass-label">réussite sur les questions de test</span>
           </div>
           <div v-if="run.referencePassRate !== null" class="eval-tab__run-pass">
-            <span class="eval-tab__run-pass-value">{{ formatPassRate(run.referencePassRate) }}</span>
+            <span class="eval-tab__run-pass-value">{{ formatPercent(run.referencePassRate) }}</span>
             <span class="eval-tab__run-pass-label">réussite sur les questions de référence</span>
           </div>
           <div v-if="run.overallPassRate !== null" class="eval-tab__run-pass">
-            <span class="eval-tab__run-pass-value">{{ formatPassRate(run.overallPassRate) }}</span>
+            <span class="eval-tab__run-pass-value">{{ formatPercent(run.overallPassRate) }}</span>
             <span class="eval-tab__run-pass-label">réussite globale</span>
           </div>
         </div>
@@ -215,32 +210,32 @@ const goldenCount = computed(() => props.collection.qaPairs.filter((pair) => pai
                   <th scope="col">Métrique</th>
                   <th scope="col">
                     Questions de test
-                    <span class="eval-tab__table-count">{{ run.goldenPairCount }}</span>
+                    <span class="eval-tab__table-count">nombre : {{ run.goldenPairCount }}</span>
                   </th>
                   <th scope="col">
                     Questions de référence
-                    <span class="eval-tab__table-count">{{ referencePairCount(run) }}</span>
+                    <span class="eval-tab__table-count">nombre : {{ referencePairCount(run) }}</span>
                   </th>
                   <th scope="col">
                     Toutes les questions
-                    <span class="eval-tab__table-count">{{ run.pairCount }}</span>
+                    <span class="eval-tab__table-count">nombre : {{ run.pairCount }}</span>
                   </th>
                 </tr>
               </thead>
               <tbody>
                 <tr>
                   <th scope="row">Taux de succès</th>
-                  <td>{{ formatPassRate(run.goldenPassRate) }}</td>
-                  <td>{{ formatPassRate(run.referencePassRate) }}</td>
-                  <td>{{ formatPassRate(run.overallPassRate) }}</td>
+                  <td>{{ formatPercent(run.goldenPassRate) }}</td>
+                  <td>{{ formatPercent(run.referencePassRate) }}</td>
+                  <td>{{ formatPercent(run.overallPassRate) }}</td>
                 </tr>
                 <!-- One row per metric the run actually scored - a metric it predates
                      simply doesn't appear, never a misleading 0 -->
                 <tr v-for="key in metricKeys(run)" :key="key">
                   <th scope="row">{{ metricLabel(key) }}</th>
-                  <td>{{ formatScore(run.goldenMetrics?.[key]) }}</td>
-                  <td>{{ formatScore(run.metrics?.[key]) }}</td>
-                  <td>{{ formatScore(run.allMetrics?.[key]) }}</td>
+                  <td>{{ formatPercent(run.goldenMetrics?.[key]) }}</td>
+                  <td>{{ formatPercent(run.metrics?.[key]) }}</td>
+                  <td>{{ formatPercent(run.allMetrics?.[key]) }}</td>
                 </tr>
               </tbody>
             </table>
@@ -340,7 +335,7 @@ const goldenCount = computed(() => props.collection.qaPairs.filter((pair) => pai
                   <!-- One line per metric the judge scored for this pair - a metric it
                        errored on writes no entry -->
                   <span v-for="[key, score] in Object.entries(result.namedScores)" :key="key">
-                    {{ metricLabel(key) }} {{ formatScore(score) }}
+                    {{ metricLabel(key) }} {{ formatPercent(score) }}
                   </span>
                   <span v-if="!Object.keys(result.namedScores).length" class="eval-tab__judge-error">
                     Juge en erreur sur cette paire
