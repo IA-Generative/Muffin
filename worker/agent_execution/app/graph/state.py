@@ -1,5 +1,5 @@
 import operator
-from typing import Annotated, Any, Literal, TypedDict
+from typing import Annotated, Any, Literal, NotRequired, TypedDict
 
 TaskStatus = Literal["pending", "ready", "blocked", "running", "completed", "failed"]
 
@@ -58,6 +58,12 @@ class CoverageResult(TypedDict):
 class GroundingResult(TypedDict):
     valid: bool
     unsupported_claims: list[str]
+    # Claims that cite an excerpt which does not support them (#402): {claim, cited, supported_by}.
+    miscited_claims: NotRequired[list[dict[str, Any]]]
+    # Claims the excerpts support, that cite none.
+    uncited_claims: NotRequired[list[str]]
+    # Cited excerpts of which the answer's passage is not in the excerpt (found without the model).
+    unverified_citations: NotRequired[list[str]]
 
 
 def _merge_by_id(left: list[dict[str, Any]], right: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -193,6 +199,10 @@ class AgentState(TypedDict):
     # --- grounding loop (§23-§24) ---
     grounding_result: GroundingResult | None
     grounding_research_count: int
+    # The answer written again with the claims the check found cited wrongly or not at all (#402): how many times
+    # (once at most), and the claims it is told about.
+    citation_rewrites: int
+    citation_feedback: list[str]
 
     # Prompt version ids actually used by this run (§ issue #96 traceability) - each node
     # fetching a versioned prompt appends its id here; operator.add since several nodes (and a
