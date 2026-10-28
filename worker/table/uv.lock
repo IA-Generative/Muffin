@@ -1112,7 +1112,7 @@ wheels = [
 
 [[package]]
 name = "muffin-worker-ocr-table"
-version = "0.33.0-rc.1"
+version = "0.33.0"
 source = { editable = "." }
 dependencies = [
     { name = "boto3" },
