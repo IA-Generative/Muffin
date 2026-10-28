@@ -15,6 +15,7 @@ d'extraction (`worker/document_process`) lui envoie les pages et orchestre.
   `other`, jamais pris pour du texte) ; le bruit (score, taille), les doublons (une région recouverte à 90 % par une
   meilleure) et l'excès (plafond par page, les pires scores partent) sont écartés ; l'ordre de lecture est celui du
   modèle, renumérotée depuis 0.
+- Un titre dit son niveau (`title_level` : 1 pour `doc_title`, 2 pour `paragraph_title`), dont le markdown de la page a besoin.
 - Un **tableau** est gardé dès un score plus bas que les autres régions (`LAYOUT_TABLE_MIN_SCORE`) : voir
   `docs/environment-variables.md`.
 - `app/contracts.py` est une **copie** de `worker/document_process/app/ocr/contracts.py` (chaque image est construite
