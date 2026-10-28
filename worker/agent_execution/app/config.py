@@ -44,6 +44,8 @@ class WorkerSettings(BaseSettings):
     MAX_TOTAL_TASKS: int = 12
     MAX_TOTAL_SEARCHES: int = 20
     MAX_GROUNDING_RESEARCHES: int = 1
+    # Times the answer is written again because its citations are wrong or missing (#402).
+    MAX_CITATION_REWRITES: int = 1
     # How many times in a row the assistant may ask questions before it carries on with assumptions
     # instead (#344) - the model must not question the user in a loop.
     MAX_QUESTION_ROUNDS: int = 2

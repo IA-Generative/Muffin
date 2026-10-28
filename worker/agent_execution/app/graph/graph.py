@@ -19,6 +19,7 @@ from app.graph.nodes.load_context import load_context
 from app.graph.nodes.merge_evidence import merge_evidence
 from app.graph.nodes.request_clarification import request_clarification
 from app.graph.nodes.research_task import research_task
+from app.graph.nodes.rewrite_citations import rewrite_citations
 from app.graph.nodes.route_collections import route_collections
 from app.graph.nodes.targeted_research import targeted_research
 from app.graph.nodes.validate_grounding import validate_grounding
@@ -69,6 +70,7 @@ def build_graph(checkpointer: BaseCheckpointSaver | None = None):
     graph.add_node("generate_answer", measured("generate_answer", generate_answer))
     graph.add_node("validate_grounding", measured("validate_grounding", validate_grounding))
     graph.add_node("targeted_research", measured("targeted_research", targeted_research))
+    graph.add_node("rewrite_citations", measured("rewrite_citations", rewrite_citations))
     # Cancellation (§30) is a fan-in target: any routing function may send the run here instead
     # of its normal next node, and every path converges on the same clean exit.
     graph.add_node("cancelled", lambda _state: {"execution_status": "cancelled"})
@@ -156,9 +158,16 @@ def build_graph(checkpointer: BaseCheckpointSaver | None = None):
     graph.add_conditional_edges(
         "validate_grounding",
         after_validate_grounding,
-        {"end": END, "targeted_research": "targeted_research", "cancelled": "cancelled"},
+        {
+            "end": END,
+            "targeted_research": "targeted_research",
+            "rewrite_citations": "rewrite_citations",
+            "cancelled": "cancelled",
+        },
     )
     _cancellable_edge(graph, "targeted_research", "merge_evidence")
+    # The answer written again with its citations put right (#402) - once, and not checked again.
+    _cancellable_edge(graph, "rewrite_citations", "generate_answer")
     graph.add_edge("cancelled", END)
 
     # Defaults to an in-process InMemorySaver, which is only safe for tests and single-process

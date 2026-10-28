@@ -1804,3 +1804,37 @@ def test_a_chart_drawn_for_the_answer_ends_up_in_it_even_if_the_model_does_not_w
     assert run_id == state["run_id"] and stored["spec"] == chart
     assert result["answer"].startswith("Le total est de 5000")
     assert result["answer"].endswith("![Total par catégorie](/api/conversations/conv-1/charts/chart-1.png)")
+
+
+def test_claims_cited_wrongly_have_the_answer_written_again_once_and_it_is_not_checked_again(make_run):
+    calls = {"grounding": 0, "answers": 0}
+
+    def router(system_prompt: str) -> str:
+        if "Analyze the user" in system_prompt:
+            return _analysis(complexity="complex")
+        if "select the ones relevant" in system_prompt.lower():
+            return '["hr"]'
+        if "Decide whether" in system_prompt:
+            return json.dumps({"status": "sufficient", "missing_information": [], "reasoning": "ok"})
+        if "Check whether every" in system_prompt:
+            calls["grounding"] += 1
+            return json.dumps(
+                {"valid": True, "unsupported_claims": [], "uncited_claims": ["le congé se pose par moitiés"]}
+            )
+        calls["answers"] += 1
+        return "answer with a claim [x]."
+
+    graph, fake = make_run([{"id": "hr", "name": "HR", "description": "HR", "tags": []}], router)
+    state = initial_state("What is the leave policy?")
+    result = graph.invoke(state, config=_config(state))
+
+    assert calls["grounding"] == 1  # the new answer is not checked a second time
+    assert result["citation_rewrites"] == 1 and result["citation_feedback"] == [
+        "le congé se pose par moitiés (cites nothing)"
+    ]
+    # Written, asked for its citations (it cited none: [x] is none), then written again with the claim in the note.
+    notes = [call[1]["content"] for call in fake.llm_calls if "Answer the user's query" in call[0]["content"]]
+    assert (
+        "le congé se pose par moitiés (cites nothing)" in notes[-1]
+        and "citation" not in notes[0].lower().split("evidence:")[0]
+    )

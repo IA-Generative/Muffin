@@ -5,7 +5,16 @@ from loguru import logger
 
 from app.ask_user import NOBODY_TO_ASK
 from app.backend_client import backend_client
-from app.graph.services.citations import CITATION_RULE, RETRY_MESSAGE, cited_ids, without_invented_markers
+from app.graph.services.citations import (
+    CITATION_RULE,
+    OUTPUT_FORMAT,
+    RETRY_MESSAGE,
+    cited_ids,
+    parse_answer,
+    partial_answer,
+    resolve_passages,
+    without_invented_markers,
+)
 from app.graph.services.events import emit, is_cancelled, set_activity
 from app.graph.services.prompts import get_prompt
 from app.graph.services.vdb_router import collection_path, collection_path_names
@@ -54,7 +63,7 @@ def _write_answer(run_id: str, model: str, messages: list[dict[str, str]]) -> di
             text += item.get("delta", "")
             now = time.monotonic()
             if now - last_published >= _PARTIAL_PUBLISH_INTERVAL_SECONDS:
-                backend_client.set_partial_answer(run_id, text)
+                backend_client.set_partial_answer(run_id, partial_answer(text))
                 last_published = now
     except Exception:
         if text:
@@ -104,7 +113,7 @@ def generate_answer(state: AgentState) -> dict[str, Any]:
 
     system_prompt, prompt_version_id = get_prompt("generate_answer", fallback=_SYSTEM_PROMPT)
     # Appended here, not in the prompt (administrable, see get_prompt): an overridden prompt keeps the rule (#402).
-    system_prompt += CITATION_RULE
+    system_prompt += CITATION_RULE + OUTPUT_FORMAT
     evidence_block = "\n\n".join(
         f"[{e['id']}] (source: {e['source'] or e['tool']})\n{e['content']}" for e in context["excerpts"]
     )
@@ -129,8 +138,16 @@ def generate_answer(state: AgentState) -> dict[str, Any]:
         if state.get("must_assume")
         else ""
     )
+    # The claims the check found cited wrongly or not at all (see validate_grounding): once, then the answer stands.
+    citation_note = (
+        "\n\nNote: your previous answer left these claims without a correct citation - cite each with the excerpt "
+        "that really supports it, or leave it out if none does: " + " | ".join(state["citation_feedback"])
+        if state.get("citation_feedback")
+        else ""
+    )
     user_content = (
         f"Query: {state['contextualized_query']}\n\nEvidence:{missing_note}{exploration_note}{assumption_note}"
+        f"{citation_note}"
         f"\n\n{evidence_block}"
     )
     start = time.monotonic()
@@ -142,24 +159,29 @@ def generate_answer(state: AgentState) -> dict[str, Any]:
     prompt_tokens = result.get("prompt_tokens")
     completion_tokens = result.get("completion_tokens")
     valid_ids = {e["id"] for e in context["excerpts"]}
-    written = without_invented_markers(result["content"], valid_ids)
-    if not cited_ids(written, valid_ids):
+    written, sources = _read_answer(result["content"], valid_ids)
+    if not _cited(written, sources, valid_ids):
         # Evidence was given and the answer cites none of it (#402): the model is asked once to write it again with its
         # citations. If it still cites nothing, the answer stands and the interface says that it has no source.
         logger.warning(f"Run {run_id}: the answer cites no evidence, asking for it again")
         emit(run_id, "answer_citations_retry")
         retry = backend_client.llm_chat_with_usage(
             model,
-            [*messages, {"role": "assistant", "content": written}, {"role": "user", "content": RETRY_MESSAGE}],
+            [
+                *messages,
+                {"role": "assistant", "content": result["content"]},
+                {"role": "user", "content": RETRY_MESSAGE},
+            ],
         )
-        retried = without_invented_markers(retry["content"], valid_ids)
+        retried, retried_sources = _read_answer(retry["content"], valid_ids)
         prompt_tokens = (prompt_tokens or 0) + (retry.get("prompt_tokens") or 0) or None
         completion_tokens = (completion_tokens or 0) + (retry.get("completion_tokens") or 0) or None
-        if cited_ids(retried, valid_ids):
-            written = retried
+        if _cited(retried, retried_sources, valid_ids):
+            written, sources = retried, retried_sources
         else:
             logger.warning(f"Run {run_id}: the answer still cites no evidence")
-    cited = set(cited_ids(written, valid_ids))
+    cited = _cited(written, sources, valid_ids)
+    passages = resolve_passages(sources, context["excerpts"])
     latency_ms = int((time.monotonic() - start) * 1000)
     answer = with_missing_charts(written, context["excerpts"])
     by_id = {str(vdb["id"]): vdb for vdb in state["accessible_vdbs"]}
@@ -177,6 +199,12 @@ def generate_answer(state: AgentState) -> dict[str, Any]:
             "chunk_id": e["chunk_id"],
             # Whether the answer cites this excerpt or it was only consulted (#402): the interface shows the cited.
             "cited": e["id"] in cited,
+            # The passage the citation rests on, as the excerpt has it (found by the id and the passage the model
+            # named, never the model's own copy) and where it is in `content`; None when the model gave none or the
+            # one it gave is not in the excerpt - the citation then stands without a passage.
+            "quote": passage.text if (passage := passages.get(e["id"])) else None,
+            "quote_start": passage.start if passage else None,
+            "quote_end": passage.end if passage else None,
             # Where a cited question-answer pair comes from (#351): the document, page and passage to open.
             "qa_source": e.get("qa_source"),
             "page_number": e["page_number"],
@@ -195,6 +223,17 @@ def generate_answer(state: AgentState) -> dict[str, Any]:
         "answer_completion_tokens": completion_tokens,
         "prompt_usages": [prompt_version_id] if prompt_version_id else [],
     }
+
+
+def _read_answer(raw: str, valid_ids: set[str]) -> tuple[str, list[dict[str, Any]]]:
+    """The answer the model wrote and the sources it named, without the citations that point to nothing."""
+    answer, sources = parse_answer(raw)
+    return without_invented_markers(answer, valid_ids), [s for s in sources if s.get("id") in valid_ids]
+
+
+def _cited(answer: str, sources: list[dict[str, Any]], valid_ids: set[str]) -> set[str]:
+    """The excerpts an answer cites: those its markers point to, and those it lists among its sources."""
+    return set(cited_ids(answer, valid_ids)) | {s["id"] for s in sources}
 
 
 def with_missing_charts(answer: str, excerpts: list[dict[str, Any]]) -> str:

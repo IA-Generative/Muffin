@@ -26,6 +26,9 @@ export interface Source {
   revision?: number
   query?: string
   content?: string
+  // The passage of the excerpt the answer rests on (#402), as the excerpt has it - verified by the backend, never
+  // the model's copy. Absent when the model named none or the one it named is not in the excerpt.
+  quote?: string
   // Only for a "qa" citation (#351): where the cited pair's answer comes from - the document, page and passage
   // that open on that page with the passage framed. `start`/`end` is where the passage is in the page's text,
   // when known. Absent for a pair written by hand, or with no passage found.
