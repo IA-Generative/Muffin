@@ -238,8 +238,17 @@ page (`include_complexity`), si elle a besoin d'un OCR. `app/ocr/scanned.py` (`r
 - **L'empreinte** (`app/reuse.py`) : avec `layout`, elle compte le moteur, `OCR_PIPELINE_VERSION`, le DPI, les seuils des
   régions et des pages scannées ; avec `tesseract`, elle est exactement ce qu'elle était.
 
-Pour l'activer : `OCR_ENGINE=layout` sur le worker d'extraction (`env` du composant `document_process` du chart), et les
-pods `ocr_layout` et `ocr` démarrés (KEDA les monte quand leur queue se remplit).
+**Activé par défaut là où Muffin est déployé** : `OCR_ENGINE: layout` dans `helm/values/common-values.yaml` et dans
+`docker-compose.yaml` (où les pods `worker-ocr-layout` et `worker-ocr` démarrent avec le reste), alors que le **défaut du
+code reste `tesseract`** - un déploiement qui ne configure rien ne change pas. Le réglage doit être **le même dans les trois
+pods de cette image** (extraction, enrichissement, reconstruction d'index) : le découpage et le résumé tournent dans le pod
+d'enrichissement et calculent leur empreinte (#300) à partir de celle de l'extraction ; un pod en désaccord casse la
+réutilisation des résultats d'un même fichier, sans erreur (`tests/test_ocr_engine_deployed.py` le vérifie). Les pods
+`ocr_layout` et `ocr` sont montés par KEDA quand leur queue se remplit. Pour revenir à Tesseract : `OCR_ENGINE: tesseract`
+dans les trois, et les pods n'ont plus rien à faire.
+
+Si les pods ne répondent pas (absents, ou KEDA qui monte depuis zéro), une page attend `OCR_STAGE_TIMEOUT_SECONDS` (15 min)
+avant de retomber sur Tesseract : le repli est correct mais lent. Voir les lignes `WARNING` de la tâche.
 
 Ce que le socle (#405) pose, dans `app/ocr/` :
 
