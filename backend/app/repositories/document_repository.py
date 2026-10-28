@@ -15,6 +15,7 @@ from app.models.document import (
     DocumentKind,
     DocumentPage,
     DocumentStatus,
+    DocumentTable,
     DocumentTag,
     DocumentType,
     PageRegion,
@@ -473,14 +474,71 @@ class DocumentRepository:
         )
         return result.scalars().all()
 
-    async def replace_regions(self, page_id: uuid.UUID, regions: Sequence[dict]) -> None:
+    async def replace_regions(self, page_id: uuid.UUID, regions: Sequence[dict]) -> list[PageRegion]:
         """The page's layout (#409), in place of what it had - sent in reading order, which is kept as `position`.
-        Written again with the page, a task run twice (#299) replaces it instead of adding a second copy."""
+        Written again with the page, a task run twice (#299) replaces it instead of adding a second copy. Gives the
+        regions written, for the tables to be tied to them."""
         await self.db.execute(delete(PageRegion).where(PageRegion.document_page_id == page_id))
-        self.db.add_all(
+        created = [
             PageRegion(document_page_id=page_id, position=position, **region) for position, region in enumerate(regions)
-        )
+        ]
+        self.db.add_all(created)
         await self.db.flush()
+        return created
+
+    async def replace_tables(self, page_id: uuid.UUID, tables: Sequence[dict], regions: Sequence[PageRegion]) -> None:
+        """The tables read on the page (#410), in place of what it had. Each is tied to the region it was read from -
+        `region_position`, among `regions` - which then points back at it."""
+        # The regions that pointed at the old tables are let go first, or the session would keep the stale link.
+        await self.db.execute(
+            update(PageRegion)
+            .where(PageRegion.document_page_id == page_id, PageRegion.table_id.is_not(None))
+            .values(table_id=None)
+            .execution_options(synchronize_session="fetch")
+        )
+        await self.db.execute(delete(DocumentTable).where(DocumentTable.document_page_id == page_id))
+        by_position = {region.position: region for region in regions}
+        written: list[tuple[DocumentTable, int | None]] = []
+        for table in tables:
+            fields = {key: value for key, value in table.items() if key != "region_position"}
+            row = DocumentTable(document_page_id=page_id, **fields)
+            self.db.add(row)
+            written.append((row, table.get("region_position")))
+        await self.db.flush()
+        for row, position in written:
+            region = by_position.get(position) if position is not None else None
+            if region is not None:
+                region.table_id = row.id
+        await self.db.flush()
+
+    async def list_tables(self, page_id: uuid.UUID) -> Sequence[DocumentTable]:
+        result = await self.db.execute(
+            select(DocumentTable).where(DocumentTable.document_page_id == page_id).order_by(DocumentTable.rank)
+        )
+        return result.scalars().all()
+
+    async def list_document_tables(self, document_id: uuid.UUID) -> list[tuple[DocumentTable, int]]:
+        """The tables of a document with the page each is on, in page then reading order."""
+        result = await self.db.execute(
+            select(DocumentTable, DocumentPage.page_number)
+            .join(DocumentPage, DocumentTable.document_page_id == DocumentPage.id)
+            .where(DocumentPage.document_id == document_id)
+            .order_by(DocumentPage.page_number, DocumentTable.rank)
+        )
+        return [(table, number) for table, number in result.all()]
+
+    async def get_table(self, document_id: uuid.UUID, page_number: int, rank: int) -> DocumentTable | None:
+        """A table of this document - one of another document is not found, whatever its page and rank."""
+        result = await self.db.execute(
+            select(DocumentTable)
+            .join(DocumentPage, DocumentTable.document_page_id == DocumentPage.id)
+            .where(
+                DocumentPage.document_id == document_id,
+                DocumentPage.page_number == page_number,
+                DocumentTable.rank == rank,
+            )
+        )
+        return result.scalar_one_or_none()
 
     async def list_regions(self, page_id: uuid.UUID) -> Sequence[PageRegion]:
         result = await self.db.execute(
