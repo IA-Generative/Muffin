@@ -16,6 +16,8 @@ from app.schemas.document import (
     HighlightsOut,
     RegionOut,
     ReprocessedOut,
+    TableOut,
+    TableSummaryOut,
     TabularProfileOut,
 )
 from app.schemas.pagination import Page, PaginationParams
@@ -172,6 +174,40 @@ async def list_page_regions(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
     except DocumentNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Page not found") from error
+
+
+@router.get(
+    "/collections/{collection_id}/documents/{document_id}/tables",
+    summary="The tables read on a document's scanned pages (#410), without their content: where each is, how big, "
+    "what its columns are. Their `table_id` is what the page's `[Tableau ...]` marker says",
+    response_model=list[TableSummaryOut],
+)
+async def list_document_tables(
+    collection_id: uuid.UUID, document_id: uuid.UUID, user: UserDep, service: ServiceDep
+) -> list[TableSummaryOut]:
+    try:
+        return await service.list_tables(collection_id, user, document_id)
+    except CollectionNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
+    except DocumentNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found") from error
+
+
+@router.get(
+    "/collections/{collection_id}/documents/{document_id}/pages/{page_number}/tables/{rank}",
+    summary="A table read on a scanned page (#410), with its content: the grid, and as Markdown and as HTML. `rank` is "
+    "its place among the page's tables, from 1",
+    response_model=TableOut,
+)
+async def get_page_table(
+    collection_id: uuid.UUID, document_id: uuid.UUID, page_number: int, rank: int, user: UserDep, service: ServiceDep
+) -> TableOut:
+    try:
+        return await service.get_table(collection_id, user, document_id, page_number, rank)
+    except CollectionNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
+    except DocumentNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Table not found") from error
 
 
 @router.get(

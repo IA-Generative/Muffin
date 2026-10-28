@@ -131,9 +131,9 @@ class ResultReuse:
                     for box in await self.documents.list_text_boxes(page.id)
                 ],
             )
-            # And its layout (#409): the regions an image, a table or a title can be found by. The table a region
-            # was read as (#410) is not copied: it is the source document's.
-            await self.documents.replace_regions(
+            # And its layout (#409): the regions an image, a table or a title can be found by.
+            source_regions = list(await self.documents.list_regions(page.id))
+            copied_regions = await self.documents.replace_regions(
                 copy.id,
                 [
                     {
@@ -147,8 +147,31 @@ class ResultReuse:
                         "title_level": region.title_level,
                         "caption": region.caption,
                     }
-                    for region in await self.documents.list_regions(page.id)
+                    for region in source_regions
                 ],
+            )
+            # And the tables read on it (#410), each tied to the region at the same place as the source's.
+            position_of = {region.table_id: region.position for region in source_regions if region.table_id}
+            await self.documents.replace_tables(
+                copy.id,
+                [
+                    {
+                        "rank": table.rank,
+                        "region_position": position_of.get(table.id),
+                        "n_rows": table.n_rows,
+                        "n_cols": table.n_cols,
+                        "has_header": table.has_header,
+                        "headers": table.headers,
+                        "cells": table.cells,
+                        "markdown": table.markdown,
+                        "html": table.html,
+                        "score": table.score,
+                        "reliable": table.reliable,
+                        "model_version": table.model_version,
+                    }
+                    for table in await self.documents.list_tables(page.id)
+                ],
+                copied_regions,
             )
         await self.documents.prune_pages(target.id, keep=max((page.page_number for page in pages), default=0))
 

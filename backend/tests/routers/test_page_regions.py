@@ -180,7 +180,6 @@ async def test_a_page_reused_from_another_document_has_the_same_layout(client):
             (await session.execute(select(PageRegion).where(PageRegion.document_page_id == page.id))).scalars().first()
         )
         region.caption = "described"
-        region.table_id = uuid.uuid4()
         target = Document(collection_id=collection_id, name="copy.pdf", type="file", storage_key="k2")
         session.add(target)
         await session.commit()
@@ -195,7 +194,7 @@ async def test_a_page_reused_from_another_document_has_the_same_layout(client):
     copied = await _stored(target_id)
     assert [region.type for region in copied] == ["header", "title", "text", "table", "image", "page_number"]
     assert copied[1].title_level == 1 and copied[2].polygon is not None and copied[4].score == 0.97
-    # What describes a region comes with it; the table it was read as is the source document's own.
+    # What describes a region comes with it (the tables read from them are copied too: test_page_tables.py).
     assert copied[0].caption == "described" and copied[0].table_id is None
     assert {region.id for region in copied}.isdisjoint({region.id for region in await _stored(source_id)})
 
