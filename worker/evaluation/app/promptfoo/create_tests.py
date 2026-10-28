@@ -21,6 +21,12 @@ Each test carries two model-graded assertions, both scored by the same judge:
   provider's own output via `contextTransform: output.context` - the retrieved
   chunks, not a static fixture, so the score measures the real pipeline.
 
+A third assertion counts the retrieved chunks - a diagnostic, not a quality score:
+it is scored under its own `context_chunk_count` metric (so it shows in the promptfoo
+report) but the Muffin UI hides it (see frontend/src/utils/evaluationMetrics.ts). It
+always passes: a test's success (and the pass rates the UI shows) must not depend on
+how many chunks retrieval happened to return.
+
 The filtering lives in the task, not here: the dedup hash and the tests must be
 computed over exactly the same set of pairs.
 """
@@ -43,11 +49,28 @@ _CONTEXT_FAITHFULNESS_THRESHOLD = 0.7
 # an old artifact that lacks the new score.
 _FACTUALITY_METRIC = "factuality"
 _CONTEXT_FAITHFULNESS_METRIC = "context_faithfulness"
+_CONTEXT_CHUNK_COUNT_METRIC = "context_chunk_count"
 
 # Every metric the tests score, by namedScores key - the task folds this list into
 # its dedup hash (see tasks.py's _evaluation_hash). Keep sorted: the hash digest is
 # order-sensitive, and the backend's copy lists the same order.
-SCORED_METRICS = sorted([_FACTUALITY_METRIC, _CONTEXT_FAITHFULNESS_METRIC])
+SCORED_METRICS = sorted([_FACTUALITY_METRIC, _CONTEXT_FAITHFULNESS_METRIC, _CONTEXT_CHUNK_COUNT_METRIC])
+
+# The chunk count is a diagnostic, not a quality score: it is scored under its own
+# `context_chunk_count` metric so it shows in the promptfoo report, but the Muffin UI
+# hides it (frontend/src/utils/evaluationMetrics.ts) - the backend serves namedScores
+# generically (see backend/app/services/evaluation_artifacts.py), so a metric here would
+# otherwise surface there too. It always passes: a test's success (and the pass rates the
+# UI shows) must not depend on how many chunks retrieval happened to return. The
+# placeholder string must stay in sync with provider.py's "no context retrieved".
+_COUNT_CONTEXT_CHUNKS_JS = """
+const chunks = context.providerResponse?.context;
+const count =
+  Array.isArray(chunks) && !(chunks.length === 1 && chunks[0] === 'no context retrieved')
+    ? chunks.length
+    : 0;
+return { pass: true, score: count, reason: `Retrieved ${count} context chunk(s)` };
+"""
 
 
 def create_tests(config: dict | None = None) -> list[dict]:
@@ -80,6 +103,13 @@ def create_tests(config: dict | None = None) -> list[dict]:
                         "contextTransform": "output.context",
                         "threshold": _CONTEXT_FAITHFULNESS_THRESHOLD,
                         "metric": _CONTEXT_FAITHFULNESS_METRIC,
+                    },
+                    {
+                        # A diagnostic, not a quality score: scored under its own metric
+                        # (so it shows in the promptfoo report) but hidden by the Muffin UI.
+                        "type": "javascript",
+                        "value": _COUNT_CONTEXT_CHUNKS_JS,
+                        "metric": _CONTEXT_CHUNK_COUNT_METRIC,
                     },
                 ],
             }

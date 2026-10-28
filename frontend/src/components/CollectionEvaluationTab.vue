@@ -3,7 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useCollections } from '../composables/useCollections'
 import { usePagination } from '../composables/usePagination'
 import type { Collection, EvaluationResult, EvaluationRun } from '../types/collection'
-import { metricLabel, orderedMetricKeys } from '../utils/evaluationMetrics'
+import { isHiddenMetric, metricLabel, orderedMetricKeys } from '../utils/evaluationMetrics'
 import PaginationControls from './PaginationControls.vue'
 
 const props = defineProps<{
@@ -92,6 +92,12 @@ function referencePairCount(run: EvaluationRun): number {
   return run.pairCount - run.goldenPairCount
 }
 
+// The per-pair scores the UI shows: the judge's metrics, minus the hidden diagnostics
+// (the chunk count is recorded but never displayed here).
+function visibleScores(scores: Record<string, number>): [string, number][] {
+  return Object.entries(scores).filter(([key]) => !isHiddenMetric(key))
+}
+
 const STRATEGY_LABEL: Record<string, string> = {
   paragraph: 'Par paragraphe',
   fixed: 'Taille fixe',
@@ -109,15 +115,15 @@ const goldenCount = computed(() => props.collection.qaPairs.filter((pair) => pai
 <template>
   <div>
     <p class="eval-tab__intro">
-      Mesure la qualité des réponses générées : chaque question-réponse de la collection est posée au pipeline, puis un
-      juge (modèle d'évaluation) note chaque réponse générée deux fois — sa factualité face à la réponse attendue, et sa
-      fidélité au contexte réellement récupéré par le pipeline (en dessous de 0,7, la paire est signalée en rouge dans
-      le rapport).
+      Mesure la qualité des réponses générées : chaque question-réponse évaluable (avec document source) est posée au
+      pipeline, puis un juge (modèle d'évaluation) note chaque réponse générée deux fois — sa factualité face à la
+      réponse attendue, et sa fidélité au contexte réellement récupéré par le pipeline (en dessous de 0,7, la paire est
+      signalée en rouge dans le rapport).
     </p>
     <p class="eval-tab__intro">
       Les <strong>questions de test</strong> ({{ goldenCount }}) sont écrites par une personne et ne sont dans aucun
-      index : leurs scores sont présentés à part, et ce sont ceux à suivre dans le temps. Les questions générées
-      viennent du texte même des documents, leurs scores sont plus flatteurs.
+      index : leurs scores forment une colonne à part dans le tableau, et ce sont ceux à suivre dans le temps. Les
+      <strong>questions de référence</strong> viennent du texte même des documents, leurs scores sont plus flatteurs.
     </p>
 
     <div class="eval-tab__launch">
@@ -334,10 +340,10 @@ const goldenCount = computed(() => props.collection.qaPairs.filter((pair) => pai
                 <div class="eval-tab__result-metrics">
                   <!-- One line per metric the judge scored for this pair - a metric it
                        errored on writes no entry -->
-                  <span v-for="[key, score] in Object.entries(result.namedScores)" :key="key">
+                  <span v-for="[key, score] in visibleScores(result.namedScores)" :key="key">
                     {{ metricLabel(key) }} {{ formatPercent(score) }}
                   </span>
-                  <span v-if="!Object.keys(result.namedScores).length" class="eval-tab__judge-error">
+                  <span v-if="!visibleScores(result.namedScores).length" class="eval-tab__judge-error">
                     Juge en erreur sur cette paire
                   </span>
                 </div>

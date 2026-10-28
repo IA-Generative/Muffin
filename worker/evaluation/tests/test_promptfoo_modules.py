@@ -127,7 +127,7 @@ def test_create_tests_maps_pairs_to_scored_tests(tmp_path):
     # faithfulness against the context the provider itself retrieved (contextTransform).
     # The thresholds color a low score in the report - they never drop the result.
     for test, answer in zip(tests, ["A.", "A2."], strict=True):
-        assert test["assert"] == [
+        assert test["assert"][:2] == [
             {"type": "factuality", "value": answer, "threshold": 0.7, "metric": "factuality"},
             {
                 "type": "context-faithfulness",
@@ -136,6 +136,10 @@ def test_create_tests_maps_pairs_to_scored_tests(tmp_path):
                 "metric": "context_faithfulness",
             },
         ]
+        # A third assertion: the chunk count, a diagnostic scored under its own metric so
+        # it shows in the promptfoo report (the Muffin UI hides it).
+        assert test["assert"][2]["type"] == "javascript"
+        assert test["assert"][2]["metric"] == "context_chunk_count"
 
 
 def test_scored_metrics_lists_exactly_what_the_assertions_score(tmp_path):

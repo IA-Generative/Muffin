@@ -33,7 +33,7 @@ class CollectionNotFoundError(Exception):
 # trigger-time hash must know what the worker WILL score before any artifact exists -
 # and it cannot import worker code. Keep in sync with the worker's list
 # (worker/evaluation/app/promptfoo/create_tests.py's SCORED_METRICS).
-_SCORED_METRICS = ["context_faithfulness", "factuality"]
+_SCORED_METRICS = ["context_chunk_count", "context_faithfulness", "factuality"]
 
 # How long after dispatch a run_evaluation task may still be considered queued or running
 # (see EvaluationService.is_running) - generous for the longest realistic evaluation, short

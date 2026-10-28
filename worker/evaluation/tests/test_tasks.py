@@ -476,7 +476,7 @@ _VECTOR_SETTINGS = {
     "chunk_overlap": 50,
     "embedding_model": "text-embedding-3-small",
 }
-_VECTOR_DIGEST = "0cfabaaab638c4a28300a93b5ea4c4e06290b926d1fffe6a2c3c45ea5bd2f4d3"
+_VECTOR_DIGEST = "d3e7f82d4a4799222175523743967e92b1d4dcddafec047443b3b2a4c32c28f0"
 
 
 def test_the_evaluation_hash_matches_the_backend_vector():

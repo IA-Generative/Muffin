@@ -8,6 +8,9 @@
 export interface EvaluationMetricInfo {
   label: string
   tooltip: string
+  // A metric the UI knows about but never shows: the chunk count is a diagnostic
+  // recorded in the promptfoo report, not a quality score to display as a percentage.
+  hidden?: boolean
 }
 
 export const EVALUATION_METRICS: Record<string, EvaluationMetricInfo> = {
@@ -20,6 +23,12 @@ export const EVALUATION_METRICS: Record<string, EvaluationMetricInfo> = {
     label: 'Fidélité au contexte',
     tooltip:
       "Score moyen donné par le juge à l'ancrage des réponses générées dans le contexte réellement récupéré (1.0 = rien d'inventé hors des extraits). « — » sur les évaluations antérieures à la métrique.",
+  },
+  context_chunk_count: {
+    label: 'Chunks récupérés',
+    tooltip:
+      'Nombre moyen de chunks récupérés par question. Diagnostic, visible dans le rapport promptfoo, pas dans cette interface.',
+    hidden: true,
   },
 }
 
@@ -35,8 +44,13 @@ export function metricTooltip(key: string): string | undefined {
   return EVALUATION_METRICS[key]?.tooltip
 }
 
+// A metric the UI records but never displays (see EvaluationMetricInfo.hidden).
+export function isHiddenMetric(key: string): boolean {
+  return EVALUATION_METRICS[key]?.hidden === true
+}
+
 export function orderedMetricKeys(keys: Iterable<string>): string[] {
-  const listed = [...keys]
+  const listed = [...keys].filter((key) => !isHiddenMetric(key))
   const known = EVALUATION_METRIC_ORDER.filter((key) => listed.includes(key))
   const unknown = listed.filter((key) => !EVALUATION_METRIC_ORDER.includes(key)).sort()
   return [...known, ...unknown]

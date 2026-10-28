@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { metricLabel, metricTooltip, orderedMetricKeys } from './evaluationMetrics.ts'
+import { isHiddenMetric, metricLabel, metricTooltip, orderedMetricKeys } from './evaluationMetrics.ts'
 
 test('a known metric renders its French label', () => {
   assert.equal(metricLabel('factuality'), 'Factualité')
@@ -22,4 +22,10 @@ test('known metrics keep their registry order, unknown ones sort after them', ()
 test('a subset of the known metrics keeps the relative registry order', () => {
   assert.deepEqual(orderedMetricKeys(['context_faithfulness']), ['context_faithfulness'])
   assert.deepEqual(orderedMetricKeys([]), [])
+})
+
+test('a hidden metric is never listed - the chunk count is a diagnostic, not a score to show', () => {
+  assert.equal(isHiddenMetric('context_chunk_count'), true)
+  assert.equal(isHiddenMetric('factuality'), false)
+  assert.deepEqual(orderedMetricKeys(['context_chunk_count', 'factuality']), ['factuality'])
 })
