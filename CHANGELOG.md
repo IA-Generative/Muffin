@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.34.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.33.0...v0.34.0-rc) (2026-10-28)
+
+
+### Features
+
+* **agent:** interroger les données tabulaires en SQL avec correction d'erreur ([#433](https://github.com/IA-Generative/Muffin/issues/433)) ([99cbf00](https://github.com/IA-Generative/Muffin/commit/99cbf00558377469208de3fa2193f3fa563f0144))
+* **tabular:** garder toutes les feuilles d'un fichier en base et supprimer leurs Parquet ([#431](https://github.com/IA-Generative/Muffin/issues/431)) ([af396d2](https://github.com/IA-Generative/Muffin/commit/af396d264f823f6f165885991ec2abf80e95a395))
+* **tabular:** graphiques dans les réponses - create_chart, rendu, stockage, affichage ([#434](https://github.com/IA-Generative/Muffin/issues/434)) ([66ab2fb](https://github.com/IA-Generative/Muffin/commit/66ab2fbde950fedc2c91a930502e708ee97c40a1))
+* **tabular:** lire les tableurs en flux, toutes les feuilles, un Parquet par feuille ([#431](https://github.com/IA-Generative/Muffin/issues/431)) ([3f6f8cc](https://github.com/IA-Generative/Muffin/commit/3f6f8ccf1d0bea2f3d7bc7c8ac4fe0f90c7fee9e))
+* **tabular:** onglet Données du document et documentation des bornes ([#431](https://github.com/IA-Generative/Muffin/issues/431)) ([68d8aab](https://github.com/IA-Generative/Muffin/commit/68d8aab833d29bc518bf599f9b292fcfc7cf1e50))
+* **tabular:** profil par feuille et copie Parquet typée à l'ingestion, sans S3 dans DuckDB ([#431](https://github.com/IA-Generative/Muffin/issues/431)) ([02f0251](https://github.com/IA-Generative/Muffin/commit/02f0251cf5fde5cec3183ddce0aea7617558756f))
+* **tabular:** worker de requêtes SQL verrouillé sur les Parquet des feuilles ([#432](https://github.com/IA-Generative/Muffin/issues/432)) ([f048564](https://github.com/IA-Generative/Muffin/commit/f048564957f972cb391e4b082310cf3bcff4dcfc))
+
+
+### Bug Fixes
+
+* **agent:** borner ce que le SQL des requêtes tabulaires peut atteindre ([062bda7](https://github.com/IA-Generative/Muffin/commit/062bda7e12e79123a5255d754cc831c6acb48ca3))
+
 ## [0.33.1](https://github.com/IA-Generative/Muffin/compare/v0.33.0...v0.33.1) (2026-10-28)
 
 
