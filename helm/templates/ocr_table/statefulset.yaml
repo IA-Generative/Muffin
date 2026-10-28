@@ -1,0 +1,25 @@
+{{- if .Values.enabled }}
+{{- if eq .Values.ocr_table.deploymentType "StatefulSet" }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "helper.componentFullname" (dict "root" . "componentName" "ocr_table") }}
+  labels: {{- include "helper.labels" (dict "root" . "componentName" "ocr_table") | nindent 4 }}
+spec:
+  {{- if not .Values.ocr_table.autoscaling.enabled }}
+  replicas: {{ .Values.ocr_table.replicaCount }}
+  {{- end }}
+  revisionHistoryLimit: {{ .Values.ocr_table.revisionHistoryLimit | default 10 }}
+  selector:
+    matchLabels: {{- include "helper.selectorLabels" (dict "root" . "componentName" "ocr_table") | nindent 6 }}
+  serviceName: {{ include "helper.componentFullname" (dict "root" . "componentName" "ocr_table") }}
+  {{- with .Values.ocr_table.updateStrategy }}
+  updateStrategy: {{- toYaml . | nindent 4 }}
+  {{- end }}
+  template:
+    {{- include "helper.component.podTemplate" (dict "root" . "name" "ocr_table" "component" .Values.ocr_table) | nindent 4 }}
+  {{- if or .Values.ocr_table.volumeClaims .Values.ocr_table.extraVolumeClaims }}
+  volumeClaimTemplates: {{- toYaml (concat (default (list) .Values.ocr_table.volumeClaims) (default (list) .Values.ocr_table.extraVolumeClaims)) | nindent 2 }}
+  {{- end }}
+{{- end }}
+{{- end }}
