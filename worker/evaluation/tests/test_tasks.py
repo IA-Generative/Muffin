@@ -508,6 +508,24 @@ def test_the_evaluation_hash_matches_the_backend_vector():
     assert config.content_hash(_VECTOR_PAIRS) == _VECTOR_DIGEST
 
 
+def test_run_payload_snapshots_the_config_and_folds_in_the_counts():
+    # The backend persists this as the EvaluationRun row: the config under its snapshot_*
+    # column names, the dedup hash, and the counters read from the artifact.
+    config = _config(k=7, judge_model="judge-model", chunking_strategy="fixed", chunk_size=800, chunk_overlap=80)
+    counts = {"pair_count": 3, "golden_pair_count": 1, "validated_pair_count": 1, "unvalidated_pair_count": 1}
+
+    assert config.run_payload("hash-1", counts) == {
+        "k": 7,
+        "llm_model": "judge-model",
+        "snapshot_chunking_strategy": "fixed",
+        "snapshot_chunk_size": 800,
+        "snapshot_chunk_overlap": 80,
+        "snapshot_embedding_model": "text-embedding-3-small",
+        "content_hash": "hash-1",
+        **counts,
+    }
+
+
 def test_counts_from_results_coerce_string_vars():
     # promptfoo hands vars back as strings on some paths: "false" must not read as true.
     results = json.dumps(

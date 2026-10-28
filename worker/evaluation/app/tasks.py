@@ -194,6 +194,22 @@ class EvaluationConfig(BaseModel):
             "provider_code_sha256": provider_code_sha256,
         }
 
+    def run_payload(self, content_hash: str, counts: dict[str, int]) -> dict[str, Any]:
+        """The payload the backend persists as the EvaluationRun row: the run's config
+        (snapshotted under the backend's snapshot_* column names) plus the dedup hash and the
+        counters read from the artifact. The per-pair scores stay in results.json - this is
+        only the slim, self-describing summary."""
+        return {
+            "k": self.k,
+            "llm_model": self.judge_model,
+            "snapshot_chunking_strategy": self.chunking_strategy,
+            "snapshot_chunk_size": self.chunk_size,
+            "snapshot_chunk_overlap": self.chunk_overlap,
+            "snapshot_embedding_model": self.embedding_model,
+            "content_hash": content_hash,
+            **counts,
+        }
+
 
 def _pairs_fingerprint(qa_pairs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """The QA pairs reduced to exactly what the dedup hash covers, sorted by id so the digest
@@ -453,16 +469,7 @@ def run_evaluation(self, collection_id: str, k: int | None = None, validated_onl
         _write_promptfoo_dir(directory, config=config, pairs=evaluable_pairs, content_hash=content_hash)
         results_json, report_html = _run_promptfoo(directory)
 
-    payload = {
-        "k": config.k,
-        "llm_model": config.judge_model,
-        "snapshot_chunking_strategy": config.chunking_strategy,
-        "snapshot_chunk_size": config.chunk_size,
-        "snapshot_chunk_overlap": config.chunk_overlap,
-        "snapshot_embedding_model": config.embedding_model,
-        "content_hash": content_hash,
-        **_counts_from_results(results_json),
-    }
+    payload = config.run_payload(content_hash, _counts_from_results(results_json))
     run_id = backend_client.create_evaluation_run(collection_id, payload)
     backend_client.upload_evaluation_artifacts(collection_id, run_id, results_json, report_html)
     logger.info(
