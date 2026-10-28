@@ -217,6 +217,24 @@ désactivée par défaut en amont et doit être explicitement activée côté se
 | `ZIP_IMPORT_MAX_DEPTH` | Profondeur maximale de dossiers dans un ZIP ; un fichier plus profond est ignoré. Non défini : pas de limite | aucune | idem |
 | `TESSDATA_PATH` | Chemin vers les fichiers de données Tesseract, si non standard — le `Dockerfile` du worker le fixe au chemin du paquet apt `tesseract-ocr-fra` | `None` | idem |
 
+## worker/layout et worker/ocr — pods d'OCR par layout (#406, #407)
+
+Chacun est une image à part (`worker-ocr-layout`, `worker-ocr`) avec son modèle ONNX officiel de PaddlePaddle embarqué.
+Ils partagent avec le worker d'extraction `REDIS_URL`, `AWS_*`, `STORAGE_*_TIMEOUT_SECONDS`, le nom de leur queue
+(`LAYOUT_QUEUE_NAME` / `OCR_QUEUE_NAME`), `MODELS_DIR`, `OCR_REGION_MIN_SCORE`, `OCR_REGION_MIN_PIXELS`,
+`OCR_MAX_REGIONS_PER_PAGE` (layout) et la limite souple de leur tâche : voir plus haut. Propres aux pods :
+
+| Variable | Définition | Défaut | Utilisée par |
+|---|---|---|---|
+| `LAYOUT_MODEL_NAME` | Dossier du modèle PP-DocLayoutV3 (export ONNX officiel) sous `MODELS_DIR` | `PP-DocLayoutV3_onnx` | **worker/layout** (`app/config.py`, `app/layout.py`) |
+| `LAYOUT_TABLE_MIN_SCORE` | Score minimal d'un **tableau**, plus bas que celui des autres régions : un tableau que le modèle ne voit pas n'est lu par personne (ses cellules ne sont pas une région de texte), un faux tableau ne coûte qu'un recadrage. Un tableau dessiné simplement a été trouvé à 0,46 : à régler sur des documents réels | `0.3` | idem |
+| `LAYOUT_DUPLICATE_OVERLAP` | Deux régions dont l'une en recouvre au moins cette part de l'autre sont une seule région vue deux fois : celle au meilleur score reste | `0.9` | idem |
+| `OCR_DET_MODEL_NAME` / `OCR_REC_MODEL_NAME` | Dossiers, sous `MODELS_DIR`, du détecteur de texte PP-OCRv5 mobile et du reconnaisseur des écritures latines (accents, ligatures, `œ`, `€`, tirets et apostrophes typographiques) | `PP-OCRv5_mobile_det_onnx` / `latin_PP-OCRv5_mobile_rec_onnx` | **worker/ocr** (`app/config.py`, `app/reader.py`) |
+| `OCR_REGION_PADDING_PIXELS` | Pixels ajoutés autour d'une région avant de la lire, pour ne pas couper le bord d'un glyphe | `8` | idem |
+| `OCR_CROP_BORDER_PIXELS` | Bordure blanche autour du recadrage lu : sans elle, le détecteur coupe un recadrage très plat (un titre) en morceaux - « Rapport annuel d'activité » sortait en trois lignes, et en une dès 16 pixels | `32` | idem |
+| `OCR_LINE_MIN_SCORE` | Score minimal d'une ligne lue ; en dessous, elle est écartée. `0` garde toutes les lignes avec leur score, à l'appelant de juger d'une lecture médiocre | `0.0` | idem |
+| `ONNX_INTRA_OP_THREADS` | Threads qu'ONNX Runtime peut utiliser pour une page ou une région (`0` : son choix). À régler sur les CPU du pod divisés par la concurrence du worker | `0` | les deux pods |
+
 ## worker/agent_execution — budgets d'exécution de l'agent
 
 Ces variables bornent le graphe LangGraph de recherche (§28 du brief d'architecture) pour qu'une
