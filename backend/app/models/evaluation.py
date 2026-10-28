@@ -1,7 +1,6 @@
 import uuid
 
 from sqlalchemy import (
-    Enum,
     ForeignKey,
     Index,
     Integer,
@@ -13,7 +12,6 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDMixin
-from app.models.collection import ChunkingStrategy
 
 
 class EvaluationRun(UUIDMixin, TimestampMixin, Base):
@@ -31,21 +29,12 @@ class EvaluationRun(UUIDMixin, TimestampMixin, Base):
     collection_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("collections.id", ondelete="CASCADE"), index=True, nullable=False
     )
-    k: Mapped[int] = mapped_column(Integer, nullable=False)
     # Every evaluated pair, validated and not - see validated_pair_count/unvalidated_pair_count
     # for the breakdown.
     pair_count: Mapped[int] = mapped_column(Integer, nullable=False)
     # The judge model (the collection's "evaluation" generation model) - what the
     # metric scores were produced with.
     llm_model: Mapped[str] = mapped_column(String, nullable=False)
-
-    # Chunking/embedding config snapshot at run time, since collection settings can change afterwards.
-    snapshot_chunking_strategy: Mapped[ChunkingStrategy] = mapped_column(
-        Enum(ChunkingStrategy, name="chunking_strategy"), nullable=False
-    )
-    snapshot_chunk_size: Mapped[int] = mapped_column(Integer, nullable=False)
-    snapshot_chunk_overlap: Mapped[int] = mapped_column(Integer, nullable=False)
-    snapshot_embedding_model: Mapped[str] = mapped_column(String, nullable=False)
 
     # The golden pairs (#260), the scores worth following over time: human-written, never in the
     # retriever. Their score averages are reported apart from the other pairs'.

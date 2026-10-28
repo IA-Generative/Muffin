@@ -2,8 +2,6 @@ import uuid
 
 from pydantic import BaseModel
 
-from app.models.collection import ChunkingStrategy
-
 
 class EvaluationQaPairOut(BaseModel):
     id: uuid.UUID
@@ -28,14 +26,9 @@ class EvaluationRunCreate(BaseModel):
     here: they live in the run's results.json artifact, uploaded right after via
     /evaluation-runs/{run_id}/artifacts."""
 
-    k: int
     pair_count: int
     # The judge model (the collection's "evaluation" generation model).
     llm_model: str
-    snapshot_chunking_strategy: ChunkingStrategy
-    snapshot_chunk_size: int
-    snapshot_chunk_overlap: int
-    snapshot_embedding_model: str
     # The golden (test) pairs, scored apart (#260).
     golden_pair_count: int = 0
     # Breakdown by QaPair.validated at evaluation time - never re-derived from the

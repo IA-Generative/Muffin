@@ -10,7 +10,7 @@ from sqlalchemy import delete, select
 from app.core.security.factory import RequestContext, get_current_user
 from app.db import async_session_factory
 from app.main import app
-from app.models.collection import ChunkingStrategy, Collection
+from app.models.collection import Collection
 from app.models.conversation import Conversation
 from app.models.document import Document, DocumentPage
 from app.models.evaluation import EvaluationRun
@@ -604,13 +604,8 @@ async def test_trigger_evaluation_skips_when_an_identical_run_exists(client):
         content_hash = _evaluation_hash(pairs, collection.settings, 5, "test-chat-model", "test-chat-model", False)
         run = EvaluationRun(
             collection_id=collection_id,
-            k=5,
             pair_count=1,
             llm_model="test-chat-model",
-            snapshot_chunking_strategy=collection.settings.chunking_strategy,
-            snapshot_chunk_size=collection.settings.chunk_size,
-            snapshot_chunk_overlap=collection.settings.chunk_overlap,
-            snapshot_embedding_model=collection.settings.embedding_model,
             golden_pair_count=0,
             validated_pair_count=1,
             unvalidated_pair_count=0,
@@ -781,13 +776,8 @@ async def _create_evaluation_run(
     async with async_session_factory() as session:
         run = EvaluationRun(
             collection_id=uuid.UUID(collection_id),
-            k=5,
             pair_count=4,
             llm_model="judge-model",
-            snapshot_chunking_strategy=ChunkingStrategy.PARAGRAPH,
-            snapshot_chunk_size=500,
-            snapshot_chunk_overlap=50,
-            snapshot_embedding_model="text-embedding-3-small",
             golden_pair_count=1,
             validated_pair_count=2,
             unvalidated_pair_count=1,

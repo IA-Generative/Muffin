@@ -49,15 +49,11 @@ class RunCounts(TypedDict):
 
 
 class RunPayload(RunCounts):
-    """The payload the backend persists as the EvaluationRun row: the run's config under the
-    backend's snapshot_* column names, the dedup hash, and the counters."""
+    """The payload the backend persists as the EvaluationRun row: the judge model, the dedup
+    hash, and the counters. The run's configuration is not duplicated here - it rides in the
+    results.json artifact's config_muffin block, which the UI reads back."""
 
-    k: int
     llm_model: str
-    snapshot_chunking_strategy: str
-    snapshot_chunk_size: int
-    snapshot_chunk_overlap: int
-    snapshot_embedding_model: str
     content_hash: str
 
 
@@ -154,17 +150,12 @@ class EvaluationConfig(BaseModel):
         }
 
     def run_payload(self, content_hash: str, counts: RunCounts) -> RunPayload:
-        """The payload the backend persists as the EvaluationRun row: the run's config
-        (snapshotted under the backend's snapshot_* column names) plus the dedup hash and the
-        counters read from the artifact. The per-pair scores stay in results.json - this is
+        """The payload the backend persists as the EvaluationRun row: the judge model, the dedup
+        hash and the counters read from the artifact. The per-pair scores and the run's
+        configuration stay in results.json (the config under metadata.config_muffin) - this is
         only the slim, self-describing summary."""
         return {
-            "k": self.k,
             "llm_model": self.judge_model,
-            "snapshot_chunking_strategy": self.chunking_strategy,
-            "snapshot_chunk_size": self.chunk_size,
-            "snapshot_chunk_overlap": self.chunk_overlap,
-            "snapshot_embedding_model": self.embedding_model,
             "content_hash": content_hash,
             **counts,
         }

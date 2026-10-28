@@ -6,7 +6,7 @@ from sqlalchemy import delete
 
 from app.core.security.factory import RequestContext
 from app.db import async_session_factory
-from app.models.collection import ChunkingStrategy, Collection
+from app.models.collection import Collection
 from app.models.document import Document, DocumentType
 from app.models.document_revision import DocumentRevision, RevisionOrigin
 from app.models.evaluation import EvaluationRun
@@ -65,13 +65,8 @@ async def _add_evaluation_run(collection_id: uuid.UUID, results_key: str, report
         session.add(
             EvaluationRun(
                 collection_id=collection_id,
-                k=5,
                 pair_count=1,
                 llm_model="judge",
-                snapshot_chunking_strategy=ChunkingStrategy.PARAGRAPH,
-                snapshot_chunk_size=1000,
-                snapshot_chunk_overlap=100,
-                snapshot_embedding_model="embed",
                 results_json_key=results_key,
                 report_html_key=report_key,
             )

@@ -104,9 +104,7 @@ def test_run_evaluation_posts_one_run_with_both_artifacts(monkeypatch, tmp_path)
     collection_id, payload = fake.create_evaluation_run.call_args.args
     assert collection_id == "col-1"
     # The slim metadata payload: no scores, no per-pair results - those live in the artifact.
-    assert payload["k"] == 5
     assert payload["llm_model"] == "generator-model"  # no "evaluation" model configured: default
-    assert payload["snapshot_chunking_strategy"] == "paragraph"
     assert payload["content_hash"]
     # Counters read from what actually ran, golden apart (same semantics as before).
     assert payload["pair_count"] == 3
@@ -260,6 +258,17 @@ def test_run_evaluation_defaults_k_from_settings(monkeypatch, tmp_path):
     monkeypatch.setattr(evaluation.settings, "DEFAULT_TOP_K", 7)
     _fake_promptfoo_on_path(monkeypatch, tmp_path)
 
+    # k no longer rides in the persisted payload - it shapes the promptfoo config, so
+    # capture the config the run builds to check the fallback.
+    captured: dict = {}
+    real_build = evaluation._build_promptfoo_config
+
+    def spy(config, content_hash, provider_code_sha256):
+        captured["config"] = config
+        return real_build(config, content_hash, provider_code_sha256)
+
+    monkeypatch.setattr(evaluation, "_build_promptfoo_config", spy)
+
     fake.get_collection_settings.return_value = _fake_settings()
     fake.get_default_chat_model.return_value = "test-model"
     fake.find_evaluation_run.return_value = None
@@ -268,8 +277,7 @@ def test_run_evaluation_defaults_k_from_settings(monkeypatch, tmp_path):
 
     evaluation.run_evaluation("col-1", None)
 
-    _, payload = fake.create_evaluation_run.call_args.args
-    assert payload["k"] == 7
+    assert captured["config"].k == 7
 
 
 # -- the generated promptfoo directory -----------------------------------------------
@@ -511,19 +519,15 @@ def test_the_evaluation_hash_matches_the_backend_vector():
     assert config.content_hash(_VECTOR_PAIRS) == _VECTOR_DIGEST
 
 
-def test_run_payload_snapshots_the_config_and_folds_in_the_counts():
-    # The backend persists this as the EvaluationRun row: the config under its snapshot_*
-    # column names, the dedup hash, and the counters read from the artifact.
+def test_run_payload_folds_in_the_counts():
+    # The backend persists this as the EvaluationRun row: the judge model, the dedup hash,
+    # and the counters read from the artifact. The run's config rides in the artifact's
+    # config_muffin block, not here.
     config = _config(k=7, judge_model="judge-model", chunking_strategy="fixed", chunk_size=800, chunk_overlap=80)
     counts = {"pair_count": 3, "golden_pair_count": 1, "validated_pair_count": 1, "unvalidated_pair_count": 1}
 
     assert config.run_payload("hash-1", counts) == {
-        "k": 7,
         "llm_model": "judge-model",
-        "snapshot_chunking_strategy": "fixed",
-        "snapshot_chunk_size": 800,
-        "snapshot_chunk_overlap": 80,
-        "snapshot_embedding_model": "text-embedding-3-small",
         "content_hash": "hash-1",
         **counts,
     }

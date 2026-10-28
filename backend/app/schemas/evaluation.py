@@ -4,8 +4,6 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from app.models.collection import ChunkingStrategy
-
 
 class EvaluationTriggerRequest(BaseModel):
     # How many chunks the worker retrieves per question - same meaning as any other search's
@@ -29,14 +27,9 @@ class EvaluationRunOut(BaseModel):
     id: uuid.UUID
     collection_id: uuid.UUID
     created_at: datetime
-    k: int
     pair_count: int
     # The judge model (the collection's "evaluation" generation model).
     llm_model: str
-    snapshot_chunking_strategy: ChunkingStrategy
-    snapshot_chunk_size: int
-    snapshot_chunk_overlap: int
-    snapshot_embedding_model: str
     # The golden (test) pairs, scored apart - the numbers to follow over time.
     golden_pair_count: int = 0
     validated_pair_count: int

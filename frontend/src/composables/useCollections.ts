@@ -3,7 +3,6 @@ import { router } from '../router'
 import { pushToast } from './useToast'
 import type {
   ChunkingSettings,
-  ChunkStrategy,
   Chunk,
   Collection,
   CollectionDocument,
@@ -669,16 +668,11 @@ async function refreshEntitiesAndRelations(collectionId: string) {
 interface EvaluationRunOut {
   id: string
   created_at: string
-  k: number
   pair_count: number
   golden_pair_count: number
   validated_pair_count: number
   unvalidated_pair_count: number
   llm_model: string
-  snapshot_chunking_strategy: string
-  snapshot_chunk_size: number
-  snapshot_chunk_overlap: number
-  snapshot_embedding_model: string
   // Score averages computed from the run's results.json artifact, keyed by metric
   // name - the keys are whatever the run's assertions actually scored (the metric
   // names are their own API keys, no case conversion). Null when that subset is
@@ -707,18 +701,11 @@ async function refreshEvaluation(collectionId: string) {
     collection.evaluationRuns = runs.map((run) => ({
       id: run.id,
       runAt: run.created_at,
-      k: run.k,
       pairCount: run.pair_count,
       goldenPairCount: run.golden_pair_count,
       validatedPairCount: run.validated_pair_count,
       unvalidatedPairCount: run.unvalidated_pair_count,
       llmModel: run.llm_model,
-      chunkingSnapshot: {
-        strategy: run.snapshot_chunking_strategy as ChunkStrategy,
-        chunkSize: run.snapshot_chunk_size,
-        chunkOverlap: run.snapshot_chunk_overlap,
-        embeddingModel: run.snapshot_embedding_model,
-      },
       // The backend only sends a metrics object when at least one metric was scored -
       // and the metric names are their own keys, so the dicts pass through as-is.
       metrics: run.metrics,

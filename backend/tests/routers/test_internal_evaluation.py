@@ -38,14 +38,9 @@ def _headers() -> dict[str, str]:
 
 def _run_payload(**overrides) -> dict:
     payload = {
-        "k": 5,
         "pair_count": 1,
         "llm_model": "judge-model",
         "content_hash": "abc123",
-        "snapshot_chunking_strategy": "paragraph",
-        "snapshot_chunk_size": 500,
-        "snapshot_chunk_overlap": 50,
-        "snapshot_embedding_model": "text-embedding-3-small",
         "golden_pair_count": 0,
         "validated_pair_count": 1,
         "unvalidated_pair_count": 0,

@@ -147,14 +147,9 @@ export interface IndexingEstimate {
   collectionMax: number
 }
 
-export interface ChunkingSnapshot extends ChunkingSettings {
-  embeddingModel: string
-}
-
 export interface EvaluationRun {
   id: string
   runAt: string
-  k: number
   pairCount: number
   // The golden (test) pairs, scored apart - the numbers to follow over time.
   goldenPairCount: number
@@ -162,7 +157,6 @@ export interface EvaluationRun {
   unvalidatedPairCount: number
   // The judge model (the collection's "evaluation" generation model).
   llmModel: string
-  chunkingSnapshot: ChunkingSnapshot
   // Score averages over the reference (non-golden) / golden / every pair, keyed by metric
   // name - the keys are whatever the run's artifact actually scored, so a new metric flows
   // through with zero frontend model change (labels: utils/evaluationMetrics.ts).

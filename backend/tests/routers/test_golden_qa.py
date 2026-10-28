@@ -283,14 +283,9 @@ async def _run_with_artifact(client, monkeypatch, collection_id, tests, golden_p
     created = await client.post(
         f"/api/internal/collections/{collection_id}/evaluation-runs",
         json={
-            "k": 5,
             "pair_count": len(tests),
             "llm_model": "test-model",
             "content_hash": f"hash-{uuid.uuid4()}",
-            "snapshot_chunking_strategy": "paragraph",
-            "snapshot_chunk_size": 500,
-            "snapshot_chunk_overlap": 50,
-            "snapshot_embedding_model": "text-embedding-3-small",
             "golden_pair_count": golden_pair_count,
             "validated_pair_count": len(tests) - golden_pair_count,
             "unvalidated_pair_count": 0,
