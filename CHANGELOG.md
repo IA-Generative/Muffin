@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.33.1](https://github.com/IA-Generative/Muffin/compare/v0.33.0...v0.33.1) (2026-10-28)
+
+
+### Bug Fixes
+
+* **agent:** borner ce que le SQL des requêtes tabulaires peut atteindre ([062bda7](https://github.com/IA-Generative/Muffin/commit/062bda7e12e79123a5255d754cc831c6acb48ca3))
+
 ## [0.33.0](https://github.com/IA-Generative/Muffin/compare/v0.32.0...v0.33.0) (2026-10-28)
 
 
