@@ -75,6 +75,19 @@ def test_the_boxes_become_regions_between_0_and_1():
     assert all(0 <= x <= 1 and 0 <= y <= 1 for x, y in region.polygon)
 
 
+def test_a_title_says_its_level_and_nothing_else_does():
+    regions = build_regions(
+        [
+            _box("doc_title", coordinate=(100, 100, 500, 200), order=1),
+            _box("paragraph_title", coordinate=(100, 300, 500, 400), order=2),
+            _box("text", coordinate=(100, 500, 500, 600), order=3),
+        ],
+        WIDTH,
+        HEIGHT,
+    )
+    assert [region.title_level for region in regions] == [1, 2, None]
+
+
 def test_a_box_past_the_page_is_cut_to_it():
     [region] = build_regions([_box(coordinate=(-30, 1900, 1100, 2100))], WIDTH, HEIGHT)
     assert (region.box.x_min, region.box.x_max, region.box.y_max) == (0.0, 1.0, 1.0)

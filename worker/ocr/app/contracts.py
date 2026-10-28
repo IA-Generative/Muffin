@@ -94,6 +94,8 @@ class Region(_Plain):
     reading_order: int = Field(ge=0)
     box: Box
     polygon: list[tuple[Unit, Unit]] | None = None
+    # A title only: 1 for the title of the document, 2 for a section's. None when the model does not tell.
+    title_level: int | None = Field(default=None, ge=1, le=6)
 
 
 class PageLayout(_Contract):
