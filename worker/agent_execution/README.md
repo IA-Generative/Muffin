@@ -133,3 +133,23 @@ uv run ruff check . && uv run ruff format --check .
 
 Le worker tourne dans `docker-compose.yaml` sous le service `worker-agent-execution`, sur la queue
 Celery `agent_execution`.
+
+## Données tabulaires - l'outil `tabular_query` (#433)
+
+L'agent interroge les fichiers tabulaires (CSV, XLSX, XLS, ODS, JSON, Parquet...) en **SQL**, sur leurs vraies
+feuilles, sans exécuter de SQL ni lire de fichier lui-même : chaque requête part au worker `worker/tabular` (#432).
+
+- **Catalogue** (`app/graph/services/tabular_catalog.py`) : les documents tabulaires des collections retenues, tels
+  que le backend les liste (c'est lui qui applique les droits). Chaque fichier est un schéma (`f1`, `f2`...) et chaque
+  feuille une table : `f1."Ventes"`. Les feuilles, colonnes (type SQL) et quelques valeurs d'exemple sont donnés au
+  modèle comme des **données**, jamais des instructions. Un document sans copie Parquet (indexé avant #431) est
+  annoncé « à réindexer » et jamais interrogé.
+- **Boucle** (`app/graph/services/tabular_query.py`) : le modèle enchaîne au plus `TABULAR_MAX_STEPS` appels de
+  `query_data(sql, files?)`, un objet JSON par tour (le client de chat n'a pas d'appel d'outil natif). Un SQL en
+  erreur lui revient avec le message et la liste des tables utilisables : il corrige et recommence.
+- **Appel au worker** (`app/graph/services/tabular_worker.py`) : `send_task` par nom vers `SQL_QUEUE_NAME`, puis
+  interrogation de l'état - pas de `get()` bloquant ; la révocation (#326) est regardée entre deux regards. Un worker
+  qui ne répond pas en `TABULAR_QUERY_TIMEOUT_SECONDS` fait échouer la tâche avec un message clair.
+- **Preuve** : une seule, dans la forme historique (SQL, résultat en tableau Markdown, sources), qui porte **tous** les
+  appels de la boucle, y compris ceux en erreur ; chaque autre fichier lu est une source citable à part.
+- `app/tabular_contracts.py` est une **copie** de `worker/tabular/app/contracts.py` : un test échoue si elles divergent.

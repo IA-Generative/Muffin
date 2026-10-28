@@ -19,6 +19,7 @@ import app.graph.nodes.targeted_research as targeted_research_module
 import app.graph.services.events as events_module
 import app.graph.services.llm as llm_module
 import app.graph.services.prompts as prompts_module
+import app.graph.services.tabular_query as tabular_query_module
 import app.graph.services.vdb_router as vdb_router_module
 from app.graph.graph import build_graph
 
@@ -60,8 +61,8 @@ class FakeBackend:
         self.summary_hits: list[dict[str, Any]] = []
         # {collection_id: [{"id":..., "name":..., "status":..., "summary":...}, ...]}
         self.documents_by_collection: dict[str, list[dict[str, Any]]] = {}
-        # {collection_id: [{"id":..., "name":..., "storage_key":..., "format":..., "row_count":...,
-        #                    "column_count":..., "columns":[...], "measures":[...],
+        # {collection_id: [{"id":..., "name":..., "format":..., "row_count":...,
+        #                    "column_count":..., "columns":[...], "measures":[...], "sheets":[{index,name,rows,
         #                    "dimensions":[...], "text_columns":[...]}, ...]}
         self.tabular_documents_by_collection: dict[str, list[dict[str, Any]]] = {}
         # {(document_id, page_number): {"page_number":..., "content":..., "screenshot_url":...}}
@@ -281,6 +282,7 @@ _PATCHED_MODULES = (
     answer_help_module,
     prompts_module,
     vdb_router_module,
+    tabular_query_module,
 )
 
 

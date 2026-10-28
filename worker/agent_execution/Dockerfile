@@ -17,12 +17,8 @@ WORKDIR /app
 COPY --from=builder --chown=worker:worker /app/.venv /app/.venv
 COPY --from=builder --chown=worker:worker /app/app /app/app
 
-# Pre-install DuckDB extensions during build (FS is writable here).
-# At runtime with readOnlyRootFilesystem, LOAD reads pre-installed extensions
-# without needing to write to the home directory.
-# HOME=/tmp ensures DuckDB uses a writable dir if INSTALL is needed at runtime.
+# HOME is /tmp, the one writable place on a read-only root filesystem.
 ENV HOME=/tmp
-RUN /app/.venv/bin/python -c "import duckdb; c = duckdb.connect(); c.execute('INSTALL httpfs')"
 
 USER worker
 ENV PATH="/app/.venv/bin:$PATH"
