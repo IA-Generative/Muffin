@@ -10,7 +10,7 @@ from app import parsing
 from app.config import settings
 from app.ocr import pages, routing, scanned
 from app.ocr.contracts import Box, OcrLine, PageLayout, PageText, Region, RegionText, RegionType
-from app.ocr.scanned import ScannedPageReader, is_scanned, read_scanned_pages
+from app.ocr.scanned import ReadPage, ScannedPageReader, is_scanned, read_scanned_pages
 from app.task_revocation import TaskRevoked
 
 BOX = Box(x_min=0.1, y_min=0.1, x_max=0.5, y_max=0.2)
@@ -195,7 +195,7 @@ def test_a_page_goes_to_the_layout_pod_then_its_regions_to_the_ocr_pod_and_comes
     read, failed = _reader(app, storage).read("doc-1", _pages(3), _images(3))
 
     assert failed == []
-    markdown, items = read[3]
+    markdown, items = read[3].markdown, read[3].items
     assert markdown == "# Titre 3\n\nUn paragraphe\n\nA B\n\n1 2"
     assert [item.text for item in items] == ["Titre 3", "Un paragraphe", "A B", "1 2"]
     key = pages.page_image_key("doc-1", 3)
@@ -344,6 +344,14 @@ def _scan_stats():
     return _stats(reasons=["scanned"], text_length=0, full_page_image=True)
 
 
+def _read(markdown, items=None, regions=None) -> ReadPage:
+    """A page the pods read, with a layout of its own."""
+    layout = PageLayout(
+        document_id="doc-1", page_number=1, width_px=100, height_px=100, regions=regions or [], model_version="l"
+    )
+    return ReadPage(markdown, items if items is not None else [], layout)
+
+
 class FakeReader:
     def __init__(self, read=None, failed=None, error=None):
         self._read, self._failed, self._error = read or {}, failed or [], error
@@ -385,7 +393,7 @@ def test_a_file_with_no_scanned_page_is_given_back_as_it_is(storage):
 def test_the_scanned_pages_are_replaced_and_the_others_kept(storage):
     native, scan = _parsed(1, "natif", stats=_stats()), _parsed(2, stats=_scan_stats())
     result = _result(native, scan, screenshots=[_shot(2, 1654)])
-    reader = FakeReader(read={2: ("# Lu par les pods", ["item"])})
+    reader = FakeReader(read={2: _read("# Lu par les pods", ["item"])})
 
     out = read_scanned_pages("doc-1", b"pdf", result, reader)
 
@@ -402,7 +410,7 @@ def test_a_screenshot_sharp_enough_is_used_and_a_blurry_one_is_rendered_again(mo
     pages_ = [_parsed(n, stats=_scan_stats()) for n in (2, 3)]
     # 200 DPI of a 595 pt page is 1654 px: 1654 is sharp enough, 1240 (150 DPI) is not.
     result = _result(*pages_, screenshots=[_shot(2, 1654), _shot(3, 1240)])
-    reader = FakeReader(read={2: ("a", []), 3: ("b", [])})
+    reader = FakeReader(read={2: _read("a"), 3: _read("b")})
 
     read_scanned_pages("doc-1", b"pdf", result, reader)
 
@@ -416,7 +424,7 @@ def test_the_pages_that_could_not_be_read_fall_back_on_tesseract(monkeypatch, st
     result = _result(
         _parsed(2, stats=_scan_stats()), _parsed(3, stats=_scan_stats()), screenshots=[_shot(2, 1654), _shot(3, 1654)]
     )
-    reader = FakeReader(read={2: ("lu par les pods", [])}, failed=[3])
+    reader = FakeReader(read={2: _read("lu par les pods")}, failed=[3])
 
     out = read_scanned_pages("doc-1", b"pdf", result, reader)
 
@@ -428,7 +436,7 @@ def test_the_pages_images_are_dropped_when_it_is_over_and_when_it_fails(storage)
     result = _result(
         _parsed(2, stats=_scan_stats()), _parsed(5, stats=_scan_stats()), screenshots=[_shot(2, 1654), _shot(5, 1654)]
     )
-    read_scanned_pages("doc-1", b"pdf", result, FakeReader(read={2: ("a", []), 5: ("b", [])}))
+    read_scanned_pages("doc-1", b"pdf", result, FakeReader(read={2: _read("a"), 5: _read("b")}))
     keys = [pages.page_image_key("doc-1", 2), pages.page_image_key("doc-1", 5)]
     storage.delete_objects.assert_called_once_with(keys)
 
@@ -441,7 +449,7 @@ def test_the_pages_images_are_dropped_when_it_is_over_and_when_it_fails(storage)
 def test_a_failure_to_drop_the_images_does_not_fail_the_file(storage):
     storage.delete_objects.side_effect = OSError("storage down")
     result = _result(_parsed(2, stats=_scan_stats()), screenshots=[_shot(2, 1654)])
-    out = read_scanned_pages("doc-1", b"pdf", result, FakeReader(read={2: ("a", [])}))
+    out = read_scanned_pages("doc-1", b"pdf", result, FakeReader(read={2: _read("a")}))
     assert out.pages[0].text == "a"
 
 

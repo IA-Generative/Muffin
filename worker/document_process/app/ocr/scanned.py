@@ -20,7 +20,7 @@ from loguru import logger
 from pydantic import ValidationError
 
 from app.config import settings
-from app.ocr import assemble, pages, routing
+from app.ocr import assemble, pages, regions, routing
 from app.ocr.contracts import PageLayout, PageText, RegionType
 from app.task_revocation import TaskRevoked, raise_if_revoked
 
@@ -39,6 +39,15 @@ def is_scanned(page: Any) -> bool:
         return True
     has_images = stats.full_page_image or stats.has_substantial_images or stats.image_block_count > 0
     return stats.text_length < settings.OCR_SCANNED_MIN_CHARS and has_images
+
+
+@dataclass
+class ReadPage:
+    """A page the pods read: its markdown, its positioned lines, and the layout it was read with (#409)."""
+
+    markdown: str
+    items: list[Any]
+    layout: PageLayout
 
 
 @dataclass
@@ -71,11 +80,11 @@ class ScannedPageReader:
 
     def read(
         self, document_id: str, scanned: list[Any], images: dict[int, bytes]
-    ) -> tuple[dict[int, tuple[str, list[Any]]], list[int]]:
-        """Returns the pages read - page number to (markdown, lines) - and the numbers of those that were not."""
+    ) -> tuple[dict[int, ReadPage], list[int]]:
+        """Returns the pages read - page number to what was read - and the numbers of those that were not."""
         waiting = list(scanned)
         active: dict[int, _Job] = {}
-        read: dict[int, tuple[str, list[Any]]] = {}
+        read: dict[int, ReadPage] = {}
         failed: list[int] = []
         window = max(settings.OCR_PAGE_WINDOW, 1)
         try:
@@ -124,7 +133,7 @@ class ScannedPageReader:
         job.result = self._app.send_task(routing.LAYOUT_PAGE_TASK, args=[document_id, job.page.page_num, job.image_key])
         job.deadline = self._clock() + settings.OCR_STAGE_TIMEOUT_SECONDS
 
-    def _poll(self, document_id: str, job: _Job) -> tuple[str, list[Any]] | str | None:
+    def _poll(self, document_id: str, job: _Job) -> ReadPage | str | None:
         """None: not yet. A string: why the page could not be read. Otherwise, the page read."""
         if self._clock() > job.deadline:
             self._revoke(job)
@@ -162,14 +171,14 @@ class ScannedPageReader:
         job.deadline = self._clock() + settings.OCR_STAGE_TIMEOUT_SECONDS
         return None
 
-    def _on_text(self, job: _Job) -> tuple[str, list[Any]] | str:
+    def _on_text(self, job: _Job) -> ReadPage | str:
         assert job.layout is not None
         text = PageText.model_validate(job.result.result)
         self._forget(job)
         markdown, items = assemble.assemble(job.layout, text, job.page.width, job.page.height, job.tables)
         if not markdown.strip():
             return "nothing was read on the page"
-        return markdown, items
+        return ReadPage(markdown, items, job.layout)
 
     def _revoke(self, job: _Job) -> None:
         try:
@@ -233,12 +242,14 @@ def read_scanned_pages(document_id: str, data: bytes, result: Any, reader: Scann
         except Exception as error:
             logger.warning(f"Could not drop the images sent to the OCR pods for {document_id}: {error}")
 
-    replaced = {
-        number: dataclasses.replace(
-            next(page for page in scanned if page.page_num == number), text=markdown, text_items=items
+    replaced = {}
+    for number, done in read.items():
+        page = dataclasses.replace(
+            next(page for page in scanned if page.page_num == number), text=done.markdown, text_items=done.items
         )
-        for number, (markdown, items) in read.items()
-    }
+        # The page's layout (#409), kept by the backend with the page. A page that Tesseract read has none.
+        page.layout_regions = regions.regions_of(done.layout)
+        replaced[number] = page
     if failed:
         logger.warning(
             f"{len(failed)} page(s) of {document_id} fall back on liteparse's own OCR: {pages_list(sorted(failed))}"
