@@ -164,6 +164,8 @@ def _process_file(document_id: str, storage_key: str, data: bytes | None = None,
     started = time.monotonic()
     result = _shared.parse_file(data)
     logger.info(f"Parsed {len(result.pages)} page(s) in {time.monotonic() - started:.0f} s")
+    # The scanned pages are read by the OCR pods, when OCR_ENGINE says so; otherwise this gives the result back.
+    result = _shared.read_scanned_pages(document_id, data, result)
 
     def report(done: int, total: int) -> None:
         if done == total or done % max(total // 10, 1) == 0:
@@ -286,8 +288,10 @@ def parse_page_range(self, payload: dict) -> None:
     try:
         logger.info(f"Parsing pages {first}-{last} of {total}")
         started = time.monotonic()
-        result = _shared.parse_pages(_shared.storage.get_object(payload["storage_key"]), first, last)
+        data = _shared.storage.get_object(payload["storage_key"])
+        result = _shared.parse_pages(data, first, last)
         logger.info(f"Parsed pages {first}-{last} in {_duration(time.monotonic() - started)}")
+        result = _shared.read_scanned_pages(document_id, data, result)
         # A pool of threads is not the case here, but a task revoked while it parsed does not go on to
         # write, nor to start the next range.
         raise_if_revoked()

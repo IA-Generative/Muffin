@@ -129,6 +129,15 @@ class RustFsStorage:
         self._ensure_bucket()
         self._client.put_object(Bucket=self._bucket, Key=key, Body=data, ContentType=content_type)
 
+    def delete_objects(self, keys: list[str]) -> None:
+        """Deletes the given objects (S3 takes up to a thousand in one request)."""
+        if not keys:
+            return
+        self._ensure_bucket()
+        for start in range(0, len(keys), 1000):
+            batch = [{"Key": key} for key in keys[start : start + 1000]]
+            self._client.delete_objects(Bucket=self._bucket, Delete={"Objects": batch, "Quiet": True})
+
     def delete_prefix(self, prefix: str) -> int:
         """Deletes every object whose key starts with `prefix`, and gives how many there were. The prefix is
         required to be a folder (ending with a slash): "" or "ocr-pages" would reach far more than meant."""

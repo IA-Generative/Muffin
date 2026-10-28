@@ -13,6 +13,7 @@ from loguru import logger
 from app.backend_client import backend_client  # noqa: F401
 from app.chunking import PageText
 from app.config import settings as worker_settings
+from app.ocr.scanned import read_scanned_pages  # noqa: F401
 from app.parsing import count_pages, parse_file, parse_pages  # noqa: F401
 from app.scraping import content_hash, fetch_url  # noqa: F401
 from app.storage import storage  # noqa: F401
