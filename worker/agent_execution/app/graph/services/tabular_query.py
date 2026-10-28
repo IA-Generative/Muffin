@@ -23,6 +23,7 @@ Security:
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -42,6 +43,11 @@ DUCKDB_THREADS = 2
 # Hard cap on rows returned - prevents a pathological query (e.g. SELECT *
 # on a million-row table) from flooding the LLM context and the evidence store.
 MAX_RESULT_ROWS = 100
+# A query that has not finished by then is interrupted: the SQL is written by a model, and nothing stops it from
+# writing one that never ends (a join of two big tables on nothing).
+QUERY_TIMEOUT_SECONDS = 30
+# Rows read from the result at a time: the whole of it is never held, only the MAX_RESULT_ROWS that are kept.
+_FETCH_BATCH = 1000
 
 
 @dataclass
@@ -119,12 +125,12 @@ def _build_sql_gen_prompt(profile: dict[str, Any], question: str) -> str:
 
 
 def _validate_sql(sql: str) -> None:
-    """Rejects any statement that isn't a read-only SELECT.
+    """Rejects any statement that isn't a single, read-only SELECT.
 
-    DuckDB itself doesn't enforce read-only mode on a connection, so we do a
-    lightweight check on the first keyword. This is not a full SQL parser -
-    it's a defense against the LLM generating destructive statements, not
-    against a malicious actor (the LLM is the only one writing SQL here).
+    This is the first of two defenses, and the lesser: it turns away what is not a query before it is run. The SQL is
+    written by a model that has read the spreadsheet - and anyone may have written that - so it is not trusted; what
+    a query can *reach* is decided by `_lock_connection`, which cuts the connection off from files and the network
+    once the table is loaded, not by this check.
     """
     stripped = sql.strip().rstrip(";").strip()
     if not stripped:
@@ -149,6 +155,16 @@ def _validate_sql(sql: str) -> None:
     for kw in forbidden:
         if kw in upper:
             raise ValueError(f"Forbidden keyword in query: {kw.strip()}")
+    # What the first word cannot say: how many statements there are, and what each one is. DuckDB's own parser is asked,
+    # not a search for words - "SELECT 1; COPY ..." starts with SELECT.
+    try:
+        statements = duckdb.extract_statements(stripped)
+    except duckdb.Error as error:
+        raise ValueError(f"Invalid SQL: {str(error).splitlines()[0]}") from error
+    if len(statements) != 1:
+        raise ValueError("Only one SQL statement is allowed")
+    if statements[0].type != duckdb.StatementType.SELECT:
+        raise ValueError(f"Only SELECT/WITH queries are allowed, got: {statements[0].type.name}")
 
 
 def _format_results(result: TabularResult) -> str:
@@ -195,6 +211,54 @@ def _duckdb_connection() -> Iterator[duckdb.DuckDBPyConnection]:
         connection.close()
 
 
+# The settings that hold the storage credentials: emptied once the data is loaded.
+_CREDENTIAL_SETTINGS = ("s3_access_key_id", "s3_secret_access_key", "s3_session_token", "s3_endpoint")
+
+
+def _lock_connection(connection: duckdb.DuckDBPyConnection) -> None:
+    """Cuts the connection off from everything but the table that was just loaded into it.
+
+    The data is in memory; what the connection was given to fetch it - the storage credentials, the access to files
+    and to the network - has no use left, and the SQL that is about to run was written by a model that read a
+    spreadsheet anyone may have written. So the credentials are emptied, the access to files and to the network is
+    turned off (it takes with it every function that reads a file, lists a folder or opens a URL, and `COPY` to one),
+    nothing more can be loaded, and the configuration is locked: it can no longer be changed by the query."""
+    for name in _CREDENTIAL_SETTINGS:
+        try:
+            connection.execute(f"SET {name}=''")
+        except duckdb.Error:
+            pass  # a setting that does not exist (the extension that owns it was not loaded) holds no credential
+    connection.execute("SET autoinstall_known_extensions=false")
+    connection.execute("SET autoload_known_extensions=false")
+    connection.execute("SET enable_external_access=false")
+    connection.execute("SET lock_configuration=true")
+
+
+def _run_bounded(connection: duckdb.DuckDBPyConnection, sql: str) -> TabularResult:
+    """Runs the query for at most QUERY_TIMEOUT_SECONDS, reading its result a batch at a time: the rows are counted
+    all, and only the first MAX_RESULT_ROWS are kept."""
+    timer = threading.Timer(QUERY_TIMEOUT_SECONDS, connection.interrupt)
+    timer.daemon = True
+    timer.start()
+    try:
+        result = connection.execute(sql)
+        columns = [desc[0] for desc in result.description] if result.description else []
+        rows: list[list[Any]] = []
+        total = 0
+        while True:
+            batch = result.fetchmany(_FETCH_BATCH)
+            if not batch:
+                break
+            total += len(batch)
+            if len(rows) < MAX_RESULT_ROWS:
+                rows.extend(list(row) for row in batch[: MAX_RESULT_ROWS - len(rows)])
+    except duckdb.InterruptException as error:
+        raise TimeoutError(f"The query took more than {QUERY_TIMEOUT_SECONDS} seconds") from error
+    finally:
+        timer.cancel()
+    return TabularResult(columns=columns, rows=rows, row_count=total, truncated=total > MAX_RESULT_ROWS)
+
+
 def _load_statement(format: str, s3_url: str) -> str:
     """Builds the SQL that loads the file into a DuckDB table named 'source'."""
     format = format.lower()
@@ -233,19 +297,10 @@ def execute_tabular_query(
             conn.execute("LOAD spatial")
         conn.execute(load_sql)
         _validate_sql(sql)
+        # The data is in the table: from here on, the query can reach nothing else.
+        _lock_connection(conn)
         logger.info(f"Executing tabular query on {storage_key}: {sql[:200]}")
-        query_result = conn.execute(sql)
-        columns = [desc[0] for desc in query_result.description] if query_result.description else []
-        all_rows = query_result.fetchall()
-        total = len(all_rows)
-        truncated = total > MAX_RESULT_ROWS
-        rows = [list(row) for row in all_rows[:MAX_RESULT_ROWS]]
-        return TabularResult(
-            columns=columns,
-            rows=rows,
-            row_count=total,
-            truncated=truncated,
-        )
+        return _run_bounded(conn, sql)
 
 
 def generate_sql(
