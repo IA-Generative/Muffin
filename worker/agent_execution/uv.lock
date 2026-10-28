@@ -612,7 +612,7 @@ wheels = [
 
 [[package]]
 name = "muffin-worker-agent-execution"
-version = "0.34.0-rc"
+version = "0.34.0"
 source = { editable = "." }
 dependencies = [
     { name = "celery", extra = ["redis"] },

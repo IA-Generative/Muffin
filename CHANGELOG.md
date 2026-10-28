@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.34.0](https://github.com/IA-Generative/Muffin/compare/v0.33.1...v0.34.0) (2026-10-28)
+
+
+### Features
+
+* **agent:** interroger les données tabulaires en SQL avec correction d'erreur ([#433](https://github.com/IA-Generative/Muffin/issues/433)) ([def1efd](https://github.com/IA-Generative/Muffin/commit/def1efd6b0bfcf1265752af272b02b5e6a92b88f))
+* **tabular:** garder toutes les feuilles d'un fichier en base et supprimer leurs Parquet ([#431](https://github.com/IA-Generative/Muffin/issues/431)) ([92d9c5f](https://github.com/IA-Generative/Muffin/commit/92d9c5feebcdf76e239d51227984ea714953e1b6))
+* **tabular:** graphiques dans les réponses - create_chart, rendu, stockage, affichage ([#434](https://github.com/IA-Generative/Muffin/issues/434)) ([a423524](https://github.com/IA-Generative/Muffin/commit/a423524b9a587fd7423253b8c5d70f18cea03c05))
+* **tabular:** lire les tableurs en flux, toutes les feuilles, un Parquet par feuille ([#431](https://github.com/IA-Generative/Muffin/issues/431)) ([8b274ce](https://github.com/IA-Generative/Muffin/commit/8b274cec083c4376003b16fd89017fafbdd079ea))
+* **tabular:** onglet Données du document et documentation des bornes ([#431](https://github.com/IA-Generative/Muffin/issues/431)) ([28ebb32](https://github.com/IA-Generative/Muffin/commit/28ebb326d860bdbd6809976f0c00e4c45c7a64a3))
+* **tabular:** profil par feuille et copie Parquet typée à l'ingestion, sans S3 dans DuckDB ([#431](https://github.com/IA-Generative/Muffin/issues/431)) ([7deb09a](https://github.com/IA-Generative/Muffin/commit/7deb09afd15a559b904710db30fe39f3984a5927))
+* **tabular:** worker de requêtes SQL verrouillé sur les Parquet des feuilles ([#432](https://github.com/IA-Generative/Muffin/issues/432)) ([3bc4448](https://github.com/IA-Generative/Muffin/commit/3bc4448d3a61eb8ce3715b3a4f223291ff621868))
+
 ## [0.34.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.33.0...v0.34.0-rc) (2026-10-28)
 
 
