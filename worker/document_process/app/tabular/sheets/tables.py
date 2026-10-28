@@ -54,6 +54,11 @@ def column_kind(column: dict) -> str:
     return "text"
 
 
+def sql_type(column: dict) -> str:
+    """The SQL type a column is stored with (the name DuckDB gives it): what the agent writes in a CAST."""
+    return _TYPES[column_kind(column)][1]
+
+
 def _as_time(value) -> dt.time | None:
     if isinstance(value, dt.timedelta):  # xls/ods durations
         seconds = int(value.total_seconds()) % 86400
