@@ -7,24 +7,15 @@ continue de fonctionner après la découpe en sous-modules.
 Modules internes :
 - ``models`` : dataclasses (ColumnStats, TabularProfile) + SemanticType + constantes ;
 - ``types`` : prédicats de type physique (_is_numeric, _is_date, ...) + _safe_value ;
-- ``classify`` : classification sémantique (_classify_column, _derive_classifications) ;
-- ``fetchers`` : fonctions de récupération SQL (_fetch_*, _TYPE_STATS_FETCHERS) ;
-- ``profile`` : orchestration (_column_stats, compute_profile).
+- ``classify`` : classification sémantique (_classify_column, _derive_classifications).
+
+Les statistiques elles-mêmes ne sont plus calculées ici (par des requêtes DuckDB) mais par
+``app.tabular.sheets``, qui lit le fichier en flux ; ``app.tabular.sheets.compat`` en tire ce profil.
 """
 
 from __future__ import annotations
 
 from app.tabular.stats.classify import classify_column, derive_classifications
-from app.tabular.stats.fetchers import (
-    TYPE_STATS_FETCHERS,
-    fetch_base_counts,
-    fetch_date_stats,
-    fetch_numeric_stats,
-    fetch_sample_rows,
-    fetch_schema,
-    fetch_text_stats,
-    fetch_top_values,
-)
 from app.tabular.stats.models import (
     DIMENSION_CARDINALITY_RATIO,
     SAMPLE_ROWS_LIMIT,
@@ -34,7 +25,6 @@ from app.tabular.stats.models import (
     SemanticType,
     TabularProfile,
 )
-from app.tabular.stats.profile import column_stats, compute_profile
 from app.tabular.stats.types import (
     is_boolean,
     is_date,
@@ -55,15 +45,6 @@ _is_varchar = is_varchar
 _safe_value = safe_value
 _classify_column = classify_column
 _derive_classifications = derive_classifications
-_column_stats = column_stats
-_fetch_base_counts = fetch_base_counts
-_fetch_top_values = fetch_top_values
-_fetch_numeric_stats = fetch_numeric_stats
-_fetch_date_stats = fetch_date_stats
-_fetch_text_stats = fetch_text_stats
-_fetch_schema = fetch_schema
-_fetch_sample_rows = fetch_sample_rows
-_TYPE_STATS_FETCHERS = TYPE_STATS_FETCHERS
 
 __all__ = [
     # Modèles
@@ -84,18 +65,6 @@ __all__ = [
     # Classification
     "classify_column",
     "derive_classifications",
-    # Fetchers
-    "fetch_base_counts",
-    "fetch_top_values",
-    "fetch_numeric_stats",
-    "fetch_date_stats",
-    "fetch_text_stats",
-    "fetch_schema",
-    "fetch_sample_rows",
-    "TYPE_STATS_FETCHERS",
-    # Profile
-    "column_stats",
-    "compute_profile",
     # Aliases privés (compatibilité)
     "_is_numeric",
     "_is_date",
@@ -104,13 +73,4 @@ __all__ = [
     "_safe_value",
     "_classify_column",
     "_derive_classifications",
-    "_column_stats",
-    "_fetch_base_counts",
-    "_fetch_top_values",
-    "_fetch_numeric_stats",
-    "_fetch_date_stats",
-    "_fetch_text_stats",
-    "_fetch_schema",
-    "_fetch_sample_rows",
-    "_TYPE_STATS_FETCHERS",
 ]

@@ -72,6 +72,21 @@ def _format_classification(profile: TabularProfile) -> str:
     return "\n".join(parts) if parts else "(aucune classification)"
 
 
+def _format_sheets(profile: TabularProfile) -> str:
+    """The sheets of a workbook, for the prompts: the schema and statistics that follow are those of the main one."""
+    if len(profile.sheets) < 2:
+        return ""
+    lines = [f"Le classeur contient {len(profile.sheets)} feuilles :"]
+    for sheet in profile.sheets:
+        columns = ", ".join(sheet["columns"][:15]) + (" ..." if len(sheet["columns"]) > 15 else "")
+        lines.append(f"- {sheet['name']} ({sheet['rows']} lignes) : {columns}")
+    lines.append(
+        f"Le schéma, les statistiques et l'échantillon ci-dessous sont ceux de la feuille principale "
+        f"« {profile.primary_sheet} »."
+    )
+    return "\n".join(lines) + "\n\n"
+
+
 def build_summary_prompt(profile: TabularProfile, instructions: str = "") -> tuple[str, str]:
     """Construit le prompt (system, user) pour le résumé tabulaire.
 
@@ -82,7 +97,8 @@ def build_summary_prompt(profile: TabularProfile, instructions: str = "") -> tup
     system += (
         "Tu es un analyste de données. Résume le fichier tabulaire ci-dessous de façon concise "
         "et utile pour un utilisateur qui découvre ce jeu de données. "
-        "Indique : le sujet général du fichier, le nombre de lignes et de colonnes, "
+        "Indique : le sujet général du fichier (et, pour un classeur de plusieurs feuilles, le rôle de chacune), "
+        "le nombre de lignes et de colonnes, "
         "les colonnes principales et leur rôle (measure, dimension, date, texte), "
         "et toute observation notable "
         "(valeurs manquantes, distributions, anomalies, plages temporelles). "
@@ -93,6 +109,7 @@ def build_summary_prompt(profile: TabularProfile, instructions: str = "") -> tup
         f"Format du fichier : {profile.format}\n"
         f"Nombre de lignes : {profile.row_count}\n"
         f"Nombre de colonnes : {profile.column_count}\n\n"
+        f"{_format_sheets(profile)}"
         f"Classification des colonnes :\n{_format_classification(profile)}\n\n"
         f"Schéma et statistiques :\n{_format_schema(profile)}\n\n"
         f"Échantillon de lignes :\n{_format_sample_rows(profile)}\n"
@@ -120,6 +137,7 @@ def build_qa_prompt(profile: TabularProfile, instructions: str = "", k: int = 3)
 
     user_content = (
         f"Format : {profile.format}, {profile.row_count} lignes, {profile.column_count} colonnes.\n\n"
+        f"{_format_sheets(profile)}"
         f"Classification :\n{_format_classification(profile)}\n\n"
         f"Schéma et statistiques :\n{_format_schema(profile)}\n\n"
         f"Échantillon de lignes :\n{_format_sample_rows(profile)}\n"
