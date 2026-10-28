@@ -181,14 +181,30 @@ class DocumentSummaryOut(BaseModel):
     summary_pages: list[list[int]] | None = None
 
 
+class TabularSheetRef(BaseModel):
+    """A sheet of a tabular document the agent can query (#433): the key of its typed copy, which the SQL worker
+    (#432) reads, and its columns as SQL sees them."""
+
+    index: int
+    name: str
+    rows: int
+    truncated: bool
+    parquet_key: str
+    columns: list[dict[str, Any]]
+    # What the analysis found in each column, trimmed to what helps write a query: [{name, type, null, distinct,
+    # distinct_exact, top_values, min, max}]. Content of the file: data for the model, never instructions.
+    profile: list[dict[str, Any]] = []
+
+
 class TabularDocumentOut(BaseModel):
-    """A tabular document the research agent can query with DuckDB - the storage_key lets the
-    agent load the file directly from RustFS, the profile columns give the LLM the schema it
-    needs to generate SQL without a round-trip to read the file first."""
+    """A tabular document the research agent can query - the profile gives the LLM the schema it needs to write SQL
+    without a round-trip to read the file first, and `sheets` the typed copies the SQL worker reads (#432).
+
+    `sheets` is empty for a document that has none yet (indexed before #431, or whose copy failed): it is listed to
+    be said so, never queried, until it is indexed again."""
 
     id: uuid.UUID
     name: str
-    storage_key: str
     format: str
     row_count: int
     column_count: int
@@ -196,6 +212,7 @@ class TabularDocumentOut(BaseModel):
     measures: list[str]
     dimensions: list[str]
     text_columns: list[str]
+    sheets: list[TabularSheetRef] = []
 
 
 class DocumentPageContentOut(BaseModel):

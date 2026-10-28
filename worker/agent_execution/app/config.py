@@ -10,13 +10,19 @@ class WorkerSettings(BaseSettings):
     BACKEND_API_URL: str = "http://localhost:8000"
     WORKER_API_KEY: str = ""
 
-    # RustFS/S3 credentials for DuckDB httpfs - the tabular_query tool reads tabular files
-    # directly from object storage (same pattern as worker/document_process), never downloads
-    # them to disk first.
-    AWS_ENDPOINT_URL: str = "http://localhost:9000"
-    AWS_ACCESS_KEY_ID: str = "rustfsadmin"
-    AWS_SECRET_ACCESS_KEY: str = "rustfsadmin"
-    AWS_BUCKET: str = "muffin-documents"
+    # The tabular_query tool runs no SQL itself and reads no file: it sends its queries to the SQL worker
+    # (worker/tabular, #432), on this queue, and waits for the answer (#433).
+    SQL_QUEUE_NAME: str = "tabular_sql"
+    # Queries one task may run before it is asked to conclude, the time it waits for one answer (the worker's own
+    # limit is far below), and how often it looks whether the answer is there.
+    TABULAR_MAX_STEPS: int = 8
+    TABULAR_QUERY_TIMEOUT_SECONDS: float = 120
+    TABULAR_POLL_SECONDS: float = 0.3
+    # The files one task may query: the SQL worker's own limit (QUERY_MAX_FILES).
+    TABULAR_MAX_FILES: int = 10
+    # Rows of a result the model reads back, and rows kept in the evidence under the answer.
+    TABULAR_PROMPT_ROWS: int = 50
+    TABULAR_EVIDENCE_ROWS: int = 100
 
     # Only ever called when a run's own web_search_enabled is true (see AgentState) - never
     # reachable by default, matching how the chat composer's web-search toggle itself defaults

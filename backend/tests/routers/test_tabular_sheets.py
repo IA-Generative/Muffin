@@ -273,6 +273,33 @@ async def test_the_agents_list_of_tabular_documents_still_gives_the_profile_as_i
     [entry] = response.json()
     assert entry["id"] == str(document_id) and entry["format"] == "xlsx"
     assert [column["name"] for column in entry["columns"]] == ["region", "montant"]
+    assert "storage_key" not in entry  # the agent reads nothing from the bucket
+
+
+async def test_the_agents_list_gives_the_sheets_it_can_query_and_none_for_a_document_without_copy(client):
+    collection_id, document_id = await _document()
+    await _write(
+        client,
+        document_id,
+        sheets=[_sheet(0, parquet_key="documents/c/d/tables/0.parquet"), _sheet(1, "Vide", parquet_key=None)],
+        analysis_version=1,
+    )
+    async with async_session_factory() as session:
+        other = Document(collection_id=collection_id, name="vieux.csv", type="file", storage_key="docs/vieux.csv")
+        session.add(other)
+        await session.commit()
+        other_id = other.id
+    await _write(client, other_id)  # a profile from before the sheets
+
+    response = await client.get(
+        f"/api/internal/users/dev-user/collections/{collection_id}/tabular-documents", headers={"X-API-Key": API_KEY}
+    )
+
+    by_id = {entry["id"]: entry for entry in response.json()}
+    [queryable] = by_id[str(document_id)]["sheets"]
+    assert queryable["parquet_key"] == "documents/c/d/tables/0.parquet" and queryable["name"] == "Ventes"
+    assert [c["name"] for c in queryable["columns"]] == ["region", "montant"]
+    assert by_id[str(other_id)]["sheets"] == []
 
 
 # --- gone with the document ---

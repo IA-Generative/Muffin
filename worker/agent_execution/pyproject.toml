@@ -10,7 +10,6 @@ dependencies = [
     "loguru>=0.7.3",
     "langgraph>=1.2.11",
     "langgraph-checkpoint-redis>=0.5.2",
-    "duckdb>=1.4.0",
 ]
 
 [dependency-groups]
