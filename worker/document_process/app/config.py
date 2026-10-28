@@ -50,6 +50,23 @@ class WorkerSettings(BaseSettings):
     OCR_REGION_MIN_SCORE: float = 0.5
     OCR_REGION_MIN_PIXELS: int = 32
     OCR_MAX_REGIONS_PER_PAGE: int = 200
+    # A page is read by the OCR pods (OCR_ENGINE=layout) when liteparse says it was scanned or its text is garbled,
+    # or when it has fewer than this many characters of native text and images on it (a blank page is not sent).
+    OCR_SCANNED_MIN_CHARS: int = 20
+    # Pages of a document in the pods' hands at once - a page's layout then its text. The extraction task waits for
+    # them: the queue of a pod never holds more than this of a document, like PARSE_WINDOW for the ranges.
+    OCR_PAGE_WINDOW: int = 4
+    # How long one step of a page (the layout, then the text) may take, from its sending - the wait in the queue
+    # included, behind the pages of other documents. Past it, the page falls back on liteparse's own OCR.
+    OCR_STAGE_TIMEOUT_SECONDS: int = 15 * 60
+    OCR_POLL_SECONDS: float = 0.5
+    # Until the table pod exists (#410), a table's cells are not read by anyone: read as text, one line to a line, so
+    # that a scanned page with a table does not lose it. Off once tables are read as tables.
+    OCR_READ_TABLES_AS_TEXT: bool = True
+    # Part of the extraction's fingerprint (#300): raise it when the models of the pods change (the pods hold
+    # the models, not this worker), or a file extracted with the former ones would be taken for extracted with the
+    # new.
+    OCR_PIPELINE_VERSION: str = "1"
     # Where the models are in the image of a pod (read-only: nothing is downloaded when it runs).
     MODELS_DIR: str = "/models"
     # The soft limit of a page's task in each pod - an exception raised in it, never a kill (#294).

@@ -16,7 +16,10 @@ def _make_parser(**options) -> LiteParse:
     return LiteParse(
         **{
             "output_format": "json",
-            "ocr_enabled": True,
+            # With the OCR pods (OCR_ENGINE=layout) liteparse does not run Tesseract itself - app/ocr/scanned.py
+            # sends the pages it says need an OCR to the pods - and says per page whether one is needed.
+            "ocr_enabled": settings.OCR_ENGINE == "tesseract",
+            "include_complexity": settings.OCR_ENGINE == "layout",
             "ocr_language": settings.OCR_LANGUAGE,
             "tessdata_path": settings.TESSDATA_PATH,
             "extract_blocks": True,
@@ -59,6 +62,44 @@ def parse_pages(data: bytes, first: int, last: int) -> ParseResult:
     """`parse_file` of the pages first..last (1-based, inclusive) only. A parser of its own, as which pages
     it reads is part of its options: its process starts and ends with the range, and so does its deadline."""
     parser = _make_parser(target_pages=f"{first}-{last}")
+    try:
+        return parser.parse(data)
+    finally:
+        parser.close()
+
+
+def _page_list(page_numbers: list[int]) -> str:
+    """The pages as liteparse's target_pages writes them: "1,3-5"."""
+    ordered = sorted(set(page_numbers))
+    parts, start = [], 0
+    while start < len(ordered):
+        end = start
+        while end + 1 < len(ordered) and ordered[end + 1] == ordered[end] + 1:
+            end += 1
+        parts.append(str(ordered[start]) if start == end else f"{ordered[start]}-{ordered[end]}")
+        start = end + 1
+    return ",".join(parts)
+
+
+def render_pages(data: bytes, page_numbers: list[int]) -> dict[int, tuple[bytes, int, int]]:
+    """The image of the given pages (PNG, width, height) at OCR_PAGE_DPI - what the OCR pods read."""
+    parser = _make_parser(
+        ocr_enabled=False,
+        include_complexity=False,
+        extract_blocks=False,
+        emit_word_boxes=False,
+        dpi=settings.OCR_PAGE_DPI,
+        target_pages=_page_list(page_numbers),
+    )
+    try:
+        return {s.page_num: (s.image_bytes, s.width, s.height) for s in parser.parse(data).screenshots}
+    finally:
+        parser.close()
+
+
+def tesseract_pages(data: bytes, page_numbers: list[int]) -> ParseResult:
+    """The given pages read by liteparse's own OCR - the page that the OCR pods could not read."""
+    parser = _make_parser(ocr_enabled=True, include_complexity=False, target_pages=_page_list(page_numbers))
     try:
         return parser.parse(data)
     finally:
