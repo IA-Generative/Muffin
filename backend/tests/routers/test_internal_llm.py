@@ -93,6 +93,36 @@ async def test_chat_returns_completion_content(client, monkeypatch):
     }
 
 
+async def test_chat_forwards_temperature_when_set(client, monkeypatch):
+    # The evaluation judge pins temperature 0 through this endpoint; an omitted temperature
+    # must stay omitted (the OpenAI SDK treats an explicit None differently).
+    fake_client = _fake_openai_client(["gpt-4o"], chat_capable_ids={"gpt-4o"})
+    monkeypatch.setattr(internal_llm, "_openai_client", fake_client)
+
+    response = await client.post(
+        "/api/internal/llm/chat",
+        headers=_headers(),
+        json={"model": "gpt-4o", "messages": [{"role": "user", "content": "hi"}], "temperature": 0},
+    )
+
+    assert response.status_code == 200
+    assert fake_client.chat.completions.create.await_args.kwargs["temperature"] == 0
+
+
+async def test_chat_omits_temperature_when_not_set(client, monkeypatch):
+    fake_client = _fake_openai_client(["gpt-4o"], chat_capable_ids={"gpt-4o"})
+    monkeypatch.setattr(internal_llm, "_openai_client", fake_client)
+
+    response = await client.post(
+        "/api/internal/llm/chat",
+        headers=_headers(),
+        json={"model": "gpt-4o", "messages": [{"role": "user", "content": "hi"}]},
+    )
+
+    assert response.status_code == 200
+    assert "temperature" not in fake_client.chat.completions.create.await_args.kwargs
+
+
 async def test_default_chat_model_probes_until_the_first_supported_model(client, monkeypatch):
     # The default path only ever wants the first model: it probes in order and stops at the
     # first success, rather than sweeping every model at once (which trips the hub's rate

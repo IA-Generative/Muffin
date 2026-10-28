@@ -139,7 +139,7 @@ désactivée par défaut en amont et doit être explicitement activée côté se
 
 | Variable | Définition | Défaut | Utilisée par |
 |---|---|---|---|
-| `WORKER_API_KEY` | Secret partagé, vérifié sur chaque appel `/internal/*` par `app/core/security/worker_auth.py` (dépendance `require_worker_api_key`) et sur le proxy OpenAI-compatible `/api/internal/v1` (dépendance `require_worker_bearer_key`, utilisé par le juge promptfoo) | `""` côté backend / `""` côté workers | **backend** (`app/config/worker.py`), **worker/document_process**, **worker/agent_execution**, **worker/evaluation**, **worker/document_edit** — doit être identique des deux côtés, sinon tout appel interne échoue en 401 |
+| `WORKER_API_KEY` | Secret partagé, vérifié sur chaque appel `/internal/*` par `app/core/security/worker_auth.py` (dépendance `require_worker_api_key`) | `""` côté backend / `""` côté workers | **backend** (`app/config/worker.py`), **worker/document_process**, **worker/agent_execution**, **worker/evaluation**, **worker/document_edit** — doit être identique des deux côtés, sinon tout appel interne échoue en 401 |
 
 ## Partage de collections (invitations hashées)
 

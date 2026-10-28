@@ -196,6 +196,7 @@ class LlmChatRequest(BaseModel):
     model: str
     messages: list[LlmChatMessage]
     max_tokens: int | None = None
+    temperature: float | None = None
     usage: LlmUsageContext | None = None
 
 

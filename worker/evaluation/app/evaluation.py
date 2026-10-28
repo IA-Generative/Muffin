@@ -199,9 +199,8 @@ def _relevant_documents(pair: dict[str, Any]) -> list[str]:
 def _build_promptfoo_config(config: EvaluationConfig, content_hash: str, provider_code_sha256: str) -> dict[str, Any]:
     """The promptfoo YAML as a dict - built here, never string-interpolated, so a question or a
     model name can never inject YAML structure. No secret is written into it: both the judge
-    (apiKeyEnvar) and the provider (api_key_envar) read WORKER_API_KEY from the environment the
-    subprocess inherits, because promptfoo replays the whole config into results.json - a stored
-    artifact.
+    and the provider (api_key_envar) read WORKER_API_KEY from the environment the subprocess
+    inherits, because promptfoo replays the whole config into results.json - a stored artifact.
 
     metadata.config_muffin records the run's whole configuration (models, k, chunking/embedding
     snapshot, scope, dedup hash, provider code digest) so the stored artifact is self-describing:
@@ -236,16 +235,16 @@ def _build_promptfoo_config(config: EvaluationConfig, content_hash: str, provide
         ],
         "defaultTest": {
             "options": {
-                # The judge: the collection's "evaluation" model, through the backend's
-                # OpenAI-compatible proxy. X-Collection-Id makes the proxy attribute the
-                # judge's tokens to the collection's owner.
+                # The judge: the collection's "evaluation" model, through the backend's own
+                # /internal/llm/chat (a custom provider, like the one under test). The usage
+                # context attributes the judge's tokens to the collection's owner.
                 "provider": {
-                    "id": f"openai:chat:{config.judge_model}",
+                    "id": "file://judge_provider.py",
                     "config": {
-                        "apiBaseUrl": f"{settings.BACKEND_API_URL}/api/internal/v1",
-                        "apiKeyEnvar": "WORKER_API_KEY",
-                        "temperature": 0,
-                        "headers": {"X-Collection-Id": config.collection_id},
+                        "backend_url": settings.BACKEND_API_URL,
+                        "api_key_envar": "WORKER_API_KEY",
+                        "judge_model": config.judge_model,
+                        "collection_id": config.collection_id,
                     },
                 },
                 # The provider returns {answer, context}: factuality scores the answer against
@@ -272,17 +271,21 @@ def _write_promptfoo_dir(
     content_hash: str,
 ) -> None:
     """Lays out everything promptfoo needs in one throwaway directory: the generated YAML, the
-    provider and test-loader modules copied next to it (promptfoo resolves file:// paths relative
-    to the YAML), and the already-filtered QA pairs as pairs.json. The YAML itself is built by
-    _build_promptfoo_config."""
-    for module in ("provider.py", "create_tests.py"):
+    provider, judge and test-loader modules copied next to it (promptfoo resolves file:// paths
+    relative to the YAML), and the already-filtered QA pairs as pairs.json. The YAML itself is
+    built by _build_promptfoo_config."""
+    for module in ("provider.py", "judge_provider.py", "create_tests.py"):
         shutil.copy2(Path(__file__).parent / "promptfoo" / module, directory / module)
     (directory / "pairs.json").write_text(json.dumps(pairs, ensure_ascii=False))
 
-    # The generation prompt and code live in provider.py, copied next to the YAML - their
-    # digest is the only trace of the worker's own version in the artifact.
+    # The generation prompt and code live in provider.py, the grading prompt in
+    # judge_provider.py - both copied next to the YAML, and their combined digest is the only
+    # trace of the worker's own version in the artifact.
     provider_code_sha256 = hashlib.sha256(
-        (Path(__file__).parent / "promptfoo" / "provider.py").read_bytes()
+        b"".join(
+            (Path(__file__).parent / "promptfoo" / module).read_bytes()
+            for module in ("provider.py", "judge_provider.py")
+        )
     ).hexdigest()
 
     promptfoo_config = _build_promptfoo_config(config, content_hash, provider_code_sha256)

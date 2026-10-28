@@ -328,9 +328,10 @@ def test_the_promptfoo_config_wires_provider_judge_and_tests():
     assert provider["config"]["backend_url"] == evaluation.settings.BACKEND_API_URL
 
     judge = config["defaultTest"]["options"]["provider"]
-    assert judge["id"] == "openai:chat:judge-model"
-    assert judge["config"]["apiBaseUrl"].endswith("/api/internal/v1")
-    assert judge["config"]["headers"] == {"X-Collection-Id": "col-1"}
+    assert judge["id"] == "file://judge_provider.py"
+    assert judge["config"]["judge_model"] == "judge-model"
+    assert judge["config"]["collection_id"] == "col-1"
+    assert judge["config"]["backend_url"] == evaluation.settings.BACKEND_API_URL
     assert config["defaultTest"]["options"]["transform"] == "output.answer"
 
     assert config["tests"][0]["path"] == "file://create_tests.py:create_tests"
@@ -363,6 +364,7 @@ def test_the_written_directory_holds_the_yaml_modules_and_pairs(tmp_path):
     written = yaml.safe_load((directory / "promptfooconfig.yaml").read_text())
     assert written["tags"] == {"collection_id": "col-1"}
     assert (directory / "provider.py").exists()
+    assert (directory / "judge_provider.py").exists()
     assert (directory / "create_tests.py").exists()
     assert json.loads((directory / "pairs.json").read_text())[0]["question"] == "Question ?"
 
@@ -373,7 +375,7 @@ def test_the_promptfoo_config_never_contains_the_api_key():
     config = _built_config()
 
     assert config["providers"][0]["config"]["api_key_envar"] == "WORKER_API_KEY"
-    assert config["defaultTest"]["options"]["provider"]["config"]["apiKeyEnvar"] == "WORKER_API_KEY"
+    assert config["defaultTest"]["options"]["provider"]["config"]["api_key_envar"] == "WORKER_API_KEY"
     if evaluation.settings.WORKER_API_KEY:  # empty in tests, set in production - both must hold
         assert evaluation.settings.WORKER_API_KEY not in yaml.safe_dump(config)
 
@@ -404,7 +406,7 @@ def test_the_promptfoo_results_never_contain_the_api_key(monkeypatch, tmp_path):
     config = yaml.safe_load((directory / "promptfooconfig.yaml").read_text())
     # The provider and the judge would both hit the network; swap them for a mock provider
     # and promptfoo's echo provider, and drop the judge-scored assertions. What is under
-    # test is the config's api_key_envar/apiKeyEnvar placement, left exactly as generated.
+    # test is the config's api_key_envar placement, left exactly as generated.
     (directory / "provider.py").write_text(_MOCK_PROVIDER)
     config["defaultTest"]["options"]["provider"]["id"] = "echo"
     config["tests"] = [{"vars": {"query": "hello"}}]

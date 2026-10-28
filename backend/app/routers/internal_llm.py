@@ -1,6 +1,6 @@
 import json
 from collections.abc import AsyncIterator
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
@@ -119,10 +119,16 @@ async def chat(request: LlmChatRequest, db: Annotated[AsyncSession, Depends(get_
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="LLM hub is not configured",
         )
+    # Only forward the parameters the caller actually set: the OpenAI SDK treats an
+    # explicit None differently from an omitted one.
+    kwargs: dict[str, Any] = {}
+    if request.temperature is not None:
+        kwargs["temperature"] = request.temperature
     completion = await _openai_client.chat.completions.create(
         model=request.model,
         messages=[{"role": message.role, "content": message.content} for message in request.messages],
         max_tokens=request.max_tokens,
+        **kwargs,
     )
     usage = completion.usage
     # Every worker LLM call goes through here - the one place consumption can't be missed.
@@ -153,12 +159,16 @@ async def chat_stream(request: LlmChatRequest) -> StreamingResponse:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="LLM hub is not configured",
         )
+    kwargs: dict[str, Any] = {}
+    if request.temperature is not None:
+        kwargs["temperature"] = request.temperature
     stream = await _openai_client.chat.completions.create(
         model=request.model,
         messages=[{"role": message.role, "content": message.content} for message in request.messages],
         max_tokens=request.max_tokens,
         stream=True,
         stream_options={"include_usage": True},
+        **kwargs,
     )
 
     async def lines() -> AsyncIterator[str]:

@@ -33,16 +33,16 @@ même queue plutôt que d'avoir son propre service - pas assez de volume pour le
    chunking + embedding + k + juge + générateur + métriques notées), la tâche s'arrête là -
    pas de doublon.
 4. Écrit un répertoire d'évaluation temporaire : `pairs.json` (les paires à évaluer), le YAML
-   `promptfooconfig.yaml` et les deux modules qu'il référence (`provider.py`, `create_tests.py`,
-   copiés depuis `app/promptfoo/`).
+   `promptfooconfig.yaml` et les trois modules qu'il référence (`provider.py`, `judge_provider.py`,
+   `create_tests.py`, copiés depuis `app/promptfoo/`).
 5. Lance la CLI promptfoo (`promptfoo eval --config promptfooconfig.yaml --output results.json
    --output report.html --no-cache --no-write --no-progress-bar --no-table`). promptfoo exécute
    alors, pour chaque paire :
    - le **provider** (`app/promptfoo/provider.py`) : recherche les `k` chunks via le même
      endpoint `/internal/search` que l'agent, puis génère une réponse via `/internal/llm/chat` ;
-   - le **juge** : le modèle d'évaluation de la collection, appelé à travers le proxy
-     OpenAI-compatible du backend (`/api/internal/v1`, voir `backend/app/routers/
-     internal_openai_compat.py`) avec deux assertions promptfoo par paire (seuil 0.7 chacune,
+   - le **juge** (`app/promptfoo/judge_provider.py`) : le modèle d'évaluation de la collection,
+     appelé via `/internal/llm/chat` (temperature 0, tokens attribués au propriétaire de la
+     collection) avec deux assertions promptfoo par paire (seuil 0.7 chacune,
      couleur - un score bas n'élimine jamais un résultat) :
       - `factuality` : la réponse générée est-elle cohérente avec la réponse attendue ?
       - `context-faithfulness` : la réponse générée est-elle ancrée dans le contexte que le
@@ -66,8 +66,8 @@ même queue plutôt que d'avoir son propre service - pas assez de volume pour le
    pas une erreur.
 
 La clé d'API n'est jamais écrite dans le YAML : promptfoo rejoue toute sa configuration dans le
-`results.json` stocké, donc le provider lit la clé depuis sa variable d'environnement
-(`api_key_envar`, héritée du worker) et le juge passe par `apiKeyEnvar`.
+`results.json` stocké, donc le provider et le juge lisent la clé depuis leur variable
+d'environnement (`api_key_envar`, héritée du worker).
 
 ## Ce que fait `score_discussion` (`app/discussion.py`)
 
@@ -97,6 +97,7 @@ app/
   discussion.py     la logique de score_discussion
   promptfoo/        les modules référencés par le YAML généré :
     provider.py       le "modèle" évalué : recherche + génération via le backend
+    judge_provider.py le juge : relaie le prompt de notation vers /internal/llm/chat
     create_tests.py   construit les tests promptfoo depuis pairs.json
   celery_app.py      app Celery (queue, noms des tâches - doit matcher backend/app/core/tasks.py)
   backend_client.py  client HTTP vers les endpoints /internal/* du backend

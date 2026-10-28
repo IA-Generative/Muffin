@@ -1,7 +1,7 @@
 import json
 from unittest.mock import MagicMock
 
-from app.promptfoo import create_tests, provider
+from app.promptfoo import create_tests, judge_provider, provider
 
 # The provider runs in a promptfoo-spawned subprocess: everything it needs arrives via
 # options["config"] - these tests pin down that contract (and the YAML's with it).
@@ -11,6 +11,14 @@ _PROVIDER_CONFIG = {
     "collection_id": "col-1",
     "k": 5,
     "generator_model": "generator-model",
+}
+
+# The judge provider's config: the same backend and key, but the judge model and no k.
+_JUDGE_CONFIG = {
+    "backend_url": "http://backend:8000",
+    "api_key_envar": "WORKER_API_KEY",
+    "collection_id": "col-1",
+    "judge_model": "judge-model",
 }
 
 
@@ -98,6 +106,32 @@ def test_the_provider_reads_the_key_from_the_configured_envar(monkeypatch):
     provider.call_api("q", {"config": config}, {})
 
     assert captured["headers"] == {"X-API-Key": "another-key"}
+
+
+def test_the_judge_provider_sends_the_grading_prompt_to_the_chat_endpoint(monkeypatch):
+    # promptfoo hands the judge provider the grading prompt it built for the assertion;
+    # the provider relays it to /internal/llm/chat and returns the model's answer as output.
+    captured = {}
+
+    def fake_post(url, **kwargs):
+        captured["url"] = url
+        captured.update(kwargs)
+        return _response({"content": "0.9"})
+
+    monkeypatch.setattr(judge_provider.httpx, "post", fake_post)
+    monkeypatch.setenv("WORKER_API_KEY", "the-key")
+
+    result = judge_provider.call_api("Is the answer faithful?", {"config": dict(_JUDGE_CONFIG)}, {})
+
+    assert result == {"output": "0.9"}
+    assert captured["url"] == "http://backend:8000/api/internal/llm/chat"
+    assert captured["headers"] == {"X-API-Key": "the-key"}
+    assert captured["json"]["model"] == "judge-model"
+    # temperature 0: the grading must be as deterministic as the hub allows.
+    assert captured["json"]["temperature"] == 0
+    # The judge's tokens are attributed to the collection's owner, like every worker call.
+    assert captured["json"]["usage"] == {"step": "evaluation", "collection_id": "col-1"}
+    assert captured["json"]["messages"] == [{"role": "user", "content": "Is the answer faithful?"}]
 
 
 def test_create_tests_maps_pairs_to_scored_tests(tmp_path):

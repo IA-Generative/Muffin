@@ -14,8 +14,8 @@ via `options["config"]`, which the task writes into the generated YAML:
 - generator_model: the model that writes the answer from the retrieved excerpts
 
 The judge (factuality scoring) is configured separately in the YAML's
-defaultTest.options.provider - it goes through the backend's OpenAI-compatible
-proxy, not through this module.
+defaultTest.options.provider - it is its own custom provider (judge_provider.py),
+not this module.
 """
 
 import os
