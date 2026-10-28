@@ -17,6 +17,9 @@ from app.models.collection import (
     ShareSubjectType,
 )
 from app.models.document import Document, DocumentPage, DocumentStatus
+from app.models.document_tabular_profile import DocumentTabularProfile
+from app.models.document_tabular_sheet import DocumentTabularSheet
+from app.repositories.document_repository import legacy_tabular_copy_key
 
 
 class CollectionRepository:
@@ -414,7 +417,19 @@ class CollectionRepository:
             .join(Document, DocumentPage.document_id == Document.id)
             .where(Document.collection_id.in_(collection_ids), DocumentPage.screenshot.is_not(None))
         )
-        return [*storage_keys.all(), *screenshot_keys.all()]
+        # The typed copies of tabular files (#431), and the single copy written before there were sheets.
+        copy_keys = await self.db.scalars(
+            select(DocumentTabularSheet.parquet_key)
+            .join(Document, DocumentTabularSheet.document_id == Document.id)
+            .where(Document.collection_id.in_(collection_ids), DocumentTabularSheet.parquet_key.is_not(None))
+        )
+        profiled = await self.db.execute(
+            select(Document.collection_id, Document.id)
+            .join(DocumentTabularProfile, DocumentTabularProfile.document_id == Document.id)
+            .where(Document.collection_id.in_(collection_ids))
+        )
+        legacy = [legacy_tabular_copy_key(collection, document) for collection, document in profiled.all()]
+        return [*storage_keys.all(), *screenshot_keys.all(), *copy_keys.all(), *legacy]
 
     async def delete(self, collection: Collection) -> None:
         await self.db.delete(collection)

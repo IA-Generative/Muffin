@@ -30,6 +30,7 @@ from app.models.document_refresh_schedule import DocumentRefreshSchedule
 from app.models.document_revision import DocumentRevision, RevisionOrigin
 from app.models.document_stage import DocumentStage, PipelineStage
 from app.models.document_tabular_profile import DocumentTabularProfile
+from app.models.document_tabular_sheet import DocumentTabularSheet
 from app.models.entity import Entity, EntityMention, EntityType, Relation
 from app.models.evaluation import (
     EvaluationResult,
@@ -86,6 +87,7 @@ __all__ = [
     "DocumentStatus",
     "DocumentTag",
     "DocumentTabularProfile",
+    "DocumentTabularSheet",
     "ImportDocument",
     "DocumentType",
     "DraftStatus",
