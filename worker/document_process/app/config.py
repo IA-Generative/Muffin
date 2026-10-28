@@ -134,6 +134,10 @@ class WorkerSettings(BaseSettings):
     ZIP_IMPORT_MAX_DEPTH: int | None = None
     TESSDATA_PATH: str | None = None
 
+    # A tabular file's text page (the CSV of a sheet, for being read: chunking skips it): this many rows of each sheet.
+    # The rest is in the sheet's typed copy, which SQL reads.
+    TABULAR_PAGE_MAX_ROWS: int = 10_000
+
     # The scheduled refresh of URL documents (#19): the minutes of each hour the beat (run inside each
     # worker, see the Dockerfile's `-B`) looks for documents due for one - on the hour and at half
     # past, the times a schedule can be set to. Several replicas each running their own beat is
