@@ -16,6 +16,7 @@ import type {
   QuestionAnswer,
   Source,
 } from '../types/chat'
+import { answerHasNoSource } from '../utils/answerSources'
 import { formatAnswers, toRequestAnswers } from '../utils/questionAnswers'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
@@ -41,6 +42,8 @@ interface Citation {
   // build_answer_context/generate_answer/link_citations. Absent on citations persisted before
   // this field existed - formatAnswerWithCitations falls back to inferring from `tool`.
   evidence_kind?: string
+  // Whether the answer cites this excerpt or only consulted it (#402).
+  cited?: boolean
   document_id?: string | null
   chunk_id?: string | null
   page_number?: number | null
@@ -378,6 +381,7 @@ async function ensureMessagesLoaded(conversationId: string) {
         role: item.role,
         content,
         sources,
+        noSources: answerHasNoSource(item.citations, sources),
         runId: item.run_id ?? undefined,
         feedback: item.feedback ?? null,
         editProposal: toEditProposal(item.edit_proposal),
@@ -981,6 +985,7 @@ function assistantMessageFor(id: string, run: RunOut): ChatMessage {
       role: 'assistant',
       content,
       sources,
+      noSources: answerHasNoSource(run.citations, sources),
       runId: run.id,
       editProposal: toEditProposal(run.edit_proposal),
       creationProposal: toCreationProposal(run.edit_proposal),

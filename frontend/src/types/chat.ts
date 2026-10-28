@@ -113,6 +113,8 @@ export interface ChatMessage {
   // Collections whose sub-collections the run behind this answer didn't explore (#219, #233) -
   // the latest answer offers to "go further" into them.
   unexploredCollectionIds?: string[]
+  // The answer rests on consulted excerpts but cites none of them (#402): the chat says it has no source.
+  noSources?: boolean
   // The questions this message asks instead of answering (#344) - shown as a card to answer. Once the
   // user answered, `questionsAnswer` holds the answer (the card stays in the thread with it); if they
   // wrote something else instead, the questions are `questionsAbandoned`.
