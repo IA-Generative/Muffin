@@ -188,7 +188,7 @@ class EvaluationService:
         await self.db.commit()
         # Best-effort, after the rows are gone: a RustFS failure here must not roll
         # the delete back - it would just leave orphaned objects (see storage.delete_objects).
-        storage.delete_objects(artifact_keys)
+        await asyncio.to_thread(storage.delete_objects, artifact_keys)
 
     async def list_runs(self, collection_id: uuid.UUID, user: RequestContext) -> list[EvaluationRunOut]:
         await self._get_accessible(collection_id, user)
@@ -202,7 +202,7 @@ class EvaluationService:
         run = await self._get_run(collection_id, run_id)
         if not run.report_html_key:
             raise EvaluationArtifactNotFoundError(str(run_id))
-        report, _ = storage.get_object(run.report_html_key)
+        report, _ = await asyncio.to_thread(storage.get_object, run.report_html_key)
         return report
 
     async def run_results_json(self, collection_id: uuid.UUID, run_id: uuid.UUID, user: RequestContext) -> bytes:
@@ -211,7 +211,7 @@ class EvaluationService:
         run = await self._get_run(collection_id, run_id)
         if not run.results_json_key:
             raise EvaluationArtifactNotFoundError(str(run_id))
-        data, _ = storage.get_object(run.results_json_key)
+        data, _ = await asyncio.to_thread(storage.get_object, run.results_json_key)
         return data
 
     async def _get_run(self, collection_id: uuid.UUID, run_id: uuid.UUID):  # noqa: ANN202

@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from typing import Annotated
 
@@ -78,8 +79,8 @@ async def create_evaluation_run(
     run_id = uuid.uuid4()
     results_key = f"evaluations/{run_id}/results.json"
     report_key = f"evaluations/{run_id}/report.html"
-    storage.put_object(results_key, results_bytes, "application/json")
-    storage.put_object(report_key, report_bytes, "text/html")
+    await asyncio.to_thread(storage.put_object, results_key, results_bytes, "application/json")
+    await asyncio.to_thread(storage.put_object, report_key, report_bytes, "text/html")
     run = await EvaluationRepository(db).create_run(
         collection_id,
         body.model_dump(mode="python"),
