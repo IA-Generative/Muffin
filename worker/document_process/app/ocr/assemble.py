@@ -75,14 +75,20 @@ def assemble(
     width: float,
     height: float,
     table_orders: Iterable[int] = (),
+    markers: dict[int, str] | None = None,
 ) -> tuple[str, list[TextItem]]:
     """The page's markdown and its lines. `table_orders`: the regions that were tables, read as text (see
-    OCR_READ_TABLES_AS_TEXT) - one line of the page to a line of the markdown."""
+    OCR_READ_TABLES_AS_TEXT) - one line of the page to a line of the markdown. `markers`: the tables that were read as
+    tables (#410), by region - each is its marker in the markdown, at its place in the reading order, and no line."""
     lines_by_region = {region.region_order: region.lines for region in text.regions}
     flat = set(table_orders)
+    tables = markers or {}
     blocks: list[str] = []
     items: list[TextItem] = []
     for region in layout.regions:
+        if region.reading_order in tables:
+            blocks.append(tables[region.reading_order])
+            continue
         lines = [line for line in lines_by_region.get(region.reading_order, []) if line.text.strip()]
         if not lines:
             continue

@@ -21,7 +21,8 @@ from pydantic import ValidationError
 
 from app.config import settings
 from app.ocr import assemble, pages, regions, routing
-from app.ocr.contracts import PageLayout, PageText, RegionType
+from app.ocr.contracts import PageLayout, PageTables, PageText, RegionType
+from app.ocr.tables import RenderedTable, render_page
 from app.task_revocation import TaskRevoked, raise_if_revoked
 
 # The page's image at least this close to OCR_PAGE_DPI is read as it is, without rendering the page again.
@@ -48,16 +49,23 @@ class ReadPage:
     markdown: str
     items: list[Any]
     layout: PageLayout
+    # The tables read on the page, as tables (#410), in reading order. None when they were read as text.
+    tables: list[RenderedTable] = field(default_factory=list)
 
 
 @dataclass
 class _Job:
     page: Any
     image_key: str
+    # "layout", then "read": the text of the regions, and the tables when there are some, both at once.
     stage: str = "layout"
+    # The layout task's.
     result: Any = None
+    # The read stage's tasks, by what they read: "ocr" and, when there are tables to read as tables, "table".
+    reads: dict[str, Any] = field(default_factory=dict)
     deadline: float = 0.0
     layout: PageLayout | None = None
+    # The regions that are tables read as text (OCR_READ_TABLES_AS_TEXT).
     tables: set[int] = field(default_factory=set)
 
 
@@ -138,18 +146,25 @@ class ScannedPageReader:
         if self._clock() > job.deadline:
             self._revoke(job)
             return f"the {job.stage} step took more than {settings.OCR_STAGE_TIMEOUT_SECONDS} s"
-        if not job.result.ready():
+        pending = {"layout": job.result} if job.stage == "layout" else job.reads
+        # Looked at once each: it is a request to Redis.
+        ready = {name: result.ready() for name, result in pending.items()}
+        for name, result in pending.items():
+            # One that failed fails the page now: the others are no longer wanted.
+            if ready[name] and not result.successful():
+                reason = f"the {name} step failed: {result.result!r}"
+                self._revoke(job)
+                self._forget(job)
+                return reason
+        if not all(ready.values()):
             return None
-        if not job.result.successful():
-            reason = f"the {job.stage} step failed: {job.result.result!r}"
-            self._forget(job)
-            return reason
         stage = job.stage
         try:
             if stage == "layout":
                 return self._on_layout(document_id, job)
-            return self._on_text(job)
+            return self._on_read(document_id, job)
         except (ValidationError, ValueError, TypeError) as error:
+            self._forget(job)
             return f"the {stage} step answered something unexpected: {error}"
 
     def _on_layout(self, document_id: str, job: _Job) -> None | str:
@@ -158,40 +173,62 @@ class ScannedPageReader:
         if not layout.regions:
             return "no region found on the page"
         job.layout = layout
-        regions = []
+        as_text = settings.OCR_READ_TABLES_AS_TEXT
+        regions_for_ocr, table_regions = [], []
         for region in layout.regions:
-            if region.type is RegionType.TABLE and settings.OCR_READ_TABLES_AS_TEXT:
-                job.tables.add(region.reading_order)
-                region = region.model_copy(update={"type": RegionType.TEXT})
-            regions.append(region.model_dump(mode="json"))
-        job.stage = "ocr"
-        job.result = self._app.send_task(
-            routing.OCR_REGIONS_TASK, args=[document_id, job.page.page_num, job.image_key, regions]
-        )
+            if region.type is RegionType.TABLE:
+                if as_text:
+                    job.tables.add(region.reading_order)
+                    region = region.model_copy(update={"type": RegionType.TEXT})
+                else:
+                    table_regions.append(region.model_dump(mode="json"))
+            regions_for_ocr.append(region.model_dump(mode="json"))
+        number = job.page.page_num
+        # The text pod masks the tables it was not asked to read, so the two read their own parts of the page.
+        job.reads = {
+            "ocr": self._app.send_task(
+                routing.OCR_REGIONS_TASK, args=[document_id, number, job.image_key, regions_for_ocr]
+            )
+        }
+        if table_regions:
+            job.reads["table"] = self._app.send_task(
+                routing.TABLE_REGIONS_TASK, args=[document_id, number, job.image_key, table_regions]
+            )
+        job.stage = "read"
+        job.result = None
         job.deadline = self._clock() + settings.OCR_STAGE_TIMEOUT_SECONDS
         return None
 
-    def _on_text(self, job: _Job) -> ReadPage | str:
+    def _on_read(self, document_id: str, job: _Job) -> ReadPage | str:
         assert job.layout is not None
-        text = PageText.model_validate(job.result.result)
+        text = PageText.model_validate(job.reads["ocr"].result)
+        rendered: list[RenderedTable] = []
+        if "table" in job.reads:
+            rendered = render_page(
+                job.layout, PageTables.model_validate(job.reads["table"].result), document_id, job.page.page_num
+            )
         self._forget(job)
-        markdown, items = assemble.assemble(job.layout, text, job.page.width, job.page.height, job.tables)
+        markers = {table.region_order: table.marker for table in rendered}
+        markdown, items = assemble.assemble(job.layout, text, job.page.width, job.page.height, job.tables, markers)
         if not markdown.strip():
             return "nothing was read on the page"
-        return ReadPage(markdown, items, job.layout)
+        return ReadPage(markdown, items, job.layout, rendered)
 
     def _revoke(self, job: _Job) -> None:
-        try:
-            if job.result is not None and not job.result.ready():
-                job.result.revoke()
-        except Exception as error:
-            logger.debug(f"Could not revoke the {job.stage} task of page {job.page.page_num}: {error}")
+        for result in [job.result, *job.reads.values()]:
+            try:
+                if result is not None and not result.ready():
+                    result.revoke()
+            except Exception as error:
+                logger.debug(f"Could not revoke a {job.stage} task of page {job.page.page_num}: {error}")
 
     def _forget(self, job: _Job) -> None:
-        try:
-            job.result.forget()
-        except Exception as error:
-            logger.debug(f"Could not forget the {job.stage} result of page {job.page.page_num}: {error}")
+        for result in [job.result, *job.reads.values()]:
+            try:
+                if result is not None:
+                    result.forget()
+            except Exception as error:
+                logger.debug(f"Could not forget a {job.stage} result of page {job.page.page_num}: {error}")
 
 
 def _dpi(screenshot: Any, page: Any) -> float:
@@ -249,6 +286,7 @@ def read_scanned_pages(document_id: str, data: bytes, result: Any, reader: Scann
         )
         # The page's layout (#409), kept by the backend with the page. A page that Tesseract read has none.
         page.layout_regions = regions.regions_of(done.layout)
+        page.layout_tables = [table.payload(done.layout) for table in done.tables]
         replaced[number] = page
     if failed:
         logger.warning(

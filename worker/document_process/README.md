@@ -228,8 +228,18 @@ page (`include_complexity`), si elle a besoin d'un OCR. `app/ocr/scanned.py` (`r
   surlignage des passages cités (#350) marche. Les lignes d'un paragraphe sont recollées avec une espace, jamais
   dé-césurées : « peut- » / « être » est aussi probablement un mot composé qu'une coupure, et une ligne qui n'est plus
   dans le texte ne peut plus être placée.
-- **Les tableaux**, tant que le pod `table` n'existe pas (#410) : lus comme du texte (`OCR_READ_TABLES_AS_TEXT`), pour ne
-  pas perdre leur contenu.
+- **Les tableaux** (#410) : avec `OCR_READ_TABLES_AS_TEXT=false` (le chart et le compose), les régions de type tableau
+  vont au pod `table` **en même temps** que les régions de texte vont au pod `ocr` (qui masque les tableaux lui-même) ; la
+  page attend les deux. Le markdown ne garde qu'un **marqueur** à la place du tableau :
+  `[Tableau <document>/p3/t1 — colonnes : Année | Dossiers — 12 lignes]` (`app/ocr/tables.py`) - ses en-têtes et sa taille
+  sont dans le texte, donc indexés et retrouvés, mais pas son contenu. Le contenu - la grille de cellules, le Markdown et
+  le HTML (le HTML est le seul exact quand une cellule en couvre plusieurs) - part au backend avec la page
+  (`tables=`, `document_tables`), où l'agent va le lire. L'identifiant `<document>/p<page>/t<rang>` ne change pas quand la
+  page est relue. Un en-tête sur deux lignes (un titre fusionné au-dessus des noms de colonnes) donne des colonnes
+  « Titre / Nom ». Un tableau sous `OCR_TABLE_MIN_SCORE` est gardé mais `reliable=false`, et son marqueur dit « structure
+  douteuse ». **Un tableau que le pod n'a pas lu, ou qu'il a mal rendu, fait retomber la page entière sur le repli** :
+  son contenu ne serait nulle part. Avec `true` (le défaut du code), les tableaux sont lus comme du texte, une ligne du
+  tableau par ligne du markdown, et le pod `table` n'est jamais appelé.
 - **Le repli** : une page que les pods ne lisent pas (pod arrêté ou en erreur, réponse inattendue, aucune région, rien de
   lu, `OCR_STAGE_TIMEOUT_SECONDS` dépassé) retombe sur liteparse + Tesseract pour cette page seulement ; c'est dans les
   logs de la tâche (niveau `WARNING`) et le fichier continue. Il échoue seulement si ce repli échoue aussi.

@@ -96,6 +96,8 @@ services:
       # read. Shared by the three services of this image through this anchor, which they must: the chunking and the
       # summary run in the enrichment one and fingerprint the extraction they follow (app/reuse.py).
       OCR_ENGINE: layout
+      # The tables are read as tables by the worker-ocr-table service (#410), not as text. Same in the three services.
+      OCR_READ_TABLES_AS_TEXT: "false"
       REDIS_URL: redis://redis:6379/0
       BACKEND_API_URL: http://backend:8000
       WORKER_API_KEY: ${WORKER_API_KEY:-dev-only-worker-key-not-for-prod}

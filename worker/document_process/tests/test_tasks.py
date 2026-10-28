@@ -86,6 +86,7 @@ def test_process_document_for_a_file_writes_pages_screenshots_and_chunks_with_bb
         screenshot="screenshots/doc-2/page-1.png",
         text_boxes=[],
         regions=[],
+        tables=[],
     )
     tasks._shared.backend_client.update_status.assert_any_call("doc-2", status="indexing", progress=50)
     tasks._shared._spawn.assert_called_once()
