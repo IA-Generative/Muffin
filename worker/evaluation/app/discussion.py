@@ -6,7 +6,6 @@ from loguru import logger
 from pydantic import BaseModel, Field
 
 from app.backend_client import backend_client
-from app.celery_app import celery_app
 
 # At least 2 assistant turns are needed for "do these answers contradict each other" to mean
 # anything - a single-turn conversation has nothing to compare across (see #31).
@@ -94,14 +93,11 @@ def _judge_discussion(model: str, transcript: str) -> DiscussionJudgment:
         return _FALLBACK_JUDGMENT
 
 
-@celery_app.task(name="app.tasks.score_discussion", bind=True)
-def score_discussion(self, conversation_id: str, model: str | None = None) -> None:
+def score_discussion(conversation_id: str, model: str | None = None) -> None:
     """Judges a whole conversation - not any one answer - for cross-turn coherence and correct
     use of conversational context (see #31). A single LLM judgment call, not a search-heavy loop
-    like run_evaluation, but shares its queue/service since neither needs its own. No
-    self.request.id Task registration here either, same reasoning as run_evaluation: the backend
-    already creates the Task row itself at dispatch time (see ConversationService.
-    trigger_discussion_score).
+    like run_evaluation, but shares its queue/service since neither needs its own. Called by the
+    Celery task of the same name (app/tasks.py).
 
     When `model` is None, the hub's default chat model is used. When set, that specific model is
     used - the (conversation, content_hash, model) unique index means re-scoring the same

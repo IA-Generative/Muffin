@@ -11,7 +11,6 @@ from loguru import logger
 from pydantic import BaseModel
 
 from app.backend_client import backend_client
-from app.celery_app import celery_app
 from app.config import settings
 from app.promptfoo.create_tests import SCORED_METRICS
 
@@ -359,24 +358,20 @@ def _coerce_bool(value: Any) -> bool:
     return bool(value)
 
 
-@celery_app.task(name="app.tasks.run_evaluation", bind=True)
-def run_evaluation(self, collection_id: str, k: int | None = None, validated_only: bool = False) -> None:
+def run_evaluation(collection_id: str, k: int | None = None, validated_only: bool = False) -> None:
     """Replays every QA pair of a collection through the same search the research agent uses,
     generates an answer from what was retrieved, and has the collection's "evaluation" model
     judge each answer twice: factuality against the expected answer, and context faithfulness
     against the context the pipeline actually retrieved - all of it driven by promptfoo (see
-    app/promptfoo/): the task lays out a throwaway config directory, runs `promptfoo eval`,
+    app/promptfoo/): it lays out a throwaway config directory, runs `promptfoo eval`,
     then posts one EvaluationRun back to the backend with the two artifacts (results.json +
     report.html) as its whole persistence (see #11 - the model has no in-progress state, so
     nothing is created until the evaluation succeeded). The per-pair scores and every aggregate
     are computed from the stored artifact at read time, on the backend. A golden pair can name
     several relevant documents; any other pair has its one source document. When validated_only
     is True, only validated QA pairs are evaluated; when False (default), all QA pairs with a
-    source document are evaluated regardless of validation status. No self.request.id Task
-    registration here, unlike worker/document_process's spawned tasks: this is a single task
-    with no children, and the backend already creates its Task row itself right after
-    dispatching it (see EvaluationService.trigger - it already knows the user at that point,
-    no round trip needed).
+    source document are evaluated regardless of validation status. Called by the Celery task of
+    the same name (app/tasks.py).
     """
     k = k or settings.DEFAULT_TOP_K
     collection_settings = backend_client.get_collection_settings(collection_id)

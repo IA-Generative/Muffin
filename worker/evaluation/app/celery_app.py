@@ -25,4 +25,4 @@ celery_app.conf.update(
     task_track_started=True,
 )
 
-from app import discussion, evaluation  # noqa: E402,F401
+from app import tasks  # noqa: E402,F401

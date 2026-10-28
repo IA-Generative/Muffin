@@ -92,8 +92,9 @@ déjà l'utilisateur à cet instant.
 
 ```
 app/
-  evaluation.py     la tâche Celery run_evaluation (moteur promptfoo)
-  discussion.py     la tâche Celery score_discussion
+  tasks.py          les tâches Celery run_evaluation et score_discussion (déclaration + routage)
+  evaluation.py     la logique de run_evaluation (moteur promptfoo)
+  discussion.py     la logique de score_discussion
   promptfoo/        les modules référencés par le YAML généré :
     provider.py       le "modèle" évalué : recherche + génération via le backend
     create_tests.py   construit les tests promptfoo depuis pairs.json
