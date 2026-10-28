@@ -92,6 +92,10 @@ services:
       context: ./worker/document_process
       dockerfile: Dockerfile
     environment: &document-process-env
+      # The scanned pages are read by the OCR pods below (#403), with Tesseract as the fallback of a page they cannot
+      # read. Shared by the three services of this image through this anchor, which they must: the chunking and the
+      # summary run in the enrichment one and fingerprint the extraction they follow (app/reuse.py).
+      OCR_ENGINE: layout
       REDIS_URL: redis://redis:6379/0
       BACKEND_API_URL: http://backend:8000
       WORKER_API_KEY: ${WORKER_API_KEY:-dev-only-worker-key-not-for-prod}
@@ -131,12 +135,11 @@ services:
     depends_on: *document-process-depends-on
     restart: unless-stopped
 
-  # The OCR pods of the scanned pages (#403): one service, one image per model. Nothing sends them work
-  # until OCR_ENGINE=layout on the extraction worker, so they are off unless asked for:
-  #   docker compose --profile ocr up
+  # The OCR pods of the scanned pages (#403): one service, one image per model, started with the rest since the
+  # extraction worker sends them the scanned pages (OCR_ENGINE: layout above). To go without them, and read the
+  # scanned pages with Tesseract only, set OCR_ENGINE: tesseract above and stop these two services.
   # Each loads its model once per process (about 1 GB): -c is how many pages it reads at once.
   worker-ocr-layout:
-    profiles: ["ocr"]
     build:
       context: ./worker/layout
       dockerfile: Dockerfile
@@ -154,7 +157,6 @@ services:
     restart: unless-stopped
 
   worker-ocr:
-    profiles: ["ocr"]
     build:
       context: ./worker/ocr
       dockerfile: Dockerfile
