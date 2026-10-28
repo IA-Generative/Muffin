@@ -31,19 +31,6 @@ class BackendClient:
         response.raise_for_status()
         return response.json()
 
-    def get_document_chunk_count(self, document_id: str) -> int:
-        response = self._client.get(f"/api/internal/documents/{document_id}/chunk-count")
-        response.raise_for_status()
-        return response.json()["count"]
-
-    def search(self, collection_ids: list[str], query: str, limit: int) -> list[dict[str, Any]]:
-        response = self._client.post(
-            "/api/internal/search",
-            json={"collection_ids": collection_ids, "query": query, "limit": limit},
-        )
-        response.raise_for_status()
-        return response.json()
-
     def llm_chat(self, model: str, messages: list[dict[str, str]], max_tokens: int | None = None) -> str:
         response = self._client.post(
             "/api/internal/llm/chat",
@@ -57,8 +44,22 @@ class BackendClient:
         response.raise_for_status()
         return response.json()["model"]
 
-    def create_evaluation_run(self, collection_id: str, payload: dict[str, Any]) -> str:
-        response = self._client.post(f"/api/internal/collections/{collection_id}/evaluation-runs", json=payload)
+    def create_evaluation_run(
+        self, collection_id: str, payload: dict[str, Any], results_json: bytes, report_html: bytes
+    ) -> str:
+        """Posts a completed run - its metadata and both promptfoo artifacts (the
+        machine-readable scores and the human-readable report) - in one multipart request.
+        Together they are the run's whole persistence (no per-pair rows anymore), and the
+        backend only creates the row once both files are stored: a run is never visible
+        without its artifacts."""
+        response = self._client.post(
+            f"/api/internal/collections/{collection_id}/evaluation-runs",
+            data=payload,
+            files={
+                "results": ("results.json", results_json, "application/json"),
+                "report": ("report.html", report_html, "text/html"),
+            },
+        )
         response.raise_for_status()
         return response.json()["id"]
 

@@ -1,7 +1,6 @@
-import asyncio
 import json
 from collections.abc import AsyncIterator
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
@@ -22,6 +21,7 @@ from app.schemas.internal_pipeline import (
     LlmEmbedRequest,
     LlmEmbedResponse,
 )
+from app.services import llm_model_discovery
 from app.services.usage_service import UsageService
 
 # Not user-facing: the worker's only path to the LLM hub, so it never needs
@@ -36,7 +36,11 @@ router = APIRouter(
 # tests swap these out with monkeypatch.setattr without a live LLM hub.
 _llm_settings = LlmSettings()
 _openai_client = (
-    AsyncOpenAI(api_key=_llm_settings.OPENAI_API_KEY, base_url=_llm_settings.OPENAI_API_BASE_URL)
+    AsyncOpenAI(
+        api_key=_llm_settings.OPENAI_API_KEY,
+        base_url=_llm_settings.OPENAI_API_BASE_URL,
+        max_retries=8,
+    )
     if _llm_settings.is_configured
     else None
 )
@@ -67,16 +71,19 @@ async def _supports_embeddings(model_id: str) -> bool:
         return False
 
 
-async def _discover_models(cache_key: str, probe) -> list[str]:  # noqa: ANN001
+async def _first_supported_model(cache_key: str, operation: str, probe) -> str | None:  # noqa: ANN001
+    """The alphabetically-first model the hub reports that supports the capability - what a
+    pipeline step with no model configured for it falls back to, so processing works out of the
+    box instead of silently skipping that step.
+
+    Reads the shared discovery cache (populated by the models router for the UI) when it is warm;
+    otherwise asks the hub directly. It never writes the full-list cache - that is the UI's
+    /models route's job - so it only ever needs the first model, not the whole list."""
     cached = redis_connector.client.get(cache_key)
     if cached is not None:
-        return json.loads(cached)
-    available = await _openai_client.models.list()
-    candidate_ids = [model.id for model in available.data]
-    supported = await asyncio.gather(*(probe(model_id) for model_id in candidate_ids))
-    model_ids = sorted(model_id for model_id, ok in zip(candidate_ids, supported, strict=True) if ok)
-    redis_connector.client.set(cache_key, json.dumps(model_ids), ex=_llm_settings.CHAT_MODELS_CACHE_TTL_SECONDS)
-    return model_ids
+        model_ids = json.loads(cached)
+        return model_ids[0] if model_ids else None
+    return await llm_model_discovery.first_supported_model(_openai_client, operation, probe)
 
 
 async def _default_chat_model() -> str | None:
@@ -85,8 +92,7 @@ async def _default_chat_model() -> str | None:
     box instead of silently skipping that step."""
     if _openai_client is None:
         return None
-    model_ids = await _discover_models(_CHAT_MODELS_CACHE_KEY, _supports_chat)
-    return model_ids[0] if model_ids else None
+    return await _first_supported_model(_CHAT_MODELS_CACHE_KEY, "chat", _supports_chat)
 
 
 async def _default_embedding_model(db: AsyncSession) -> str | None:
@@ -99,8 +105,7 @@ async def _default_embedding_model(db: AsyncSession) -> str | None:
         return app_settings.embedding_model
     if _openai_client is None:
         return None
-    model_ids = await _discover_models(_EMBEDDING_MODELS_CACHE_KEY, _supports_embeddings)
-    return model_ids[0] if model_ids else None
+    return await _first_supported_model(_EMBEDDING_MODELS_CACHE_KEY, "embed", _supports_embeddings)
 
 
 @router.post(
@@ -114,10 +119,16 @@ async def chat(request: LlmChatRequest, db: Annotated[AsyncSession, Depends(get_
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="LLM hub is not configured",
         )
+    # Only forward the parameters the caller actually set: the OpenAI SDK treats an
+    # explicit None differently from an omitted one.
+    kwargs: dict[str, Any] = {}
+    if request.temperature is not None:
+        kwargs["temperature"] = request.temperature
     completion = await _openai_client.chat.completions.create(
         model=request.model,
         messages=[{"role": message.role, "content": message.content} for message in request.messages],
         max_tokens=request.max_tokens,
+        **kwargs,
     )
     usage = completion.usage
     # Every worker LLM call goes through here - the one place consumption can't be missed.
@@ -148,12 +159,16 @@ async def chat_stream(request: LlmChatRequest) -> StreamingResponse:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="LLM hub is not configured",
         )
+    kwargs: dict[str, Any] = {}
+    if request.temperature is not None:
+        kwargs["temperature"] = request.temperature
     stream = await _openai_client.chat.completions.create(
         model=request.model,
         messages=[{"role": message.role, "content": message.content} for message in request.messages],
         max_tokens=request.max_tokens,
         stream=True,
         stream_options={"include_usage": True},
+        **kwargs,
     )
 
     async def lines() -> AsyncIterator[str]:

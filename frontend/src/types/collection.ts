@@ -147,48 +147,39 @@ export interface IndexingEstimate {
   collectionMax: number
 }
 
-export interface EvaluationMetrics {
-  precisionAtK: number
-  recallAtK: number
-  mrr: number
-  ndcg: number
-}
-
-// The golden pairs' scores, apart from the others': the numbers to follow over time.
-export interface GoldenMetrics extends EvaluationMetrics {
-  pairCount: number
-}
-
-export interface EvaluationResult {
-  qaPairId: string
-  question: string
-  expectedAnswer: string
-  generatedAnswer: string
-  retrievedSources: string[]
-  precisionAtK: number
-  recallAtK: number
-  reciprocalRank: number
-  ndcg: number
-  golden: boolean
-}
-
-export interface ChunkingSnapshot extends ChunkingSettings {
-  embeddingModel: string
-}
-
 export interface EvaluationRun {
   id: string
   runAt: string
-  k: number
   pairCount: number
+  // The golden (test) pairs, scored apart - the numbers to follow over time.
+  goldenPairCount: number
+  validatedPairCount: number
+  unvalidatedPairCount: number
+  // The judge model (the collection's "evaluation" generation model).
   llmModel: string
-  chunkingSnapshot: ChunkingSnapshot
-  // Over the pairs that aren't golden (generated or reference, validated or not) - null when the run
-  // only had golden pairs.
-  metrics: EvaluationMetrics | null
-  // Over the golden pairs only - null when the collection has none.
-  goldenMetrics: GoldenMetrics | null
-  results: EvaluationResult[]
+  // Score averages over the reference (non-golden) / golden / every pair, keyed by metric
+  // name - the keys are whatever the run's artifact actually scored, so a new metric flows
+  // through with zero frontend model change (labels: utils/evaluationMetrics.ts).
+  // Null when that subset is empty, when nothing was scored, or when the run
+  // predates the promptfoo migration (no artifact); a metric a run predates simply
+  // doesn't appear in its object.
+  metrics: Record<string, number> | null
+  goldenMetrics: Record<string, number> | null
+  allMetrics: Record<string, number> | null
+  // The share of golden (test) pairs that passed (every assertion at or above its
+  // threshold), in [0, 1] - null when the run has no golden pair or no artifact.
+  goldenPassRate: number | null
+  // The same share over the reference (non-golden) pairs, and over every pair of the
+  // run - each null when its subset is empty or the run has no artifact.
+  referencePassRate: number | null
+  overallPassRate: number | null
+  // Whether the report/results.json artifacts exist (download links, report preview) -
+  // false on the runs predating the promptfoo migration.
+  hasArtifacts: boolean
+  // The worker's config_muffin block, replayed into results.json (the run's whole
+  // configuration) - shown as-is under the UI's "Détails techniques". Null when the run
+  // has no readable artifact.
+  configMuffin: Record<string, unknown> | null
 }
 
 export type CollectionVisibility = 'private' | 'public'

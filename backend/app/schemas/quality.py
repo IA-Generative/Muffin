@@ -18,17 +18,19 @@ from pydantic import BaseModel
 
 
 class RetrievalMetricOut(BaseModel):
-    """Snapshot of the latest evaluation run's global aggregates."""
+    """Snapshot of the latest evaluation run's score averages (see #11): the run
+    replays the collection's QA pairs through the pipeline and a judge scores each
+    generated answer. These are that run's averages over its non-golden pairs,
+    keyed by metric name - whatever the run's artifact actually scored."""
 
     collection_id: UUID
     collection_name: str
     run_id: UUID
     created_at: datetime
     pair_count: int
-    precision_at_k: float
-    recall_at_k: float
-    mrr: float
-    ndcg: float
+    # None when the run predates the promptfoo migration (no artifact) or the judge
+    # scored nothing - never an empty dict, which would read as a terrible score.
+    metrics: dict[str, float] | None
 
 
 class FeedbackMetricOut(BaseModel):

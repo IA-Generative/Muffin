@@ -3,6 +3,7 @@ import { computed, ref, watch, onMounted } from 'vue'
 import { useCollections } from '../composables/useCollections'
 import { useQuality } from '../composables/useQuality'
 import { useModels } from '../composables/useModels'
+import { metricLabel, metricTooltip, orderedMetricKeys } from '../utils/evaluationMetrics'
 
 const { collections } = useCollections()
 const { models } = useModels()
@@ -43,6 +44,11 @@ function getModelFilterParam(): string | null {
 // ── Computed metrics ────────────────────────────────────────────────────────
 
 const retrievalMetrics = computed(() => overview.value?.retrieval ?? [])
+// One column per metric any listed run actually scored - the union across runs, so a
+// run that predates a metric shows "—" in its column instead of hiding it.
+const retrievalMetricKeys = computed(() =>
+  orderedMetricKeys(new Set(retrievalMetrics.value.flatMap((run) => Object.keys(run.metrics ?? {})))),
+)
 const feedback = computed(() => overview.value?.feedback)
 const discussion = computed(() => overview.value?.discussion)
 const groundedness = computed(() => overview.value?.groundedness)
@@ -156,7 +162,7 @@ function toggleConversationExpand(id: string) {
     <div class="quality-view__header">
       <h1>Qualité</h1>
       <p class="quality-view__intro">
-        Vue d'ensemble des métriques de qualité de l'agent — retrieval, retours utilisateur, cohérence de
+        Vue d'ensemble des métriques de qualité de l'agent — évaluation des réponses, retours utilisateur, cohérence de
         discussion, et groundedness. Les administrateurs voient toutes les collections et toutes les
         conversations agrégées.
       </p>
@@ -183,22 +189,23 @@ function toggleConversationExpand(id: string) {
     </div>
 
     <template v-else-if="overview">
-      <!-- ── Retrieval ─────────────────────────────────────────────────── -->
+      <!-- ── Évaluation des réponses ───────────────────────────────────── -->
       <section class="quality-family">
         <div class="quality-family__header">
-          <h2>Retrieval</h2>
+          <h2>Évaluation des réponses</h2>
           <button type="button" class="quality-tooltip">
             <span class="quality-tooltip__icon" aria-hidden="true">ℹ</span>
-            <span class="quality-tooltip__text">Mesure si la recherche documentaire retrouve les bons passages en rejouant les paires Q/R de chaque collection contre son index actuel.</span>
+            <span class="quality-tooltip__text">Rejoue les paires Q/R de chaque collection à travers le pipeline, puis un juge note chaque réponse générée deux fois : sa factualité face à la réponse attendue, et sa fidélité au contexte réellement récupéré.</span>
           </button>
         </div>
         <p class="quality-family__description">
-          Est-ce que la recherche documentaire retrouve les bons passages ? Mesuré en rejouant les paires
-          question/réponse de chaque collection contre son index actuel.
+          Les réponses générées sont-elles fidèles aux réponses attendues et ancrées dans les extraits récupérés ?
+          Chaque paire question/réponse de la collection est rejouée à travers le pipeline, et un juge note la
+          factualité et la fidélité au contexte de la réponse générée.
         </p>
 
         <div v-if="retrievalMetrics.length === 0" class="quality-family__empty">
-          Aucune évaluation de retrieval pour le moment.
+          Aucune évaluation pour le moment.
         </div>
         <div v-else class="quality-family__table-wrap">
           <div class="quality-family__table-scroll">
@@ -208,33 +215,12 @@ function toggleConversationExpand(id: string) {
                 <th>Collection</th>
                 <th>Date</th>
                 <th>Paires</th>
-                <th>
-                  Precision@k
-                  <button type="button" class="quality-tooltip">
+                <th v-for="key in retrievalMetricKeys" :key="key">
+                  {{ metricLabel(key) }}
+                  <button v-if="metricTooltip(key)" type="button" class="quality-tooltip">
                     <span class="quality-tooltip__icon" aria-hidden="true">ℹ</span>
-                    <span class="quality-tooltip__text">Parmi les passages retournés, quelle proportion est réellement pertinente.</span>
-          </button>
-                </th>
-                <th>
-                  Recall@k
-                  <button type="button" class="quality-tooltip">
-                    <span class="quality-tooltip__icon" aria-hidden="true">ℹ</span>
-                    <span class="quality-tooltip__text">Parmi tous les passages pertinents, quelle proportion a été retrouvée.</span>
-          </button>
-                </th>
-                <th>
-                  MRR
-                  <button type="button" class="quality-tooltip">
-                    <span class="quality-tooltip__icon" aria-hidden="true">ℹ</span>
-                    <span class="quality-tooltip__text">Mean Reciprocal Rank : plus le premier passage pertinent est tôt, plus le score est élevé.</span>
-          </button>
-                </th>
-                <th>
-                  nDCG
-                  <button type="button" class="quality-tooltip">
-                    <span class="quality-tooltip__icon" aria-hidden="true">ℹ</span>
-                    <span class="quality-tooltip__text">Normalized Discounted Cumulative Gain : qualité du classement des passages, en pénalisant les pertinents mal positionnés.</span>
-          </button>
+                    <span class="quality-tooltip__text">{{ metricTooltip(key) }}</span>
+                  </button>
                 </th>
               </tr>
             </thead>
@@ -243,10 +229,11 @@ function toggleConversationExpand(id: string) {
                 <td>{{ run.collectionName }}</td>
                 <td>{{ formatDate(run.createdAt) }}</td>
                 <td>{{ run.pairCount }}</td>
-                <td>{{ pct(run.precisionAtK) }}</td>
-                <td>{{ pct(run.recallAtK) }}</td>
-                <td>{{ ratio(run.mrr) }}</td>
-                <td>{{ ratio(run.ndcg) }}</td>
+                <!-- "—" when this run predates the metric (or errored on it), never a
+                     misleading 0 -->
+                <td v-for="key in retrievalMetricKeys" :key="key">
+                  {{ run.metrics?.[key] != null ? pct(run.metrics[key]) : '—' }}
+                </td>
               </tr>
             </tbody>
           </table>

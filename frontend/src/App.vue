@@ -6,6 +6,7 @@ import ChatSidebar from './components/ChatSidebar.vue'
 import HomeView from './components/HomeView.vue'
 import OnboardingModal from './components/OnboardingModal.vue'
 import SettingsModal from './components/SettingsModal.vue'
+import ToastHost from './components/ToastHost.vue'
 import { useCgu } from './composables/useCgu'
 import { useChat } from './composables/useChat'
 import { useCurrentUser } from './composables/useCurrentUser'
@@ -90,6 +91,7 @@ const activeView = computed(() => {
     <SettingsModal v-if="showSettings" @close="showSettings = false" />
     <CguGateModal v-if="isAuthenticated && cguStatus && !cguStatus.accepted" />
     <OnboardingModal v-if="showTutorial" />
+    <ToastHost />
   </div>
 </template>
 

@@ -18,7 +18,7 @@ SearXNG) :
 | [`backend/`](backend/README.md) | API FastAPI (BFF) : auth Keycloak, CRUD collections/documents/runs, seul service à parler à Postgres/Qdrant/RustFS/au hub LLM | [backend/README.md](backend/README.md) |
 | [`worker/document_process/`](worker/document_process/README.md) | Worker Celery : ingère un document (parsing, OCR, chunking, résumé, QA, embeddings) | [worker/document_process/README.md](worker/document_process/README.md) |
 | [`worker/agent_execution/`](worker/agent_execution/README.md) | Worker Celery : exécute le graphe LangGraph de l'agent de recherche pour un run donné | [worker/agent_execution/README.md](worker/agent_execution/README.md) |
-| [`worker/evaluation/`](worker/evaluation/README.md) | Worker Celery : évalue le retrieval d'une collection contre ses paires QA validées (issue #11) | [worker/evaluation/README.md](worker/evaluation/README.md) |
+| [`worker/evaluation/`](worker/evaluation/README.md) | Worker Celery : évalue la factualité des réponses du pipeline sur les paires QA d'une collection, via promptfoo (issue #11) | [worker/evaluation/README.md](worker/evaluation/README.md) |
 | [`worker/document_edit/`](worker/document_edit/README.md) | Worker Celery : produit un brouillon d'un document vivant (ODT/Markdown) à partir d'un prompt, soumis à validation (issue #167) | [worker/document_edit/README.md](worker/document_edit/README.md) |
 
 Les quatre workers ne parlent jamais directement à Postgres/Qdrant/RustFS : ils passent
@@ -34,7 +34,7 @@ frontend ──HTTP──▶ backend ──┬──▶ Postgres
 
 backend ──Celery/Redis──▶ worker/document_process  (ingestion)
 backend ──Celery/Redis──▶ worker/agent_execution    (recherche)
-backend ──Celery/Redis──▶ worker/evaluation         (évaluation retrieval, queue dédiée)
+backend ──Celery/Redis──▶ worker/evaluation         (évaluation promptfoo, queue dédiée)
 backend ──Celery/Redis──▶ worker/document_edit      (édition d'un document vivant, queue dédiée)
 
 les quatre workers ──HTTP──▶ backend (/internal/*)

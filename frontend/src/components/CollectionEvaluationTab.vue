@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useCollections } from '../composables/useCollections'
 import { usePagination } from '../composables/usePagination'
-import type { Collection } from '../types/collection'
+import type { Collection, EvaluationRun } from '../types/collection'
+import { metricLabel, orderedMetricKeys } from '../utils/evaluationMetrics'
 import PaginationControls from './PaginationControls.vue'
 
 const props = defineProps<{
@@ -21,6 +22,31 @@ const evaluating = computed(() => isEvaluating(props.collection.id))
 
 const expandedRunId = ref<string>()
 
+function toggleExpand(runId: string) {
+  expandedRunId.value = expandedRunId.value === runId ? undefined : runId
+}
+
+// The run's promptfoo report is served by the backend (every access is checked) and
+// opened in a dedicated browser tab.
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
+
+// "Télécharger le rapport" opens a small menu to pick the format (HTML or JSON).
+// Only one run's menu is open at a time.
+const downloadMenuRunId = ref<string>()
+
+function toggleDownloadMenu(runId: string) {
+  downloadMenuRunId.value = downloadMenuRunId.value === runId ? undefined : runId
+}
+
+function onDocumentClick(event: MouseEvent) {
+  if (downloadMenuRunId.value && !(event.target as HTMLElement).closest('.eval-tab__download')) {
+    downloadMenuRunId.value = undefined
+  }
+}
+
+onMounted(() => document.addEventListener('click', onDocumentClick))
+onUnmounted(() => document.removeEventListener('click', onDocumentClick))
+
 const evaluableCount = computed(() => props.collection.qaPairs.filter((pair) => pair.source).length)
 const skippedCount = computed(() => props.collection.qaPairs.length - evaluableCount.value)
 
@@ -29,22 +55,66 @@ function formatDate(iso: string) {
   return dateFormatter.format(new Date(iso))
 }
 
-function toggleExpand(runId: string) {
-  expandedRunId.value = expandedRunId.value === runId ? undefined : runId
+// A metric score or a pass rate as a whole percentage - no decimals: these are shares of a
+// handful of questions, not precise scores. A metric a run didn't score, or a subset with
+// nothing to score, reads as "—" - never a misleading 0.
+function formatPercent(value: number | null | undefined) {
+  return value == null ? '—' : `${Math.round(value * 100)} %`
 }
 
-const METRIC_LABELS = [
-  { key: 'precisionAtK', label: 'Precision@k' },
-  { key: 'recallAtK', label: 'Recall@k' },
-  { key: 'mrr', label: 'MRR' },
-  { key: 'ndcg', label: 'NDCG' },
-] as const
+// The metrics to show as table rows: the union of whatever the run scored over any subset,
+// in the registry's stable order (utils/evaluationMetrics.ts).
+function metricKeys(run: EvaluationRun): string[] {
+  const keys = new Set<string>()
+  for (const source of [run.goldenMetrics, run.metrics, run.allMetrics]) {
+    if (source) for (const key of Object.keys(source)) keys.add(key)
+  }
+  return orderedMetricKeys(keys)
+}
+
+// The reference (non-golden) pairs: every evaluated pair that isn't a test question.
+function referencePairCount(run: EvaluationRun): number {
+  return run.pairCount - run.goldenPairCount
+}
 
 const STRATEGY_LABEL: Record<string, string> = {
   paragraph: 'Par paragraphe',
   fixed: 'Taille fixe',
   semantic: 'Sémantique',
   llm: 'Par LLM',
+}
+
+// The config_muffin block the worker replays into results.json (see tasks.py's
+// EvaluationConfig.config_muffin): the run's whole configuration, shown as-is under
+// "Détails techniques". A key with no label falls back to its raw name.
+const CONFIG_MUFFIN_LABELS: Record<string, string> = {
+  collection_id: 'Identifiant de la collection',
+  k: 'Extraits récupérés par question (k)',
+  judge_model: 'Modèle juge',
+  generator_model: 'Modèle de génération',
+  chunking_strategy: 'Découpage',
+  chunk_size: 'Taille des extraits (tokens)',
+  chunk_overlap: 'Chevauchement des extraits (tokens)',
+  embedding_model: "Modèle d'embedding",
+  validated_only: 'Questions validées uniquement',
+  content_hash: 'Empreinte de la configuration',
+  provider_code_sha256: 'Empreinte du code de génération',
+}
+
+function formatConfigValue(key: string, value: unknown): string {
+  if (value === null || value === undefined) return '—'
+  if (typeof value === 'boolean') return value ? 'Oui' : 'Non'
+  if (key === 'chunking_strategy' && typeof value === 'string') return STRATEGY_LABEL[value] ?? value
+  return String(value)
+}
+
+// The config_muffin entries as [label, value] pairs, in the block's own order.
+function configMuffinEntries(run: EvaluationRun): [string, string][] {
+  if (!run.configMuffin) return []
+  return Object.entries(run.configMuffin).map(([key, value]) => [
+    CONFIG_MUFFIN_LABELS[key] ?? key,
+    formatConfigValue(key, value),
+  ])
 }
 
 const EVAL_K = 5
@@ -57,13 +127,15 @@ const goldenCount = computed(() => props.collection.qaPairs.filter((pair) => pai
 <template>
   <div>
     <p class="eval-tab__intro">
-      Mesure la qualité du retrieval en interrogeant le pipeline avec les questions-réponses de la collection, puis
-      en comparant les chunks remontés aux documents attendus de chaque Q/R.
+      Mesure la qualité des réponses générées : chaque question-réponse évaluable (avec document source) est posée au
+      pipeline, puis un juge (modèle d'évaluation) note chaque réponse générée deux fois — sa factualité face à la
+      réponse attendue, et sa fidélité au contexte réellement récupéré par le pipeline (en dessous de 0,7, la paire est
+      signalée en rouge dans le rapport).
     </p>
     <p class="eval-tab__intro">
       Les <strong>questions de test</strong> ({{ goldenCount }}) sont écrites par une personne et ne sont dans aucun
-      index : leurs scores sont présentés à part, et ce sont ceux à suivre dans le temps. Les questions générées
-      viennent du texte même des documents, leurs scores sont plus flatteurs.
+      index : leurs scores forment une colonne à part dans le tableau, et ce sont ceux à suivre dans le temps. Les
+      <strong>questions de référence</strong> viennent du texte même des documents, leurs scores sont plus flatteurs.
     </p>
 
     <div class="eval-tab__launch">
@@ -96,27 +168,22 @@ const goldenCount = computed(() => props.collection.qaPairs.filter((pair) => pai
         <div class="eval-tab__run-header">
           <button type="button" class="eval-tab__run-toggle" @click="toggleExpand(run.id)">
             <span class="eval-tab__run-header-text">
-              <span class="eval-tab__run-date">{{ formatDate(run.runAt) }} · {{ run.pairCount }} paire(s) · k={{ run.k }}</span>
-              <span class="eval-tab__run-config">
-                {{ STRATEGY_LABEL[run.chunkingSnapshot.strategy] }}
-                <template v-if="run.chunkingSnapshot.strategy === 'paragraph' || run.chunkingSnapshot.strategy === 'fixed'">
-                  ({{ run.chunkingSnapshot.chunkSize }} tokens, chevauchement {{ run.chunkingSnapshot.chunkOverlap }})
-                </template>
-                · embedding {{ run.chunkingSnapshot.embeddingModel }} · LLM {{ run.llmModel }}
-              </span>
+              <span class="eval-tab__run-date">{{ formatDate(run.runAt) }} · {{ run.pairCount }} question(s)</span>
             </span>
-            <svg
-              viewBox="0 0 24 24"
-              width="16"
-              height="16"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.5"
-              :style="{ transform: expandedRunId === run.id ? 'rotate(180deg)' : 'none' }"
-              aria-hidden="true"
-            >
-              <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
-            </svg>
+            <span class="eval-tab__run-tail">
+              <svg
+                viewBox="0 0 24 24"
+                width="16"
+                height="16"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                :style="{ transform: expandedRunId === run.id ? 'rotate(180deg)' : 'none' }"
+                aria-hidden="true"
+              >
+                <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+              </svg>
+            </span>
           </button>
           <button
             type="button"
@@ -130,63 +197,129 @@ const goldenCount = computed(() => props.collection.qaPairs.filter((pair) => pai
           </button>
         </div>
 
-        <div v-if="run.goldenMetrics" class="eval-tab__group eval-tab__group--golden">
-          <p class="eval-tab__group-title">
-            Questions de test
-            <span class="eval-tab__group-count">{{ run.goldenMetrics.pairCount }} question(s)</span>
-          </p>
-          <div class="eval-tab__metrics">
-            <div v-for="metric in METRIC_LABELS" :key="metric.key" class="eval-tab__metric">
-              <span class="eval-tab__metric-value">{{ run.goldenMetrics[metric.key].toFixed(2) }}</span>
-              <span class="eval-tab__metric-label">{{ metric.label }}</span>
-            </div>
+        <div class="eval-tab__run-passes">
+          <div v-if="run.goldenPassRate !== null" class="eval-tab__run-pass">
+            <span class="eval-tab__run-pass-value">{{ formatPercent(run.goldenPassRate) }}</span>
+            <span class="eval-tab__run-pass-label">réussite sur les questions de test</span>
           </div>
-          <p v-if="run.goldenMetrics.pairCount < GOLDEN_RELIABLE_COUNT" class="eval-tab__group-note">
-            Seulement {{ run.goldenMetrics.pairCount }} question(s) : une variation de score d'un test à l'autre peut
-            n'être que du bruit.
-          </p>
-        </div>
-
-        <div v-if="run.metrics" class="eval-tab__group">
-          <p class="eval-tab__group-title">Questions générées et de référence</p>
-          <div class="eval-tab__metrics">
-            <div v-for="metric in METRIC_LABELS" :key="metric.key" class="eval-tab__metric">
-              <span class="eval-tab__metric-value">{{ run.metrics[metric.key].toFixed(2) }}</span>
-              <span class="eval-tab__metric-label">{{ metric.label }}</span>
-            </div>
+          <div v-if="run.referencePassRate !== null" class="eval-tab__run-pass">
+            <span class="eval-tab__run-pass-value">{{ formatPercent(run.referencePassRate) }}</span>
+            <span class="eval-tab__run-pass-label">réussite sur les questions de référence</span>
+          </div>
+          <div v-if="run.overallPassRate !== null" class="eval-tab__run-pass">
+            <span class="eval-tab__run-pass-value">{{ formatPercent(run.overallPassRate) }}</span>
+            <span class="eval-tab__run-pass-label">réussite globale</span>
           </div>
         </div>
 
-        <div v-if="expandedRunId === run.id" class="eval-tab__results">
-          <div v-for="result in run.results" :key="result.qaPairId" class="eval-tab__result">
-            <p class="eval-tab__result-question">
-              <span v-if="result.golden" class="eval-tab__badge">Test</span>
-              {{ result.question }}
+        <div v-if="expandedRunId === run.id" class="eval-tab__run-detail">
+          <div v-if="run.hasArtifacts" class="eval-tab__table-wrap">
+            <table class="eval-tab__table">
+              <thead>
+                <tr>
+                  <th scope="col">Métrique</th>
+                  <th scope="col">
+                    Questions de test
+                    <span class="eval-tab__table-count">nombre : {{ run.goldenPairCount }}</span>
+                  </th>
+                  <th scope="col">
+                    Questions de référence
+                    <span class="eval-tab__table-count">nombre : {{ referencePairCount(run) }}</span>
+                  </th>
+                  <th scope="col">
+                    Toutes les questions
+                    <span class="eval-tab__table-count">nombre : {{ run.pairCount }}</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th scope="row">Taux de succès</th>
+                  <td>{{ formatPercent(run.goldenPassRate) }}</td>
+                  <td>{{ formatPercent(run.referencePassRate) }}</td>
+                  <td>{{ formatPercent(run.overallPassRate) }}</td>
+                </tr>
+                <!-- One row per metric the run actually scored - a metric it predates
+                     simply doesn't appear, never a misleading 0 -->
+                <tr v-for="key in metricKeys(run)" :key="key">
+                  <th scope="row">{{ metricLabel(key) }}</th>
+                  <td>{{ formatPercent(run.goldenMetrics?.[key]) }}</td>
+                  <td>{{ formatPercent(run.metrics?.[key]) }}</td>
+                  <td>{{ formatPercent(run.allMetrics?.[key]) }}</td>
+                </tr>
+              </tbody>
+            </table>
+            <p class="eval-tab__group-note">
+              Questions de référence : {{ run.validatedPairCount }} validée(s) ·
+              {{ run.unvalidatedPairCount }} non validée(s).
             </p>
+            <p v-if="run.goldenPairCount < GOLDEN_RELIABLE_COUNT" class="eval-tab__group-note">
+              Seulement {{ run.goldenPairCount }} question(s) de test : une variation de score d'un test à l'autre peut
+              n'être que du bruit.
+            </p>
+          </div>
 
-            <div class="eval-tab__result-answers">
-              <div>
-                <span class="eval-tab__label">Réponse attendue</span>
-                <p>{{ result.expectedAnswer }}</p>
+          <details v-if="run.configMuffin" class="eval-tab__tech">
+            <summary class="eval-tab__tech-summary">Détails techniques</summary>
+            <dl class="eval-tab__tech-list">
+              <div v-for="[label, value] in configMuffinEntries(run)" :key="label" class="eval-tab__tech-row">
+                <dt>{{ label }}</dt>
+                <dd>{{ value }}</dd>
               </div>
-              <div>
-                <span class="eval-tab__label">Réponse générée</span>
-                <p>{{ result.generatedAnswer }}</p>
+            </dl>
+          </details>
+
+          <div v-if="run.hasArtifacts" class="eval-tab__artifacts">
+            <a
+              class="fr-btn fr-btn--sm fr-btn--tertiary"
+              :href="`${API_BASE_URL}/api/collections/${collection.id}/evaluations/${run.id}/report`"
+              target="_blank"
+              rel="noopener"
+            >
+              Ouvrir le rapport détaillé dans un onglet
+            </a>
+            <div class="eval-tab__download">
+              <button
+                type="button"
+                class="fr-btn fr-btn--sm fr-btn--tertiary eval-tab__download-btn"
+                :aria-expanded="downloadMenuRunId === run.id"
+                aria-haspopup="menu"
+                @click="toggleDownloadMenu(run.id)"
+              >
+                Télécharger le rapport
+                <svg
+                  viewBox="0 0 24 24"
+                  width="14"
+                  height="14"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  :style="{ transform: downloadMenuRunId === run.id ? 'rotate(180deg)' : 'none' }"
+                  aria-hidden="true"
+                >
+                  <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+                </svg>
+              </button>
+              <div v-if="downloadMenuRunId === run.id" class="eval-tab__download-menu" role="menu">
+                <a
+                  class="eval-tab__download-item"
+                  role="menuitem"
+                  :href="`${API_BASE_URL}/api/collections/${collection.id}/evaluations/${run.id}/report?download=1`"
+                  download
+                  @click="downloadMenuRunId = undefined"
+                >
+                  Rapport HTML
+                </a>
+                <a
+                  class="eval-tab__download-item"
+                  role="menuitem"
+                  :href="`${API_BASE_URL}/api/collections/${collection.id}/evaluations/${run.id}/results.json`"
+                  download
+                  @click="downloadMenuRunId = undefined"
+                >
+                  Rapport JSON
+                </a>
               </div>
-            </div>
-
-            <div class="eval-tab__result-sources">
-              <span class="eval-tab__label">Sources récupérées</span>
-              <span v-for="source in result.retrievedSources" :key="source" class="eval-tab__chip">
-                {{ source }}
-              </span>
-            </div>
-
-            <div class="eval-tab__result-metrics">
-              <span>Precision@k {{ result.precisionAtK.toFixed(2) }}</span>
-              <span>Recall@k {{ result.recallAtK.toFixed(2) }}</span>
-              <span>RR {{ result.reciprocalRank.toFixed(2) }}</span>
-              <span>NDCG {{ result.ndcg.toFixed(2) }}</span>
             </div>
           </div>
         </div>
@@ -264,6 +397,44 @@ const goldenCount = computed(() => props.collection.qaPairs.filter((pair) => pai
   margin-top: 0.125rem;
 }
 
+/* The pass rate and the expand arrow, kept together on the right of the header. */
+.eval-tab__run-tail {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-shrink: 0;
+}
+
+.eval-tab__run-tail svg {
+  margin-top: 0;
+}
+
+/* The three pass rates, on their own row under the header so they have room to
+   breathe - always visible, collapsed or not. */
+.eval-tab__run-passes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  margin-top: 0.75rem;
+}
+
+.eval-tab__run-pass {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1.15;
+}
+
+.eval-tab__run-pass-value {
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.eval-tab__run-pass-label {
+  font-size: 0.6875rem;
+  color: var(--text-mention-grey);
+}
+
 .eval-tab__delete-btn {
   flex-shrink: 0;
   margin-top: -0.125rem;
@@ -280,32 +451,45 @@ const goldenCount = computed(() => props.collection.qaPairs.filter((pair) => pai
   font-weight: 700;
 }
 
-.eval-tab__run-config {
-  font-size: 0.75rem;
-  color: var(--text-mention-grey);
-}
-
-.eval-tab__group {
-  margin-top: 0.75rem;
-}
-
-.eval-tab__group--golden {
-  padding: 0.625rem 0.875rem;
-  border-left: 3px solid var(--border-action-high-blue-france);
-  background: var(--background-alt-blue-france);
-  border-radius: 0.25rem;
-}
-
-.eval-tab__group-title {
-  margin: 0;
+/* The run's whole configuration, replayed from results.json - collapsed by default. */
+.eval-tab__tech {
   font-size: 0.8125rem;
-  font-weight: 700;
 }
 
-.eval-tab__group-count {
-  margin-left: 0.5rem;
-  font-weight: 400;
+.eval-tab__tech-summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--text-default-grey);
+}
+
+.eval-tab__tech-list {
+  margin: 0.75rem 0 0;
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.375rem 1rem;
+}
+
+.eval-tab__tech-row {
+  display: contents;
+}
+
+.eval-tab__tech-row dt {
   color: var(--text-mention-grey);
+}
+
+.eval-tab__tech-row dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  word-break: break-all;
+}
+
+.eval-tab__run-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 0.875rem;
+  padding-top: 0.875rem;
+  border-top: 1px solid var(--border-default-grey);
 }
 
 .eval-tab__group-note {
@@ -314,99 +498,91 @@ const goldenCount = computed(() => props.collection.qaPairs.filter((pair) => pai
   color: var(--text-mention-grey);
 }
 
-.eval-tab__badge {
-  margin-right: 0.375rem;
-  padding: 0.0625rem 0.5rem;
-  border-radius: 0.75rem;
-  background: var(--background-alt-blue-france);
-  color: var(--text-action-high-blue-france);
-  font-size: 0.6875rem;
-  font-weight: 700;
+/* The scores as a grid: one row per metric, one column per question subset. */
+.eval-tab__table-wrap {
+  overflow-x: auto;
 }
 
-.eval-tab__metrics {
-  display: flex;
-  gap: 1.5rem;
-  margin-top: 0.375rem;
-}
-
-.eval-tab__metric {
-  display: flex;
-  flex-direction: column;
-}
-
-.eval-tab__metric-value {
-  font-size: 1.25rem;
-  font-weight: 700;
-}
-
-.eval-tab__metric-label {
-  font-size: 0.75rem;
-  color: var(--text-mention-grey);
-}
-
-.eval-tab__results {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  margin-top: 1rem;
-}
-
-.eval-tab__result {
-  padding: 0.75rem;
-  border-radius: 0.375rem;
-  background: var(--background-alt-grey);
+.eval-tab__table {
+  width: 100%;
+  border-collapse: collapse;
   font-size: 0.8125rem;
 }
 
-.eval-tab__result-question {
-  margin: 0 0 0.5rem;
+.eval-tab__table th,
+.eval-tab__table td {
+  padding: 0.5rem 0.75rem;
+  text-align: right;
+  border-bottom: 1px solid var(--border-default-grey);
+}
+
+.eval-tab__table th:first-child,
+.eval-tab__table td:first-child {
+  text-align: left;
+}
+
+.eval-tab__table thead th {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-mention-grey);
+  vertical-align: bottom;
+}
+
+.eval-tab__table tbody th {
   font-weight: 700;
 }
 
-.eval-tab__label {
+.eval-tab__table tbody td {
+  font-variant-numeric: tabular-nums;
+}
+
+.eval-tab__table-count {
   display: block;
+  font-weight: 400;
   font-size: 0.6875rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
-  color: var(--text-mention-grey);
-  margin-bottom: 0.125rem;
 }
 
-.eval-tab__result-answers {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.75rem;
-}
-
-.eval-tab__result-answers p {
-  margin: 0;
-}
-
-.eval-tab__result-sources {
+.eval-tab__artifacts {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 0.375rem;
-  margin-top: 0.625rem;
+  gap: 1.25rem;
+  font-size: 0.8125rem;
 }
 
-.eval-tab__chip {
-  padding: 0.0625rem 0.5rem;
-  border-radius: 0.75rem;
+.eval-tab__download {
+  position: relative;
+  display: inline-flex;
+}
+
+.eval-tab__download-btn {
+  gap: 0.5rem;
+}
+
+.eval-tab__download-menu {
+  position: absolute;
+  top: calc(100% + 0.25rem);
+  left: 0;
+  z-index: 100;
+  min-width: max-content;
+  padding: 0.25rem;
   background: var(--background-default-grey);
-  font-size: 0.75rem;
+  border: 1px solid var(--border-default-grey);
+  border-radius: 0.5rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
-.eval-tab__result-metrics {
-  display: flex;
-  gap: 1rem;
-  margin-top: 0.625rem;
-  padding-top: 0.5rem;
-  border-top: 1px solid var(--border-default-grey);
-  font-size: 0.75rem;
-  color: var(--text-mention-grey);
+.eval-tab__download-item {
+  display: block;
+  padding: 0.5rem 0.625rem;
+  border-radius: 0.375rem;
+  color: var(--text-default-grey);
+  font-size: 0.8125rem;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.eval-tab__download-item:hover {
+  background: var(--background-alt-grey-hover);
 }
 
 .eval-tab__empty {

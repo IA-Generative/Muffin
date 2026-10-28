@@ -33,7 +33,7 @@ USER worker
 ENV PATH="/app/.venv/bin:$PATH"
 ENV TESSDATA_PATH="/usr/share/tesseract-ocr/5/tessdata"
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-  CMD celery -A app.celery_app inspect ping -d celery@$$HOSTNAME || exit 1
+  CMD celery -A app.celery_app inspect ping -d celery@$HOSTNAME || exit 1
 # One image, three pods (#291), each started with its own queues - this default is the extraction
 # one; the enrichment and import/rebuild pods override it (docker-compose.yaml, Helm values).
 # document_processing, the queue before #291, is drained for one release.

@@ -93,8 +93,41 @@ async def test_chat_returns_completion_content(client, monkeypatch):
     }
 
 
-async def test_default_chat_model_discovers_and_caches(client, monkeypatch):
-    fake_client = _fake_openai_client(["gpt-4o", "mistral-small"], chat_capable_ids={"gpt-4o", "mistral-small"})
+async def test_chat_forwards_temperature_when_set(client, monkeypatch):
+    # The evaluation judge pins temperature 0 through this endpoint; an omitted temperature
+    # must stay omitted (the OpenAI SDK treats an explicit None differently).
+    fake_client = _fake_openai_client(["gpt-4o"], chat_capable_ids={"gpt-4o"})
+    monkeypatch.setattr(internal_llm, "_openai_client", fake_client)
+
+    response = await client.post(
+        "/api/internal/llm/chat",
+        headers=_headers(),
+        json={"model": "gpt-4o", "messages": [{"role": "user", "content": "hi"}], "temperature": 0},
+    )
+
+    assert response.status_code == 200
+    assert fake_client.chat.completions.create.await_args.kwargs["temperature"] == 0
+
+
+async def test_chat_omits_temperature_when_not_set(client, monkeypatch):
+    fake_client = _fake_openai_client(["gpt-4o"], chat_capable_ids={"gpt-4o"})
+    monkeypatch.setattr(internal_llm, "_openai_client", fake_client)
+
+    response = await client.post(
+        "/api/internal/llm/chat",
+        headers=_headers(),
+        json={"model": "gpt-4o", "messages": [{"role": "user", "content": "hi"}]},
+    )
+
+    assert response.status_code == 200
+    assert "temperature" not in fake_client.chat.completions.create.await_args.kwargs
+
+
+async def test_default_chat_model_probes_until_the_first_supported_model(client, monkeypatch):
+    # The default path only ever wants the first model: it probes in order and stops at the
+    # first success, rather than sweeping every model at once (which trips the hub's rate
+    # limiter). It never writes the full-list cache - that is the UI's /models route's job.
+    fake_client = _fake_openai_client(["a-embed", "b-chat", "c-chat"], chat_capable_ids={"b-chat", "c-chat"})
     monkeypatch.setattr(internal_llm, "_openai_client", fake_client)
 
     with patch("app.routers.internal_llm.redis_connector") as mock_redis:
@@ -102,10 +135,10 @@ async def test_default_chat_model_discovers_and_caches(client, monkeypatch):
         response = await client.get("/api/internal/llm/default-chat-model", headers=_headers())
 
     assert response.status_code == 200
-    assert response.json() == {"model": "gpt-4o"}
-    cached_key, cached_value = mock_redis.client.set.call_args[0]
-    assert cached_key == internal_llm._CHAT_MODELS_CACHE_KEY
-    assert json.loads(cached_value) == ["gpt-4o", "mistral-small"]
+    assert response.json() == {"model": "b-chat"}
+    # a-embed (not chat-capable) then b-chat: two probes, and c-chat is never reached.
+    assert fake_client.chat.completions.create.await_count == 2
+    mock_redis.client.set.assert_not_called()
 
 
 async def test_default_chat_model_uses_cache(client, monkeypatch):
@@ -119,6 +152,19 @@ async def test_default_chat_model_uses_cache(client, monkeypatch):
     assert response.status_code == 200
     assert response.json() == {"model": "cached-model"}
     fake_client.models.list.assert_not_called()
+
+
+async def test_default_chat_model_returns_none_when_no_model_supports_chat(client, monkeypatch):
+    fake_client = _fake_openai_client(["gpt-4o"], chat_capable_ids=set())
+    monkeypatch.setattr(internal_llm, "_openai_client", fake_client)
+
+    with patch("app.routers.internal_llm.redis_connector") as mock_redis:
+        mock_redis.client.get.return_value = None
+        response = await client.get("/api/internal/llm/default-chat-model", headers=_headers())
+
+    assert response.status_code == 200
+    assert response.json() == {"model": None}
+    mock_redis.client.set.assert_not_called()
 
 
 async def test_default_chat_model_returns_none_when_not_configured(client, monkeypatch):

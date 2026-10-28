@@ -1,5 +1,3 @@
-import asyncio
-import json
 from collections.abc import Awaitable, Callable
 from typing import Annotated
 
@@ -7,10 +5,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from openai import AsyncOpenAI
 
 from app.config import LlmSettings
-from app.connectors import redis_connector
 from app.core.security.factory import RequestContext, get_current_user
 from app.logger import logger
 from app.schemas.models import LlmModel, LlmModelsResponse
+from app.services import llm_model_discovery
 
 router = APIRouter(tags=["Models"])
 
@@ -28,9 +26,10 @@ _openai_client = (
 
 
 async def _supports_chat(model_id: str) -> bool:
-    """The hub's /models endpoint lists everything it serves (embeddings, TTS,
-    vision-only, ...), not just chat models - the only reliable way to tell
-    them apart is to actually try a chat completion."""
+    """Fallback for a hub that doesn't report capabilities: the /models endpoint lists everything
+    it serves (embeddings, TTS, vision-only, ...), so the only way to tell them apart is to
+    actually try a chat completion. See llm_model_discovery.reported_operation - the hub we
+    target reports capabilities, so this is only reached when it doesn't."""
     try:
         await _openai_client.chat.completions.create(
             model=model_id,
@@ -52,24 +51,13 @@ async def _supports_embeddings(model_id: str) -> bool:
         return False
 
 
-async def _discover_models(probe: Callable[[str], Awaitable[bool]]) -> list[str]:
-    available = await _openai_client.models.list()
-    candidate_ids = [model.id for model in available.data]
-    supported = await asyncio.gather(*(probe(model_id) for model_id in candidate_ids))
-    return sorted(model_id for model_id, ok in zip(candidate_ids, supported, strict=True) if ok)
-
-
-async def _list_models(cache_key: str, probe: Callable[[str], Awaitable[bool]]) -> LlmModelsResponse:
+async def _list_models(cache_key: str, operation: str, probe: Callable[[str], Awaitable[bool]]) -> LlmModelsResponse:
     if _openai_client is None:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="LLM hub is not configured")
 
-    cached = redis_connector.client.get(cache_key)
-    if cached is not None:
-        model_ids = json.loads(cached)
-    else:
-        model_ids = await _discover_models(probe)
-        redis_connector.client.set(cache_key, json.dumps(model_ids), ex=_llm_settings.CHAT_MODELS_CACHE_TTL_SECONDS)
-
+    model_ids = await llm_model_discovery.cached_models(
+        _openai_client, cache_key, operation, probe, _llm_settings.CHAT_MODELS_CACHE_TTL_SECONDS
+    )
     return LlmModelsResponse(models=[LlmModel(id=model_id) for model_id in model_ids])
 
 
@@ -79,7 +67,7 @@ async def _list_models(cache_key: str, probe: Callable[[str], Awaitable[bool]]) 
     response_model=LlmModelsResponse,
 )
 async def list_models(_: Annotated[RequestContext, Depends(get_current_user)]) -> LlmModelsResponse:
-    return await _list_models(CHAT_CACHE_KEY, _supports_chat)
+    return await _list_models(CHAT_CACHE_KEY, "chat", _supports_chat)
 
 
 @router.get(
@@ -88,4 +76,4 @@ async def list_models(_: Annotated[RequestContext, Depends(get_current_user)]) -
     response_model=LlmModelsResponse,
 )
 async def list_embedding_models(_: Annotated[RequestContext, Depends(get_current_user)]) -> LlmModelsResponse:
-    return await _list_models(EMBEDDING_CACHE_KEY, _supports_embeddings)
+    return await _list_models(EMBEDDING_CACHE_KEY, "embed", _supports_embeddings)

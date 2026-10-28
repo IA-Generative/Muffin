@@ -1,9 +1,8 @@
 import uuid
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel
-
-from app.models.collection import ChunkingStrategy
 
 
 class EvaluationTriggerRequest(BaseModel):
@@ -17,60 +16,48 @@ class EvaluationTriggerRequest(BaseModel):
     validated_only: bool = False
 
 
-class EvaluationResultSourceOut(BaseModel):
-    source: str
+class EvaluationStatusOut(BaseModel):
+    """Whether an evaluation is currently queued or running for a collection - lets the UI
+    restore its in-progress state after a reload (see EvaluationService.is_running)."""
 
-
-class EvaluationResultOut(BaseModel):
-    id: uuid.UUID
-    qa_pair_id: uuid.UUID | None
-    question: str
-    expected_answer: str
-    generated_answer: str
-    precision_at_k: float
-    recall_at_k: float
-    reciprocal_rank: float
-    ndcg: float
-    validated: bool
-    golden: bool = False
-    retrieved_sources: list[str]
+    running: bool
 
 
 class EvaluationRunOut(BaseModel):
     id: uuid.UUID
     collection_id: uuid.UUID
     created_at: datetime
-    k: int
     pair_count: int
+    # The judge model (the collection's "evaluation" generation model).
     llm_model: str
-    snapshot_chunking_strategy: ChunkingStrategy
-    snapshot_chunk_size: int
-    snapshot_chunk_overlap: int
-    snapshot_embedding_model: str
-    # Global aggregate over the pairs that aren't golden - None when the run only had golden pairs.
-    precision_at_k: float | None
-    recall_at_k: float | None
-    mrr: float | None
-    ndcg: float | None
-    # The golden (test) pairs, scored apart - the numbers to follow over time. None when there are none.
+    # The golden (test) pairs, scored apart - the numbers to follow over time.
     golden_pair_count: int = 0
-    golden_precision_at_k: float | None = None
-    golden_recall_at_k: float | None = None
-    golden_mrr: float | None = None
-    golden_ndcg: float | None = None
-    # Same four metrics, broken down by whether the QA pair was validated at evaluation time -
-    # None when that subset is empty (see EvaluationRun's own docstring).
     validated_pair_count: int
-    validated_precision_at_k: float | None
-    validated_recall_at_k: float | None
-    validated_mrr: float | None
-    validated_ndcg: float | None
     unvalidated_pair_count: int
-    unvalidated_precision_at_k: float | None
-    unvalidated_recall_at_k: float | None
-    unvalidated_mrr: float | None
-    unvalidated_ndcg: float | None
-    # SHA-256 of (QA pairs + chunking settings + embedding model + k + llm_model) - present when
-    # the worker computed it for dedup (see EvaluationRun.content_hash).
+    # SHA-256 of (QA pairs + chunking settings + embedding model + k + judge model + generator
+    # model + scored metrics) - present when the worker computed it for dedup (see
+    # EvaluationRun.content_hash).
     content_hash: str | None = None
-    results: list[EvaluationResultOut]
+    # Score averages over the reference (non-golden) / golden / every pair, keyed by metric
+    # name - the keys are whatever the run's artifact actually scored (the worker's assertions
+    # decide, see worker/evaluation/app/promptfoo/create_tests.py), so a new metric
+    # flows through with zero backend change. None when that subset is empty, when
+    # nothing was scored, or when the run predates the promptfoo migration (no
+    # artifact) - a metric a run predates simply doesn't appear in its dict.
+    metrics: dict[str, float] | None
+    golden_metrics: dict[str, float] | None
+    all_metrics: dict[str, float] | None
+    # The share of golden (test) pairs that passed (every assertion at or above its
+    # threshold), in [0, 1] - None when the run has no golden pair or no artifact.
+    golden_pass_rate: float | None = None
+    # The same share over the reference (non-golden) pairs, and over every pair of the
+    # run - each None when its subset is empty or the run has no artifact.
+    reference_pass_rate: float | None = None
+    overall_pass_rate: float | None = None
+    # Whether the report/results.json artifacts exist (download links, report preview) -
+    # False on the runs predating the promptfoo migration.
+    has_artifacts: bool
+    # The worker's config_muffin block, replayed into results.json (see tasks.py's
+    # EvaluationConfig.config_muffin): the run's whole configuration, shown as-is under the
+    # UI's "Détails techniques". None when the run has no readable artifact.
+    config_muffin: dict[str, Any] | None = None

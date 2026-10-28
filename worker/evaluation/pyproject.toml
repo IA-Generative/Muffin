@@ -8,6 +8,7 @@ dependencies = [
     "httpx>=0.28.1",
     "pydantic-settings>=2.15.0",
     "loguru>=0.7.3",
+    "pyyaml>=6.0.3",
 ]
 
 [dependency-groups]
@@ -26,6 +27,11 @@ select = ["E", "F", "I", "UP", "B"]
 
 [tool.pytest.ini_options]
 env_files = ["tests/.env.testing"]
+# Integration tests need the real promptfoo binary (see worker/evaluation/Dockerfile). They run
+# in their own CI job, never in the default suite, so a missing binary fails loudly there
+# instead of hiding as a silent skip here.
+markers = ["integration: needs the real promptfoo binary (see worker/evaluation/Dockerfile)"]
+addopts = "-m 'not integration'"
 
 [build-system]
 requires = ["hatchling"]

@@ -55,6 +55,8 @@ async def test_get_collection_settings_merges_saved_and_default_windows(client):
 
     assert response.status_code == 200
     body = response.json()
+    # The collection's title rides along so the worker can label its artifacts with it.
+    assert body["name"] == "Test"
     assert body["instructions"]["summary"] == "Be concise."
     assert body["generation_models"]["summary"] == "gpt-4o"
     # Saved key is present, but this endpoint returns the raw stored dict -

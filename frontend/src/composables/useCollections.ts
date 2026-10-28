@@ -1,8 +1,8 @@
 import { computed, ref } from 'vue'
 import { router } from '../router'
+import { pushToast } from './useToast'
 import type {
   ChunkingSettings,
-  ChunkStrategy,
   Chunk,
   Collection,
   CollectionDocument,
@@ -311,7 +311,10 @@ const TAB_LOADERS: Record<string, (id: string) => void | Promise<void>> = {
   qa: refreshQaPairs,
   chunks: refreshChunks,
   relations: refreshEntitiesAndRelations,
-  evaluation: refreshEvaluation,
+  evaluation: async (id) => {
+    await refreshEvaluation(id)
+    await refreshEvaluationStatus(id)
+  },
   settings: async (id) => {
     await Promise.all([refreshShares(id), refreshIndexRebuild(id)])
   },
@@ -408,8 +411,8 @@ function descendantsOf(id: string): Collection[] {
   return collections.value.filter((collection) => collection.path.some((item) => item.id === id))
 }
 
-// CollectionOut doesn't embed documents/qaPairs/entities/relations/chunks/shares (see
-// toCollection's comments) - every PATCH response would otherwise wipe whatever was already
+// CollectionOut doesn't embed documents/qaPairs/entities/relations/chunks/evaluationRuns/shares
+// (see toCollection's comments) - every PATCH response would otherwise wipe whatever was already
 // loaded for those. Carries the previous entry's sub-resources forward instead of losing them.
 function replaceCollection(id: string, next: Collection) {
   const index = collections.value.findIndex((item) => item.id === id)
@@ -422,6 +425,7 @@ function replaceCollection(id: string, next: Collection) {
     entities: previous.entities,
     relations: previous.relations,
     chunks: previous.chunks,
+    evaluationRuns: previous.evaluationRuns,
     shares: previous.shares,
   }
 }
@@ -659,39 +663,29 @@ async function refreshEntitiesAndRelations(collectionId: string) {
   }
 }
 
-// Backend EvaluationRunOut is snake_case and has validated/unvalidated breakdowns the
-// frontend doesn't use yet - we map to the simpler EvaluationRun shape the UI expects.
+// Backend EvaluationRunOut is snake_case - we map to the EvaluationRun shape the UI
+// expects.
 interface EvaluationRunOut {
   id: string
   created_at: string
-  k: number
   pair_count: number
-  llm_model: string
-  snapshot_chunking_strategy: string
-  snapshot_chunk_size: number
-  snapshot_chunk_overlap: number
-  snapshot_embedding_model: string
-  precision_at_k: number | null
-  recall_at_k: number | null
-  mrr: number | null
-  ndcg: number | null
   golden_pair_count: number
-  golden_precision_at_k: number | null
-  golden_recall_at_k: number | null
-  golden_mrr: number | null
-  golden_ndcg: number | null
-  results: {
-    qa_pair_id: string | null
-    golden: boolean
-    question: string
-    expected_answer: string
-    generated_answer: string
-    precision_at_k: number
-    recall_at_k: number
-    reciprocal_rank: number
-    ndcg: number
-    retrieved_sources: string[]
-  }[]
+  validated_pair_count: number
+  unvalidated_pair_count: number
+  llm_model: string
+  // Score averages computed from the run's results.json artifact, keyed by metric
+  // name - the keys are whatever the run's assertions actually scored (the metric
+  // names are their own API keys, no case conversion). Null when that subset is
+  // empty, when nothing was scored, or when the run predates the promptfoo
+  // migration; a metric a run predates simply doesn't appear.
+  metrics: Record<string, number> | null
+  golden_metrics: Record<string, number> | null
+  all_metrics: Record<string, number> | null
+  golden_pass_rate: number | null
+  reference_pass_rate: number | null
+  overall_pass_rate: number | null
+  has_artifacts: boolean
+  config_muffin: Record<string, unknown> | null
 }
 
 async function refreshEvaluation(collectionId: string) {
@@ -707,49 +701,53 @@ async function refreshEvaluation(collectionId: string) {
     collection.evaluationRuns = runs.map((run) => ({
       id: run.id,
       runAt: run.created_at,
-      k: run.k,
       pairCount: run.pair_count,
+      goldenPairCount: run.golden_pair_count,
+      validatedPairCount: run.validated_pair_count,
+      unvalidatedPairCount: run.unvalidated_pair_count,
       llmModel: run.llm_model,
-      chunkingSnapshot: {
-        strategy: run.snapshot_chunking_strategy as ChunkStrategy,
-        chunkSize: run.snapshot_chunk_size,
-        chunkOverlap: run.snapshot_chunk_overlap,
-        embeddingModel: run.snapshot_embedding_model,
-      },
-      metrics:
-        run.precision_at_k === null || run.recall_at_k === null || run.mrr === null || run.ndcg === null
-          ? null
-          : { precisionAtK: run.precision_at_k, recallAtK: run.recall_at_k, mrr: run.mrr, ndcg: run.ndcg },
-      goldenMetrics:
-        run.golden_pair_count > 0 &&
-        run.golden_precision_at_k !== null &&
-        run.golden_recall_at_k !== null &&
-        run.golden_mrr !== null &&
-        run.golden_ndcg !== null
-          ? {
-              pairCount: run.golden_pair_count,
-              precisionAtK: run.golden_precision_at_k,
-              recallAtK: run.golden_recall_at_k,
-              mrr: run.golden_mrr,
-              ndcg: run.golden_ndcg,
-            }
-          : null,
-      results: run.results.map((result) => ({
-        qaPairId: result.qa_pair_id ?? '',
-        question: result.question,
-        expectedAnswer: result.expected_answer,
-        generatedAnswer: result.generated_answer,
-        retrievedSources: result.retrieved_sources,
-        precisionAtK: result.precision_at_k,
-        recallAtK: result.recall_at_k,
-        reciprocalRank: result.reciprocal_rank,
-        ndcg: result.ndcg,
-        golden: result.golden,
-      })),
+      // The backend only sends a metrics object when at least one metric was scored -
+      // and the metric names are their own keys, so the dicts pass through as-is.
+      metrics: run.metrics,
+      goldenMetrics: run.golden_metrics,
+      allMetrics: run.all_metrics,
+      goldenPassRate: run.golden_pass_rate,
+      referencePassRate: run.reference_pass_rate,
+      overallPassRate: run.overall_pass_rate,
+      hasArtifacts: run.has_artifacts,
+      configMuffin: run.config_muffin,
     }))
   } catch {
     // Ignored: same as refreshQaPairs above.
   }
+}
+
+// Whether the backend still has an evaluation queued or running for this collection. Returns
+// null when the status can't be read (network error, non-OK response): the caller then keeps
+// polling rather than concluding the run is over.
+async function fetchEvaluationRunning(collectionId: string): Promise<boolean | null> {
+  try {
+    const response = await fetch(
+      `${API_BASE_URL}/api/collections/${collectionId}/evaluations/status`,
+      { credentials: 'include' },
+    )
+    if (!response.ok) return null
+    const body: { running: boolean } = await response.json()
+    return body.running
+  } catch {
+    return null
+  }
+}
+
+// The in-progress flag (evaluatingCollectionIds) is in-memory only, so a reload would lose
+// it while the worker keeps running. Ask the backend whether an evaluation is still queued
+// or running for this collection, and if so restore the flag and resume polling.
+async function refreshEvaluationStatus(collectionId: string) {
+  const running = await fetchEvaluationRunning(collectionId)
+  if (running !== true) return
+  evaluatingCollectionIds.value.add(collectionId)
+  evaluatingCollectionIds.value = new Set(evaluatingCollectionIds.value)
+  pollEvaluationWhileRunning(collectionId)
 }
 
 function pollDocumentsWhileProcessing(collectionId: string) {
@@ -1297,6 +1295,8 @@ const EVAL_K = 5
 const evaluationPolls = new Map<string, ReturnType<typeof setInterval>>()
 // Reactive set of collection IDs currently running an evaluation.
 const evaluatingCollectionIds = ref<Set<string>>(new Set())
+// Formats the "already evaluated on ..." date shown when a trigger is deduped server-side.
+const skipDateFormatter = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })
 
 function isEvaluating(collectionId: string): boolean {
   return evaluatingCollectionIds.value.has(collectionId)
@@ -1329,6 +1329,25 @@ async function runEvaluation(collectionId: string) {
       evaluatingCollectionIds.value = new Set(evaluatingCollectionIds.value)
       return
     }
+    const body = (await response.json().catch(() => null)) as
+      | { status?: string; existing_run_id?: string; existing_run_created_at?: string }
+      | null
+    if (body?.status === 'skipped' && body.existing_run_id) {
+      // Identical run already persisted - nothing was dispatched, so there is nothing to
+      // poll for: explain the skip via a toast (auto-dismissed) and stop here.
+      evaluatingCollectionIds.value.delete(collectionId)
+      evaluatingCollectionIds.value = new Set(evaluatingCollectionIds.value)
+      const createdAt = body.existing_run_created_at
+        ? ` le ${skipDateFormatter.format(new Date(body.existing_run_created_at))}`
+        : ''
+      pushToast(
+        'info',
+        'Évaluation déjà réalisée',
+        `Une évaluation identique a déjà été enregistrée${createdAt} : les paires QA, les modèles et le paramètre k n'ont pas changé depuis. Modifiez une paire QA ou changez le modèle d'évaluation pour en relancer une.`,
+        8000,
+      )
+      return
+    }
   } catch {
     evaluatingCollectionIds.value.delete(collectionId)
     evaluatingCollectionIds.value = new Set(evaluatingCollectionIds.value)
@@ -1345,22 +1364,52 @@ function pollEvaluationWhileRunning(collectionId: string) {
   const previousRunCount = collections.value.find((item) => item.id === collectionId)?.evaluationRuns.length ?? 0
   let attempts = 0
   const maxAttempts = 150 // 5 min at 2s intervals
+
+  const stop = () => {
+    const handle = evaluationPolls.get(collectionId)
+    if (handle) {
+      clearInterval(handle)
+      evaluationPolls.delete(collectionId)
+    }
+    evaluatingCollectionIds.value.delete(collectionId)
+    evaluatingCollectionIds.value = new Set(evaluatingCollectionIds.value)
+  }
+
   evaluationPolls.set(
     collectionId,
     setInterval(async () => {
       attempts++
+      // Poll the cheap status endpoint, never the runs list: the list re-reads every run's
+      // results.json artifact from RustFS, which must not happen every two seconds. Only once
+      // the task is no longer queued or running do we fetch the list, once, to pick up the run.
+      const running = await fetchEvaluationRunning(collectionId)
+      if (running !== false) {
+        // Still queued/running, or the status couldn't be read (null): keep polling.
+        if (attempts >= maxAttempts) {
+          stop()
+          pushToast(
+            'warning',
+            'Évaluation toujours en cours',
+            "L'évaluation n'a pas abouti dans le délai attendu. Elle continue peut-être en arrière-plan : rechargez la page dans quelques minutes.",
+            8000,
+          )
+        }
+        return
+      }
+      // The task finished: fetch the list once to pick up the new run.
       await refreshEvaluation(collectionId)
       const collection = collections.value.find((item) => item.id === collectionId)
       const currentRuns = collection?.evaluationRuns ?? []
-      if (currentRuns.length > previousRunCount || attempts >= maxAttempts) {
-        const handle = evaluationPolls.get(collectionId)
-        if (handle) {
-          clearInterval(handle)
-          evaluationPolls.delete(collectionId)
-        }
-        evaluatingCollectionIds.value.delete(collectionId)
-        evaluatingCollectionIds.value = new Set(evaluatingCollectionIds.value)
-      }
+      stop()
+      if (currentRuns.length > previousRunCount) return
+      // It finished without producing a run - the worker skipped it (no chat model, no
+      // evaluable pair...). Say so instead of leaving the user waiting.
+      pushToast(
+        'warning',
+        'Évaluation sans résultat',
+        "L'évaluation s'est terminée sans produire de résultat. Vérifiez qu'un modèle de chat est configuré pour la collection, puis relancez-la.",
+        8000,
+      )
     }, 2000),
   )
 }

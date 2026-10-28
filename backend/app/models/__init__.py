@@ -33,11 +33,7 @@ from app.models.document_stage import DocumentStage, PipelineStage
 from app.models.document_tabular_profile import DocumentTabularProfile
 from app.models.document_tabular_sheet import DocumentTabularSheet
 from app.models.entity import Entity, EntityMention, EntityType, Relation
-from app.models.evaluation import (
-    EvaluationResult,
-    EvaluationResultSource,
-    EvaluationRun,
-)
+from app.models.evaluation import EvaluationRun
 from app.models.execution_metric import ExecutionMetric
 from app.models.feedback import (
     Feedback,
@@ -96,8 +92,6 @@ __all__ = [
     "Entity",
     "EntityMention",
     "EntityType",
-    "EvaluationResult",
-    "EvaluationResultSource",
     "EvaluationRun",
     "Feedback",
     "IndexRebuild",
