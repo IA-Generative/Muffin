@@ -1,0 +1,36 @@
+{{- if .Values.enabled }}
+{{- /* DaemonSet is excluded on purpose: it has no scale subresource, so an HPA targeting one is
+rejected by the API server. `helper.component.validate` already fails on that combination - this
+guard just keeps the template honest if the validation is ever relaxed. */ -}}
+{{- if and .Values.ocr.autoscaling.enabled (ne .Values.ocr.deploymentType "DaemonSet") }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "helper.componentFullname" (dict "root" . "componentName" "ocr") }}
+  labels: {{- (include "helper.labels" (dict "root" . "componentName" "ocr")) | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: {{ .Values.ocr.deploymentType }}
+    name: {{ include "helper.componentFullname" (dict "root" . "componentName" "ocr") }}
+  minReplicas: {{ .Values.ocr.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.ocr.autoscaling.maxReplicas }}
+  metrics:
+  {{- if .Values.ocr.autoscaling.targetCPUUtilizationPercentage }}
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: {{ .Values.ocr.autoscaling.targetCPUUtilizationPercentage }}
+  {{- end }}
+  {{- if .Values.ocr.autoscaling.targetMemoryUtilizationPercentage }}
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: {{ .Values.ocr.autoscaling.targetMemoryUtilizationPercentage }}
+  {{- end }}
+{{- end }}
+{{- end }}
