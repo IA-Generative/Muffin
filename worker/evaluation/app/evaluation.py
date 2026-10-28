@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -320,6 +321,12 @@ def _run_promptfoo(directory: Path) -> tuple[bytes, bytes]:
         capture_output=True,
         text=True,
         timeout=settings.EVAL_TIMEOUT_SECONDS,
+        env={
+            **os.environ,
+            "WORKER_API_KEY": settings.WORKER_API_KEY,
+            "PROMPTFOO_DISABLE_TELEMETRY": "1",
+            "PROMPTFOO_DISABLE_UPDATE": "1",
+        },
     )
     if completed.returncode not in _PROMPTFOO_OK_EXIT_CODES:
         logger.error(f"promptfoo exited with {completed.returncode}:\n{completed.stdout}\n{completed.stderr}")
