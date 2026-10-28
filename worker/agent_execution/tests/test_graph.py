@@ -1754,9 +1754,10 @@ def test_answer_is_published_while_it_is_being_written(make_run):
 
     # Cleared first, then the text written so far (the last piece may fall within the publishing interval).
     assert fake.partial_answers[0] == ""
+    # "[x]" is no citation: the answer cites nothing, so it is asked for once more (#402), and the usage adds up.
     assert result["answer"] == "Leave is 25 days [x]."
-    assert result["answer_prompt_tokens"] == 100
-    assert result["answer_completion_tokens"] == 50
+    assert result["answer_prompt_tokens"] == 200
+    assert result["answer_completion_tokens"] == 100
 
 
 def test_answer_falls_back_to_one_piece_when_streaming_fails(make_run):

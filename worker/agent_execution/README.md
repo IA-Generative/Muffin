@@ -157,3 +157,19 @@ feuilles, sans exécuter de SQL ni lire de fichier lui-même : chaque requête p
   Markdown de l'image (`![titre](/api/conversations/{c}/charts/{g}.png)`), mis dans la preuve. Six au plus par réponse. Un
   graphique que le modèle n'a pas écrit dans sa réponse est **ajouté à la fin** (`with_missing_charts`).
 - `app/tabular_contracts.py` est une **copie** de `worker/tabular/app/contracts.py` : un test échoue si elles divergent.
+
+## Les sources d'une réponse (#402)
+
+Une affirmation est rattachée à sa source par un marqueur `[id de l'extrait]` dans la réponse, et le chat construit ses
+sources à partir de ces seuls marqueurs. Rien ne garantissait que le modèle les écrive (`app/graph/services/citations.py`) :
+
+- **La consigne de citation est dans le code**, ajoutée au prompt système après le prompt administrable (`get_prompt`) :
+  une version surchargée ne la perd plus.
+- **Contrôle après génération** : les ids qui ne sont pas un extrait fourni sont retirés de la réponse ; si elle ne cite
+  plus rien alors qu'il y avait de l'évidence, le modèle est invité **une fois** à la réécrire avec ses citations (la
+  consommation des deux appels est cumulée).
+- Chaque citation renvoyée porte `cited` : l'extrait est cité par la réponse, ou seulement consulté. Le chat montre les
+  premiers.
+- Une réponse qui ne cite toujours rien est gardée, et le chat l'indique (« Sans source : vérifiez-la avant de vous y
+  fier ») ; une réponse sans évidence le dit elle-même.
+- Un extrait sans nom de source est présenté au modèle sous le nom de son outil, plus sous `None`.
