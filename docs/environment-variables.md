@@ -243,6 +243,25 @@ règlent par variables d'environnement du worker d'extraction.
 
 Les profils des documents indexés avant #431 n'ont qu'une feuille : réindexer le document (#340) donne toutes les feuilles.
 
+## worker/tabular — requêtes SQL sur les données tabulaires (#432)
+
+Image à part (`worker-tabular`), sans modèle : DuckDB sur les copies Parquet des feuilles. Elle partage `REDIS_URL` et
+`AWS_*` (une clé en **lecture seule** pour le chart : secret `muffin-s3-readonly`) avec les autres workers.
+
+| Variable | Rôle | Défaut |
+|---|---|---|
+| `SQL_QUEUE_NAME` | Queue consommée par le pod et à laquelle l'appelant envoie | `tabular_sql` |
+| `QUERY_MAX_ROWS` | Lignes rendues par une requête (la requête, elle, peut en lire des millions) ; au-delà, `truncated` | `200` |
+| `QUERY_MAX_CELL_CHARS` | Une cellule est coupée à cette longueur | `500` |
+| `QUERY_MAX_RESULT_CHARS` | Le résultat est coupé quand son texte atteint cette taille | `200000` |
+| `QUERY_TIMEOUT_SECONDS` | Une requête plus longue est interrompue | `30` |
+| `QUERY_MEMORY_LIMIT` | Mémoire de DuckDB pour une requête ; au-delà il écrit sur disque, puis la requête échoue (pas le pod) | `512MB` |
+| `QUERY_THREADS` | Threads de DuckDB pour une requête | `2` |
+| `QUERY_MAX_TABLE_BYTES` | Octets de Parquet téléchargés pour une requête | `524288000` (500 Mo) |
+| `QUERY_MAX_FILES` / `QUERY_MAX_SHEETS` | Fichiers (schémas) et feuilles qu'une requête peut joindre | `10` / `100` |
+| `QUERY_WORK_DIR` | Où est fait le dossier privé de chaque requête (le volume inscriptible du pod) | `/tmp` (image) |
+| `SQL_TASK_SOFT_TIME_LIMIT_SECONDS` | Limite souple de la tâche, téléchargement compris | `180` |
+
 ## worker/layout, worker/ocr et worker/table — pods d'OCR par layout (#406, #407, #410)
 
 Chacun est une image à part (`worker-ocr-layout`, `worker-ocr`, `worker-ocr-table`) avec ses modèles ONNX officiels de PaddlePaddle embarqués.

@@ -42,6 +42,7 @@ jobs:
       worker_ocr_layout: ${{ steps.filter.outputs.worker_ocr_layout }}
       worker_ocr: ${{ steps.filter.outputs.worker_ocr }}
       worker_ocr_table: ${{ steps.filter.outputs.worker_ocr_table }}
+      worker_tabular: ${{ steps.filter.outputs.worker_tabular }}
       helm: ${{ steps.filter.outputs.helm }}
       ci: ${{ steps.filter.outputs.ci }}
       services: ${{ steps.services.outputs.services }}
@@ -72,6 +73,8 @@ jobs:
               - 'worker/ocr/**'
             worker_ocr_table:
               - 'worker/table/**'
+            worker_tabular:
+              - 'worker/tabular/**'
             helm:
               - 'helm/**'
               - 'ci/configs/ct.yaml'
@@ -90,6 +93,7 @@ jobs:
           WORKER_OCR_LAYOUT: ${{ steps.filter.outputs.worker_ocr_layout }}
           WORKER_OCR: ${{ steps.filter.outputs.worker_ocr }}
           WORKER_OCR_TABLE: ${{ steps.filter.outputs.worker_ocr_table }}
+          WORKER_TABULAR: ${{ steps.filter.outputs.worker_tabular }}
           CI: ${{ steps.filter.outputs.ci }}
         run: |
           set -euo pipefail
@@ -123,6 +127,9 @@ jobs:
           fi
           if [ "$WORKER_OCR_TABLE" = "true" ] || [ "$CI" = "true" ]; then
             add '{"name":"worker-ocr-table","context":"worker/table","dockerfile":"worker/table/Dockerfile","target":"runtime"}'
+          fi
+          if [ "$WORKER_TABULAR" = "true" ] || [ "$CI" = "true" ]; then
+            add '{"name":"worker-tabular","context":"worker/tabular","dockerfile":"worker/tabular/Dockerfile","target":"runtime"}'
           fi
 
           echo "Images to build: $SERVICES"
@@ -174,7 +181,7 @@ jobs:
     uses: ./.github/workflows/lint.yml
     needs:
       - path-filter
-    if: ${{ needs.path-filter.outputs.frontend == 'true' || needs.path-filter.outputs.backend == 'true' || needs.path-filter.outputs.worker_document_process == 'true' || needs.path-filter.outputs.worker_agent_execution == 'true' || needs.path-filter.outputs.worker_evaluation == 'true' || needs.path-filter.outputs.worker_document_edit == 'true' || needs.path-filter.outputs.worker_ocr_layout == 'true' || needs.path-filter.outputs.worker_ocr == 'true' || needs.path-filter.outputs.worker_ocr_table == 'true' || needs.path-filter.outputs.ci == 'true' }}
+    if: ${{ needs.path-filter.outputs.frontend == 'true' || needs.path-filter.outputs.backend == 'true' || needs.path-filter.outputs.worker_document_process == 'true' || needs.path-filter.outputs.worker_agent_execution == 'true' || needs.path-filter.outputs.worker_evaluation == 'true' || needs.path-filter.outputs.worker_document_edit == 'true' || needs.path-filter.outputs.worker_ocr_layout == 'true' || needs.path-filter.outputs.worker_ocr == 'true' || needs.path-filter.outputs.worker_ocr_table == 'true' || needs.path-filter.outputs.worker_tabular == 'true' || needs.path-filter.outputs.ci == 'true' }}
     permissions:
       contents: read
 
@@ -182,7 +189,7 @@ jobs:
     uses: ./.github/workflows/unit-tests.yml
     needs:
       - path-filter
-    if: ${{ needs.path-filter.outputs.backend == 'true' || needs.path-filter.outputs.worker_document_process == 'true' || needs.path-filter.outputs.worker_agent_execution == 'true' || needs.path-filter.outputs.worker_evaluation == 'true' || needs.path-filter.outputs.worker_document_edit == 'true' || needs.path-filter.outputs.worker_ocr_layout == 'true' || needs.path-filter.outputs.worker_ocr == 'true' || needs.path-filter.outputs.worker_ocr_table == 'true' || needs.path-filter.outputs.ci == 'true' }}
+    if: ${{ needs.path-filter.outputs.backend == 'true' || needs.path-filter.outputs.worker_document_process == 'true' || needs.path-filter.outputs.worker_agent_execution == 'true' || needs.path-filter.outputs.worker_evaluation == 'true' || needs.path-filter.outputs.worker_document_edit == 'true' || needs.path-filter.outputs.worker_ocr_layout == 'true' || needs.path-filter.outputs.worker_ocr == 'true' || needs.path-filter.outputs.worker_ocr_table == 'true' || needs.path-filter.outputs.worker_tabular == 'true' || needs.path-filter.outputs.ci == 'true' }}
     permissions:
       contents: read
 
