@@ -31,14 +31,14 @@ def test_every_pod_of_the_chart_reads_the_scanned_pages_the_same_way(chart):
 
 def test_the_chart_runs_the_pods_that_engine_sends_pages_to(chart):
     """OCR_ENGINE=layout with no pod to send to would make every scanned page wait for its timeout."""
-    for pod, queue in (("ocr_layout", "document_layout"), ("ocr", "document_ocr")):
+    for pod, queue in (("ocr_layout", "document_layout"), ("ocr", "document_ocr"), ("ocr_table", "document_table")):
         assert queue in chart[pod]["args"], pod
     scaled = {
         obj["spec"]["triggers"][0]["metadata"]["listName"]
         for obj in chart["extraObjects"].values()
         if obj.get("kind") == "ScaledObject"
     }
-    assert {"document_layout", "document_ocr"} <= scaled
+    assert {"document_layout", "document_ocr", "document_table"} <= scaled
 
 
 def test_every_service_of_the_compose_file_reads_the_scanned_pages_the_same_way(compose):
@@ -47,7 +47,7 @@ def test_every_service_of_the_compose_file_reads_the_scanned_pages_the_same_way(
 
 
 def test_the_compose_file_starts_the_ocr_pods_with_everything_else(compose):
-    for name in ("worker-ocr-layout", "worker-ocr"):
+    for name in ("worker-ocr-layout", "worker-ocr", "worker-ocr-table"):
         assert "profiles" not in compose[name], f"{name} would not start with `docker compose up`"
         assert "redis" in compose[name]["depends_on"] and "rustfs" in compose[name]["depends_on"]
 

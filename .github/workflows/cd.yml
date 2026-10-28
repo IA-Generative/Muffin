@@ -136,6 +136,9 @@ jobs:
           - name: worker-ocr
             context: worker/ocr
             dockerfile: worker/ocr/Dockerfile
+          - name: worker-ocr-table
+            context: worker/table
+            dockerfile: worker/table/Dockerfile
     with:
       IMAGE_NAME: ${{ needs.expose-vars.outputs.IMAGE_BASE }}/${{ matrix.service.name }}
       IMAGE_TAG: ${{ needs.release.outputs.version }}

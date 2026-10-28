@@ -164,6 +164,15 @@ services:
     depends_on: *ocr-pod-depends-on
     restart: unless-stopped
 
+  # The tables of the scanned pages (#410): their structure (SLANet_plus) and the text of their cells.
+  worker-ocr-table:
+    build:
+      context: ./worker/table
+      dockerfile: Dockerfile
+    environment: *ocr-pod-env
+    depends_on: *ocr-pod-depends-on
+    restart: unless-stopped
+
   worker-agent-execution:
     build:
       context: ./worker/agent_execution
