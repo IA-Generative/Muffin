@@ -35,6 +35,7 @@ from app.schemas.document import (
     TableOut,
     TableSummaryOut,
     TabularProfileOut,
+    TabularSheetOut,
 )
 from app.schemas.pagination import Page, PaginationParams
 from app.services import embedding_model_lookup, vector_store
@@ -380,7 +381,11 @@ class DocumentUploadService:
         profile = await self.documents.get_tabular_profile(document_id)
         if profile is None:
             return None
-        return TabularProfileOut.model_validate(profile)
+        out = TabularProfileOut.model_validate(profile)
+        out.sheets = [
+            TabularSheetOut.model_validate(sheet) for sheet in await self.documents.list_tabular_sheets(document_id)
+        ]
+        return out
 
     async def list_pages(
         self,

@@ -136,7 +136,11 @@ class DocumentService:
             measures=profile.measures,
             dimensions=profile.dimensions,
             text_columns=profile.text_columns,
+            analysis_version=profile.analysis_version,
         )
+        if profile.sheets is not None:
+            # Every sheet of the file (#431); a worker that does not send them leaves the document's as they were.
+            await self.repository.replace_tabular_sheets(document_id, [sheet.model_dump() for sheet in profile.sheets])
         await self.db.commit()
         await self.db.refresh(created)
         return created
