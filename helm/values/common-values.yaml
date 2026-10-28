@@ -159,6 +159,10 @@ document_process:
     # enrichment pod and fingerprint the extraction they follow (app/reuse.py) - a pod that disagrees breaks the
     # reuse of a file's results across documents, silently.
     OCR_ENGINE: "layout"
+    # The tables of a scanned page are read as tables by the ocr_table pod (#410): a marker in the page's text, the
+    # content kept for the agent to read. Also part of the extraction's fingerprint - the same in every pod, like the
+    # engine.
+    OCR_READ_TABLES_AS_TEXT: "false"
     BACKEND_API_URL: "http://muffin-backend:8000"
     AWS_ENDPOINT_URL: "https://s3.fr-par.scw.cloud"
     OCR_LANGUAGE: "fra"
@@ -203,6 +207,10 @@ document_enrichment:
     # enrichment pod and fingerprint the extraction they follow (app/reuse.py) - a pod that disagrees breaks the
     # reuse of a file's results across documents, silently.
     OCR_ENGINE: "layout"
+    # The tables of a scanned page are read as tables by the ocr_table pod (#410): a marker in the page's text, the
+    # content kept for the agent to read. Also part of the extraction's fingerprint - the same in every pod, like the
+    # engine.
+    OCR_READ_TABLES_AS_TEXT: "false"
     BACKEND_API_URL: "http://muffin-backend:8000"
     AWS_ENDPOINT_URL: "https://s3.fr-par.scw.cloud"
 
@@ -330,6 +338,10 @@ index_rebuild:
     # enrichment pod and fingerprint the extraction they follow (app/reuse.py) - a pod that disagrees breaks the
     # reuse of a file's results across documents, silently.
     OCR_ENGINE: "layout"
+    # The tables of a scanned page are read as tables by the ocr_table pod (#410): a marker in the page's text, the
+    # content kept for the agent to read. Also part of the extraction's fingerprint - the same in every pod, like the
+    # engine.
+    OCR_READ_TABLES_AS_TEXT: "false"
     BACKEND_API_URL: "http://muffin-backend:8000"
     AWS_ENDPOINT_URL: "https://s3.fr-par.scw.cloud"
 

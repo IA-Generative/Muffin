@@ -72,6 +72,10 @@ def _ocr_pods() -> dict[str, Any]:
         # The pages carry their layout (#409): an extraction made before has none, and a document extracted now must
         # not be given pages without it.
         "regions": 1,
+        # And their tables (#410): kept as tables, with this score to be called reliable - or read as text, which the
+        # setting above says.
+        "tables": 1,
+        "table_min_score": worker_settings.OCR_TABLE_MIN_SCORE,
     }
 
 

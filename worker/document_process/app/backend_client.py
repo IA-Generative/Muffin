@@ -123,14 +123,18 @@ class BackendClient:
         screenshot: str | None = None,
         text_boxes: list[dict[str, Any]] | None = None,
         regions: list[dict[str, Any]] | None = None,
+        tables: list[dict[str, Any]] | None = None,
     ) -> None:
         """`text_boxes`: the page's lines and words with their boxes (#350). `regions`: the regions of its layout, in
-        reading order (#409). Not given, what the page has is kept; given, even empty, it replaces it."""
+        reading order (#409); `tables`: the tables read on it (#410). Not given, what the page has is kept; given, even
+        empty, it replaces it."""
         body: dict[str, Any] = {"page_number": page_number, "content": content, "screenshot": screenshot}
         if text_boxes is not None:
             body["text_boxes"] = text_boxes
         if regions is not None:
             body["regions"] = regions
+        if tables is not None:
+            body["tables"] = tables
         response = self._client.post(f"/api/internal/documents/{document_id}/pages", json=body)
         response.raise_for_status()
 

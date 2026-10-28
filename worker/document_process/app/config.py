@@ -63,6 +63,9 @@ class WorkerSettings(BaseSettings):
     # Until the table pod exists (#410), a table's cells are not read by anyone: read as text, one line to a line, so
     # that a scanned page with a table does not lose it. Off once tables are read as tables.
     OCR_READ_TABLES_AS_TEXT: bool = True
+    # A table the table pod read scores at least this to be kept as reliable; under it, it is kept all the same, and
+    # said to be doubtful (the structure of a borderless table read wrong scored 0.49, the right ones 1.0 and 0.999).
+    OCR_TABLE_MIN_SCORE: float = 0.6
     # Part of the extraction's fingerprint (#300): raise it when the models of the pods change (the pods hold
     # the models, not this worker), or a file extracted with the former ones would be taken for extracted with the
     # new.
