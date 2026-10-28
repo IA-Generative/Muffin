@@ -17,6 +17,7 @@ from app.models.document import (
     DocumentStatus,
     DocumentTag,
     DocumentType,
+    PageRegion,
     PageTextBox,
 )
 from app.models.document_revision import DocumentRevision
@@ -471,6 +472,39 @@ class DocumentRepository:
             select(PageTextBox).where(PageTextBox.document_page_id == page_id).order_by(PageTextBox.position)
         )
         return result.scalars().all()
+
+    async def replace_regions(self, page_id: uuid.UUID, regions: Sequence[dict]) -> None:
+        """The page's layout (#409), in place of what it had - sent in reading order, which is kept as `position`.
+        Written again with the page, a task run twice (#299) replaces it instead of adding a second copy."""
+        await self.db.execute(delete(PageRegion).where(PageRegion.document_page_id == page_id))
+        self.db.add_all(
+            PageRegion(document_page_id=page_id, position=position, **region) for position, region in enumerate(regions)
+        )
+        await self.db.flush()
+
+    async def list_regions(self, page_id: uuid.UUID) -> Sequence[PageRegion]:
+        result = await self.db.execute(
+            select(PageRegion).where(PageRegion.document_page_id == page_id).order_by(PageRegion.position)
+        )
+        return result.scalars().all()
+
+    async def list_document_regions(
+        self, document_id: uuid.UUID, *, page_number: int | None = None, types: Sequence[str] | None = None
+    ) -> list[tuple[PageRegion, int]]:
+        """The regions of a document's pages with the page each is on, in page then reading order - of one page, and
+        of some types, when asked."""
+        statement = (
+            select(PageRegion, DocumentPage.page_number)
+            .join(DocumentPage, PageRegion.document_page_id == DocumentPage.id)
+            .where(DocumentPage.document_id == document_id)
+            .order_by(DocumentPage.page_number, PageRegion.position)
+        )
+        if page_number is not None:
+            statement = statement.where(DocumentPage.page_number == page_number)
+        if types:
+            statement = statement.where(PageRegion.type.in_(types))
+        result = await self.db.execute(statement)
+        return [(region, number) for region, number in result.all()]
 
     async def prune_pages(self, document_id: uuid.UUID, keep: int) -> list[str]:
         """Drops the pages after the first `keep`: what a previous, longer extraction left behind.

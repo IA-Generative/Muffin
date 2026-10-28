@@ -14,6 +14,7 @@ from app.schemas.document import (
     DocumentUrlCreate,
     HighlightRequest,
     HighlightsOut,
+    RegionOut,
     ReprocessedOut,
     TabularProfileOut,
 )
@@ -128,6 +129,49 @@ async def list_document_pages(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
     except DocumentNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found") from error
+
+
+@router.get(
+    "/collections/{collection_id}/documents/{document_id}/regions",
+    summary="The layout of a document's scanned pages (#409): their typed regions with a box normalized between 0 and "
+    "1, in page then reading order. Filter by `page` and by `type` (repeatable)",
+    response_model=list[RegionOut],
+)
+async def list_document_regions(
+    collection_id: uuid.UUID,
+    document_id: uuid.UUID,
+    user: UserDep,
+    service: ServiceDep,
+    page: Annotated[int | None, Query(ge=1)] = None,
+    type: Annotated[list[str] | None, Query()] = None,  # noqa: A002 - the name of the query parameter
+) -> list[RegionOut]:
+    try:
+        return await service.list_regions(collection_id, user, document_id, page, type)
+    except CollectionNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
+    except DocumentNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Page not found") from error
+
+
+@router.get(
+    "/collections/{collection_id}/documents/{document_id}/pages/{page_number}/regions",
+    summary="The layout of one scanned page (#409), in reading order. Filter by `type` (repeatable)",
+    response_model=list[RegionOut],
+)
+async def list_page_regions(
+    collection_id: uuid.UUID,
+    document_id: uuid.UUID,
+    page_number: int,
+    user: UserDep,
+    service: ServiceDep,
+    type: Annotated[list[str] | None, Query()] = None,  # noqa: A002 - the name of the query parameter
+) -> list[RegionOut]:
+    try:
+        return await service.list_regions(collection_id, user, document_id, page_number, type)
+    except CollectionNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
+    except DocumentNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Page not found") from error
 
 
 @router.get(
