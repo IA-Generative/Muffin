@@ -23,7 +23,13 @@ from app.models.document import (
 )
 from app.models.document_revision import DocumentRevision
 from app.models.document_tabular_profile import DocumentTabularProfile
+from app.models.document_tabular_sheet import DocumentTabularSheet
 from app.models.import_document import ImportDocument
+
+
+def legacy_tabular_copy_key(collection_id: uuid.UUID, document_id: uuid.UUID) -> str:
+    """Where the worker wrote the one Parquet copy of a tabular file before the sheets were kept (#431)."""
+    return f"documents/{collection_id}/{document_id}.parquet"
 
 
 class DocumentRepository:
@@ -252,6 +258,16 @@ class DocumentRepository:
             )
         )
         keys.extend(screenshots.all())
+        # The typed copies of a tabular file's sheets (#431), and the single copy that was written before there were
+        # sheets - never deleted until now. Deleting a key that is not there is harmless.
+        copies = await self.db.scalars(
+            select(DocumentTabularSheet.parquet_key).where(
+                DocumentTabularSheet.document_id == document_id, DocumentTabularSheet.parquet_key.is_not(None)
+            )
+        )
+        keys.extend(copies.all())
+        if document is not None and await self.get_tabular_profile(document_id) is not None:
+            keys.append(legacy_tabular_copy_key(document.collection_id, document_id))
         return keys
 
     async def list_chunk_ids(self, document_id: uuid.UUID) -> list[uuid.UUID]:
@@ -378,6 +394,7 @@ class DocumentRepository:
         measures: list[str] | None = None,
         dimensions: list[str] | None = None,
         text_columns: list[str] | None = None,
+        analysis_version: int | None = None,
     ) -> DocumentTabularProfile:
         """Insert or replace the tabular profile for a document. A reindex
         would call this again with fresh stats - we replace rather than
@@ -394,6 +411,7 @@ class DocumentRepository:
             existing.measures = measures or []
             existing.dimensions = dimensions or []
             existing.text_columns = text_columns or []
+            existing.analysis_version = analysis_version
             return existing
         profile = DocumentTabularProfile(
             document_id=document_id,
@@ -405,10 +423,26 @@ class DocumentRepository:
             measures=measures or [],
             dimensions=dimensions or [],
             text_columns=text_columns or [],
+            analysis_version=analysis_version,
         )
         self.db.add(profile)
         await self.db.flush()
         return profile
+
+    async def replace_tabular_sheets(self, document_id: uuid.UUID, sheets: Sequence[dict[str, Any]]) -> None:
+        """The sheets of the file (#431), in place of what it had - sent whole by the worker, so an analysis run
+        twice (#299) or a file that lost sheets leaves exactly what the last one found."""
+        await self.db.execute(delete(DocumentTabularSheet).where(DocumentTabularSheet.document_id == document_id))
+        self.db.add_all(DocumentTabularSheet(document_id=document_id, **sheet) for sheet in sheets)
+        await self.db.flush()
+
+    async def list_tabular_sheets(self, document_id: uuid.UUID) -> Sequence[DocumentTabularSheet]:
+        result = await self.db.execute(
+            select(DocumentTabularSheet)
+            .where(DocumentTabularSheet.document_id == document_id)
+            .order_by(DocumentTabularSheet.index)
+        )
+        return result.scalars().all()
 
     async def get_tabular_profile(self, document_id: uuid.UUID) -> DocumentTabularProfile | None:
         result = await self.db.execute(

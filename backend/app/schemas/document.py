@@ -164,6 +164,26 @@ class FilingDecision(BaseModel):
     target_collection_id: uuid.UUID | None = None
 
 
+class TabularSheetOut(BaseModel):
+    """A sheet of a tabular file (#431): what the analysis found in it, column by column, and a few rows."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    index: int
+    name: str
+    hidden: bool
+    # Rows of data (the header is not one).
+    rows: int
+    header_detected: bool
+    # The sheet is longer than the analysis' bound: only its first rows are described and queryable.
+    truncated: bool
+    columns: list[dict[str, Any]]
+    preview: list[list[Any]]
+    warnings: list[str]
+    # {"rows", "columns": [{"name", "sql_type"}]} of the typed copy that SQL reads; None when there is none.
+    table: dict[str, Any] | None = None
+
+
 class TabularProfileOut(BaseModel):
     """Profil statistique d'un document tabulaire, exposé au frontend
     pour afficher le schéma, les stats, la classification et un échantillon
@@ -179,6 +199,10 @@ class TabularProfileOut(BaseModel):
     measures: list[str]
     dimensions: list[str]
     text_columns: list[str]
+    # Of the shape of `sheets` (#431). None: a profile from before the sheets were kept, which has none.
+    analysis_version: int | None = None
+    # Every sheet of the file, in its order - the profile above describes the main one.
+    sheets: list[TabularSheetOut] = []
 
 
 class MarkdownDocumentCreate(BaseModel):
