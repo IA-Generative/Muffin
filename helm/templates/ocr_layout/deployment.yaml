@@ -1,0 +1,25 @@
+{{- if .Values.enabled }}
+{{- if eq .Values.ocr_layout.deploymentType "Deployment" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "helper.componentFullname" (dict "root" . "componentName" "ocr_layout") }}
+  labels: {{- (include "helper.labels" (dict "root" . "componentName" "ocr_layout")) | nindent 4 }}
+spec:
+  {{- if not .Values.ocr_layout.autoscaling.enabled }}
+  replicas: {{ .Values.ocr_layout.replicaCount }}
+  {{- end }}
+  revisionHistoryLimit: {{ .Values.ocr_layout.revisionHistoryLimit | default 10 }}
+  selector:
+    matchLabels: {{- include "helper.selectorLabels" (dict "root" . "componentName" "ocr_layout") | nindent 6 }}
+  strategy:
+    type: {{ .Values.ocr_layout.strategy.type }}
+    {{- if eq .Values.ocr_layout.strategy.type "RollingUpdate" }}
+    rollingUpdate:
+      maxUnavailable: {{ .Values.ocr_layout.strategy.rollingUpdate.maxUnavailable }}
+      maxSurge: {{ .Values.ocr_layout.strategy.rollingUpdate.maxSurge }}
+    {{- end }}
+  template:
+    {{- include "helper.component.podTemplate" (dict "root" . "name" "ocr_layout" "component" .Values.ocr_layout) | nindent 4 }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,27 @@
+{{- if .Values.enabled }}
+{{- if .Values.ocr_layout.pdb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "helper.componentFullname" (dict "root" . "componentName" "ocr_layout") }}
+  labels: {{- (include "helper.labels" (dict "root" . "componentName" "ocr_layout")) | nindent 4 }}
+  {{- if .Values.ocr_layout.pdb.labels }}
+    {{- toYaml .Values.ocr_layout.pdb.labels | nindent 4 }}
+  {{- end }}
+  {{- if .Values.ocr_layout.pdb.annotations }}
+  annotations: {{- toYaml .Values.ocr_layout.pdb.annotations | nindent 4 }}
+  {{- end }}
+spec:
+  {{- /* Tested against the empty string rather than for truthiness: `maxUnavailable: 0` is a valid
+  setting (it blocks every voluntary eviction) but is falsy, so `with`/`if` would silently fall
+  through to minAvailable. `toString` maps both nil and "" to "", which are the two unset forms.
+  `helper.component.validate` guarantees at least one of the two is set. */ -}}
+  {{- if ne (toString .Values.ocr_layout.pdb.maxUnavailable) "" }}
+  maxUnavailable: {{ .Values.ocr_layout.pdb.maxUnavailable }}
+  {{- else }}
+  minAvailable: {{ .Values.ocr_layout.pdb.minAvailable }}
+  {{- end }}
+  selector:
+    matchLabels: {{- include "helper.selectorLabels" (dict "root" . "componentName" "ocr_layout") | nindent 6 }}
+{{- end }}
+{{- end }}

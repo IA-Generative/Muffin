@@ -196,6 +196,92 @@ document_enrichment:
     BACKEND_API_URL: "http://muffin-backend:8000"
     AWS_ENDPOINT_URL: "https://s3.fr-par.scw.cloud"
 
+# OCR of the scanned pages by layout analysis (#403): one pod and one image per model, each loading its
+# ONNX model once per process. Nothing sends them work until OCR_ENGINE=layout on the extraction worker,
+# so the ScaledObjects below let them rest at zero replicas. They only talk to Redis and S3 (no backend).
+#
+# Celery worker - regions of a scanned page and their reading order (PP-DocLayoutV3, #406). About 1.3 GiB
+# per process once the model is loaded: `-c 2` processes, each with ONNX_INTRA_OP_THREADS threads.
+ocr_layout:
+  image:
+    registry: "harbor.sdid.cpin.numerique-interieur.com"
+    repository: "{{ .Values.global.project }}/muffin-worker-ocr-layout"
+    pullPolicy: "Always"
+  serviceAccount:
+    enabled: true
+    create: true
+  # Probes disabled - see document_process above for rationale.
+  probes:
+    startupProbe: null
+    readinessProbe: null
+    livenessProbe: null
+  args:
+  - "celery"
+  - "-A"
+  - "app.celery_app"
+  - "worker"
+  - "--loglevel=info"
+  - "-Q"
+  - "document_layout"
+  - "-c"
+  - "2"
+  envFrom:
+  - secretRef:
+      name: "muffin-s3"
+  - secretRef:
+      name: "muffin-redis"
+  env:
+    AWS_ENDPOINT_URL: "https://s3.fr-par.scw.cloud"
+    # The pod's CPUs divided by the 2 processes above.
+    ONNX_INTRA_OP_THREADS: "2"
+  resources:
+    requests:
+      cpu: "2"
+      memory: "3Gi"
+    limits:
+      cpu: "4"
+      memory: "4Gi"
+
+# Celery worker - text of the regions of a scanned page (PP-OCRv5 mobile, #407). About 0.5 GiB per process.
+ocr:
+  image:
+    registry: "harbor.sdid.cpin.numerique-interieur.com"
+    repository: "{{ .Values.global.project }}/muffin-worker-ocr"
+    pullPolicy: "Always"
+  serviceAccount:
+    enabled: true
+    create: true
+  # Probes disabled - see document_process above for rationale.
+  probes:
+    startupProbe: null
+    readinessProbe: null
+    livenessProbe: null
+  args:
+  - "celery"
+  - "-A"
+  - "app.celery_app"
+  - "worker"
+  - "--loglevel=info"
+  - "-Q"
+  - "document_ocr"
+  - "-c"
+  - "2"
+  envFrom:
+  - secretRef:
+      name: "muffin-s3"
+  - secretRef:
+      name: "muffin-redis"
+  env:
+    AWS_ENDPOINT_URL: "https://s3.fr-par.scw.cloud"
+    ONNX_INTRA_OP_THREADS: "2"
+  resources:
+    requests:
+      cpu: "2"
+      memory: "2Gi"
+    limits:
+      cpu: "4"
+      memory: "3Gi"
+
 # Celery worker - long I/O jobs: the blue/green index rebuilds (#12) and the ZIP imports (#223), so
 # that neither holds up the ingestion of new documents. Prefork, a couple at a time; no beat.
 index_rebuild:
@@ -939,6 +1025,60 @@ extraObjects:
           address: "muffin-redis.{{ .Release.Namespace }}.svc.cluster.local:6379"
           listName: "document_enrichment\x06\x163"
           listLength: "32"
+        authenticationRef:
+          name: muffin-keda-triggerauth
+
+  # ScaledObject for ocr_layout (queue: document_layout): to zero when nothing is asked of it (OCR_ENGINE=layout is
+  # opt-in). A page's task is short, but acks_late takes it off the list while it runs: KEDA would not see
+  # it, so the cooldown is longer than the task's soft limit (300 s) before the last pod is stopped.
+  muffin-keda-ocr-layout:
+    apiVersion: keda.sh/v1alpha1
+    kind: ScaledObject
+    metadata:
+      name: muffin-ocr-layout
+    spec:
+      scaleTargetRef:
+        name: muffin-ocr-layout
+        kind: Deployment
+        apiVersion: apps/v1
+      minReplicaCount: 0
+      maxReplicaCount: 3
+      pollingInterval: 30
+      cooldownPeriod: 600
+      triggers:
+      - type: redis
+        metricType: AverageValue
+        metadata:
+          address: "muffin-redis.{{ .Release.Namespace }}.svc.cluster.local:6379"
+          listName: "document_layout"
+          listLength: "10"
+        authenticationRef:
+          name: muffin-keda-triggerauth
+
+  # ScaledObject for ocr (queue: document_ocr): to zero when nothing is asked of it (OCR_ENGINE=layout is
+  # opt-in). A page's task is short, but acks_late takes it off the list while it runs: KEDA would not see
+  # it, so the cooldown is longer than the task's soft limit (300 s) before the last pod is stopped.
+  muffin-keda-ocr:
+    apiVersion: keda.sh/v1alpha1
+    kind: ScaledObject
+    metadata:
+      name: muffin-ocr
+    spec:
+      scaleTargetRef:
+        name: muffin-ocr
+        kind: Deployment
+        apiVersion: apps/v1
+      minReplicaCount: 0
+      maxReplicaCount: 3
+      pollingInterval: 30
+      cooldownPeriod: 600
+      triggers:
+      - type: redis
+        metricType: AverageValue
+        metadata:
+          address: "muffin-redis.{{ .Release.Namespace }}.svc.cluster.local:6379"
+          listName: "document_ocr"
+          listLength: "10"
         authenticationRef:
           name: muffin-keda-triggerauth
 

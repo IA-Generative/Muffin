@@ -11,5 +11,7 @@ Add one `include` line per component when you add components to this chart.
 {{- include "helper.component.validate" (dict "name" "document_process" "component" .Values.document_process) }}
 {{- include "helper.component.validate" (dict "name" "agent_execution" "component" .Values.agent_execution) }}
 {{- include "helper.component.validate" (dict "name" "document_enrichment" "component" .Values.document_enrichment) }}
+{{- include "helper.component.validate" (dict "name" "ocr_layout" "component" .Values.ocr_layout) }}
+{{- include "helper.component.validate" (dict "name" "ocr" "component" .Values.ocr) }}
 {{- include "helper.component.validate" (dict "name" "index_rebuild" "component" .Values.index_rebuild) }}
 {{- end }}
