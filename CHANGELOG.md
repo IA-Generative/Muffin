@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.35.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.34.0...v0.35.0-rc) (2026-10-28)
+
+
+### Features
+
+* **agent:** passages cités vérifiés par l'id et contrôle d'ancrage des citations ([#402](https://github.com/IA-Generative/Muffin/issues/402)) ([86cbec0](https://github.com/IA-Generative/Muffin/commit/86cbec08ab381d050128ec3458f2826e242803a3))
+
+
+### Bug Fixes
+
+* **agent:** rattacher les réponses à leurs sources, ou dire qu'elles n'en ont pas ([#402](https://github.com/IA-Generative/Muffin/issues/402)) ([06840bf](https://github.com/IA-Generative/Muffin/commit/06840bf8f1a9cf96cb23acb2a0db6da3b750c34a))
+
 ## [0.34.0](https://github.com/IA-Generative/Muffin/compare/v0.33.1...v0.34.0) (2026-10-28)
 
 
