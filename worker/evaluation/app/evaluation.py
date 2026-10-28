@@ -196,38 +196,18 @@ def _relevant_documents(pair: dict[str, Any]) -> list[str]:
     return [str(pair["document_id"])] if pair.get("document_id") else []
 
 
-def _write_promptfoo_dir(
-    directory: Path,
-    *,
-    config: EvaluationConfig,
-    pairs: list[dict[str, Any]],
-    content_hash: str,
-) -> None:
-    """Lays out everything promptfoo needs in one throwaway directory: the generated YAML, the
-    provider and test-loader modules copied next to it (promptfoo resolves file:// paths relative
-    to the YAML), and the already-filtered QA pairs as pairs.json.
-
-    The YAML is built as a dict then safe_dumped - never string-interpolated - so a question or
-    a model name can never inject YAML structure. No secret is written into it: both the judge
+def _build_promptfoo_config(config: EvaluationConfig, content_hash: str, provider_code_sha256: str) -> dict[str, Any]:
+    """The promptfoo YAML as a dict - built here, never string-interpolated, so a question or a
+    model name can never inject YAML structure. No secret is written into it: both the judge
     (apiKeyEnvar) and the provider (api_key_envar) read WORKER_API_KEY from the environment the
     subprocess inherits, because promptfoo replays the whole config into results.json - a stored
     artifact.
 
     metadata.config_muffin records the run's whole configuration (models, k, chunking/embedding
     snapshot, scope, dedup hash, provider code digest) so the stored artifact is self-describing:
-    everything that made the results what they is readable from results.json itself.
+    everything that made the results what they are is readable from results.json itself.
     """
-    for module in ("provider.py", "create_tests.py"):
-        shutil.copy2(Path(__file__).parent / "promptfoo" / module, directory / module)
-    (directory / "pairs.json").write_text(json.dumps(pairs, ensure_ascii=False))
-
-    # The generation prompt and code live in provider.py, copied next to the YAML - their
-    # digest is the only trace of the worker's own version in the artifact.
-    provider_code_sha256 = hashlib.sha256(
-        (Path(__file__).parent / "promptfoo" / "provider.py").read_bytes()
-    ).hexdigest()
-
-    promptfoo_config = {
+    return {
         "description": f"Muffin evaluation - {config.collection_name}",
         # A first-class promptfoo tag (filterable, shown in the report) naming the
         # collection this run evaluated - the same id also rides in metadata.config_muffin,
@@ -282,6 +262,30 @@ def _write_promptfoo_dir(
         ],
         "evaluateOptions": {"maxConcurrency": settings.EVAL_CONCURRENCY},
     }
+
+
+def _write_promptfoo_dir(
+    directory: Path,
+    *,
+    config: EvaluationConfig,
+    pairs: list[dict[str, Any]],
+    content_hash: str,
+) -> None:
+    """Lays out everything promptfoo needs in one throwaway directory: the generated YAML, the
+    provider and test-loader modules copied next to it (promptfoo resolves file:// paths relative
+    to the YAML), and the already-filtered QA pairs as pairs.json. The YAML itself is built by
+    _build_promptfoo_config."""
+    for module in ("provider.py", "create_tests.py"):
+        shutil.copy2(Path(__file__).parent / "promptfoo" / module, directory / module)
+    (directory / "pairs.json").write_text(json.dumps(pairs, ensure_ascii=False))
+
+    # The generation prompt and code live in provider.py, copied next to the YAML - their
+    # digest is the only trace of the worker's own version in the artifact.
+    provider_code_sha256 = hashlib.sha256(
+        (Path(__file__).parent / "promptfoo" / "provider.py").read_bytes()
+    ).hexdigest()
+
+    promptfoo_config = _build_promptfoo_config(config, content_hash, provider_code_sha256)
     (directory / "promptfooconfig.yaml").write_text(yaml.safe_dump(promptfoo_config, sort_keys=False))
 
 

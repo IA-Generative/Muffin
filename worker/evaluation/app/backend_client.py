@@ -31,14 +31,6 @@ class BackendClient:
         response.raise_for_status()
         return response.json()
 
-    def search(self, collection_ids: list[str], query: str, limit: int) -> list[dict[str, Any]]:
-        response = self._client.post(
-            "/api/internal/search",
-            json={"collection_ids": collection_ids, "query": query, "limit": limit},
-        )
-        response.raise_for_status()
-        return response.json()
-
     def llm_chat(self, model: str, messages: list[dict[str, str]], max_tokens: int | None = None) -> str:
         response = self._client.post(
             "/api/internal/llm/chat",

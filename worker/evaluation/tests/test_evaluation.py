@@ -275,34 +275,44 @@ def test_run_evaluation_defaults_k_from_settings(monkeypatch, tmp_path):
 # -- the generated promptfoo directory -----------------------------------------------
 
 
-def _written_config(tmp_path, **kwargs):
-    """Runs _write_promptfoo_dir into a directory and returns (directory, parsed YAML)."""
+def _config(**overrides):
+    values = {
+        "collection_id": "col-1",
+        "collection_name": "Ma collection",
+        "k": 5,
+        "judge_model": "judge-model",
+        "generator_model": "generator-model",
+        "chunking_strategy": "paragraph",
+        "chunk_size": 500,
+        "chunk_overlap": 50,
+        "embedding_model": "text-embedding-3-small",
+        "validated_only": False,
+    }
+    values.update(overrides)
+    return evaluation.EvaluationConfig(**values)
+
+
+def _built_config(**overrides):
+    """The promptfoo config dict, built without touching the filesystem."""
+    return evaluation._build_promptfoo_config(_config(**overrides), "hash-1", "a" * 64)
+
+
+def _written_dir(tmp_path, **kwargs):
+    """Runs _write_promptfoo_dir into a directory and returns it."""
     directory = tmp_path / "eval"
     directory.mkdir()
     parameters = {
-        "config": evaluation.EvaluationConfig(
-            collection_id="col-1",
-            collection_name="Ma collection",
-            k=5,
-            judge_model="judge-model",
-            generator_model="generator-model",
-            chunking_strategy="paragraph",
-            chunk_size=500,
-            chunk_overlap=50,
-            embedding_model="text-embedding-3-small",
-            validated_only=False,
-        ),
+        "config": _config(),
         "pairs": [_qa_pair("qa-1", "Question ?", "doc-1", validated=True)],
         "content_hash": "hash-1",
     }
     parameters.update(kwargs)
     evaluation._write_promptfoo_dir(directory, **parameters)
-    config = yaml.safe_load((directory / "promptfooconfig.yaml").read_text())
-    return directory, config
+    return directory
 
 
-def test_the_generated_yaml_wires_provider_judge_and_tests(tmp_path):
-    directory, config = _written_config(tmp_path)
+def test_the_promptfoo_config_wires_provider_judge_and_tests():
+    config = _built_config()
 
     # The evaluated collection is a first-class promptfoo tag (filterable, shown in the
     # report), not only a metadata entry.
@@ -342,19 +352,25 @@ def test_the_generated_yaml_wires_provider_judge_and_tests(tmp_path):
     assert metadata["embedding_model"] == "text-embedding-3-small"
     assert metadata["validated_only"] is False
     assert metadata["content_hash"] == "hash-1"
-    assert len(metadata["provider_code_sha256"]) == 64
+    assert metadata["provider_code_sha256"] == "a" * 64
 
-    # The modules are copied next to the YAML (promptfoo resolves file:// relative to it)
-    # and the pairs ride along as JSON.
+
+def test_the_written_directory_holds_the_yaml_modules_and_pairs(tmp_path):
+    directory = _written_dir(tmp_path)
+
+    # The YAML is written next to the modules it references (promptfoo resolves file://
+    # relative to it) and the pairs ride along as JSON.
+    written = yaml.safe_load((directory / "promptfooconfig.yaml").read_text())
+    assert written["tags"] == {"collection_id": "col-1"}
     assert (directory / "provider.py").exists()
     assert (directory / "create_tests.py").exists()
     assert json.loads((directory / "pairs.json").read_text())[0]["question"] == "Question ?"
 
 
-def test_the_generated_yaml_never_contains_the_api_key(tmp_path):
+def test_the_promptfoo_config_never_contains_the_api_key():
     # promptfoo replays the whole config into results.json - a stored artifact. The key
     # must only ever be read from the subprocess's inherited environment.
-    _, config = _written_config(tmp_path)
+    config = _built_config()
 
     assert config["providers"][0]["config"]["api_key_envar"] == "WORKER_API_KEY"
     assert config["defaultTest"]["options"]["provider"]["config"]["apiKeyEnvar"] == "WORKER_API_KEY"
@@ -384,7 +400,8 @@ def test_the_promptfoo_results_never_contain_the_api_key(monkeypatch, tmp_path):
     sentinel = "sentinel-worker-api-key-1234567890"
     monkeypatch.setenv("WORKER_API_KEY", sentinel)
 
-    directory, config = _written_config(tmp_path)
+    directory = _written_dir(tmp_path)
+    config = yaml.safe_load((directory / "promptfooconfig.yaml").read_text())
     # The provider and the judge would both hit the network; swap them for a mock provider
     # and promptfoo's echo provider, and drop the judge-scored assertions. What is under
     # test is the config's api_key_envar/apiKeyEnvar placement, left exactly as generated.
@@ -424,30 +441,14 @@ def test_a_question_can_not_inject_yaml_structure(tmp_path):
     # The YAML is safe_dumped from a dict, never string-interpolated: a question holding
     # YAML or Jinja syntax stays a plain string var.
     malicious = "q: {{query}}\n  - injected: true"
-    directory, config = _written_config(tmp_path, pairs=[_qa_pair("qa-1", malicious, "doc-1", validated=True)])
+    directory = _written_dir(tmp_path, pairs=[_qa_pair("qa-1", malicious, "doc-1", validated=True)])
 
+    config = yaml.safe_load((directory / "promptfooconfig.yaml").read_text())
     assert config["prompts"] == ["{{query}}"]
     assert json.loads((directory / "pairs.json").read_text())[0]["question"] == malicious
 
 
 # -- the dedup hash ------------------------------------------------------------------
-
-
-def _config(**overrides):
-    values = {
-        "collection_id": "col-1",
-        "collection_name": "Ma collection",
-        "k": 5,
-        "judge_model": "judge",
-        "generator_model": "gen",
-        "chunking_strategy": "paragraph",
-        "chunk_size": 500,
-        "chunk_overlap": 50,
-        "embedding_model": "text-embedding-3-small",
-        "validated_only": False,
-    }
-    values.update(overrides)
-    return evaluation.EvaluationConfig(**values)
 
 
 def test_the_evaluation_hash_covers_judge_generator_and_golden_pairs():

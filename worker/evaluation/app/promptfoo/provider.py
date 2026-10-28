@@ -28,6 +28,41 @@ _ANSWER_SYSTEM_PROMPT = (
 )
 
 
+def _search(base_url: str, headers: dict, config: dict, query: str) -> list[dict]:
+    """The same search the research agent uses: /internal/search, k chunks."""
+    response = httpx.post(
+        f"{base_url}/api/internal/search",
+        json={
+            "collection_ids": [config["collection_id"]],
+            "query": query,
+            "limit": config["k"],
+        },
+        headers=headers,
+        timeout=60.0,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def _generate(base_url: str, headers: dict, config: dict, question: str, excerpts: str) -> str:
+    """The answer, written from the retrieved excerpts by the collection's default chat model."""
+    response = httpx.post(
+        f"{base_url}/api/internal/llm/chat",
+        json={
+            "model": config["generator_model"],
+            "messages": [
+                {"role": "system", "content": _ANSWER_SYSTEM_PROMPT},
+                {"role": "user", "content": f"Question: {question}\n\nExcerpts:\n{excerpts}"},
+            ],
+            "usage": {"collection_id": config["collection_id"]},
+        },
+        headers=headers,
+        timeout=120.0,
+    )
+    response.raise_for_status()
+    return response.json()["content"]
+
+
 def call_api(prompt: str, options: dict, context: dict) -> dict:  # noqa: ARG001
     """Runs the same search the research agent uses, then generates an answer from what
     was retrieved - one promptfoo test = one search + one generation.
@@ -41,40 +76,12 @@ def call_api(prompt: str, options: dict, context: dict) -> dict:  # noqa: ARG001
     headers = {"X-API-Key": os.environ[config["api_key_envar"]]}
     base_url = config["backend_url"].rstrip("/")
 
-    # 1. Same search as the agent: /internal/search, k chunks.
-    search = httpx.post(
-        f"{base_url}/api/internal/search",
-        json={
-            "collection_ids": [config["collection_id"]],
-            "query": prompt,
-            "limit": config["k"],
-        },
-        headers=headers,
-        timeout=60.0,
-    )
-    search.raise_for_status()
-    results = search.json()
-
-    # 2. Answer generation from the retrieved excerpts (the collection's default chat model).
-    if not results:
-        answer = "No relevant excerpts were retrieved for this question."
-    else:
+    results = _search(base_url, headers, config, prompt)
+    if results:
         excerpts = "\n\n".join(f"[{i + 1}] {r['text']}" for i, r in enumerate(results))
-        chat = httpx.post(
-            f"{base_url}/api/internal/llm/chat",
-            json={
-                "model": config["generator_model"],
-                "messages": [
-                    {"role": "system", "content": _ANSWER_SYSTEM_PROMPT},
-                    {"role": "user", "content": f"Question: {prompt}\n\nExcerpts:\n{excerpts}"},
-                ],
-                "usage": {"collection_id": config["collection_id"]},
-            },
-            headers=headers,
-            timeout=120.0,
-        )
-        chat.raise_for_status()
-        answer = chat.json()["content"]
+        answer = _generate(base_url, headers, config, prompt, excerpts)
+    else:
+        answer = "No relevant excerpts were retrieved for this question."
 
     contexts = [r["text"] for r in results]
     if not contexts:
