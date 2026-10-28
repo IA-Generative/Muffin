@@ -324,3 +324,136 @@ def test_the_evidence_holds_every_call_including_the_failed_ones(monkeypatch):
     assert "SELECT x" in content and 'Erreur : Referenced column "x" not found' in content
     assert "SELECT 3" in content and "| 3 |" in content
     assert "Sources : ventes.xlsx" in content and "vieux.csv" in content
+
+
+# --- charts (#434) ---
+
+CHART = {"type": "bar", "x": "région", "y": ["n"], "title": "Total par région"}
+STORED = {
+    "id": "ch1",
+    "title": "Total par région",
+    "url": "/api/conversations/c/charts/ch1.png",
+    "markdown": "![Total par région](/api/conversations/c/charts/ch1.png)",
+}
+DRAWN = {"status": "completed", "png_base64": "UE5H", "width": 900, "height": 540, "rows": 3, "truncated": False}
+CHART_FAIL = {
+    "status": "failed",
+    "message": "Colonne « chiffre » introuvable",
+    "columns": [{"name": "n", "type": "BIGINT"}],
+}
+
+
+def chart_action(number=1, chart=None):
+    return json.dumps({"action": "create_chart", "query": number, "chart": CHART if chart is None else chart})
+
+
+def script_charts(monkeypatch, replies, answers, drawings, stored=None):
+    conversations, sent = script(monkeypatch, replies, answers)
+    drawn, kept = iter(drawings), []
+
+    def draw(payload, *args, **kwargs):
+        sent.append(payload)
+        return next(drawn)
+
+    def store(run_id, body):
+        kept.append((run_id, body))
+        if isinstance(stored, Exception):
+            raise stored
+        return stored or STORED
+
+    monkeypatch.setattr(tabular_query, "render_remote_chart", draw)
+    monkeypatch.setattr(tabular_query.backend_client, "create_chart", store, raising=False)
+    return conversations, sent, kept
+
+
+def test_the_model_draws_the_chart_of_a_query_and_the_backend_keeps_it(monkeypatch):
+    conversations, sent, kept = script_charts(
+        monkeypatch, [query("SELECT 3"), chart_action(), '{"action": "finish"}'], [OK], [DRAWN]
+    )
+
+    outcome = run_query_loop("chart it", catalog(document()), "m", run_id="run-1")
+
+    assert outcome.charts == [STORED]
+    # The chart's request is the query run again, on the files it read, with the spec.
+    assert sent[1]["sql"] == "SELECT 3" and sent[1]["spec"] == CHART and sent[1]["files"][0]["ref"] == "f1"
+    assert kept[0][0] == "run-1" and kept[0][1]["png_base64"] == "UE5H" and kept[0][1]["width"] == 900
+    assert STORED["markdown"] in conversations[2][-1]["content"]
+
+
+def test_charts_are_not_offered_without_a_run(monkeypatch):
+    conversations, _ = script(monkeypatch, ['{"action": "finish"}'], [])
+
+    run_query_loop("q", catalog(document()), "m")
+
+    assert "create_chart" not in conversations[0][0]["content"]
+
+
+def test_a_chart_that_cannot_be_drawn_comes_back_with_the_columns_and_is_corrected(monkeypatch):
+    conversations, _, _ = script_charts(
+        monkeypatch,
+        [query("SELECT 3"), chart_action(chart={**CHART, "y": ["chiffre"]}), chart_action(), '{"action": "finish"}'],
+        [OK],
+        [CHART_FAIL, DRAWN],
+    )
+
+    outcome = run_query_loop("chart it", catalog(document()), "m", run_id="run-1")
+
+    assert len(outcome.charts) == 1
+    feedback = conversations[2][-1]["content"]
+    assert "« chiffre » introuvable" in feedback and "n (BIGINT)" in feedback
+
+
+def test_a_chart_of_a_query_that_did_not_work_or_does_not_exist_is_refused(monkeypatch):
+    conversations, sent, _ = script_charts(
+        monkeypatch, [query("SELECT x"), chart_action(1), chart_action(7), '{"action": "finish"}'], [FAIL], []
+    )
+
+    outcome = run_query_loop("chart it", catalog(document()), "m", run_id="run-1")
+
+    assert outcome.charts == [] and len(sent) == 1  # only the query went to the worker
+    assert "n'existe pas ou n'a pas réussi" in conversations[2][-1]["content"]
+
+
+def test_the_number_of_charts_is_bounded(monkeypatch):
+    monkeypatch.setattr(tabular_query.settings, "TABULAR_MAX_CHARTS", 2)
+    _, sent, _ = script_charts(
+        monkeypatch,
+        [query("SELECT 3")] + [chart_action()] * 3 + ['{"action": "finish"}'],
+        [OK],
+        [DRAWN] * 3,
+    )
+
+    outcome = run_query_loop("chart it", catalog(document()), "m", run_id="run-1")
+
+    assert len(outcome.charts) == 2 and len(sent) == 3  # the query and two charts
+
+
+def test_a_chart_the_backend_refuses_is_reported_to_the_model(monkeypatch):
+    import httpx
+
+    request = httpx.Request("POST", "http://backend/charts")
+    refusal = httpx.HTTPStatusError(
+        "refused", request=request, response=httpx.Response(409, json={"detail": "6 charts at most"}, request=request)
+    )
+    conversations, _, _ = script_charts(
+        monkeypatch, [query("SELECT 3"), chart_action(), '{"action": "finish"}'], [OK], [DRAWN], stored=refusal
+    )
+
+    outcome = run_query_loop("chart it", catalog(document()), "m", run_id="run-1")
+
+    assert outcome.charts == [] and "6 charts at most" in conversations[2][-1]["content"]
+
+
+def test_a_chart_asked_after_the_last_query_is_still_drawn(monkeypatch):
+    monkeypatch.setattr(tabular_query.settings, "TABULAR_MAX_STEPS", 1)
+    script_charts(monkeypatch, [query("SELECT 3"), chart_action(), '{"action": "finish"}'], [OK], [DRAWN])
+
+    assert len(run_query_loop("chart it", catalog(document()), "m", run_id="run-1").charts) == 1
+
+
+def test_the_evidence_shows_the_charts(monkeypatch):
+    script_charts(monkeypatch, [query("SELECT 3"), chart_action(), '{"action": "finish"}'], [OK], [DRAWN])
+    cat = catalog(document())
+    outcome = run_query_loop("chart it", cat, "m", run_id="run-1")
+
+    assert STORED["markdown"] in format_tabular_evidence("chart it", cat, outcome)

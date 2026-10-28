@@ -14,6 +14,7 @@ from app.config import settings
 from app.task_revocation import TaskRevoked, raise_if_revoked
 
 RUN_QUERY_TASK = "app.tasks.run_query"
+RENDER_CHART_TASK = "app.tasks.render_chart"
 
 
 class SqlWorkerUnavailable(Exception):
@@ -27,21 +28,40 @@ def run_remote_query(
     sleep: Callable[[float], None] = time.sleep,
 ) -> dict[str, Any]:
     """The worker's answer - a QueryResult or a QueryFailure in JSON - for this QueryRequest."""
+    return _call(RUN_QUERY_TASK, payload, settings.TABULAR_QUERY_TIMEOUT_SECONDS, app, clock, sleep)
+
+
+def render_remote_chart(
+    payload: dict[str, Any],
+    app: Any = None,
+    clock: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
+) -> dict[str, Any]:
+    """The worker's answer - a ChartResult (the PNG) or a ChartFailure in JSON - for this ChartRequest."""
+    return _call(RENDER_CHART_TASK, payload, settings.TABULAR_CHART_TIMEOUT_SECONDS, app, clock, sleep)
+
+
+def _call(
+    task: str,
+    payload: dict[str, Any],
+    timeout: float,
+    app: Any,
+    clock: Callable[[], float],
+    sleep: Callable[[float], None],
+) -> dict[str, Any]:
     if app is None:
         from app.celery_app import celery_app as app
     try:
-        result = app.send_task(RUN_QUERY_TASK, args=[payload], queue=settings.SQL_QUEUE_NAME)
+        result = app.send_task(task, args=[payload], queue=settings.SQL_QUEUE_NAME)
     except Exception as error:
         raise SqlWorkerUnavailable(f"Le worker de requêtes est injoignable ({type(error).__name__}).") from error
-    deadline = clock() + settings.TABULAR_QUERY_TIMEOUT_SECONDS
+    deadline = clock() + timeout
     try:
         while not result.ready():
             raise_if_revoked()
             if clock() > deadline:
                 result.revoke()
-                raise SqlWorkerUnavailable(
-                    f"Le worker de requêtes n'a pas répondu en {settings.TABULAR_QUERY_TIMEOUT_SECONDS:g} secondes."
-                )
+                raise SqlWorkerUnavailable(f"Le worker de requêtes n'a pas répondu en {timeout:g} secondes.")
             sleep(settings.TABULAR_POLL_SECONDS)
         if not result.successful():
             logger.warning(f"The SQL worker's task failed: {result.result!r}")

@@ -1,4 +1,5 @@
 import uuid
+from functools import partial
 from typing import Any
 
 from loguru import logger
@@ -416,6 +417,7 @@ def _run_tabular_query(
     model: str | None,
     scope: RoutingScope,
     _web_search_enabled: bool,
+    run_id: str | None = None,
 ) -> tuple[dict[str, Any], list[Evidence]]:
     """Tabular data analysis tool (#433): the model queries the tabular files of the selected collections in SQL,
     through the SQL worker, and corrects its queries from the errors it gets back - questions about aggregations,
@@ -447,7 +449,7 @@ def _run_tabular_query(
     if not catalog.files and not catalog.pending:
         return updates, []
 
-    outcome = run_query_loop(task["query"], catalog, model) if catalog.files else LoopOutcome()
+    outcome = run_query_loop(task["query"], catalog, model, run_id) if catalog.files else LoopOutcome()
     if not outcome.succeeded:
         if outcome.stopped and outcome.calls:
             raise RuntimeError(f"Analyse des données impossible : {outcome.stopped}")
@@ -472,6 +474,8 @@ def _run_tabular_query(
                 "calls": [{"sql": c.sql, "ok": c.ok, "error": c.error, "rows": len(c.rows)} for c in outcome.calls],
                 "row_count": len(last.rows) if last else 0,
                 "truncated": last.truncated if last else False,
+                # The charts drawn for this answer (#434): generate_answer puts the ones it forgets at the end.
+                "charts": outcome.charts,
             },
             relevance_score=None,
             retrieval_query=task["query"],
@@ -539,6 +543,8 @@ def research_task(state: ResearchTaskInput) -> dict[str, Any]:
     try:
         emit(run_id, "vdb_routing_started", task_id=task_id)
         runner = _RUNNERS.get(task["tool"], _run_search)
+        if task["tool"] == "tabular_query":
+            runner = partial(_run_tabular_query, run_id=run_id)
         updates, evidence = runner(
             task,
             user_id,

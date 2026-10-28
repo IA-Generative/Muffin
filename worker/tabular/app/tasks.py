@@ -92,3 +92,12 @@ def execute(payload: dict, store=storage, limits: QueryLimits | None = None, wor
 def run_sql(payload: dict) -> dict:
     """A SELECT over the sheets of a QueryRequest: a QueryResult, or a QueryFailure that says what to change."""
     return execute(payload)
+
+
+@celery_app.task(name="app.tasks.render_chart")
+def render_chart_task(payload: dict) -> dict:
+    """The PNG of a chart drawn from the result of a SQL query (#434): a ChartResult, or a ChartFailure that says what
+    to change."""
+    from app.chart_task import execute_chart
+
+    return execute_chart(payload)

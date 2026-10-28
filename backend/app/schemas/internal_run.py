@@ -1,7 +1,7 @@
 import uuid
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.schemas.collection import CollectionPathItem
 from app.schemas.question import Question
@@ -227,3 +227,22 @@ class ConversationTitleUpdate(BaseModel):
 
 class RunPartialAnswerUpdate(BaseModel):
     text: str
+
+
+class ChartCreate(BaseModel):
+    """A chart the agent drew (#434): what it asked for, and the PNG the SQL worker drew from it (base64: the worker
+    that draws writes nothing to the bucket)."""
+
+    spec: dict[str, Any]
+    title: str = Field(min_length=1, max_length=150)
+    width: int = Field(ge=100, le=4000)
+    height: int = Field(ge=100, le=4000)
+    png_base64: str = Field(max_length=3_000_000)
+
+
+class ChartCreated(BaseModel):
+    id: uuid.UUID
+    title: str
+    # Where the backend serves the image (relative to the API's origin), and the Markdown that shows it.
+    url: str
+    markdown: str

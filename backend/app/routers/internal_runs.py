@@ -1,3 +1,7 @@
+import asyncio
+import base64
+import binascii
+import re
 import uuid
 from typing import Annotated, Any
 
@@ -8,8 +12,10 @@ from app.connectors import redis_connector
 from app.core import storage
 from app.core.security.worker_auth import require_worker_api_key
 from app.db import get_db
+from app.models.chart import Chart
 from app.models.message import MessageRole
 from app.models.run import RunStatus
+from app.repositories.chart_repository import ChartRepository
 from app.repositories.collection_repository import CollectionRepository
 from app.repositories.conversation_repository import ConversationRepository
 from app.repositories.document_repository import DocumentRepository
@@ -18,6 +24,8 @@ from app.repositories.source_repository import SourceRepository
 from app.schemas.document import TableOut
 from app.schemas.internal_run import (
     AccessibleCollectionOut,
+    ChartCreate,
+    ChartCreated,
     ConversationTitleUpdate,
     DocumentPageContentOut,
     DocumentSummaryOut,
@@ -184,6 +192,8 @@ async def update_run_result(
     # enriched citations (with source_id merged in) are what gets stored, not the raw input, so
     # that id is actually visible to whoever reads this run/message back.
     enriched_citations = await SourceRepository(db).link_citations(message.id, update.citations)
+    # The charts the run drew while it ran now belong to this message (#434).
+    await ChartRepository(db).attach_run_to_message(run.id, message.id)
     await repository.set_result(
         run,
         update.answer,
@@ -196,6 +206,68 @@ async def update_run_result(
     )
     await db.commit()
     return {"status": "ok"}
+
+
+# Charts one run may draw (#434): a response with more is not an illustration any more.
+MAX_CHARTS_PER_RUN = 6
+MAX_CHART_BYTES = 2 * 1024 * 1024
+_PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+
+
+def chart_url(conversation_id: uuid.UUID, chart_id: uuid.UUID) -> str:
+    """Where the backend serves a chart's image: with the rights of its conversation, never a link to the bucket."""
+    return f"/api/conversations/{conversation_id}/charts/{chart_id}.png"
+
+
+def chart_markdown(title: str, url: str) -> str:
+    """The Markdown that shows a chart; its alternative text is its title, cleaned of what would end the brackets."""
+    alt = re.sub(r"[\[\]\\\n\r]+", " ", title).strip()
+    return f"![{alt}]({url})"
+
+
+@router.post(
+    "/runs/{run_id}/charts",
+    summary="Store a chart the agent drew for a run (#434): the PNG goes to RustFS, served only by the backend",
+    response_model=ChartCreated,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_chart(
+    run_id: uuid.UUID, body: ChartCreate, db: Annotated[AsyncSession, Depends(get_db)]
+) -> ChartCreated:
+    run = await RunRepository(db).get_by_id(run_id)
+    if run is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+    if run.status != RunStatus.RUNNING:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="The run is not running")
+    charts = ChartRepository(db)
+    if await charts.count_for_run(run.id) >= MAX_CHARTS_PER_RUN:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=f"{MAX_CHARTS_PER_RUN} charts at most per answer"
+        )
+    try:
+        png = base64.b64decode(body.png_base64, validate=True)
+    except (binascii.Error, ValueError) as error:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Not base64") from error
+    if not png.startswith(_PNG_SIGNATURE) or len(png) > MAX_CHART_BYTES:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Not a PNG of a fit size")
+    chart_id = uuid.uuid4()
+    key = f"charts/{run.conversation_id}/{chart_id}.png"
+    await asyncio.to_thread(storage.put_object, key, png, "image/png")
+    chart = await charts.add(
+        Chart(
+            id=chart_id,
+            conversation_id=run.conversation_id,
+            run_id=run.id,
+            spec=body.spec,
+            title=body.title,
+            s3_key=key,
+            width=body.width,
+            height=body.height,
+        )
+    )
+    await db.commit()
+    url = chart_url(chart.conversation_id, chart.id)
+    return ChartCreated(id=chart.id, title=chart.title, url=url, markdown=chart_markdown(chart.title, url))
 
 
 @router.patch("/runs/{run_id}/error", summary="Report a run failure")
