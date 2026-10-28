@@ -31,6 +31,7 @@ from app.schemas.document import (
     HighlightRequest,
     HighlightsOut,
     RefreshSchedule,
+    RegionOut,
     TabularProfileOut,
 )
 from app.schemas.pagination import Page, PaginationParams
@@ -407,6 +408,40 @@ class DocumentUploadService:
             for page in pages
         ]
         return pagination.to_page(items, total)
+
+    async def list_regions(
+        self,
+        collection_id: uuid.UUID,
+        user: RequestContext,
+        document_id: uuid.UUID,
+        page_number: int | None = None,
+        types: list[str] | None = None,
+    ) -> list[RegionOut]:
+        """The layout of a document's scanned pages (#409), in page then reading order - of one page, and of some
+        types, when asked. Empty for a page read another way (a native page, a Markdown file), or extracted before
+        the layout was kept."""
+        await self._get_readable_collection(collection_id, user)
+        await self._get_owned_document(collection_id, document_id)
+        if page_number is not None and await self.documents.get_page(document_id, page_number) is None:
+            raise DocumentNotFoundError(f"page {page_number} of document {document_id}")
+        found = await self.documents.list_document_regions(document_id, page_number=page_number, types=types)
+        return [
+            RegionOut(
+                id=region.id,
+                page_number=number,
+                position=region.position,
+                type=region.type,
+                score=region.score,
+                x_min=region.x_min,
+                y_min=region.y_min,
+                x_max=region.x_max,
+                y_max=region.y_max,
+                polygon=[(x, y) for x, y in region.polygon] if region.polygon else None,
+                title_level=region.title_level,
+                caption=region.caption,
+            )
+            for region, number in found
+        ]
 
     async def get_page_screenshot(
         self,

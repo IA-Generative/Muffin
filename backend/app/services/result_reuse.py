@@ -131,6 +131,25 @@ class ResultReuse:
                     for box in await self.documents.list_text_boxes(page.id)
                 ],
             )
+            # And its layout (#409): the regions an image, a table or a title can be found by. The table a region
+            # was read as (#410) is not copied: it is the source document's.
+            await self.documents.replace_regions(
+                copy.id,
+                [
+                    {
+                        "type": region.type,
+                        "score": region.score,
+                        "x_min": region.x_min,
+                        "y_min": region.y_min,
+                        "x_max": region.x_max,
+                        "y_max": region.y_max,
+                        "polygon": region.polygon,
+                        "title_level": region.title_level,
+                        "caption": region.caption,
+                    }
+                    for region in await self.documents.list_regions(page.id)
+                ],
+            )
         await self.documents.prune_pages(target.id, keep=max((page.page_number for page in pages), default=0))
 
     async def _copy_chunks(self, source: Document, target: Document, undo: Undo) -> None:

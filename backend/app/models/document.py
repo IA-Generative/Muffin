@@ -160,6 +160,9 @@ class DocumentPage(UUIDMixin, Base):
     text_boxes: Mapped[list["PageTextBox"]] = relationship(
         back_populates="page", cascade="all, delete-orphan", order_by="PageTextBox.position", lazy="noload"
     )
+    regions: Mapped[list["PageRegion"]] = relationship(
+        back_populates="page", cascade="all, delete-orphan", order_by="PageRegion.position", lazy="noload"
+    )
 
 
 class PageTextBox(UUIDMixin, Base):
@@ -187,3 +190,37 @@ class PageTextBox(UUIDMixin, Base):
     words: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
 
     page: Mapped[DocumentPage] = relationship(back_populates="text_boxes")
+
+
+class PageRegion(UUIDMixin, Base):
+    """A region of the layout of a scanned page (#409): what the OCR pods found on it, kept so that it can be cropped,
+    framed or described later without reading the page again. Its type (`text`, `title`, `table`, `image`, `formula`,
+    `logo`, `stamp`, `header`, `footer`, `page_number`, ... - free text, a newer pod may have more), its score, and its
+    box, normalized between 0 and 1 against the page (so it lands on the screenshot whatever the scale it was rendered
+    at). Every region is here, the running headers and footers too - they are only left out of the page's content.
+    No crop is stored: it is made from the page's image and this box when it is wanted. A table of its own, like
+    `page_text_boxes`: replaced with the page, dropped with it."""
+
+    __tablename__ = "page_regions"
+
+    document_page_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("document_pages.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    # Reading order within the page, from 0.
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    type: Mapped[str] = mapped_column(String(32), nullable=False)
+    score: Mapped[float] = mapped_column(Float, nullable=False)
+    x_min: Mapped[float] = mapped_column(Float, nullable=False)
+    y_min: Mapped[float] = mapped_column(Float, nullable=False)
+    x_max: Mapped[float] = mapped_column(Float, nullable=False)
+    y_max: Mapped[float] = mapped_column(Float, nullable=False)
+    # [[x, y], ...] between 0 and 1 - the outline, when the model gave one.
+    polygon: Mapped[list[list[float]] | None] = mapped_column(JSONB, nullable=True)
+    # A title only: 1 for the document's, 2 for a section's.
+    title_level: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Reserved: the description of an image or a table, once something describes them (#411).
+    caption: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Reserved: the table read from this region (#410).
+    table_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
+
+    page: Mapped[DocumentPage] = relationship(back_populates="regions")
