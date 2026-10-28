@@ -129,5 +129,19 @@ class RustFsStorage:
         self._ensure_bucket()
         self._client.put_object(Bucket=self._bucket, Key=key, Body=data, ContentType=content_type)
 
+    def delete_prefix(self, prefix: str) -> int:
+        """Deletes every object whose key starts with `prefix`, and gives how many there were. The prefix is
+        required to be a folder (ending with a slash): "" or "ocr-pages" would reach far more than meant."""
+        if not prefix.endswith("/"):
+            raise ValueError(f"{prefix!r} is not a folder to delete: it must end with a slash")
+        self._ensure_bucket()
+        deleted = 0
+        for page in self._client.get_paginator("list_objects_v2").paginate(Bucket=self._bucket, Prefix=prefix):
+            keys = [{"Key": item["Key"]} for item in page.get("Contents", [])]
+            if keys:
+                self._client.delete_objects(Bucket=self._bucket, Delete={"Objects": keys, "Quiet": True})
+                deleted += len(keys)
+        return deleted
+
 
 storage = RustFsStorage()

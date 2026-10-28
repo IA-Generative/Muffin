@@ -7,6 +7,7 @@ from app import (  # noqa: F401 - loguru everywhere, each task's lines (#305) an
     task_logging,
 )
 from app.config import settings
+from app.ocr.routing import ocr_task_queues
 from app.task_revocation import RevocableTask
 
 celery_app = Celery(
@@ -50,6 +51,11 @@ celery_app.conf.update(
             settings.IMPORT_QUEUE_NAME,
             settings.REBUILD_QUEUE_NAME,
             settings.LEGACY_QUEUE_NAME,
+            # The OCR pods' (app/ocr/): this worker only sends to them.
+            settings.LAYOUT_QUEUE_NAME,
+            settings.OCR_QUEUE_NAME,
+            settings.TABLE_QUEUE_NAME,
+            settings.VISION_QUEUE_NAME,
         )
     ),
     task_routes={
@@ -58,6 +64,7 @@ celery_app.conf.update(
         "app.tasks.import_zip": {"queue": settings.IMPORT_QUEUE_NAME},
         "app.tasks.import_zip_batch": {"queue": settings.IMPORT_QUEUE_NAME},
         "app.tasks.rebuild_index": {"queue": settings.REBUILD_QUEUE_NAME},
+        **{name: {"queue": queue} for name, queue in ocr_task_queues().items()},
     },
     # No hard limit: a big document or archive is not killed for being big (#294). What can hang is
     # bounded where it happens - the parser's own timeout (app/parsing.py), HTTP and S3 timeouts - and
