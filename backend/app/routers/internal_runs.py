@@ -15,6 +15,7 @@ from app.repositories.conversation_repository import ConversationRepository
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.run_repository import RunRepository
 from app.repositories.source_repository import SourceRepository
+from app.schemas.document import TableOut
 from app.schemas.internal_run import (
     AccessibleCollectionOut,
     ConversationTitleUpdate,
@@ -36,6 +37,7 @@ from app.schemas.internal_run import (
 )
 from app.services.run_service import PARTIAL_ANSWER_TTL_SECONDS, partial_answer_key
 from app.services.search_service import SearchService
+from app.services.table_views import table_out
 
 router = APIRouter(
     prefix="/internal",
@@ -335,6 +337,29 @@ async def get_document_page(
         content=page.content,
         screenshot_url=(storage.get_presigned_url(page.screenshot) if page.screenshot else None),
     )
+
+
+@router.get(
+    "/users/{user_id}/documents/{document_id}/pages/{page_number}/tables/{rank}",
+    summary="Fetch a table read on a scanned page (#410), with its content - the document's collection must be one "
+    "this user owns, same permission barrier as the page itself",
+    response_model=TableOut,
+)
+async def get_document_table(
+    user_id: str,
+    document_id: uuid.UUID,
+    page_number: int,
+    rank: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> TableOut:
+    documents = DocumentRepository(db)
+    document = await documents.get_with_collection(document_id)
+    if document is None or document.collection.owner_id != user_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+    table = await documents.get_table(document_id, page_number, rank)
+    if table is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Table not found")
+    return table_out(document_id, table, page_number)
 
 
 @router.patch(

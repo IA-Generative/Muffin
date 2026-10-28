@@ -65,6 +65,50 @@ class RegionIn(BaseModel):
         return self
 
 
+# What a table may hold. A page of a book has a few; a table of a thousand rows is a spreadsheet, not a scan.
+MAX_TABLES_PER_PAGE = 100
+MAX_TABLE_ROWS = 1000
+MAX_TABLE_COLS = 200
+MAX_TABLE_CELLS = 20000
+
+
+class TableCellIn(BaseModel):
+    """A cell of a table (#410): from row/col (0-based), spanning row_span rows and col_span columns."""
+
+    row: int = Field(ge=0, lt=MAX_TABLE_ROWS)
+    col: int = Field(ge=0, lt=MAX_TABLE_COLS)
+    row_span: int = Field(default=1, ge=1, le=MAX_TABLE_ROWS)
+    col_span: int = Field(default=1, ge=1, le=MAX_TABLE_COLS)
+    text: str = Field(default="", max_length=5000)
+
+
+class TableIn(BaseModel):
+    """A table read on a page (#410): its grid, and that grid written out as Markdown and as HTML. `rank` is its place
+    among the tables of the page, from 1, in reading order; `region_position` the region of the page's layout (its
+    `position`) it was read from, when it is known."""
+
+    rank: int = Field(ge=1, le=MAX_TABLES_PER_PAGE)
+    region_position: int | None = Field(default=None, ge=0)
+    n_rows: int = Field(ge=1, le=MAX_TABLE_ROWS)
+    n_cols: int = Field(ge=1, le=MAX_TABLE_COLS)
+    has_header: bool = False
+    headers: list[str] | None = Field(default=None, max_length=MAX_TABLE_COLS)
+    cells: list[TableCellIn] = Field(default_factory=list, max_length=MAX_TABLE_CELLS)
+    markdown: str = Field(max_length=1_000_000)
+    html: str = Field(max_length=2_000_000)
+    score: float = Field(ge=0, le=1)
+    # False when the structure is doubtful: kept, and said so.
+    reliable: bool = True
+    model_version: str = Field(default="", max_length=128)
+
+    @model_validator(mode="after")
+    def _cells_are_in_the_grid(self) -> "TableIn":
+        for cell in self.cells:
+            if cell.row + cell.row_span > self.n_rows or cell.col + cell.col_span > self.n_cols:
+                raise ValueError(f"the cell ({cell.row}, {cell.col}) goes out of the table")
+        return self
+
+
 class DocumentPageCreate(BaseModel):
     page_number: int
     content: str
@@ -75,6 +119,15 @@ class DocumentPageCreate(BaseModel):
     # The regions of the page's layout, in reading order (#409). Same rule as the lines: None, what the page has is
     # kept; empty, the page has none (a page read again by something that finds no layout loses the old ones).
     regions: list[RegionIn] | None = Field(default=None, max_length=500)
+    # The tables read on the page (#410). Same rule again: None, what the page has is kept; empty, it has none.
+    tables: list[TableIn] | None = Field(default=None, max_length=MAX_TABLES_PER_PAGE)
+
+    @model_validator(mode="after")
+    def _one_table_per_rank(self) -> "DocumentPageCreate":
+        ranks = [table.rank for table in self.tables or []]
+        if len(ranks) != len(set(ranks)):
+            raise ValueError("two tables of a page cannot share a rank")
+        return self
 
 
 class DocumentPageOut(BaseModel):

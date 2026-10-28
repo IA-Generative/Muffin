@@ -57,8 +57,17 @@ class DocumentService:
         created = await self.repository.add_page(document_id, page.page_number, page.content, page.screenshot)
         if page.text_boxes is not None:
             await self.repository.replace_text_boxes(created.id, [box.model_dump() for box in page.text_boxes])
+        regions = None
         if page.regions is not None:
-            await self.repository.replace_regions(created.id, [region.model_dump() for region in page.regions])
+            regions = await self.repository.replace_regions(
+                created.id, [region.model_dump() for region in page.regions]
+            )
+        if page.tables is not None:
+            # A table is tied to the region it was read from, by the region's place in the layout: the one just written,
+            # or the one the page already has when only the tables are sent.
+            if regions is None:
+                regions = list(await self.repository.list_regions(created.id))
+            await self.repository.replace_tables(created.id, [table.model_dump() for table in page.tables], regions)
         await self.db.commit()
         return created
 

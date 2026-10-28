@@ -95,6 +95,40 @@ class RegionOut(BaseModel):
     caption: str | None = None
 
 
+class TableSummaryOut(BaseModel):
+    """A table read on a scanned page (#410), without its content: what tells that it is there and what it is about."""
+
+    # `<document>/p<page>/t<rank>` - what the page's text says in its `[Tableau ...]` marker.
+    table_id: str
+    page_number: int
+    rank: int
+    n_rows: int
+    n_cols: int
+    has_header: bool
+    headers: list[str] | None = None
+    # False when the structure is doubtful: the content is there, to be read with care.
+    reliable: bool
+    score: float
+
+
+class TableCellOut(BaseModel):
+    row: int
+    col: int
+    row_span: int = 1
+    col_span: int = 1
+    text: str = ""
+
+
+class TableOut(TableSummaryOut):
+    """A table with its content: the grid, and that grid as Markdown and as HTML (which the Markdown cannot be when a
+    cell spans several rows or columns)."""
+
+    cells: list[TableCellOut]
+    markdown: str
+    html: str
+    model_version: str = ""
+
+
 class DocumentUrlCreate(BaseModel):
     url: str
     # Asked when the URL is added (#19): when its page is fetched again. None: never.

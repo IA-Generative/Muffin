@@ -32,6 +32,8 @@ from app.schemas.document import (
     HighlightsOut,
     RefreshSchedule,
     RegionOut,
+    TableOut,
+    TableSummaryOut,
     TabularProfileOut,
 )
 from app.schemas.pagination import Page, PaginationParams
@@ -39,6 +41,7 @@ from app.services import embedding_model_lookup, vector_store
 from app.services.document_derived_data import DocumentDerivedData
 from app.services.import_processing_queue import ImportProcessingQueue
 from app.services.page_highlights import chunk_pages_of, chunk_spans_on, locate_passage, rects_for_span
+from app.services.table_views import table_out, table_summary
 
 from .collection_service import FALLBACK_EMBEDDING_MODEL, CollectionNotFoundError
 
@@ -442,6 +445,26 @@ class DocumentUploadService:
             )
             for region, number in found
         ]
+
+    async def list_tables(
+        self, collection_id: uuid.UUID, user: RequestContext, document_id: uuid.UUID
+    ) -> list[TableSummaryOut]:
+        """The tables read on a document's scanned pages (#410), without their content, in page then reading order."""
+        await self._get_readable_collection(collection_id, user)
+        await self._get_owned_document(collection_id, document_id)
+        found = await self.documents.list_document_tables(document_id)
+        return [table_summary(document_id, table, number) for table, number in found]
+
+    async def get_table(
+        self, collection_id: uuid.UUID, user: RequestContext, document_id: uuid.UUID, page_number: int, rank: int
+    ) -> TableOut:
+        """One table with its content (#410)."""
+        await self._get_readable_collection(collection_id, user)
+        await self._get_owned_document(collection_id, document_id)
+        table = await self.documents.get_table(document_id, page_number, rank)
+        if table is None:
+            raise DocumentNotFoundError(f"table {rank} of page {page_number} of document {document_id}")
+        return table_out(document_id, table, page_number)
 
     async def get_page_screenshot(
         self,

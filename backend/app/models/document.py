@@ -163,6 +163,9 @@ class DocumentPage(UUIDMixin, Base):
     regions: Mapped[list["PageRegion"]] = relationship(
         back_populates="page", cascade="all, delete-orphan", order_by="PageRegion.position", lazy="noload"
     )
+    tables: Mapped[list["DocumentTable"]] = relationship(
+        back_populates="page", cascade="all, delete-orphan", order_by="DocumentTable.rank", lazy="noload"
+    )
 
 
 class PageTextBox(UUIDMixin, Base):
@@ -220,7 +223,41 @@ class PageRegion(UUIDMixin, Base):
     title_level: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # Reserved: the description of an image or a table, once something describes them (#411).
     caption: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # Reserved: the table read from this region (#410).
-    table_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
+    # The table read from this region (#410), when it is one and was read. Dropped (not the region) with its table.
+    table_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("document_tables.id", ondelete="SET NULL", name="fk_page_regions_table_id"), nullable=True
+    )
 
     page: Mapped[DocumentPage] = relationship(back_populates="regions")
+
+
+class DocumentTable(UUIDMixin, Base):
+    """A table read on a scanned page (#410): what the agent goes to read when a passage says a table is there, its
+    content being kept out of the chunks. Identified within its document by its page and its `rank` on the page (1 for
+    the first in reading order) - which is what the page's text says (`[Tableau <document>/p3/t1 ...]`), and does not
+    change when the page is read again. Replaced with the page, dropped with it - like the layout it was read from.
+
+    `cells` is the grid: `[{"row", "col", "row_span", "col_span", "text"}, ...]`, rows and columns from 0; `markdown`
+    and `html` are that grid written out (HTML when a cell spans several - Markdown cannot say it). `reliable` is False
+    when the structure is doubtful: the content is there, it is just not to be trusted blindly."""
+
+    __tablename__ = "document_tables"
+    __table_args__ = (UniqueConstraint("document_page_id", "rank", name="uq_document_tables_page_rank"),)
+
+    document_page_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("document_pages.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    rank: Mapped[int] = mapped_column(Integer, nullable=False)
+    n_rows: Mapped[int] = mapped_column(Integer, nullable=False)
+    n_cols: Mapped[int] = mapped_column(Integer, nullable=False)
+    has_header: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # The first row's texts, when it is a header.
+    headers: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
+    cells: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
+    markdown: Mapped[str] = mapped_column(Text, nullable=False)
+    html: Mapped[str] = mapped_column(Text, nullable=False)
+    score: Mapped[float] = mapped_column(Float, nullable=False)
+    reliable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    model_version: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+
+    page: Mapped[DocumentPage] = relationship(back_populates="tables")
