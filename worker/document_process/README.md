@@ -195,6 +195,27 @@ leur donne.
 Côté backend, `POST /collections/{id}/documents/{id}/pages/{n}/highlights` (un POST, car un chunk cité est trop long
 pour une adresse) dit où est un passage : les intervalles de caractères à surligner et les rectangles à encadrer.
 
+## Pages scannées par analyse de layout (#403)
+
+Chantier en cours : lire une page scannée région par région (layout, puis OCR, puis tableaux) au lieu de la confier
+d'un bloc à Tesseract. **Un pod et une image Docker par modèle** : `layout`, `ocr`, `table` (puis `vision`), chacun avec
+sa queue Celery. Le pod d'extraction garde liteparse et orchestre ; il envoie les tâches des autres par leur nom
+(`app/ocr/routing.py`) sans consommer leurs queues.
+
+Ce que le socle (#405) pose, dans `app/ocr/` :
+
+- `contracts.py` : ce que les pods échangent - les régions d'une page (type, score, ordre de lecture, boîte
+  **normalisée entre 0 et 1** comme `text_boxes`), le texte lu dans ces régions, la structure d'un tableau. Il ne
+  dépend que de pydantic, car chaque pod est une image à part qui en reprend une copie. Un champ ajouté ne change pas
+  `SCHEMA_VERSION` (un lecteur ignore ce qu'il ne connaît pas : un pod peut être mis à jour avant les autres) ; il
+  n'augmente que pour un changement qui casse un lecteur, et un lecteur refuse une version plus récente que la sienne.
+- `routing.py` : le nom de la tâche de chaque pod et sa queue.
+- `pages.py` : l'image d'une page passe des uns aux autres **par S3** (`ocr-pages/{document}/page-{n}.png`, à part de
+  `screenshots/`), jamais par Redis : un message ne porte qu'une clé et de petits JSON. Ces images sont temporaires,
+  supprimées à la fin de l'extraction du document (`delete_page_images`).
+- Les réglages `OCR_ENGINE` et suivants (`docs/environment-variables.md`). Avec `OCR_ENGINE=tesseract`, valeur par
+  défaut, le comportement est inchangé.
+
 ## Entités : où elles sont dans le texte (#352)
 
 `extract_entities_window` demande toujours au LLM le nom et le type des entités d'une fenêtre de pages, mais le worker
