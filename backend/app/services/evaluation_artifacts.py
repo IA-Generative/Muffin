@@ -11,8 +11,10 @@ Only what the backend reads is modelled - the artifact holds far more (grading d
 token usage, the whole config), none of it used here.
 """
 
+import asyncio
 import json
 from collections.abc import Sequence
+from functools import lru_cache
 from typing import Any
 
 from loguru import logger
@@ -83,30 +85,51 @@ def _config_muffin(payload: dict[str, Any]) -> dict[str, Any] | None:
     return None
 
 
-def load_artifact(run: EvaluationRun) -> EvaluationArtifact | None:
+# The parsed artifacts are cached by RustFS key: the artifact is written once and never
+# overwritten (the key is evaluations/{run_id}/results.json), so a cached parse can't go
+# stale. Bounded so a long-lived process can't grow without limit.
+_ARTIFACT_CACHE_SIZE = 128
+
+
+@lru_cache(maxsize=_ARTIFACT_CACHE_SIZE)
+def _read_artifact(key: str) -> EvaluationArtifact:
+    """Reads and parses one results.json - blocking network I/O, so callers run it off the
+    event loop (asyncio.to_thread). Raises on a read/parse failure so the failure is never
+    cached: a transient RustFS outage must not pin a run to "no scores" for ever."""
+    data, _ = storage.get_object(key)
+    payload = json.loads(data)
+    raw = payload["results"]["results"]
+    return EvaluationArtifact(
+        tests=[EvaluationTest.model_validate(test) for test in raw],
+        config_muffin=_config_muffin(payload),
+    )
+
+
+def clear_cache() -> None:
+    """Drops the parsed-artifact cache. For tests, which reuse one key with different content
+    (production keys are unique per run, so a cached parse can never go stale)."""
+    _read_artifact.cache_clear()
+
+
+async def load_artifact(run: EvaluationRun) -> EvaluationArtifact | None:
     """The run's results.json artifact parsed into the fields the backend reads - None when
     the run has no artifact (it predates the promptfoo migration, or the upload never
     happened) or when the artifact can't be read/parsed: a display-time read must degrade to
-    "no scores", never fail the whole evaluations listing."""
+    "no scores", never fail the whole evaluations listing. The blocking read runs in a thread
+    (see _read_artifact) so it never stalls the event loop."""
     if not run.results_json_key:
         return None
     try:
-        data, _ = storage.get_object(run.results_json_key)
-        payload = json.loads(data)
-        raw = payload["results"]["results"]
-        return EvaluationArtifact(
-            tests=[EvaluationTest.model_validate(test) for test in raw],
-            config_muffin=_config_muffin(payload),
-        )
+        return await asyncio.to_thread(_read_artifact, run.results_json_key)
     except Exception:
         logger.exception(f"Failed to read evaluation artifacts for run {run.id}")
         return None
 
 
-def load_tests(run: EvaluationRun) -> list[EvaluationTest] | None:
+async def load_tests(run: EvaluationRun) -> list[EvaluationTest] | None:
     """The run's per-pair tests from its results.json artifact - None when there is no
     readable artifact (see load_artifact)."""
-    artifact = load_artifact(run)
+    artifact = await load_artifact(run)
     return artifact.tests if artifact else None
 
 

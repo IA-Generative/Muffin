@@ -227,7 +227,7 @@ class EvaluationService:
         return collection
 
     async def _to_out(self, run) -> EvaluationRunOut:  # noqa: ANN001
-        artifact = evaluation_artifacts.load_artifact(run)
+        artifact = await evaluation_artifacts.load_artifact(run)
         tests = artifact.tests if artifact else None
         metrics, golden_metrics, all_metrics = (
             evaluation_artifacts.metrics_from_tests(tests) if tests else (None, None, None)

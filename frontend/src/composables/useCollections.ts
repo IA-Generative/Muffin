@@ -1379,36 +1379,37 @@ function pollEvaluationWhileRunning(collectionId: string) {
     collectionId,
     setInterval(async () => {
       attempts++
+      // Poll the cheap status endpoint, never the runs list: the list re-reads every run's
+      // results.json artifact from RustFS, which must not happen every two seconds. Only once
+      // the task is no longer queued or running do we fetch the list, once, to pick up the run.
+      const running = await fetchEvaluationRunning(collectionId)
+      if (running !== false) {
+        // Still queued/running, or the status couldn't be read (null): keep polling.
+        if (attempts >= maxAttempts) {
+          stop()
+          pushToast(
+            'warning',
+            'Évaluation toujours en cours',
+            "L'évaluation n'a pas abouti dans le délai attendu. Elle continue peut-être en arrière-plan : rechargez la page dans quelques minutes.",
+            8000,
+          )
+        }
+        return
+      }
+      // The task finished: fetch the list once to pick up the new run.
       await refreshEvaluation(collectionId)
       const collection = collections.value.find((item) => item.id === collectionId)
       const currentRuns = collection?.evaluationRuns ?? []
-      if (currentRuns.length > previousRunCount) {
-        stop()
-        return
-      }
-      // No new run yet. If the backend no longer has the task queued or running, it finished
-      // without producing a run - the worker skipped it (no chat model, no evaluable pair...).
-      // Stop and say so instead of polling for the full 5 minutes with nothing to show.
-      const running = await fetchEvaluationRunning(collectionId)
-      if (running === false) {
-        stop()
-        pushToast(
-          'warning',
-          'Évaluation sans résultat',
-          "L'évaluation s'est terminée sans produire de résultat. Vérifiez qu'un modèle de chat est configuré pour la collection, puis relancez-la.",
-          8000,
-        )
-        return
-      }
-      if (attempts >= maxAttempts) {
-        stop()
-        pushToast(
-          'warning',
-          'Évaluation toujours en cours',
-          "L'évaluation n'a pas abouti dans le délai attendu. Elle continue peut-être en arrière-plan : rechargez la page dans quelques minutes.",
-          8000,
-        )
-      }
+      stop()
+      if (currentRuns.length > previousRunCount) return
+      // It finished without producing a run - the worker skipped it (no chat model, no
+      // evaluable pair...). Say so instead of leaving the user waiting.
+      pushToast(
+        'warning',
+        'Évaluation sans résultat',
+        "L'évaluation s'est terminée sans produire de résultat. Vérifiez qu'un modèle de chat est configuré pour la collection, puis relancez-la.",
+        8000,
+      )
     }, 2000),
   )
 }
