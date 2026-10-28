@@ -77,6 +77,24 @@ class DocumentPageOut(BaseModel):
     screenshot_url: str | None
 
 
+class RegionOut(BaseModel):
+    """A region of the layout of a scanned page (#409), box normalized between 0 and 1 against the page."""
+
+    id: uuid.UUID
+    page_number: int
+    # Reading order within the page, from 0.
+    position: int
+    type: str
+    score: float
+    x_min: float
+    y_min: float
+    x_max: float
+    y_max: float
+    polygon: list[tuple[float, float]] | None = None
+    title_level: int | None = None
+    caption: str | None = None
+
+
 class DocumentUrlCreate(BaseModel):
     url: str
     # Asked when the URL is added (#19): when its page is fetched again. None: never.

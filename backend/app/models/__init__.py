@@ -21,6 +21,7 @@ from app.models.document import (
     DocumentStatus,
     DocumentTag,
     DocumentType,
+    PageRegion,
     PageTextBox,
 )
 from app.models.document_draft import DocumentDraft, DraftStatus
@@ -77,6 +78,7 @@ __all__ = [
     "DocumentStage",
     "DocumentKind",
     "DocumentPage",
+    "PageRegion",
     "PageTextBox",
     "DocumentRevision",
     "DocumentStatus",

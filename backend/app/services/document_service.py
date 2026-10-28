@@ -57,6 +57,8 @@ class DocumentService:
         created = await self.repository.add_page(document_id, page.page_number, page.content, page.screenshot)
         if page.text_boxes is not None:
             await self.repository.replace_text_boxes(created.id, [box.model_dump() for box in page.text_boxes])
+        if page.regions is not None:
+            await self.repository.replace_regions(created.id, [region.model_dump() for region in page.regions])
         await self.db.commit()
         return created
 
