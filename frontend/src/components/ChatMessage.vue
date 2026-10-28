@@ -1,12 +1,11 @@
 <script setup lang="ts">
-import DOMPurify from 'dompurify'
-import { marked } from 'marked'
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { ChatMessage, FeedbackDetails } from '../types/chat'
 import { useChat } from '../composables/useChat'
 import { useCollections } from '../composables/useCollections'
 import { collectionPathLabel } from '../utils/collectionPath'
 import { useVoiceOutput } from '../composables/useVoiceOutput'
+import { answerHtml } from '../utils/answerHtml'
 import { toPlainText } from '../utils/plainText'
 import ChatCreateProposal from './ChatCreateProposal.vue'
 import ChatEditProposal from './ChatEditProposal.vue'
@@ -50,9 +49,26 @@ const emit = defineEmits<{
 // de votre question") is never markdown either, it's just plain text with animated dots after it.
 const renderedContent = computed(() =>
   props.message.role === 'assistant' && (!props.message.pending || props.message.streaming)
-    ? DOMPurify.sanitize(marked.parse(props.message.content, { async: false }))
+    ? answerHtml(props.message.content)
     : props.message.content,
 )
+
+// The chart that is open larger (#434): a click, or Enter / Space, on one of the answer's charts.
+const enlargedChart = ref<{ src: string; alt: string }>()
+const closeChartButton = ref<HTMLButtonElement>()
+watch(enlargedChart, (chart) => {
+  if (chart) nextTick(() => closeChartButton.value?.focus())
+})
+
+function openChart(event: Event) {
+  const target = event.target
+  if (!(target instanceof HTMLImageElement) || !target.classList.contains('chat-chart')) return
+  if (event instanceof KeyboardEvent) {
+    if (event.key !== 'Enter' && event.key !== ' ') return
+    event.preventDefault()
+  }
+  enlargedChart.value = { src: target.src, alt: target.alt }
+}
 
 const voiceOutput = useVoiceOutput()
 const isSpeaking = computed(() => voiceOutput.speakingId.value === props.message.id)
@@ -220,8 +236,15 @@ onBeforeUnmount(() => {
         </div>
         <!-- Questions with options (#344): the card says them, and takes the answer. -->
         <ChatQuestions v-else-if="message.questions?.length" :message="message" />
-        <!-- eslint-disable-next-line vue/no-v-html -->
-        <div v-else class="chat-message__markdown" v-html="renderedContent" />
+        <!-- eslint-disable vue/no-v-html -->
+        <div
+          v-else
+          class="chat-message__markdown"
+          @click="openChart"
+          @keydown="openChart"
+          v-html="renderedContent"
+        />
+        <!-- eslint-enable vue/no-v-html -->
       </template>
 
       <button
@@ -417,6 +440,28 @@ onBeforeUnmount(() => {
       @close="showFeedbackModal = false"
       @submit="submitFeedback"
     />
+
+    <!-- A chart opened larger (#434): Escape or a click outside closes it. -->
+    <div
+      v-if="enlargedChart"
+      class="chat-chart-overlay"
+      role="dialog"
+      aria-modal="true"
+      :aria-label="enlargedChart.alt"
+      @click.self="enlargedChart = undefined"
+      @keydown.esc="enlargedChart = undefined"
+    >
+      <button
+        ref="closeChartButton"
+        type="button"
+        class="chat-chart-overlay__close"
+        aria-label="Fermer le graphique"
+        @click="enlargedChart = undefined"
+      >
+        ✕
+      </button>
+      <img :src="enlargedChart.src" :alt="enlargedChart.alt" class="chat-chart-overlay__image" />
+    </div>
   </div>
 </template>
 
@@ -518,6 +563,58 @@ onBeforeUnmount(() => {
   background: var(--background-alt-grey);
   border-radius: 0.25rem;
   padding: 0.1rem 0.3rem;
+}
+
+/* The charts the assistant drew (#434), whose HTML is built by utils/answerHtml: the size of the image is known
+   (900 x 540) before it is loaded, so the message does not jump when it arrives. */
+.chat-message__markdown :deep(.chat-chart) {
+  display: block;
+  width: 100%;
+  max-width: 900px;
+  height: auto;
+  aspect-ratio: 900 / 540;
+  margin: 0.75rem 0;
+  border: 1px solid var(--border-default-grey);
+  border-radius: 0.5rem;
+  background: var(--background-alt-grey);
+  cursor: zoom-in;
+}
+
+.chat-message__markdown :deep(.chat-chart:focus-visible) {
+  outline: 2px solid var(--border-action-high-blue-france);
+  outline-offset: 2px;
+}
+
+.chat-chart-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.7);
+}
+
+.chat-chart-overlay__image {
+  max-width: min(100%, 1400px);
+  max-height: 100%;
+  border-radius: 0.5rem;
+  background: #fff;
+}
+
+.chat-chart-overlay__close {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  width: 2.5rem;
+  height: 2.5rem;
+  border: none;
+  border-radius: 50%;
+  background: var(--background-default-grey);
+  color: var(--text-default-grey);
+  font-size: 1.125rem;
+  cursor: pointer;
 }
 
 .chat-message__markdown pre code {

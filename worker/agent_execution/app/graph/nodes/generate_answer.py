@@ -23,6 +23,8 @@ _SYSTEM_PROMPT = (
     "- Use markdown for structure: **bold** for key numbers, `code` for column names.\n"
     "- When the evidence contains tabular results (SQL query results with rows and columns), "
     "format the answer as a markdown table with proper headers and alignment.\n"
+    "- When the evidence contains a chart (a markdown image, ![title](url)), put that image in the answer exactly as "
+    "written, where it illustrates the point, and describe in a sentence what it shows.\n"
     "- When listing multiple items (e.g. top 5, rankings), use a markdown table with a rank column.\n"
     "- For a single value answer (e.g. a count, an average), state it directly and prominently in bold.\n"
     "- For grouped/comparison results, always use a markdown table - never a plain text list.\n"
@@ -136,7 +138,7 @@ def generate_answer(state: AgentState) -> dict[str, Any]:
         ],
     )
     latency_ms = int((time.monotonic() - start) * 1000)
-    answer = result["content"]
+    answer = with_missing_charts(result["content"], context["excerpts"])
     prompt_tokens = result.get("prompt_tokens")
     completion_tokens = result.get("completion_tokens")
     by_id = {str(vdb["id"]): vdb for vdb in state["accessible_vdbs"]}
@@ -170,6 +172,21 @@ def generate_answer(state: AgentState) -> dict[str, Any]:
         "answer_completion_tokens": completion_tokens,
         "prompt_usages": [prompt_version_id] if prompt_version_id else [],
     }
+
+
+def with_missing_charts(answer: str, excerpts: list[dict[str, Any]]) -> str:
+    """The answer, with at the end every chart drawn for it that it does not show (#434).
+
+    The model is told to put each chart in its answer, but one that was drawn and then forgotten would be paid for and
+    never seen."""
+    shown = answer
+    missing: list[str] = []
+    for excerpt in excerpts:
+        for chart in excerpt.get("charts", []):
+            if chart["url"] not in shown:
+                missing.append(chart["markdown"])
+                shown += chart["url"]
+    return answer if not missing else answer.rstrip() + "\n\n" + "\n\n".join(missing)
 
 
 def _unexplored_paths(state: AgentState) -> list[str]:

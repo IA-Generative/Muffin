@@ -106,3 +106,65 @@ class QueryFailure(_Contract):
     # What can be queried, each table as the SQL must name it.
     tables: Annotated[list[Table], Field(default_factory=list)]
     duration_ms: int = 0
+
+
+class ChartSpec(_Contract):
+    """What to draw from the result of a query. Declarative on purpose: the agent describes a chart, it never writes the
+    code that draws it."""
+
+    type: Literal["bar", "barh", "line", "area", "pie", "scatter", "histogram"]
+    # The column of the categories (bar, pie), of the horizontal axis (line, area, scatter) or of the values
+    # (histogram).
+    x: str = Field(min_length=1, max_length=200)
+    # The numeric column(s) to plot: several make several series; a histogram needs none, a pie takes exactly one.
+    y: list[str] = Field(default_factory=list, max_length=6)
+    # A column whose values split the data into one series each (instead of several `y` columns).
+    color: str | None = Field(default=None, max_length=200)
+    title: str = Field(min_length=1, max_length=150)
+    x_label: str | None = Field(default=None, max_length=100)
+    y_label: str | None = Field(default=None, max_length=100)
+    stacked: bool = False
+    # Order of the categories: as returned, by x, or by the first y (largest or smallest first).
+    sort: Literal["none", "x", "y_desc", "y_asc"] = "none"
+
+    @model_validator(mode="after")
+    def _consistent(self) -> "ChartSpec":
+        if self.type == "histogram":
+            if self.y or self.color:
+                raise ValueError("a histogram plots the values of `x` only: leave `y` and `color` empty")
+        elif not self.y:
+            raise ValueError("`y` needs at least one numeric column")
+        if self.type == "pie" and (len(self.y) != 1 or self.color):
+            raise ValueError("a pie takes exactly one `y` and no `color`")
+        if self.color and len(self.y) != 1:
+            raise ValueError("with `color`, give exactly one `y` column")
+        return self
+
+
+class ChartRequest(QueryRequest):
+    """The query of a chart - run again, with room for more points - and what to draw from its result."""
+
+    spec: ChartSpec
+
+
+class ChartResult(_Contract):
+    schema_version: int = SCHEMA_VERSION
+    status: Literal["completed"] = "completed"
+    # The PNG, base64: the pod writes nothing to the bucket, the caller stores it.
+    png_base64: str
+    width: int
+    height: int
+    # Rows drawn, and whether the query had more.
+    rows: int
+    truncated: bool
+    duration_ms: int
+
+
+class ChartFailure(_Contract):
+    schema_version: int = SCHEMA_VERSION
+    status: Literal["failed"] = "failed"
+    # For whoever asked for the chart to fix it.
+    message: str
+    # The columns of the query's result, to correct the spec with.
+    columns: list[ResultColumn] = Field(default_factory=list)
+    duration_ms: int = 0

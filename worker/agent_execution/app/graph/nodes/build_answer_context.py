@@ -53,6 +53,8 @@ def build_answer_context(state: AgentState) -> dict[str, Any]:
                 # document/tool card (§ sources panel).
                 "url": e["metadata"].get("url"),
                 "query": e["retrieval_query"],
+                # The charts the tabular tool drew for this evidence (#434), so the answer can show the ones it forgot.
+                "charts": e["metadata"].get("charts", []),
             }
             for e in selected
         ],

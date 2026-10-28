@@ -65,6 +65,8 @@ class FakeBackend:
         #                    "column_count":..., "columns":[...], "measures":[...], "sheets":[{index,name,rows,
         #                    "dimensions":[...], "text_columns":[...]}, ...]}
         self.tabular_documents_by_collection: dict[str, list[dict[str, Any]]] = {}
+        # Every chart the agent asked the backend to keep (#434): (run_id, body).
+        self.charts: list[tuple[str, dict[str, Any]]] = []
         # {(document_id, page_number): {"page_number":..., "content":..., "screenshot_url":...}}
         self.pages: dict[tuple[str, int], dict[str, Any]] = {}
         self.conversation_titles: dict[str, str] = {}
@@ -218,6 +220,16 @@ class FakeBackend:
 
     def list_collection_documents(self, user_id: str, collection_id: str) -> list[dict[str, Any]]:
         return self.documents_by_collection.get(collection_id, [])
+
+    def create_chart(self, run_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        self.charts.append((run_id, body))
+        url = f"/api/conversations/conv-1/charts/chart-{len(self.charts)}.png"
+        return {
+            "id": f"chart-{len(self.charts)}",
+            "title": body["title"],
+            "url": url,
+            "markdown": f"![{body['title']}]({url})",
+        }
 
     def list_tabular_documents(self, user_id: str, collection_id: str) -> list[dict[str, Any]]:
         return self.tabular_documents_by_collection.get(collection_id, [])

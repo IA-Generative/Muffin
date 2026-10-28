@@ -23,6 +23,9 @@ ENV PATH="/app/.venv/bin:$PATH"
 # installed nor autoloaded: the engine turns that off) and each query works in a private folder made under it.
 ENV HOME=/tmp
 ENV QUERY_WORK_DIR=/tmp
+# matplotlib keeps its font cache and its config in a writable folder, and draws without a display.
+ENV MPLCONFIGDIR=/tmp/matplotlib
+ENV MPLBACKEND=Agg
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
   CMD celery -A app.celery_app inspect ping -d celery@$$HOSTNAME || exit 1
 # One query at a time per process, each bounded by QUERY_MEMORY_LIMIT (plus its spill, in /tmp).
