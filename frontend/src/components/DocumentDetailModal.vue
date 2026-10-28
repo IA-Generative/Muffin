@@ -4,8 +4,10 @@ import type { CollectionDocument, Entity, EntityType, QaPair, Relation } from '.
 import EntityOccurrencesModal from './EntityOccurrencesModal.vue'
 import LivingDocumentRevisions from './LivingDocumentRevisions.vue'
 import SourceDocumentModal from './SourceDocumentModal.vue'
+import TabularProfileTab from './TabularProfileTab.vue'
 import TaskLogViewer from './TaskLogViewer.vue'
 import UrlRefreshSettings from './UrlRefreshSettings.vue'
+import type { TabularProfile } from '../types/tabular'
 import { formatPages } from '../utils/longDocuments'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
@@ -43,7 +45,7 @@ interface DocumentPage {
   screenshot_url: string | null
 }
 
-type Tab = 'summary' | 'entities' | 'qa' | 'revisions' | 'logs'
+type Tab = 'summary' | 'entities' | 'qa' | 'data' | 'revisions' | 'logs'
 
 const activeTab = ref<Tab>('summary')
 
@@ -55,6 +57,9 @@ const pageNumber = ref(1)
 const pageTotal = ref(0)
 const pagesLoading = ref(false)
 const pagesError = ref(false)
+
+// The profile of a tabular file (#431); null for any other document, which then has no data tab.
+const tabularProfile = ref<TabularProfile | null>(null)
 
 const qaPairs = ref<QaPair[]>()
 const qaError = ref(false)
@@ -109,6 +114,19 @@ async function loadPage(page: number) {
   }
 }
 
+async function loadTabularProfile() {
+  try {
+    const response = await fetch(
+      `${API_BASE_URL}/api/collections/${props.collectionId}/documents/${props.document.id}/tabular-profile`,
+      { credentials: 'include' },
+    )
+    if (!response.ok) return
+    tabularProfile.value = (await response.json()) ?? null
+  } catch {
+    // No profile to show: the tab stays out, the rest of the modal is unaffected.
+  }
+}
+
 async function loadQaPairs() {
   try {
     const response = await fetch(
@@ -159,6 +177,7 @@ watch(pageNumber, (page) => loadPage(page))
 onMounted(() => {
   loadDetail()
   loadPage(1)
+  loadTabularProfile()
 })
 </script>
 
@@ -220,6 +239,15 @@ onMounted(() => {
               @click="activeTab = 'qa'"
             >
               Questions/réponses
+            </button>
+            <button
+              v-if="tabularProfile"
+              type="button"
+              class="document-modal__tab"
+              :class="{ 'document-modal__tab--active': activeTab === 'data' }"
+              @click="activeTab = 'data'"
+            >
+              Données
             </button>
             <button
               v-if="document.kind === 'living'"
@@ -348,6 +376,8 @@ onMounted(() => {
               </template>
               <p v-else class="document-modal__loading">Chargement…</p>
             </section>
+
+            <TabularProfileTab v-else-if="activeTab === 'data' && tabularProfile" :profile="tabularProfile" />
 
             <LivingDocumentRevisions
               v-else-if="activeTab === 'revisions'"

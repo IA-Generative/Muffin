@@ -406,7 +406,12 @@ fenêtres et est terminée quand chacune est écrite (le backend le note à chaq
   `FINGERPRINT_VERSION`, sinon les documents indexés avec l'ancien code seraient repris.
 
 Les fichiers tabulaires (CSV, XLSX...) ont un hash et la détection de doublon, mais pas encore la
-réutilisation : leur pipeline (profil DuckDB, résumé et QA tirés du profil) est à part.
+réutilisation : leur pipeline est à part (#431). Le fichier est lu en flux, feuille par feuille
+(`app/tabular/sheets/`) ; chaque feuille est profilée en un passage (types, valeurs vides et distinctes,
+statistiques, aperçu) puis copiée en Parquet typé (`documents/{collection}/{document}/tables/{n}.parquet`).
+Le profil du document décrit la feuille principale (celle qui a le plus de lignes) dans la forme historique, d'où
+sont tirés le résumé et les questions/réponses ; toutes les feuilles sont gardées en base. Les bornes se règlent
+par `TABULAR_*` (voir `docs/environment-variables.md`).
 
 ## Reconstruction blue/green de l'index (#12)
 
