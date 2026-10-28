@@ -84,7 +84,7 @@ def test_the_provider_searches_then_generates_and_formats_sources(monkeypatch):
     chat_url, chat_kwargs = calls[1]
     assert chat_url == "http://backend:8000/api/internal/llm/chat"
     assert chat_kwargs["json"]["model"] == "generator-model"
-    assert chat_kwargs["json"]["usage"] == {"collection_id": "col-1"}
+    assert chat_kwargs["json"]["usage"] == {"step": "run_evaluation", "collection_id": "col-1"}
     user_message = chat_kwargs["json"]["messages"][1]["content"]
     assert "Une question ?" in user_message
     assert "extrait 1" in user_message
