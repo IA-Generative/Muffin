@@ -235,6 +235,15 @@ page (`include_complexity`), si elle a besoin d'un OCR. `app/ocr/scanned.py` (`r
   logs de la tâche (niveau `WARNING`) et le fichier continue. Il échoue seulement si ce repli échoue aussi.
 - **Le nettoyage** : les images d'une plage sont supprimées de S3 à la fin, quelle que soit l'issue (révocation comprise) ;
   seules les siennes, car les plages d'un long PDF tournent en même temps.
+- **Le layout est gardé en base** (#409) : `read_scanned_pages` garde le `PageLayout` de chaque page lue par les pods et
+  `_store_pages` l'envoie avec la page (`regions=`, `app/ocr/regions.py`). Toutes les régions, dans l'ordre de lecture, avec
+  leur type, leur score et leur boîte entre 0 et 1 - les en-têtes, pieds de page et numéros aussi : seul le markdown les
+  laisse de côté. Le backend les range dans `page_regions` (supprimées avec la page, remplacées quand elle est réécrite,
+  copiées quand un autre document la réutilise) et les rend par `GET .../documents/{id}/regions` (filtres `page` et
+  `type`). Une page lue autrement - Tesseract, texte natif - envoie `regions=[]` : c'est ce qui efface le layout d'une
+  extraction précédente. **Aucun recadrage n'est stocké** : `app/ocr/crop.py` (`crop_region`) découpe une région dans
+  l'image de la page à partir de sa boîte, avec une petite marge et un plancher de taille, quand les tableaux (#410) ou la
+  vision (#411) en ont besoin.
 - **L'empreinte** (`app/reuse.py`) : avec `layout`, elle compte le moteur, `OCR_PIPELINE_VERSION`, le DPI, les seuils des
   régions et des pages scannées ; avec `tesseract`, elle est exactement ce qu'elle était.
 
