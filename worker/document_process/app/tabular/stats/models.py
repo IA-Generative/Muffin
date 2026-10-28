@@ -84,6 +84,10 @@ class TabularProfile:
     measures: list[str] = field(default_factory=list)
     dimensions: list[str] = field(default_factory=list)
     text_columns: list[str] = field(default_factory=list)
+    # A workbook has several sheets, and the fields above describe one: the main one (the most rows). What the
+    # prompts need to say about the others - not sent to the backend with the profile (the sheets go on their own).
+    primary_sheet: str | None = None
+    sheets: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {

@@ -31,6 +31,8 @@ class TabularFormat(enum.StrEnum):
     JSON = "json"
     JSONL = "jsonl"
     XLSX = "xlsx"
+    XLS = "xls"
+    ODS = "ods"
 
 
 # Extensions -> format. L'extension est le signal primaire : si elle est
@@ -45,6 +47,9 @@ _EXTENSION_MAP: dict[str, TabularFormat] = {
     ".jsonl": TabularFormat.JSONL,
     ".ndjson": TabularFormat.JSONL,
     ".xlsx": TabularFormat.XLSX,
+    ".xlsm": TabularFormat.XLSX,
+    ".xls": TabularFormat.XLS,
+    ".ods": TabularFormat.ODS,
 }
 
 # Magic bytes pour les formats binaires. Le Parquet commence par "PAR1",
@@ -66,6 +71,8 @@ _MIME_MAP: dict[str, TabularFormat] = {
     "application/x-jsonlines": TabularFormat.JSONL,
     "application/x-ndjson": TabularFormat.JSONL,
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": TabularFormat.XLSX,
+    "application/vnd.ms-excel.sheet.macroenabled.12": TabularFormat.XLSX,
+    "application/vnd.oasis.opendocument.spreadsheet": TabularFormat.ODS,
     "application/vnd.apache.parquet": TabularFormat.PARQUET,
     "application/parquet": TabularFormat.PARQUET,
 }
