@@ -40,6 +40,10 @@ COPY --from=promptfoo /usr/local/lib/node_modules /usr/local/lib/node_modules
 RUN ln -s ../lib/node_modules/promptfoo/dist/src/entrypoint.js /usr/local/bin/promptfoo
 USER worker
 ENV PATH="/app/.venv/bin:/usr/local/bin:$PATH"
+# No telemetry, no update check: the runtime image never phones home, and the pinned
+# promptfoo version is the one that must run (see PROMPTFOO_VERSION above).
+ENV PROMPTFOO_DISABLE_TELEMETRY=1
+ENV PROMPTFOO_DISABLE_UPDATE=1
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
   CMD celery -A app.celery_app inspect ping -d celery@$HOSTNAME || exit 1
 CMD ["celery", "-A", "app.celery_app", "worker", "--loglevel=info"]
