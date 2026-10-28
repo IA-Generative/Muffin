@@ -47,6 +47,10 @@ def region_type(label: str) -> RegionType:
     return LABEL_TO_TYPE.get(label, RegionType.OTHER)
 
 
+# The title of the document, and a section's: the markdown of the page needs to tell them apart.
+TITLE_LEVELS: dict[str, int] = {"doc_title": 1, "paragraph_title": 2}
+
+
 def _make_model() -> Any:
     """The model, loaded from the image's own folder - an offline load: PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK is
     set by the Dockerfile so that PaddleOCR does not even look for a hoster."""
@@ -144,6 +148,7 @@ def build_regions(boxes: list[dict], width: int, height: int) -> list[Region]:
                 reading_order=reading_order,
                 box=Box(x_min=x_min / width, y_min=y_min / height, x_max=x_max / width, y_max=y_max / height),
                 polygon=_polygon(polygon, width, height) if polygon is not None and len(polygon) >= 3 else None,
+                title_level=TITLE_LEVELS.get(item["label"]),
             )
         )
     return regions
