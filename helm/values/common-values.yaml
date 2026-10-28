@@ -443,9 +443,8 @@ agent_execution:
     startupProbe: null
     readinessProbe: null
     livenessProbe: null
+  # No S3 secret: the agent reads no file, its SQL runs in the tabular pod (#433).
   envFrom:
-  - secretRef:
-      name: "muffin-s3"
   - secretRef:
       name: "muffin-worker"
   - secretRef:
@@ -453,7 +452,6 @@ agent_execution:
   env:
     CELERY_QUEUE_NAME: "agent_execution"
     BACKEND_API_URL: "http://muffin-backend:8000"
-    AWS_ENDPOINT_URL: "https://s3.fr-par.scw.cloud"
     # Internal ClusterIP service (sub-chart `searxng`). Web search is opt-in per run (off by
     # default - see worker/agent_execution/app/config.py SEARXNG_URL).
     # Named `muffin-searxng` (not `searxng`) to avoid ArgoCD conflict: open-webui also deploys

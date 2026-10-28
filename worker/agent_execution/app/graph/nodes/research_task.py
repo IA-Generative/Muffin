@@ -9,11 +9,8 @@ from app.graph.services.document_resolver import resolve_document_page
 from app.graph.services.events import emit, is_cancelled, set_activity
 from app.graph.services.evidence import normalize_results
 from app.graph.services.llm import json_chat
-from app.graph.services.tabular_query import (
-    execute_tabular_query,
-    format_tabular_evidence,
-    generate_sql,
-)
+from app.graph.services.tabular_catalog import Catalog
+from app.graph.services.tabular_query import LoopOutcome, format_tabular_evidence, run_query_loop
 from app.graph.services.time_tool import build_time_context, format_time_context
 from app.graph.services.vdb_router import RoutingScope, select_relevant_vdbs
 from app.graph.state import Evidence, ResearchTaskInput
@@ -420,18 +417,17 @@ def _run_tabular_query(
     scope: RoutingScope,
     _web_search_enabled: bool,
 ) -> tuple[dict[str, Any], list[Evidence]]:
-    """Tabular data analysis tool: loads tabular files in DuckDB and runs LLM-generated SQL
-    to answer analytical questions (aggregations, filters, counts) that vector search over
-    text chunks can't handle.
+    """Tabular data analysis tool (#433): the model queries the tabular files of the selected collections in SQL,
+    through the SQL worker, and corrects its queries from the errors it gets back - questions about aggregations,
+    filters, counts or joins between files that vector search over text chunks can't answer.
 
-    Flow per selected collection:
-    1. List tabular documents (those with a tabular profile) via the backend.
-    2. For each, ask the LLM to generate a SELECT query from the profile schema + the question.
-    3. Execute the query in DuckDB (reading the file directly from RustFS/S3).
-    4. Format results as evidence.
+    1. The tabular documents of each selected collection are listed by the backend (the permission barrier) and made
+       a catalog: files, sheets, columns. A document with no typed copy is announced, never queried.
+    2. The model's tool loop runs over the catalog (app/graph/services/tabular_query.py).
+    3. Every call of the loop - the SQL and its result or its error - is in the evidence.
 
-    If no model is configured or no tabular documents are found, returns empty evidence -
-    evaluate_coverage will decide if the surviving tasks are enough.
+    If no model is configured or there is nothing to query, returns empty evidence - evaluate_coverage will decide if
+    the surviving tasks are enough. A SQL worker that does not answer fails the task, with a message that says so.
     """
     if model is None:
         logger.warning(f"Task {task['id']} requested tabular_query but no chat model is configured")
@@ -440,54 +436,64 @@ def _run_tabular_query(
     selected_vdbs = select_relevant_vdbs(task["query"], accessible_vdbs, model, *scope).selected
     if not selected_vdbs:
         return {"selected_vdbs": [], "results": []}, []
+    updates = {"selected_vdbs": [str(v["id"]) for v in selected_vdbs]}
 
-    evidence: list[Evidence] = []
+    listings = []
     for vdb in selected_vdbs:
-        tabular_docs = backend_client.list_tabular_documents(user_id, str(vdb["id"]))
-        if not tabular_docs:
-            continue
-        for doc in tabular_docs:
-            profile = {
-                "row_count": doc["row_count"],
-                "column_count": doc["column_count"],
-                "columns": doc["columns"],
-                "measures": doc.get("measures", []),
-                "dimensions": doc.get("dimensions", []),
-                "text_columns": doc.get("text_columns", []),
-            }
-            sql = generate_sql(profile, task["query"], model)
-            if sql is None:
-                logger.info(f"No SQL generated for document {doc['name']} (task {task['id']})")
-                continue
-            try:
-                result = execute_tabular_query(
-                    storage_key=doc["storage_key"],
-                    format=doc["format"],
-                    sql=sql,
-                )
-            except Exception as error:
-                logger.exception(f"Tabular query failed for document {doc['name']} (task {task['id']}): {error}")
-                continue
-            content = format_tabular_evidence(task["query"], sql, result, doc["name"])
-            evidence.append(
-                Evidence(
-                    id=str(uuid.uuid4()),
-                    task_id=task["id"],
-                    vdb_id=str(vdb["id"]),
-                    source_id=str(doc["id"]),
-                    content=content,
-                    metadata={
-                        "document_name": doc["name"],
-                        "evidence_kind": "tabular",
-                        "sql": sql,
-                        "row_count": result.row_count,
-                        "truncated": result.truncated,
-                    },
-                    relevance_score=None,
-                    retrieval_query=task["query"],
-                )
+        documents = backend_client.list_tabular_documents(user_id, str(vdb["id"]))
+        if documents:
+            listings.append((vdb, documents))
+    catalog = Catalog.build(listings, settings.TABULAR_MAX_FILES)
+    if not catalog.files and not catalog.pending:
+        return updates, []
+
+    outcome = run_query_loop(task["query"], catalog, model) if catalog.files else LoopOutcome()
+    if not outcome.succeeded:
+        if outcome.stopped and outcome.calls:
+            raise RuntimeError(f"Analyse des données impossible : {outcome.stopped}")
+        if not catalog.pending:
+            logger.info(f"No tabular query worked for task {task['id']}")
+            return updates, []
+
+    used = [file for file in catalog.files if file.ref in outcome.used_refs] or catalog.files[:1]
+    first = used[0] if used else None
+    last = outcome.succeeded[-1] if outcome.succeeded else None
+    evidence = [
+        Evidence(
+            id=str(uuid.uuid4()),
+            task_id=task["id"],
+            vdb_id=first.collection_id if first else str(selected_vdbs[0]["id"]),
+            source_id=first.document_id if first else "",
+            content=format_tabular_evidence(task["query"], catalog, outcome),
+            metadata={
+                "document_name": first.name if first else "Fichiers tabulaires",
+                "evidence_kind": "tabular",
+                "sql": last.sql if last else None,
+                "calls": [{"sql": c.sql, "ok": c.ok, "error": c.error, "rows": len(c.rows)} for c in outcome.calls],
+                "row_count": len(last.rows) if last else 0,
+                "truncated": last.truncated if last else False,
+            },
+            relevance_score=None,
+            retrieval_query=task["query"],
+        )
+    ]
+    # Each other file the queries read is a source that can be cited on its own: the calculation is above.
+    for file in used[1:]:
+        evidence.append(
+            Evidence(
+                id=str(uuid.uuid4()),
+                task_id=task["id"],
+                vdb_id=file.collection_id,
+                source_id=file.document_id,
+                content=f"Le fichier {file.name} a été lu par les requêtes ci-dessus (feuilles : "
+                + ", ".join(sheet.name for sheet in file.sheets)
+                + ").",
+                metadata={"document_name": file.name, "evidence_kind": "tabular"},
+                relevance_score=None,
+                retrieval_query=task["query"],
             )
-    return {"selected_vdbs": [str(v["id"]) for v in selected_vdbs]}, evidence
+        )
+    return updates, evidence
 
 
 _RUNNERS = {
