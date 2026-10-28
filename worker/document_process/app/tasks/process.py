@@ -199,6 +199,9 @@ def _store_pages(document_id: str, pages: list, screenshots: list, report=None) 
             # The layout the OCR pods found on the page (#409). Always sent: a page read another way - by Tesseract,
             # or natively - has none, and clears what a former extraction left.
             regions=getattr(page, "layout_regions", None) or [],
+            # And the tables read on it as tables (#410), for the agent to go and read. Always sent, for the same
+            # reason.
+            tables=getattr(page, "layout_tables", None) or [],
         )
 
     # Several pages at a time - 911 pages one by one, a screenshot and a request each, is minutes. Each

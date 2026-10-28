@@ -9,7 +9,18 @@ from liteparse.types import ParsedPage, ParseResult, ScreenshotResult
 from app import parsing
 from app.config import settings
 from app.ocr import pages, routing, scanned
-from app.ocr.contracts import Box, OcrLine, PageLayout, PageText, Region, RegionText, RegionType
+from app.ocr.contracts import (
+    Box,
+    OcrLine,
+    PageLayout,
+    PageTables,
+    PageText,
+    Region,
+    RegionText,
+    RegionType,
+    TableCell,
+    TableStructure,
+)
 from app.ocr.scanned import ReadPage, ScannedPageReader, is_scanned, read_scanned_pages
 from app.task_revocation import TaskRevoked
 
@@ -109,8 +120,8 @@ class FakeResult:
 
 
 class FakeApp:
-    def __init__(self, layout=None, text=None):
-        self.layout, self.text = layout or self._layout, text or self._text
+    def __init__(self, layout=None, text=None, table=None):
+        self.layout, self.text, self.table = layout or self._layout, text or self._text, table or self._table
         self.sent: list[tuple[str, list]] = []
         self.results: list[FakeResult] = []
         self.in_flight = 0
@@ -118,9 +129,33 @@ class FakeApp:
 
     def send_task(self, name, args):
         self.sent.append((name, args))
-        result = (self.layout if name == routing.LAYOUT_PAGE_TASK else self.text)(args)
+        handler = {
+            routing.LAYOUT_PAGE_TASK: self.layout,
+            routing.OCR_REGIONS_TASK: self.text,
+            routing.TABLE_REGIONS_TASK: self.table,
+        }[name]
+        result = handler(args)
         self.results.append(result)
         return result
+
+    @staticmethod
+    def _table(args):
+        """A 2 x 2 table, with a header, for each region the pod was sent."""
+        document_id, number, _, regions = args
+        cells = [
+            TableCell(row=0, col=0, text="Année"),
+            TableCell(row=0, col=1, text="Total"),
+            TableCell(row=1, col=0, text="2024"),
+            TableCell(row=1, col=1, text="12"),
+        ]
+        tables = [
+            TableStructure(
+                region_order=region["reading_order"], n_rows=2, n_cols=2, cells=cells, has_header=True, score=0.95
+            )
+            for region in regions
+        ]
+        page = PageTables(document_id=document_id, page_number=number, tables=tables, model_version="t")
+        return FakeResult(page.model_dump(mode="json"))
 
     @staticmethod
     def _layout(args):
@@ -344,12 +379,12 @@ def _scan_stats():
     return _stats(reasons=["scanned"], text_length=0, full_page_image=True)
 
 
-def _read(markdown, items=None, regions=None) -> ReadPage:
+def _read(markdown, items=None, regions=None, layout=None, tables=None) -> ReadPage:
     """A page the pods read, with a layout of its own."""
-    layout = PageLayout(
+    layout = layout or PageLayout(
         document_id="doc-1", page_number=1, width_px=100, height_px=100, regions=regions or [], model_version="l"
     )
-    return ReadPage(markdown, items if items is not None else [], layout)
+    return ReadPage(markdown, items if items is not None else [], layout, tables or [])
 
 
 class FakeReader:
