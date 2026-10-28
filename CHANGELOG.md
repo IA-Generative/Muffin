@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.33.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.32.0...v0.33.0-rc) (2026-10-28)
+
+
+### Features
+
+* **chart:** déployer les pods ocr-layout et ocr ([#406](https://github.com/IA-Generative/Muffin/issues/406), [#407](https://github.com/IA-Generative/Muffin/issues/407)) ([c4acec7](https://github.com/IA-Generative/Muffin/commit/c4acec7ea6d5026c31c7020133765c5075cfd298))
+* **documents:** garder en base le layout des pages scannées, le lire par l'API ([#409](https://github.com/IA-Generative/Muffin/issues/409)) ([ad8a15d](https://github.com/IA-Generative/Muffin/commit/ad8a15db283a06ec4e102701ef854af65a7db634))
+* **ocr:** envoyer le layout des pages lues par les pods avec la page ([#409](https://github.com/IA-Generative/Muffin/issues/409)) ([8d80f17](https://github.com/IA-Generative/Muffin/commit/8d80f17e73fa0e372800c1687fd2c24019a6a0bb))
+* **ocr:** lire les pages scannées avec les pods layout et ocr, repli Tesseract ([#408](https://github.com/IA-Generative/Muffin/issues/408)) ([a7c395b](https://github.com/IA-Generative/Muffin/commit/a7c395b8c5c639956a5c7c8c178dc7ebc1ff7265))
+* **ocr:** lire les pages scannées avec les pods par défaut (chart, compose) ([784cbeb](https://github.com/IA-Generative/Muffin/commit/784cbeb483489bbdeba0d68162b402d44e5866ac))
+* **ocr:** niveau des titres dans le contrat des régions ([#408](https://github.com/IA-Generative/Muffin/issues/408)) ([c60dd2b](https://github.com/IA-Generative/Muffin/commit/c60dd2b338fc37a179437f25fce8234e74183f24))
+* **ocr:** pod layout - régions et ordre de lecture avec PP-DocLayoutV3 ([#406](https://github.com/IA-Generative/Muffin/issues/406)) ([0de9510](https://github.com/IA-Generative/Muffin/commit/0de95108bdf4ea51955e8519fe16792c66330c5a))
+* **ocr:** pod ocr - texte des régions avec PP-OCRv5 mobile en ONNX ([#407](https://github.com/IA-Generative/Muffin/issues/407)) ([6ecc357](https://github.com/IA-Generative/Muffin/commit/6ecc357cf1078d1cca9e7c8d41cd97ff2ff28990))
+* **ocr:** socle de l'extraction par layout - contrats, queues, réglages ([#405](https://github.com/IA-Generative/Muffin/issues/405)) ([61cd06d](https://github.com/IA-Generative/Muffin/commit/61cd06da55004584486ca25d881d33224c33c27a))
+
 ## [0.32.0](https://github.com/IA-Generative/Muffin/compare/v0.31.1...v0.32.0) (2026-10-27)
 
 

@@ -697,7 +697,7 @@ wheels = [
 
 [[package]]
 name = "muffin-worker-document-process"
-version = "0.32.0"
+version = "0.33.0-rc"
 source = { editable = "." }
 dependencies = [
     { name = "boto3" },
