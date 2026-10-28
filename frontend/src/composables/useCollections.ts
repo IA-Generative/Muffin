@@ -691,6 +691,7 @@ interface EvaluationRunOut {
   reference_pass_rate: number | null
   overall_pass_rate: number | null
   has_artifacts: boolean
+  config_muffin: Record<string, unknown> | null
 }
 
 async function refreshEvaluation(collectionId: string) {
@@ -727,6 +728,7 @@ async function refreshEvaluation(collectionId: string) {
       referencePassRate: run.reference_pass_rate,
       overallPassRate: run.overall_pass_rate,
       hasArtifacts: run.has_artifacts,
+      configMuffin: run.config_muffin,
     }))
   } catch {
     // Ignored: same as refreshQaPairs above.

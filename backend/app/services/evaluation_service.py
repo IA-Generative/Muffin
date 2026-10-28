@@ -227,7 +227,8 @@ class EvaluationService:
         return collection
 
     async def _to_out(self, run) -> EvaluationRunOut:  # noqa: ANN001
-        tests = evaluation_artifacts.load_tests(run)
+        artifact = evaluation_artifacts.load_artifact(run)
+        tests = artifact.tests if artifact else None
         metrics, golden_metrics, all_metrics = (
             evaluation_artifacts.metrics_from_tests(tests) if tests else (None, None, None)
         )
@@ -256,4 +257,5 @@ class EvaluationService:
             reference_pass_rate=reference_pass_rate,
             overall_pass_rate=overall_pass_rate,
             has_artifacts=bool(run.results_json_key and run.report_html_key),
+            config_muffin=artifact.config_muffin if artifact else None,
         )

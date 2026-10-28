@@ -721,8 +721,10 @@ async def test_evaluation_status_for_unknown_collection_returns_404(client):
 
 # A promptfoo results.json fixture: two scored non-golden pairs, one the judge errored
 # on (no namedScores - excluded from the averages; it also keeps the pre-rename
-# `question` var, covering the fallback), one golden pair.
+# `question` var, covering the fallback), one golden pair. The config_muffin block rides
+# in config.metadata, as promptfoo replays the whole config into the artifact.
 _RESULTS_JSON = {
+    "config": {"metadata": {"config_muffin": {"k": 5, "judge_model": "judge-model"}}},
     "results": {
         "results": [
             {
@@ -767,7 +769,7 @@ _RESULTS_JSON = {
                 "namedScores": {"factuality": 1.0, "context_faithfulness": 1.0},
             },
         ]
-    }
+    },
 }
 
 
@@ -834,6 +836,9 @@ async def test_list_evaluations_computes_score_averages_from_the_artifact(client
     assert run["overall_pass_rate"] == 0.5
     assert run["has_artifacts"] is True
     assert run["llm_model"] == "judge-model"
+    # The worker's config_muffin block, read back from the artifact for the UI's
+    # "Détails techniques".
+    assert run["config_muffin"] == {"k": 5, "judge_model": "judge-model"}
 
 
 async def test_list_evaluations_computes_the_golden_pass_rate_from_the_artifact(client, monkeypatch):
@@ -947,6 +952,26 @@ async def test_list_evaluations_reports_null_metrics_for_a_run_without_artifact(
     assert run["golden_metrics"] is None
     assert run["all_metrics"] is None
     assert run["has_artifacts"] is False
+    assert run["config_muffin"] is None
+
+
+async def test_list_evaluations_reads_config_muffin_from_a_top_level_metadata(client, monkeypatch):
+    # Some promptfoo versions replay the config's metadata at the top level rather than
+    # under config - the reader accepts both.
+    collection_id = (await client.post("/api/collections")).json()["id"]
+    await _create_evaluation_run(collection_id)
+    _fake_storage(
+        monkeypatch,
+        results_json={
+            "metadata": {"config_muffin": {"k": 3}},
+            "results": {"results": []},
+        },
+    )
+
+    response = await client.get(f"/api/collections/{collection_id}/evaluations")
+
+    assert response.status_code == 200
+    assert response.json()[0]["config_muffin"] == {"k": 3}
 
 
 async def test_evaluation_report_is_served_inline_or_as_a_download(client, monkeypatch):

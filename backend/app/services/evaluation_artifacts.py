@@ -62,20 +62,52 @@ class EvaluationTest(BaseModel):
         return {key: float(score) for key, score in value.items() if isinstance(score, int | float)}
 
 
-def load_tests(run: EvaluationRun) -> list[EvaluationTest] | None:
-    """The run's per-pair tests from its results.json artifact - None when the run has
-    no artifact (it predates the promptfoo migration, or the upload never happened) or
-    when the artifact can't be read/parsed: a display-time read must degrade to "no
-    scores", never fail the whole evaluations listing."""
+class EvaluationArtifact(BaseModel):
+    """A run's results.json, as the backend reads it back: the per-pair tests and the
+    config_muffin block the worker replayed into it (see tasks.py's config_muffin)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    tests: list[EvaluationTest] = Field(default_factory=list)
+    config_muffin: dict[str, Any] | None = None
+
+
+def _config_muffin(payload: dict[str, Any]) -> dict[str, Any] | None:
+    # promptfoo replays the whole config into results.json, so the worker's block rides in
+    # config.metadata.config_muffin (a top-level metadata.config_muffin on some versions).
+    for container in (payload.get("config"), payload.get("metadata")):
+        if isinstance(container, dict):
+            metadata = container.get("metadata", container)
+            if isinstance(metadata, dict) and isinstance(metadata.get("config_muffin"), dict):
+                return metadata["config_muffin"]
+    return None
+
+
+def load_artifact(run: EvaluationRun) -> EvaluationArtifact | None:
+    """The run's results.json artifact parsed into the fields the backend reads - None when
+    the run has no artifact (it predates the promptfoo migration, or the upload never
+    happened) or when the artifact can't be read/parsed: a display-time read must degrade to
+    "no scores", never fail the whole evaluations listing."""
     if not run.results_json_key:
         return None
     try:
         data, _ = storage.get_object(run.results_json_key)
-        raw = json.loads(data)["results"]["results"]
-        return [EvaluationTest.model_validate(test) for test in raw]
+        payload = json.loads(data)
+        raw = payload["results"]["results"]
+        return EvaluationArtifact(
+            tests=[EvaluationTest.model_validate(test) for test in raw],
+            config_muffin=_config_muffin(payload),
+        )
     except Exception:
         logger.exception(f"Failed to read evaluation artifacts for run {run.id}")
         return None
+
+
+def load_tests(run: EvaluationRun) -> list[EvaluationTest] | None:
+    """The run's per-pair tests from its results.json artifact - None when there is no
+    readable artifact (see load_artifact)."""
+    artifact = load_artifact(run)
+    return artifact.tests if artifact else None
 
 
 def _average(tests: Sequence[EvaluationTest], metric: str, golden: bool | None) -> float | None:

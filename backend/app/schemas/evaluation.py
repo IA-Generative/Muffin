@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -63,3 +64,7 @@ class EvaluationRunOut(BaseModel):
     # Whether the report/results.json artifacts exist (download links, report preview) -
     # False on the runs predating the promptfoo migration.
     has_artifacts: bool
+    # The worker's config_muffin block, replayed into results.json (see tasks.py's
+    # EvaluationConfig.config_muffin): the run's whole configuration, shown as-is under the
+    # UI's "Détails techniques". None when the run has no readable artifact.
+    config_muffin: dict[str, Any] | None = None

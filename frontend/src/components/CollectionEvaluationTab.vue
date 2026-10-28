@@ -84,6 +84,39 @@ const STRATEGY_LABEL: Record<string, string> = {
   llm: 'Par LLM',
 }
 
+// The config_muffin block the worker replays into results.json (see tasks.py's
+// EvaluationConfig.config_muffin): the run's whole configuration, shown as-is under
+// "Détails techniques". A key with no label falls back to its raw name.
+const CONFIG_MUFFIN_LABELS: Record<string, string> = {
+  collection_id: 'Identifiant de la collection',
+  k: 'Extraits récupérés par question (k)',
+  judge_model: 'Modèle juge',
+  generator_model: 'Modèle de génération',
+  chunking_strategy: 'Découpage',
+  chunk_size: 'Taille des extraits (tokens)',
+  chunk_overlap: 'Chevauchement des extraits (tokens)',
+  embedding_model: "Modèle d'embedding",
+  validated_only: 'Questions validées uniquement',
+  content_hash: 'Empreinte de la configuration',
+  provider_code_sha256: 'Empreinte du code de génération',
+}
+
+function formatConfigValue(key: string, value: unknown): string {
+  if (value === null || value === undefined) return '—'
+  if (typeof value === 'boolean') return value ? 'Oui' : 'Non'
+  if (key === 'chunking_strategy' && typeof value === 'string') return STRATEGY_LABEL[value] ?? value
+  return String(value)
+}
+
+// The config_muffin entries as [label, value] pairs, in the block's own order.
+function configMuffinEntries(run: EvaluationRun): [string, string][] {
+  if (!run.configMuffin) return []
+  return Object.entries(run.configMuffin).map(([key, value]) => [
+    CONFIG_MUFFIN_LABELS[key] ?? key,
+    formatConfigValue(key, value),
+  ])
+}
+
 const EVAL_K = 5
 
 // Below this many test questions a score moves a lot with a single question: shown next to it.
@@ -135,7 +168,7 @@ const goldenCount = computed(() => props.collection.qaPairs.filter((pair) => pai
         <div class="eval-tab__run-header">
           <button type="button" class="eval-tab__run-toggle" @click="toggleExpand(run.id)">
             <span class="eval-tab__run-header-text">
-              <span class="eval-tab__run-date">{{ formatDate(run.runAt) }} · {{ run.pairCount }} paire(s) · k={{ run.k }}</span>
+              <span class="eval-tab__run-date">{{ formatDate(run.runAt) }} · {{ run.pairCount }} question(s)</span>
             </span>
             <span class="eval-tab__run-tail">
               <svg
@@ -180,14 +213,6 @@ const goldenCount = computed(() => props.collection.qaPairs.filter((pair) => pai
         </div>
 
         <div v-if="expandedRunId === run.id" class="eval-tab__run-detail">
-          <p class="eval-tab__run-config">
-            {{ STRATEGY_LABEL[run.chunkingSnapshot.strategy] }}
-            <template v-if="run.chunkingSnapshot.strategy === 'paragraph' || run.chunkingSnapshot.strategy === 'fixed'">
-              ({{ run.chunkingSnapshot.chunkSize }} tokens, chevauchement {{ run.chunkingSnapshot.chunkOverlap }})
-            </template>
-            · embedding {{ run.chunkingSnapshot.embeddingModel }} · juge {{ run.llmModel }}
-          </p>
-
           <div v-if="run.hasArtifacts" class="eval-tab__table-wrap">
             <table class="eval-tab__table">
               <thead>
@@ -233,6 +258,16 @@ const goldenCount = computed(() => props.collection.qaPairs.filter((pair) => pai
               n'être que du bruit.
             </p>
           </div>
+
+          <details v-if="run.configMuffin" class="eval-tab__tech">
+            <summary class="eval-tab__tech-summary">Détails techniques</summary>
+            <dl class="eval-tab__tech-list">
+              <div v-for="[label, value] in configMuffinEntries(run)" :key="label" class="eval-tab__tech-row">
+                <dt>{{ label }}</dt>
+                <dd>{{ value }}</dd>
+              </div>
+            </dl>
+          </details>
 
           <div v-if="run.hasArtifacts" class="eval-tab__artifacts">
             <a
@@ -416,10 +451,36 @@ const goldenCount = computed(() => props.collection.qaPairs.filter((pair) => pai
   font-weight: 700;
 }
 
-.eval-tab__run-config {
-  margin: 0;
-  font-size: 0.75rem;
+/* The run's whole configuration, replayed from results.json - collapsed by default. */
+.eval-tab__tech {
+  font-size: 0.8125rem;
+}
+
+.eval-tab__tech-summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--text-default-grey);
+}
+
+.eval-tab__tech-list {
+  margin: 0.75rem 0 0;
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.375rem 1rem;
+}
+
+.eval-tab__tech-row {
+  display: contents;
+}
+
+.eval-tab__tech-row dt {
   color: var(--text-mention-grey);
+}
+
+.eval-tab__tech-row dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  word-break: break-all;
 }
 
 .eval-tab__run-detail {

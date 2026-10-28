@@ -182,6 +182,10 @@ export interface EvaluationRun {
   // Whether the report/results.json artifacts exist (download links, report preview) -
   // false on the runs predating the promptfoo migration.
   hasArtifacts: boolean
+  // The worker's config_muffin block, replayed into results.json (the run's whole
+  // configuration) - shown as-is under the UI's "Détails techniques". Null when the run
+  // has no readable artifact.
+  configMuffin: Record<string, unknown> | null
 }
 
 export type CollectionVisibility = 'private' | 'public'
