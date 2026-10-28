@@ -144,6 +144,10 @@ def after_generate_answer(state: AgentState) -> str:
     if state.get("cancelled") or is_cancelled(state["run_id"]):
         return "cancelled"
 
+    # Written again for its citations (#402): it is not checked a second time.
+    if state.get("citation_rewrites"):
+        return "end"
+
     completed_ids = set(state["completed_task_ids"])
     completed_tasks = [t for t in state["research_tasks"] if t["id"] in completed_ids]
     is_meta_only = bool(completed_tasks) and all(t.get("tool", "search") != "search" for t in completed_tasks)
@@ -162,8 +166,10 @@ def after_validate_grounding(state: AgentState) -> str:
     if state.get("cancelled") or is_cancelled(state["run_id"]):
         return "cancelled"
     grounding = state["grounding_result"]
-    if grounding["valid"]:
-        return "end"
-    if state["grounding_research_count"] >= settings.MAX_GROUNDING_RESEARCHES:
-        return "end"
-    return "targeted_research"
+    if not grounding["valid"] and state["grounding_research_count"] < settings.MAX_GROUNDING_RESEARCHES:
+        return "targeted_research"
+    # What is supported but cited wrongly or not at all needs no more research, only the answer written again (#402).
+    needs_citations = grounding.get("miscited_claims") or grounding.get("uncited_claims")
+    if needs_citations and state.get("citation_rewrites", 0) < settings.MAX_CITATION_REWRITES:
+        return "rewrite_citations"
+    return "end"

@@ -39,10 +39,11 @@ const modal = computed(() => {
     documentId: source.documentId,
     documentName: source.title,
     pageNumber: source.pageNumber,
-    excerpt: source.content,
+    // The passage the answer rests on, when there is one (#402): framed on its own rather than the whole chunk.
+    excerpt: source.quote ?? source.content,
     start: undefined,
     end: undefined,
-    chunkId: source.chunkId,
+    chunkId: source.quote ? undefined : source.chunkId,
   }
 })
 </script>
@@ -76,8 +77,8 @@ const modal = computed(() => {
             :collection-id="source.collectionId"
             :document-id="source.documentId"
             :page-number="source.pageNumber"
-            :passage="source.content"
-            :chunk-id="source.chunkId"
+            :passage="source.quote ?? source.content"
+            :chunk-id="source.quote ? undefined : source.chunkId"
           />
         </button>
 

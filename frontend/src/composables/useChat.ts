@@ -44,6 +44,10 @@ interface Citation {
   evidence_kind?: string
   // Whether the answer cites this excerpt or only consulted it (#402).
   cited?: boolean
+  // The passage the citation rests on, as the excerpt has it, and where it is in `content` (#402).
+  quote?: string | null
+  quote_start?: number | null
+  quote_end?: number | null
   document_id?: string | null
   chunk_id?: string | null
   page_number?: number | null
@@ -915,6 +919,7 @@ function formatAnswerWithCitations(answer: string, citations: Citation[] | null 
         revision: isDocument ? (citation.document_revision ?? undefined) : undefined,
         query: citation.query,
         content: citation.content,
+        quote: citation.quote ?? undefined,
         qaSource: citation.qa_source
           ? {
               documentId: citation.qa_source.document_id,
@@ -948,6 +953,10 @@ function formatAnswerWithCitations(answer: string, citations: Citation[] | null 
     })
     .replace(/ {2,}/g, ' ')
     .replace(/ ([.,;:!?])/g, '$1')
+
+  // The sources the answer cites without writing a marker (#402): the backend flags them, from the sources the model
+  // listed. They are shown all the same, after the ones the text numbers.
+  for (const citation of citations) if (citation.cited) footnoteFor(citation.evidence_id)
 
   return [content, sources.length ? sources : undefined]
 }

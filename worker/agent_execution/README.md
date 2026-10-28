@@ -168,8 +168,32 @@ sources à partir de ces seuls marqueurs. Rien ne garantissait que le modèle le
 - **Contrôle après génération** : les ids qui ne sont pas un extrait fourni sont retirés de la réponse ; si elle ne cite
   plus rien alors qu'il y avait de l'évidence, le modèle est invité **une fois** à la réécrire avec ses citations (la
   consommation des deux appels est cumulée).
+- **Sortie structurée** : le modèle rend `{"answer": "…", "sources": [{"id", "quote"}]}`, `answer` d'abord pour que le chat
+  l'affiche pendant l'écriture (`partial_answer` lit le champ au fil du flux). Le worker ne garde **jamais** la copie du
+  modèle : il cherche `quote` dans l'extrait désigné par l'`id` (insensible à la casse, aux espaces, aux retours à la
+  ligne, aux guillemets typographiques et aux césures) et garde **le texte de l'extrait lui-même**, avec sa position
+  (`quote`, `quote_start`, `quote_end` dans chaque citation). Une citation dont le passage n'est pas dans l'extrait est
+  **gardée sans passage** ; un `id` inconnu est écarté. Un modèle qui n'écrit pas ce JSON a tout son texte pris pour la
+  réponse, avec les seuls marqueurs `[id]` (comportement d'avant).
 - Chaque citation renvoyée porte `cited` : l'extrait est cité par la réponse, ou seulement consulté. Le chat montre les
   premiers.
 - Une réponse qui ne cite toujours rien est gardée, et le chat l'indique (« Sans source : vérifiez-la avant de vous y
   fier ») ; une réponse sans évidence le dit elle-même.
 - Un extrait sans nom de source est présenté au modèle sous le nom de son outil, plus sous `None`.
+
+### Le contrôle d'ancrage (`validate_grounding`)
+
+Un appel au modèle après la génération (sauté pour une recherche simple ou un outil, comme avant). Il lit chaque extrait
+**en entier jusqu'à 2 000 caractères** (et, pour un extrait plus long, autour du passage cité) au lieu des 500 premiers
+caractères, avec le passage cité signalé. Il rend trois listes, plus une quatrième trouvée sans modèle :
+
+| Liste | Sens | Suite |
+|---|---|---|
+| `unsupported_claims` | affirmation que rien ne soutient | recherche ciblée (`MAX_GROUNDING_RESEARCHES`), comme avant |
+| `miscited_claims` | cite un extrait qui ne la soutient pas (`supported_by` : celui qui la soutient) | la réponse est réécrite avec ces affirmations (`MAX_CITATION_REWRITES`, 1) |
+| `uncited_claims` | soutenue par les extraits mais sans citation | idem |
+| `unverified_citations` | citation dont le passage n'est pas dans l'extrait | signalée dans l'événement, rien de plus |
+
+La réécriture passe par le nœud `rewrite_citations`, puis `generate_answer` ; la réponse qui en revient n'est pas contrôlée
+une seconde fois. La consigne de contrôle des citations est dans le code, comme celle de la génération : un prompt
+`validate_grounding` surchargé la garde.

@@ -301,6 +301,7 @@ boucle de vérification (« grounding »).
 | `MAX_TOTAL_SEARCHES` | Plafond cumulé de recherches sur toute la durée d'un run | `20` | idem |
 | `MAX_GROUNDING_RESEARCHES` | Nombre max de relances de recherche déclenchées par un échec de vérification (grounding) | `1` | idem |
 | `SQL_QUEUE_NAME` | Queue du worker de requêtes SQL (`worker/tabular`, #432) à laquelle l'outil `tabular_query` envoie ses requêtes (#433) | `tabular_sql` | idem (`app/graph/services/tabular_worker.py`) |
+| `MAX_CITATION_REWRITES` | Fois qu'une réponse est réécrite parce que ses citations sont fausses ou manquantes (contrôle d'ancrage, #402) | `1` | idem |
 | `TABULAR_MAX_STEPS` | Appels de `query_data` qu'une tâche `tabular_query` peut enchaîner avant d'être invitée à conclure | `8` | idem |
 | `TABULAR_QUERY_TIMEOUT_SECONDS` | Attente de la réponse du worker pour une requête ; au-delà, la tâche échoue avec un message clair | `120` | idem |
 | `TABULAR_POLL_SECONDS` | Intervalle entre deux regards sur le résultat (la révocation est regardée à chaque fois) | `0.3` | idem |
