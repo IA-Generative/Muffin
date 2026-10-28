@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.33.0-rc.1](https://github.com/IA-Generative/Muffin/compare/v0.33.0-rc...v0.33.0-rc.1) (2026-10-28)
+
+
+### Features
+
+* **documents:** garder en base les tableaux lus sur les pages scannées ([#410](https://github.com/IA-Generative/Muffin/issues/410)) ([7f47e7a](https://github.com/IA-Generative/Muffin/commit/7f47e7ae4e870e90b32f95551f76a89ea657123c))
+* **ocr:** lire les tableaux des pages scannées comme des tableaux, marqueur dans le texte ([#410](https://github.com/IA-Generative/Muffin/issues/410)) ([81226dd](https://github.com/IA-Generative/Muffin/commit/81226dd905c29783f2536615004d2e909868b210))
+* **ocr:** pod table - structure des tableaux avec SLANet_plus, texte des cellules ([#410](https://github.com/IA-Generative/Muffin/issues/410)) ([f0f0f92](https://github.com/IA-Generative/Muffin/commit/f0f0f92fc758d083b90456639f7cad7a2496b854))
+
 ## [0.33.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.32.0...v0.33.0-rc) (2026-10-28)
 
 
