@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 import yaml
 
-from app import task_logging, tasks
+from app import evaluation, task_logging
 
 # The real promptfoo binary, when the test runs somewhere it is installed (the worker image
 # bundles it - see worker/evaluation/Dockerfile). Only the integration test below needs it.
@@ -86,14 +86,14 @@ def _run(monkeypatch, pairs, *, results=_RESULTS_JSON, exit_code=0, tmp_path=Non
         _fake_promptfoo_on_path(monkeypatch, tmp_path, exit_code=exit_code, results=results)
 
     fake = MagicMock()
-    monkeypatch.setattr(tasks, "backend_client", fake)
+    monkeypatch.setattr(evaluation, "backend_client", fake)
     monkeypatch.setattr(task_logging, "backend_client", fake)
     fake.get_collection_settings.return_value = _fake_settings()
     fake.get_default_chat_model.return_value = "generator-model"
     fake.find_evaluation_run.return_value = None
     fake.list_qa_pairs.return_value = pairs
     fake.create_evaluation_run.return_value = "run-1"
-    tasks.run_evaluation("col-1", 5, validated_only)
+    evaluation.run_evaluation("col-1", 5, validated_only)
     return fake
 
 
@@ -148,7 +148,7 @@ def test_run_evaluation_fails_on_an_unparseable_results_json(monkeypatch, tmp_pa
     _fake_promptfoo_on_path(monkeypatch, tmp_path, raw_results="not json at all")
 
     fake = MagicMock()
-    monkeypatch.setattr(tasks, "backend_client", fake)
+    monkeypatch.setattr(evaluation, "backend_client", fake)
     monkeypatch.setattr(task_logging, "backend_client", fake)
     fake.get_collection_settings.return_value = _fake_settings()
     fake.get_default_chat_model.return_value = "m"
@@ -156,21 +156,21 @@ def test_run_evaluation_fails_on_an_unparseable_results_json(monkeypatch, tmp_pa
     fake.list_qa_pairs.return_value = [_qa_pair("qa-1", "q", "doc-1", validated=True)]
 
     with pytest.raises(json.JSONDecodeError):
-        tasks.run_evaluation("col-1", 5)
+        evaluation.run_evaluation("col-1", 5)
 
     fake.create_evaluation_run.assert_not_called()
 
 
 def test_run_evaluation_skips_qa_pairs_with_no_source_document(monkeypatch):
     fake = MagicMock()
-    monkeypatch.setattr(tasks, "backend_client", fake)
+    monkeypatch.setattr(evaluation, "backend_client", fake)
     monkeypatch.setattr(task_logging, "backend_client", fake)
 
     fake.get_collection_settings.return_value = _fake_settings()
     fake.get_default_chat_model.return_value = "test-model"
     fake.list_qa_pairs.return_value = [_qa_pair("qa-1", "Manual pair?", None, validated=True)]
 
-    tasks.run_evaluation("col-1", 5)
+    evaluation.run_evaluation("col-1", 5)
 
     fake.create_evaluation_run.assert_not_called()
 
@@ -181,16 +181,16 @@ def test_run_evaluation_restricts_to_validated_pairs_when_asked(monkeypatch, tmp
     # The filtering happens in the task, before pairs.json is written - the YAML's test
     # loader must receive only the pairs that will run.
     captured = {}
-    original = tasks._write_promptfoo_dir
+    original = evaluation._write_promptfoo_dir
 
     def spy(directory, **kwargs):
         captured["pairs"] = kwargs["pairs"]
         original(directory, **kwargs)
 
-    monkeypatch.setattr(tasks, "_write_promptfoo_dir", spy)
+    monkeypatch.setattr(evaluation, "_write_promptfoo_dir", spy)
 
     fake = MagicMock()
-    monkeypatch.setattr(tasks, "backend_client", fake)
+    monkeypatch.setattr(evaluation, "backend_client", fake)
     monkeypatch.setattr(task_logging, "backend_client", fake)
     fake.get_collection_settings.return_value = _fake_settings()
     fake.get_default_chat_model.return_value = "m"
@@ -200,20 +200,20 @@ def test_run_evaluation_restricts_to_validated_pairs_when_asked(monkeypatch, tmp
         _qa_pair("qa-2", "Not yet", "doc-1", validated=False),
     ]
 
-    tasks.run_evaluation("col-1", 5, validated_only=True)
+    evaluation.run_evaluation("col-1", 5, validated_only=True)
 
     assert [p["id"] for p in captured["pairs"]] == ["qa-1"]
 
 
 def test_run_evaluation_skips_entirely_without_a_chat_model(monkeypatch):
     fake = MagicMock()
-    monkeypatch.setattr(tasks, "backend_client", fake)
+    monkeypatch.setattr(evaluation, "backend_client", fake)
     monkeypatch.setattr(task_logging, "backend_client", fake)
 
     fake.get_collection_settings.return_value = _fake_settings()
     fake.get_default_chat_model.return_value = None
 
-    tasks.run_evaluation("col-1", 5)
+    evaluation.run_evaluation("col-1", 5)
 
     fake.list_qa_pairs.assert_not_called()
     fake.create_evaluation_run.assert_not_called()
@@ -221,7 +221,7 @@ def test_run_evaluation_skips_entirely_without_a_chat_model(monkeypatch):
 
 def test_run_evaluation_prefers_a_configured_evaluation_model(monkeypatch, tmp_path):
     fake = MagicMock()
-    monkeypatch.setattr(tasks, "backend_client", fake)
+    monkeypatch.setattr(evaluation, "backend_client", fake)
     monkeypatch.setattr(task_logging, "backend_client", fake)
     _fake_promptfoo_on_path(monkeypatch, tmp_path)
 
@@ -231,7 +231,7 @@ def test_run_evaluation_prefers_a_configured_evaluation_model(monkeypatch, tmp_p
     fake.list_qa_pairs.return_value = [_qa_pair("qa-1", "q", "doc-1", validated=True)]
     fake.create_evaluation_run.return_value = "run-1"
 
-    tasks.run_evaluation("col-1", 5)
+    evaluation.run_evaluation("col-1", 5)
 
     # The judge is the configured model; the generator stays the default one.
     _, payload = fake.create_evaluation_run.call_args.args
@@ -240,7 +240,7 @@ def test_run_evaluation_prefers_a_configured_evaluation_model(monkeypatch, tmp_p
 
 def test_run_evaluation_skips_when_an_identical_run_exists(monkeypatch):
     fake = MagicMock()
-    monkeypatch.setattr(tasks, "backend_client", fake)
+    monkeypatch.setattr(evaluation, "backend_client", fake)
     monkeypatch.setattr(task_logging, "backend_client", fake)
 
     fake.get_collection_settings.return_value = _fake_settings()
@@ -248,16 +248,16 @@ def test_run_evaluation_skips_when_an_identical_run_exists(monkeypatch):
     fake.find_evaluation_run.return_value = "existing-run"
     fake.list_qa_pairs.return_value = [_qa_pair("qa-1", "q", "doc-1", validated=True)]
 
-    tasks.run_evaluation("col-1", 5)
+    evaluation.run_evaluation("col-1", 5)
 
     fake.create_evaluation_run.assert_not_called()
 
 
 def test_run_evaluation_defaults_k_from_settings(monkeypatch, tmp_path):
     fake = MagicMock()
-    monkeypatch.setattr(tasks, "backend_client", fake)
+    monkeypatch.setattr(evaluation, "backend_client", fake)
     monkeypatch.setattr(task_logging, "backend_client", fake)
-    monkeypatch.setattr(tasks.settings, "DEFAULT_TOP_K", 7)
+    monkeypatch.setattr(evaluation.settings, "DEFAULT_TOP_K", 7)
     _fake_promptfoo_on_path(monkeypatch, tmp_path)
 
     fake.get_collection_settings.return_value = _fake_settings()
@@ -266,7 +266,7 @@ def test_run_evaluation_defaults_k_from_settings(monkeypatch, tmp_path):
     fake.list_qa_pairs.return_value = [_qa_pair("qa-1", "q", "doc-1", validated=True)]
     fake.create_evaluation_run.return_value = "run-1"
 
-    tasks.run_evaluation("col-1", None)
+    evaluation.run_evaluation("col-1", None)
 
     _, payload = fake.create_evaluation_run.call_args.args
     assert payload["k"] == 7
@@ -280,7 +280,7 @@ def _written_config(tmp_path, **kwargs):
     directory = tmp_path / "eval"
     directory.mkdir()
     parameters = {
-        "config": tasks.EvaluationConfig(
+        "config": evaluation.EvaluationConfig(
             collection_id="col-1",
             collection_name="Ma collection",
             k=5,
@@ -296,7 +296,7 @@ def _written_config(tmp_path, **kwargs):
         "content_hash": "hash-1",
     }
     parameters.update(kwargs)
-    tasks._write_promptfoo_dir(directory, **parameters)
+    evaluation._write_promptfoo_dir(directory, **parameters)
     config = yaml.safe_load((directory / "promptfooconfig.yaml").read_text())
     return directory, config
 
@@ -315,7 +315,7 @@ def test_the_generated_yaml_wires_provider_judge_and_tests(tmp_path):
     assert provider["config"]["collection_id"] == "col-1"
     assert provider["config"]["k"] == 5
     assert provider["config"]["generator_model"] == "generator-model"
-    assert provider["config"]["backend_url"] == tasks.settings.BACKEND_API_URL
+    assert provider["config"]["backend_url"] == evaluation.settings.BACKEND_API_URL
 
     judge = config["defaultTest"]["options"]["provider"]
     assert judge["id"] == "openai:chat:judge-model"
@@ -327,7 +327,7 @@ def test_the_generated_yaml_wires_provider_judge_and_tests(tmp_path):
     assert config["sharing"] is False
     # The question var is named `query` - promptfoo's RAG assertions require it.
     assert config["prompts"] == ["{{query}}"]
-    assert config["evaluateOptions"] == {"maxConcurrency": tasks.settings.EVAL_CONCURRENCY}
+    assert config["evaluateOptions"] == {"maxConcurrency": evaluation.settings.EVAL_CONCURRENCY}
 
     # metadata.config_muffin: the run's whole configuration, replayed into results.json so
     # the stored artifact is self-describing.
@@ -358,8 +358,8 @@ def test_the_generated_yaml_never_contains_the_api_key(tmp_path):
 
     assert config["providers"][0]["config"]["api_key_envar"] == "WORKER_API_KEY"
     assert config["defaultTest"]["options"]["provider"]["config"]["apiKeyEnvar"] == "WORKER_API_KEY"
-    if tasks.settings.WORKER_API_KEY:  # empty in tests, set in production - both must hold
-        assert tasks.settings.WORKER_API_KEY not in yaml.safe_dump(config)
+    if evaluation.settings.WORKER_API_KEY:  # empty in tests, set in production - both must hold
+        assert evaluation.settings.WORKER_API_KEY not in yaml.safe_dump(config)
 
 
 # A stand-in for the real provider.py: returns the shape promptfoo expects without hitting
@@ -447,7 +447,7 @@ def _config(**overrides):
         "validated_only": False,
     }
     values.update(overrides)
-    return tasks.EvaluationConfig(**values)
+    return evaluation.EvaluationConfig(**values)
 
 
 def test_the_evaluation_hash_covers_judge_generator_and_golden_pairs():
@@ -502,7 +502,7 @@ _VECTOR_DIGEST = "d3e7f82d4a4799222175523743967e92b1d4dcddafec047443b3b2a4c32c28
 
 
 def test_the_evaluation_hash_matches_the_backend_vector():
-    config = tasks.EvaluationConfig.from_collection(
+    config = evaluation.EvaluationConfig.from_collection(
         "col-1", {**_VECTOR_SETTINGS, "name": "Ma collection"}, 5, "judge-model", "gen-model", False
     )
     assert config.content_hash(_VECTOR_PAIRS) == _VECTOR_DIGEST
@@ -540,56 +540,9 @@ def test_counts_from_results_coerce_string_vars():
         }
     ).encode()
 
-    assert tasks._counts_from_results(results) == {
+    assert evaluation._counts_from_results(results) == {
         "pair_count": 3,
         "golden_pair_count": 1,
         "validated_pair_count": 1,
         "unvalidated_pair_count": 1,
     }
-
-
-def _judge_with(monkeypatch, raw: str):
-    fake = MagicMock()
-    fake.llm_chat.return_value = raw
-    monkeypatch.setattr(tasks, "backend_client", fake)
-    return tasks._judge_discussion("judge-model", "User: hi\n\nAssistant: hello")
-
-
-def test_the_judgment_is_parsed_into_the_model(monkeypatch):
-    judgment = _judge_with(
-        monkeypatch,
-        '{"coherent": true, "coherence_issues": ["a"], "context_usage_score": 0.5, '
-        '"context_usage_issues": [], "reasoning": "ok"}',
-    )
-
-    assert judgment.coherent is True
-    assert judgment.coherence_issues == ["a"]
-    assert judgment.context_usage_score == 0.5
-    assert judgment.reasoning == "ok"
-
-
-def test_a_code_fenced_judgment_is_stripped_before_parsing(monkeypatch):
-    judgment = _judge_with(monkeypatch, '```json\n{"coherent": false, "context_usage_score": 0.1}\n```')
-
-    assert judgment.coherent is False
-    assert judgment.context_usage_score == 0.1
-    # The optional fields default rather than failing the parse.
-    assert judgment.coherence_issues == []
-    assert judgment.context_usage_issues == []
-    assert judgment.reasoning is None
-
-
-def test_a_string_bool_is_coerced_not_truthy(monkeypatch):
-    # The old hand-rolled check read bool("false") as True; the model coerces it correctly.
-    judgment = _judge_with(monkeypatch, '{"coherent": "false", "context_usage_score": "0.2"}')
-
-    assert judgment.coherent is False
-    assert judgment.context_usage_score == 0.2
-
-
-def test_a_judgment_missing_a_required_field_falls_back(monkeypatch):
-    assert _judge_with(monkeypatch, '{"coherent": true}') == tasks._FALLBACK_JUDGMENT
-
-
-def test_a_judgment_that_is_not_json_falls_back(monkeypatch):
-    assert _judge_with(monkeypatch, "I cannot answer that.") == tasks._FALLBACK_JUDGMENT

@@ -21,7 +21,7 @@ doit jamais faire attendre une vraie requête utilisateur ni retarder l'ingestio
 `score_discussion` est un seul appel LLM par conversation, beaucoup plus léger, mais partage cette
 même queue plutôt que d'avoir son propre service - pas assez de volume pour le justifier.
 
-## Ce que fait `run_evaluation` (`app/tasks.py`)
+## Ce que fait `run_evaluation` (`app/evaluation.py`)
 
 1. Récupère les paramètres de la collection (chunking/embedding, modèle configuré pour
    l'étape `evaluation` si défini, sinon le modèle de chat par défaut du hub LLM - ce sera le
@@ -51,7 +51,7 @@ même queue plutôt que d'avoir son propre service - pas assez de volume pour le
         `query` car les assertions RAG de promptfoo l'exigent.
 
       Ajouter une métrique = ajouter son assertion dans `create_tests.py` (sa clé
-      `namedScores` rejoint `SCORED_METRICS`, que `tasks.py` replie dans l'empreinte de
+      `namedScores` rejoint `SCORED_METRICS`, que `evaluation.py` replie dans l'empreinte de
       déduplication) + la recopier dans `_SCORED_METRICS` du backend
       (`evaluation_service.py`, même empreinte calculée au déclenchement - le backend ne
       peut pas importer le code du worker). Le reste est générique : le backend sert
@@ -69,7 +69,7 @@ La clé d'API n'est jamais écrite dans le YAML : promptfoo rejoue toute sa conf
 `results.json` stocké, donc le provider lit la clé depuis sa variable d'environnement
 (`api_key_envar`, héritée du worker) et le juge passe par `apiKeyEnvar`.
 
-## Ce que fait `score_discussion` (`app/tasks.py`)
+## Ce que fait `score_discussion` (`app/discussion.py`)
 
 1. Récupère le transcript complet de la conversation (`/internal/conversations/{id}/messages`).
    Ignore les conversations avec moins de 2 tours assistant : sans au moins deux réponses, il n'y
@@ -92,7 +92,8 @@ déjà l'utilisateur à cet instant.
 
 ```
 app/
-  tasks.py          les tâches Celery run_evaluation et score_discussion
+  evaluation.py     la tâche Celery run_evaluation (moteur promptfoo)
+  discussion.py     la tâche Celery score_discussion
   promptfoo/        les modules référencés par le YAML généré :
     provider.py       le "modèle" évalué : recherche + génération via le backend
     create_tests.py   construit les tests promptfoo depuis pairs.json
