@@ -130,6 +130,12 @@ jobs:
           - name: worker-document-edit
             context: worker/document_edit
             dockerfile: worker/document_edit/Dockerfile
+          - name: worker-ocr-layout
+            context: worker/layout
+            dockerfile: worker/layout/Dockerfile
+          - name: worker-ocr
+            context: worker/ocr
+            dockerfile: worker/ocr/Dockerfile
     with:
       IMAGE_NAME: ${{ needs.expose-vars.outputs.IMAGE_BASE }}/${{ matrix.service.name }}
       IMAGE_TAG: ${{ needs.release.outputs.version }}

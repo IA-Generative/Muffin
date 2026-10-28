@@ -202,6 +202,11 @@ d'un bloc à Tesseract. **Un pod et une image Docker par modèle** : `layout`, `
 sa queue Celery. Le pod d'extraction garde liteparse et orchestre ; il envoie les tâches des autres par leur nom
 (`app/ocr/routing.py`) sans consommer leurs queues.
 
+Les pods : [`worker/layout`](../layout/README.md) (régions et ordre de lecture, PP-DocLayoutV3) et
+[`worker/ocr`](../ocr/README.md) (texte des régions, PP-OCRv5 mobile) - les modèles sont les exports **ONNX officiels**
+de PaddlePaddle, lancés par ONNX Runtime. Restent à faire : l'orchestration ici (#408), les recadrages (#409), les
+tableaux (#410) et la vision (#411).
+
 Ce que le socle (#405) pose, dans `app/ocr/` :
 
 - `contracts.py` : ce que les pods échangent - les régions d'une page (type, score, ordre de lecture, boîte
