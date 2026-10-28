@@ -546,3 +546,50 @@ def test_counts_from_results_coerce_string_vars():
         "validated_pair_count": 1,
         "unvalidated_pair_count": 1,
     }
+
+
+def _judge_with(monkeypatch, raw: str):
+    fake = MagicMock()
+    fake.llm_chat.return_value = raw
+    monkeypatch.setattr(tasks, "backend_client", fake)
+    return tasks._judge_discussion("judge-model", "User: hi\n\nAssistant: hello")
+
+
+def test_the_judgment_is_parsed_into_the_model(monkeypatch):
+    judgment = _judge_with(
+        monkeypatch,
+        '{"coherent": true, "coherence_issues": ["a"], "context_usage_score": 0.5, '
+        '"context_usage_issues": [], "reasoning": "ok"}',
+    )
+
+    assert judgment.coherent is True
+    assert judgment.coherence_issues == ["a"]
+    assert judgment.context_usage_score == 0.5
+    assert judgment.reasoning == "ok"
+
+
+def test_a_code_fenced_judgment_is_stripped_before_parsing(monkeypatch):
+    judgment = _judge_with(monkeypatch, '```json\n{"coherent": false, "context_usage_score": 0.1}\n```')
+
+    assert judgment.coherent is False
+    assert judgment.context_usage_score == 0.1
+    # The optional fields default rather than failing the parse.
+    assert judgment.coherence_issues == []
+    assert judgment.context_usage_issues == []
+    assert judgment.reasoning is None
+
+
+def test_a_string_bool_is_coerced_not_truthy(monkeypatch):
+    # The old hand-rolled check read bool("false") as True; the model coerces it correctly.
+    judgment = _judge_with(monkeypatch, '{"coherent": "false", "context_usage_score": "0.2"}')
+
+    assert judgment.coherent is False
+    assert judgment.context_usage_score == 0.2
+
+
+def test_a_judgment_missing_a_required_field_falls_back(monkeypatch):
+    assert _judge_with(monkeypatch, '{"coherent": true}') == tasks._FALLBACK_JUDGMENT
+
+
+def test_a_judgment_that_is_not_json_falls_back(monkeypatch):
+    assert _judge_with(monkeypatch, "I cannot answer that.") == tasks._FALLBACK_JUDGMENT

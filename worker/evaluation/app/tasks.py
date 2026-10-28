@@ -4,11 +4,11 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 import yaml
 from loguru import logger
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.backend_client import backend_client
 from app.celery_app import celery_app
@@ -63,17 +63,27 @@ def _transcript_hash(messages: list[dict[str, Any]]) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-_FALLBACK_JUDGMENT: dict[str, Any] = {
-    "coherent": True,
-    "coherence_issues": [],
-    "context_usage_score": 1.0,
-    "context_usage_issues": [],
-    "reasoning": "The model's response could not be parsed as a judgment - defaulting to no "
+class DiscussionJudgment(BaseModel):
+    """The judge's verdict on a conversation - the shape _DISCUSSION_SYSTEM_PROMPT asks the model
+    to return. Validated on the way in: the response is untrusted, and a malformed one must fall
+    back rather than crash the task."""
+
+    coherent: bool
+    coherence_issues: list[str] = Field(default_factory=list)
+    context_usage_score: float
+    context_usage_issues: list[str] = Field(default_factory=list)
+    reasoning: str | None = None
+
+
+_FALLBACK_JUDGMENT = DiscussionJudgment(
+    coherent=True,
+    context_usage_score=1.0,
+    reasoning="The model's response could not be parsed as a judgment - defaulting to no "
     "issues found rather than reporting a fabricated problem.",
-}
+)
 
 
-def _judge_discussion(model: str, transcript: str) -> dict[str, Any]:
+def _judge_discussion(model: str, transcript: str) -> DiscussionJudgment:
     """Never lets a malformed or refused LLM response take the task down - same reasoning as
     worker/agent_execution's json_chat: a conservative fallback (no issues found) beats crashing,
     and beats fabricating a specific problem the model never actually reported."""
@@ -85,10 +95,7 @@ def _judge_discussion(model: str, transcript: str) -> dict[str, Any]:
                 {"role": "user", "content": transcript},
             ],
         )
-        judgment = json.loads(_strip_code_fence(raw))
-        if not isinstance(judgment, dict) or "coherent" not in judgment or "context_usage_score" not in judgment:
-            raise ValueError(f"Expected a judgment object, got: {judgment!r}")
-        return judgment
+        return DiscussionJudgment.model_validate_json(_strip_code_fence(raw))
     except Exception:
         logger.exception("Discussion judgment call failed, falling back to a conservative default")
         return _FALLBACK_JUDGMENT
@@ -100,6 +107,45 @@ def _judge_discussion(model: str, transcript: str) -> dict[str, Any]:
 # would lack the new score. create_tests.py is the single source on the worker side;
 # the backend keeps its own copy of the list (it cannot import worker code - see
 # app/services/evaluation_service.py's _SCORED_METRICS).
+
+
+class ConfigMuffin(TypedDict):
+    """The run's configuration as replayed into results.json's metadata.config_muffin - the
+    self-describing block that makes the stored artifact readable on its own."""
+
+    collection_id: str
+    k: int
+    judge_model: str
+    generator_model: str
+    chunking_strategy: str
+    chunk_size: int
+    chunk_overlap: int
+    embedding_model: str
+    validated_only: bool
+    content_hash: str
+    provider_code_sha256: str
+
+
+class RunCounts(TypedDict):
+    """The counters read from the artifact, persisted on the EvaluationRun row."""
+
+    pair_count: int
+    golden_pair_count: int
+    validated_pair_count: int
+    unvalidated_pair_count: int
+
+
+class RunPayload(RunCounts):
+    """The payload the backend persists as the EvaluationRun row: the run's config under the
+    backend's snapshot_* column names, the dedup hash, and the counters."""
+
+    k: int
+    llm_model: str
+    snapshot_chunking_strategy: str
+    snapshot_chunk_size: int
+    snapshot_chunk_overlap: int
+    snapshot_embedding_model: str
+    content_hash: str
 
 
 class EvaluationConfig(BaseModel):
@@ -176,7 +222,7 @@ class EvaluationConfig(BaseModel):
         }
         return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
-    def config_muffin(self, content_hash: str, provider_code_sha256: str) -> dict[str, Any]:
+    def config_muffin(self, content_hash: str, provider_code_sha256: str) -> ConfigMuffin:
         """The run's whole configuration, replayed into results.json so the stored artifact
         is self-describing: everything that made the results what they are is readable from
         results.json itself."""
@@ -194,7 +240,7 @@ class EvaluationConfig(BaseModel):
             "provider_code_sha256": provider_code_sha256,
         }
 
-    def run_payload(self, content_hash: str, counts: dict[str, int]) -> dict[str, Any]:
+    def run_payload(self, content_hash: str, counts: RunCounts) -> RunPayload:
         """The payload the backend persists as the EvaluationRun row: the run's config
         (snapshotted under the backend's snapshot_* column names) plus the dedup hash and the
         counters read from the artifact. The per-pair scores stay in results.json - this is
@@ -376,7 +422,7 @@ def _run_promptfoo(directory: Path) -> tuple[bytes, bytes]:
     return results, report
 
 
-def _counts_from_results(results_json: bytes) -> dict[str, int]:
+def _counts_from_results(results_json: bytes) -> RunCounts:
     """The run's counters, read from what actually ran (the artifact) rather than from what was
     intended (pairs.json) - the artifact is the truth. Golden pairs are counted apart, exactly
     like the old metric columns did: they are the human-written test set."""
@@ -521,11 +567,11 @@ def score_discussion(self, conversation_id: str, model: str | None = None) -> No
         "message_count": len(messages),
         "llm_model": model,
         "content_hash": content_hash,
-        "coherent": bool(judgment["coherent"]),
-        "coherence_issues": judgment.get("coherence_issues", []),
-        "context_usage_score": float(judgment["context_usage_score"]),
-        "context_usage_issues": judgment.get("context_usage_issues", []),
-        "reasoning": judgment.get("reasoning"),
+        "coherent": judgment.coherent,
+        "coherence_issues": judgment.coherence_issues,
+        "context_usage_score": judgment.context_usage_score,
+        "context_usage_issues": judgment.context_usage_issues,
+        "reasoning": judgment.reasoning,
     }
     score_id = backend_client.create_discussion_score(conversation_id, payload)
     logger.info(f"Discussion score {score_id} created for conversation {conversation_id}")
