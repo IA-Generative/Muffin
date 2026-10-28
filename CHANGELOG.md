@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.33.0](https://github.com/IA-Generative/Muffin/compare/v0.32.0...v0.33.0) (2026-10-28)
+
+
+### Features
+
+* **chart:** déployer les pods ocr-layout et ocr ([#406](https://github.com/IA-Generative/Muffin/issues/406), [#407](https://github.com/IA-Generative/Muffin/issues/407)) ([9c274c5](https://github.com/IA-Generative/Muffin/commit/9c274c5e6ccad56a58594fe835fbe919d8892d99))
+* **documents:** garder en base le layout des pages scannées, le lire par l'API ([#409](https://github.com/IA-Generative/Muffin/issues/409)) ([b5e4e45](https://github.com/IA-Generative/Muffin/commit/b5e4e45faa198af09f6f95c3b5a13f74e9bfaeb5))
+* **documents:** garder en base les tableaux lus sur les pages scannées ([#410](https://github.com/IA-Generative/Muffin/issues/410)) ([3ee4137](https://github.com/IA-Generative/Muffin/commit/3ee4137fda5c56068eb547fbfbaf6c7405c8bbcf))
+* **ocr:** envoyer le layout des pages lues par les pods avec la page ([#409](https://github.com/IA-Generative/Muffin/issues/409)) ([4b7d4b2](https://github.com/IA-Generative/Muffin/commit/4b7d4b2a727e8d5231a8b5ea295cf12be1f875ed))
+* **ocr:** lire les pages scannées avec les pods layout et ocr, repli Tesseract ([#408](https://github.com/IA-Generative/Muffin/issues/408)) ([ab4351d](https://github.com/IA-Generative/Muffin/commit/ab4351df3e4d6f522cb3c21adcd46c5fe337376e))
+* **ocr:** lire les pages scannées avec les pods par défaut (chart, compose) ([8d5c277](https://github.com/IA-Generative/Muffin/commit/8d5c2774eb1a72ad0ae153074f5bdc6c72a8729e))
+* **ocr:** lire les tableaux des pages scannées comme des tableaux, marqueur dans le texte ([#410](https://github.com/IA-Generative/Muffin/issues/410)) ([c825458](https://github.com/IA-Generative/Muffin/commit/c825458734ca1182285b0907cff764797afddbb0))
+* **ocr:** niveau des titres dans le contrat des régions ([#408](https://github.com/IA-Generative/Muffin/issues/408)) ([fb9a384](https://github.com/IA-Generative/Muffin/commit/fb9a384d5db0dc7815af5050517ca2bb82b9ac17))
+* **ocr:** pod layout - régions et ordre de lecture avec PP-DocLayoutV3 ([#406](https://github.com/IA-Generative/Muffin/issues/406)) ([a045c37](https://github.com/IA-Generative/Muffin/commit/a045c3719f8ed78315a43e5b871327ff237e0877))
+* **ocr:** pod ocr - texte des régions avec PP-OCRv5 mobile en ONNX ([#407](https://github.com/IA-Generative/Muffin/issues/407)) ([da2dc02](https://github.com/IA-Generative/Muffin/commit/da2dc02d063de8a1849fd14af21991c08dde8c77))
+* **ocr:** pod table - structure des tableaux avec SLANet_plus, texte des cellules ([#410](https://github.com/IA-Generative/Muffin/issues/410)) ([8382368](https://github.com/IA-Generative/Muffin/commit/838236827c73fd7a5c9ace4a297c8a26538ca665))
+* **ocr:** socle de l'extraction par layout - contrats, queues, réglages ([#405](https://github.com/IA-Generative/Muffin/issues/405)) ([143c6d8](https://github.com/IA-Generative/Muffin/commit/143c6d8affdff50d5c0ca48f311d2ec5216bde65))
+
 ## [0.33.0-rc.1](https://github.com/IA-Generative/Muffin/compare/v0.33.0-rc...v0.33.0-rc.1) (2026-10-28)
 
 

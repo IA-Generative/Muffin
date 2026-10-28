@@ -1,6 +1,6 @@
 [project]
 name = "muffin-worker-ocr-layout"
-version = "0.33.0-rc.1"
+version = "0.33.0"
 description = "Celery worker that finds the typed regions of a scanned page and their reading order (PP-DocLayoutV3)"
 requires-python = ">=3.12"
 dependencies = [
