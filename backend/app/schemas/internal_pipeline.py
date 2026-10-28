@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.models.entity import EntityType
 
@@ -250,9 +250,32 @@ class ColumnStatsIn(BaseModel):
     text_stats: dict[str, int | float | None] | None = None
 
 
+MAX_TABULAR_SHEETS = 100
+MAX_TABULAR_COLUMNS = 500
+
+
+class TabularSheetIn(BaseModel):
+    """A sheet of a tabular file, as the worker's analysis made it (#431) and where its typed copy is."""
+
+    index: int = Field(ge=0, lt=MAX_TABULAR_SHEETS)
+    name: str = Field(max_length=500)
+    hidden: bool = False
+    rows: int = Field(ge=0)
+    header_detected: bool = False
+    truncated: bool = False
+    columns: list[dict[str, Any]] = Field(default_factory=list, max_length=MAX_TABULAR_COLUMNS)
+    preview: list[list[Any]] = Field(default_factory=list, max_length=20)
+    warnings: list[str] = Field(default_factory=list, max_length=20)
+    table: dict[str, Any] | None = None
+    parquet_key: str | None = Field(default=None, max_length=1024)
+
+
 class TabularProfileCreate(BaseModel):
     """Profil tabulaire envoyé par le worker document_process après analyse
-    DuckDB d'un fichier CSV/XLSX/Parquet/JSON - voir issue #69."""
+    d'un fichier CSV/TSV/PSV/XLSX/XLS/ODS/JSON/JSONL/Parquet - voir issues #69 et #431.
+
+    Les champs de la feuille principale (``columns``, ``sample_rows``...) sont ceux de toujours. ``sheets`` (#431) :
+    absent, les feuilles que le document a déjà sont gardées ; présent, même vide, elles les remplacent."""
 
     row_count: int
     column_count: int
@@ -262,6 +285,15 @@ class TabularProfileCreate(BaseModel):
     measures: list[str] = []
     dimensions: list[str] = []
     text_columns: list[str] = []
+    sheets: list[TabularSheetIn] | None = Field(default=None, max_length=MAX_TABULAR_SHEETS)
+    analysis_version: int | None = None
+
+    @model_validator(mode="after")
+    def _one_sheet_per_index(self) -> "TabularProfileCreate":
+        indexes = [sheet.index for sheet in self.sheets or []]
+        if len(indexes) != len(set(indexes)):
+            raise ValueError("two sheets of a file cannot share an index")
+        return self
 
 
 class LlmEmbedRequest(BaseModel):
