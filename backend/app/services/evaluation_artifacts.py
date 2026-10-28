@@ -2,20 +2,86 @@
 truth for everything scored in an evaluation run (see docs/promptfoo-evaluation-plan.md).
 The scores are deliberately not copied into database columns: the artifact is written
 once by the worker and read here at display time, so there is no second representation
-to keep in sync."""
+to keep in sync.
+
+The artifact is promptfoo's own format, so it is parsed into the small pydantic model
+below rather than read as loose dicts: the model names the fields the backend actually
+uses, and `extra="ignore"` keeps a promptfoo schema addition from breaking the read.
+Only what the backend reads is modelled - the artifact holds far more (grading detail,
+token usage, the whole config), none of it used here.
+"""
 
 import json
 from collections.abc import Sequence
 from typing import Any
 
 from loguru import logger
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.core import storage
 from app.models.evaluation import EvaluationRun
 from app.schemas.evaluation import EvaluationResultOut
 
 
-def load_tests(run: EvaluationRun) -> list[dict[str, Any]] | None:
+def _coerce_bool(value: Any) -> bool:
+    # promptfoo echoes the test vars back as they were given, but a YAML round-trip
+    # can turn a bool into "true"/"false" - accept both rather than trust one.
+    if isinstance(value, str):
+        return value.strip().lower() == "true"
+    return bool(value)
+
+
+class TestVars(BaseModel):
+    """The vars promptfoo echoes back for one test - the QA pair's identity and scope."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    query: str | None = None
+    # The pre-rename spelling, kept for artifacts of runs that predate it.
+    question: str | None = None
+    reference: str | None = None
+    validated: bool = False
+    golden: bool = False
+    qa_pair_id: str | None = None
+
+    @field_validator("validated", "golden", mode="before")
+    @classmethod
+    def _bool_from_var(cls, value: Any) -> bool:
+        return _coerce_bool(value)
+
+
+class TestResponse(BaseModel):
+    """The provider's response as promptfoo stores it. `output` is the *transformed* value
+    (the generated YAML sets `transform: output.answer`), so it is the generated answer
+    string - not the provider's {answer, context} dict, which promptfoo does not keep."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    output: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class EvaluationTest(BaseModel):
+    """One promptfoo test result, as the backend reads it back from results.json."""
+
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+
+    vars: TestVars = Field(default_factory=TestVars)
+    response: TestResponse = Field(default_factory=TestResponse)
+    named_scores: dict[str, float] = Field(default_factory=dict, alias="namedScores")
+    success: bool = False
+
+    @field_validator("named_scores", mode="before")
+    @classmethod
+    def _numeric_scores_only(cls, value: Any) -> dict[str, float]:
+        # A metric the judge errored on writes no entry at all, and promptfoo can emit a
+        # non-numeric namedScore (a string) - ignore those rather than average them in.
+        if not isinstance(value, dict):
+            return {}
+        return {key: float(score) for key, score in value.items() if isinstance(score, int | float)}
+
+
+def load_tests(run: EvaluationRun) -> list[EvaluationTest] | None:
     """The run's per-pair tests from its results.json artifact - None when the run has
     no artifact (it predates the promptfoo migration, or the upload never happened) or
     when the artifact can't be read/parsed: a display-time read must degrade to "no
@@ -24,37 +90,20 @@ def load_tests(run: EvaluationRun) -> list[dict[str, Any]] | None:
         return None
     try:
         data, _ = storage.get_object(run.results_json_key)
-        return json.loads(data)["results"]["results"]
+        raw = json.loads(data)["results"]["results"]
+        return [EvaluationTest.model_validate(test) for test in raw]
     except Exception:
         logger.exception(f"Failed to read evaluation artifacts for run {run.id}")
         return None
 
 
-def _coerce_bool(value: Any) -> bool:
-    # promptfoo echoes the test vars back as they were given, but a YAML round-trip
-    # can turn a bool into "true"/"false" - accept both rather than trust one.
-    return value is True or value == "true"
-
-
-def _numeric_scores(test: dict[str, Any]) -> dict[str, float]:
-    """The test's namedScores entries that hold a number - the metrics the judge
-    actually scored for that pair. A metric the judge errored on writes no entry,
-    and a non-numeric entry (promptfoo can emit strings) is ignored rather than
-    averaged in."""
-    named_scores = test.get("namedScores")
-    if not isinstance(named_scores, dict):
-        return {}  # the judge errored on this pair - no score to average in
-    return {key: float(value) for key, value in named_scores.items() if isinstance(value, int | float)}
-
-
-def _average(tests: Sequence[dict[str, Any]], metric: str, golden: bool | None) -> float | None:
+def _average(tests: Sequence[EvaluationTest], metric: str, golden: bool | None) -> float | None:
     """The metric's average over the tests of one subset: golden=True for the test
     questions, golden=False for the reference ones, golden=None for every pair."""
     scores = [
-        numeric[metric]
+        test.named_scores[metric]
         for test in tests
-        if (golden is None or _coerce_bool(test.get("vars", {}).get("golden")) == golden)
-        and (numeric := _numeric_scores(test)).get(metric) is not None
+        if (golden is None or test.vars.golden == golden) and metric in test.named_scores
     ]
     # None on an empty subset, never 0.0 - a zero would read as a terrible score
     # where there is actually nothing to score (same rule as the old metric columns).
@@ -62,14 +111,14 @@ def _average(tests: Sequence[dict[str, Any]], metric: str, golden: bool | None) 
 
 
 def metrics_from_tests(
-    tests: Sequence[dict[str, Any]],
+    tests: Sequence[EvaluationTest],
 ) -> tuple[dict[str, float] | None, dict[str, float] | None, dict[str, float] | None]:
     """(reference, golden, all) score averages keyed by metric name - each None when
     nothing was scored over that subset. The keys are the union of whatever namedScores
     the artifact actually holds, so the worker's assertions alone decide what gets
     scored: a new metric flows through with zero backend change, and a run that
     predates a metric simply doesn't list it (absent key, never a 0.0 average)."""
-    metrics = sorted({key for test in tests for key in _numeric_scores(test)})
+    metrics = sorted({key for test in tests for key in test.named_scores})
 
     def averages(golden: bool | None) -> dict[str, float] | None:
         scored = {metric: average for metric in metrics if (average := _average(tests, metric, golden)) is not None}
@@ -78,14 +127,14 @@ def metrics_from_tests(
     return averages(golden=False), averages(golden=True), averages(golden=None)
 
 
-def _passed(test: dict[str, Any]) -> bool:
+def _passed(test: EvaluationTest) -> bool:
     """Whether promptfoo marked the test as passed: every assertion scored at or above
     its threshold. A test the judge errored on carries no `success` and counts as not
     passed."""
-    return test.get("success") is True
+    return test.success is True
 
 
-def _pass_rate(tests: Sequence[dict[str, Any]]) -> float | None:
+def _pass_rate(tests: Sequence[EvaluationTest]) -> float | None:
     """The share of tests promptfoo marked as passed, in [0, 1] - None on an empty
     subset (nothing to rate, never a misleading 0)."""
     if not tests:
@@ -93,32 +142,27 @@ def _pass_rate(tests: Sequence[dict[str, Any]]) -> float | None:
     return sum(_passed(test) for test in tests) / len(tests)
 
 
-def pass_rates(tests: Sequence[dict[str, Any]]) -> tuple[float | None, float | None, float | None]:
+def pass_rates(tests: Sequence[EvaluationTest]) -> tuple[float | None, float | None, float | None]:
     """(golden, reference, overall) pass rates - the share of test questions, of
     reference questions, and of every pair, that passed. Each is None when its subset
     is empty (a run with no golden pair has no golden rate, never a misleading 0)."""
-    golden = [test for test in tests if _coerce_bool(test.get("vars", {}).get("golden"))]
-    reference = [test for test in tests if not _coerce_bool(test.get("vars", {}).get("golden"))]
+    golden = [test for test in tests if test.vars.golden]
+    reference = [test for test in tests if not test.vars.golden]
     return _pass_rate(golden), _pass_rate(reference), _pass_rate(tests)
 
 
-def to_result_out(test: dict[str, Any]) -> EvaluationResultOut:
+def to_result_out(test: EvaluationTest) -> EvaluationResultOut:
     """Normalizes one promptfoo test into the shape the evaluations UI consumes -
     the mapping is kept here so a promptfoo format change only touches this module."""
-    variables = test.get("vars") or {}
-    response = test.get("response") or {}
-    output = response.get("output") or {}
-    metadata = response.get("metadata") or {}
-    qa_pair_id = variables.get("qa_pair_id")
     return EvaluationResultOut(
-        qa_pair_id=str(qa_pair_id) if qa_pair_id else None,
+        qa_pair_id=test.vars.qa_pair_id,
         # `query` since promptfoo's RAG assertions require that var name; `question` is
         # the pre-rename spelling, kept for artifacts of runs that predate it.
-        question=variables.get("query") or variables.get("question") or "",
-        expected_answer=variables.get("reference") or "",
-        generated_answer=output.get("answer") or "",
-        named_scores=_numeric_scores(test),
-        validated=_coerce_bool(variables.get("validated")),
-        golden=_coerce_bool(variables.get("golden")),
-        retrieved_sources=metadata.get("sources") or [],
+        question=test.vars.query or test.vars.question or "",
+        expected_answer=test.vars.reference or "",
+        generated_answer=test.response.output or "",
+        named_scores=test.named_scores,
+        validated=test.vars.validated,
+        golden=test.vars.golden,
+        retrieved_sources=test.response.metadata.get("sources") or [],
     )

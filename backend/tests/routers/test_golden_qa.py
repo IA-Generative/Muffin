@@ -267,7 +267,7 @@ def _results_json(*tests):
 def _test_row(question, factuality, context_faithfulness, golden):
     return {
         "vars": {"query": question, "reference": "x", "validated": True, "golden": golden},
-        "response": {"output": {"answer": "y"}, "metadata": {"sources": ["a.pdf#1"]}},
+        "response": {"output": "y", "metadata": {"sources": ["a.pdf#1"]}},
         "namedScores": {"factuality": factuality, "context_faithfulness": context_faithfulness},
     }
 

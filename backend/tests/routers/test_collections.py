@@ -734,7 +734,7 @@ _RESULTS_JSON = {
                     "qa_pair_id": "11111111-1111-1111-1111-111111111111",
                 },
                 "response": {
-                    "output": {"answer": "Generated 1", "context": ["c"]},
+                    "output": "Generated 1",
                     "metadata": {"sources": ["handbook.pdf#0"]},
                 },
                 "success": True,
@@ -748,19 +748,19 @@ _RESULTS_JSON = {
                     "golden": False,
                     "qa_pair_id": "22222222-2222-2222-2222-222222222222",
                 },
-                "response": {"output": {"answer": "Generated 2"}, "metadata": {"sources": []}},
+                "response": {"output": "Generated 2", "metadata": {"sources": []}},
                 "success": False,
                 "namedScores": {"factuality": 0.5, "context_faithfulness": 0.4},
             },
             {
                 "vars": {"question": "Q3", "reference": "A3", "validated": True, "golden": False},
-                "response": {"output": {"answer": "Generated 3"}, "metadata": {}},
+                "response": {"output": "Generated 3", "metadata": {}},
                 "error": "judge failed",
             },
             {
                 "vars": {"query": "GQ", "reference": "GA", "validated": True, "golden": True},
                 "response": {
-                    "output": {"answer": "Golden answer"},
+                    "output": "Golden answer",
                     "metadata": {"sources": ["handbook.pdf#1"]},
                 },
                 "success": True,
@@ -848,19 +848,19 @@ async def test_list_evaluations_computes_the_golden_pass_rate_from_the_artifact(
                 "results": [
                     {
                         "vars": {"query": "G1", "reference": "A1", "validated": True, "golden": True},
-                        "response": {"output": {"answer": "ok"}, "metadata": {}},
+                        "response": {"output": "ok", "metadata": {}},
                         "success": True,
                         "namedScores": {"factuality": 0.9},
                     },
                     {
                         "vars": {"query": "G2", "reference": "A2", "validated": True, "golden": True},
-                        "response": {"output": {"answer": "bad"}, "metadata": {}},
+                        "response": {"output": "bad", "metadata": {}},
                         "success": False,
                         "namedScores": {"factuality": 0.3},
                     },
                     {
                         "vars": {"query": "Q1", "reference": "A1", "validated": False, "golden": False},
-                        "response": {"output": {"answer": "ok"}, "metadata": {}},
+                        "response": {"output": "ok", "metadata": {}},
                         "success": True,
                         "namedScores": {"factuality": 1.0},
                     },
@@ -888,7 +888,7 @@ async def test_list_evaluations_reports_null_golden_pass_rate_without_a_golden_p
                 "results": [
                     {
                         "vars": {"query": "Q1", "reference": "A1", "validated": True, "golden": False},
-                        "response": {"output": {"answer": "ok"}, "metadata": {}},
+                        "response": {"output": "ok", "metadata": {}},
                         "success": True,
                         "namedScores": {"factuality": 0.9},
                     },
@@ -919,7 +919,7 @@ async def test_list_evaluations_keeps_a_pre_context_faithfulness_artifact_readab
                 "results": [
                     {
                         "vars": {"question": "Q1", "reference": "A1", "validated": True, "golden": False},
-                        "response": {"output": {"answer": "Generated 1"}, "metadata": {"sources": []}},
+                        "response": {"output": "Generated 1", "metadata": {"sources": []}},
                         "namedScores": {"factuality": 0.9},
                     },
                 ]
