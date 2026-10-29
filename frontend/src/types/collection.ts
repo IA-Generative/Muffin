@@ -101,6 +101,8 @@ export interface PipelineInstructions {
   summary: string
 }
 
+export type CaptionEngine = 'local' | 'openai'
+
 // One chat model per generation step - null until the user picks one.
 export interface GenerationModels {
   qa: string | null
@@ -253,6 +255,9 @@ export interface Collection {
   instructions: PipelineInstructions
   generationModels: GenerationModels
   pipelineWindows: PipelineWindows
+  // Who describes the images and tables of a scanned page (#411): the vision pod, or a multimodal model of the hub.
+  captionEngine: CaptionEngine
+  captionModel: string | null
   evaluationRuns: EvaluationRun[]
   // Fetched on demand (owner-only endpoint), like qaPairs/entities - empty until
   // refreshShares/useCollections has run once for this collection.

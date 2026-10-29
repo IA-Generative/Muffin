@@ -12,6 +12,7 @@ import type {
   EvaluationRun,
   IndexRebuild,
   FieldStamp,
+  CaptionEngine,
   GenerationModels,
   IndexingEstimate,
   PipelineInstructions,
@@ -54,6 +55,8 @@ interface CollectionOut {
   reindex_required: boolean
   instructions: PipelineInstructions
   generation_models: GenerationModels
+  caption_engine?: CaptionEngine
+  caption_model?: string | null
   pipeline_windows: {
     summary_pages_per_map: number
     qa_window_pages: number
@@ -136,6 +139,8 @@ function toCollection(raw: CollectionOut): Collection {
     instructions: raw.instructions,
     generationModels: raw.generation_models,
     pipelineWindows: toPipelineWindows(raw.pipeline_windows),
+    captionEngine: raw.caption_engine ?? 'local',
+    captionModel: raw.caption_model ?? null,
     evaluationRuns: raw.evaluation_runs,
     // Not embedded in CollectionOut (owner-only, would 404/leak nothing useful for a viewer
     // anyway) - fetched separately by refreshShares, see CollectionSettingsTab.
