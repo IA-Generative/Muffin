@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -32,10 +32,23 @@ class DocumentStatus(enum.StrEnum):
 
 class Document(UUIDMixin, TimestampMixin, Base):
     __tablename__ = "documents"
+    __table_args__ = (
+        # One copy per file of the other system (#453); what is made in Muffin has no external id.
+        Index(
+            "uq_documents_source_external_id",
+            "source",
+            "external_id",
+            unique=True,
+            postgresql_where=text("external_id IS NOT NULL"),
+        ),
+    )
 
     collection_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("collections.id", ondelete="CASCADE"), index=True, nullable=False
     )
+    # Made here, or copied from Open WebUI (#453) - then external_id is the id it has there.
+    source: Mapped[str] = mapped_column(String(16), nullable=False, default="muffin", server_default="muffin")
+    external_id: Mapped[str | None] = mapped_column(String, nullable=True)
     # For type=url, name doubles as the URL to fetch. For type=file, the raw
     # bytes live in RustFS under storage_key - name is just the display name.
     name: Mapped[str] = mapped_column(String, nullable=False)
