@@ -5,6 +5,13 @@
 #
 # Open WebUI is then on http://localhost:3001. See docs/owui-test-instance.md.
 services:
+  # Keycloak announces its public address (the browser's) for the sign-in page and the one of the compose network
+  # for what Open WebUI asks the server (token, keys): the same issuer, reachable from both.
+  keycloak:
+    environment:
+      KC_HOSTNAME: http://localhost:8080
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+
   owui-bucket:
     image: amazon/aws-cli:2.17.0
     depends_on:
@@ -32,6 +39,8 @@ services:
         condition: service_healthy
       tika:
         condition: service_started
+      keycloak:
+        condition: service_healthy
     environment:
       WEBUI_SECRET_KEY: dev-only-owui-secret-not-for-prod
       # dev exposes the API schema (/openapi.json, /docs), which the sync client is written against.
@@ -43,6 +52,17 @@ services:
       # The sync reads OWUI with an API key (#453).
       ENABLE_API_KEYS: "true"
       # Files in the same S3 as Muffin, in their own bucket.
+      # Sign in with the Keycloak of Muffin, as in production: the users then carry their Keycloak subject
+      # (`oauth.oidc.sub`), which is what the synchronisation ties the members of a group to.
+      WEBUI_URL: http://localhost:3001
+      ENABLE_OAUTH_SIGNUP: "true"
+      DEFAULT_USER_ROLE: user
+      OAUTH_PROVIDER_NAME: Keycloak
+      OAUTH_CLIENT_ID: open-webui
+      OAUTH_CLIENT_SECRET: dev-only-secret-not-for-prod
+      OPENID_PROVIDER_URL: http://keycloak:8080/realms/muffin/.well-known/openid-configuration
+      OPENID_REDIRECT_URI: http://localhost:3001/oauth/oidc/callback
+      OAUTH_SCOPES: openid email profile
       STORAGE_PROVIDER: s3
       S3_ENDPOINT_URL: http://rustfs:9000
       S3_ACCESS_KEY_ID: rustfsadmin

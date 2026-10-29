@@ -25,6 +25,26 @@ synchronisation est écrit.
 `ENABLE_PERSISTENT_CONFIG=false` : les variables d'environnement l'emportent toujours sur ce que l'interface d'administration a
 enregistré. Sans cela, `ENABLE_API_KEYS` et les autres réglages restent figés à leur première valeur.
 
+## Connexion par Keycloak
+
+Open WebUI se connecte au Keycloak de Muffin (client `open-webui` du realm `muffin`, `docker/keycloak/realm-muffin.json`), comme en
+production : un utilisateur connecté ainsi porte son sujet Keycloak dans `oauth.oidc.sub`, ce qui permet de rattacher les membres
+d'un groupe à leur identité dans Muffin.
+
+Keycloak annonce l'adresse `http://localhost:8080` pour la page de connexion (celle du navigateur) et `http://keycloak:8080` pour
+ce que demande le serveur (jeton, clés) : même émetteur, joignable des deux côtés (`KC_HOSTNAME_BACKCHANNEL_DYNAMIC`).
+
+Dans un navigateur, le bouton « Keycloak » de http://localhost:3001 ouvre la connexion. En script, `docker/owui/keycloak_login.py`
+joue le même parcours et crée l'utilisateur dans Open WebUI à la première connexion :
+
+```bash
+python3 docker/owui/keycloak_login.py julie muffin-dev
+python3 docker/owui/keycloak_login.py michou muffin-dev
+```
+
+Les comptes du realm sont `michou` (sans groupe) et `julie` (groupe `/muffin-dev-team`), mot de passe `muffin-dev`. Le `sub` lu par Open
+WebUI est le même que celui que Muffin lit dans `userinfo`.
+
 ## Préparer des données
 
 Le premier compte créé est administrateur. La synchronisation lit Open WebUI avec une clé d'API :
