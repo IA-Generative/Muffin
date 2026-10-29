@@ -36,7 +36,9 @@ def stored(monkeypatch) -> MagicMock:
     storage = MagicMock()
     storage.upload_fileobj.side_effect = lambda key, fileobj, content_type: setattr(storage, "uploaded", fileobj.read())
     monkeypatch.setattr(collection_import_service, "storage", storage)
-    monkeypatch.setattr(collection_import_service, "enqueue_import_zip", lambda import_id: f"celery-{import_id}")
+    monkeypatch.setattr(
+        collection_import_service, "enqueue_import_zip", lambda import_id, task_id=None: f"celery-{import_id}"
+    )
     storage.queued = []
     seen: set[str] = set()
 

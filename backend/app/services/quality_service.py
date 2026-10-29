@@ -24,6 +24,7 @@ from app.models.discussion_score import DiscussionScore
 from app.models.evaluation import EvaluationRun
 from app.models.message import Message, MessageRole
 from app.models.run import Run
+from app.models.task import TaskStatus
 from app.schemas.quality import (
     ConversationWithScoreOut,
     DiscussionMetricOut,
@@ -510,16 +511,24 @@ class QualityService:
         from app.core.tasks import SCORE_DISCUSSION_TASK
         from app.repositories.task_repository import TaskRepository
 
-        celery_task_id = enqueue_score_discussion(str(conv.id), model)
         tasks = TaskRepository(self.db)
+        task_id = str(uuid.uuid4())
         await tasks.create(
-            celery_task_id,
+            task_id,
             SCORE_DISCUSSION_TASK,
             user.user_id,
             conversation_id=conv.id,
         )
         await self.db.commit()
-        return celery_task_id
+        try:
+            result_id = enqueue_score_discussion(str(conv.id), model, task_id=task_id)
+        except Exception as exc:
+            await tasks.set_status(task_id, TaskStatus.FAILURE, str(exc))
+            await self.db.commit()
+            raise
+        await tasks.rename_celery_task_id(task_id, result_id)
+        await self.db.commit()
+        return result_id
 
     async def trigger_score_all(
         self,
@@ -564,16 +573,23 @@ class QualityService:
         tasks = TaskRepository(self.db)
         celery_task_ids: list[str] = []
         for conv in conversations:
-            celery_task_id = enqueue_score_discussion(str(conv.id), model)
+            task_id = str(uuid.uuid4())
             await tasks.create(
-                celery_task_id,
+                task_id,
                 SCORE_DISCUSSION_TASK,
                 user.user_id,
                 conversation_id=conv.id,
             )
-            celery_task_ids.append(celery_task_id)
-
-        await self.db.commit()
+            await self.db.commit()
+            try:
+                result_id = enqueue_score_discussion(str(conv.id), model, task_id=task_id)
+            except Exception as exc:
+                await tasks.set_status(task_id, TaskStatus.FAILURE, str(exc))
+                await self.db.commit()
+                raise
+            await tasks.rename_celery_task_id(task_id, result_id)
+            await self.db.commit()
+            celery_task_ids.append(result_id)
         return celery_task_ids
 
 

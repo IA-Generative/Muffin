@@ -44,6 +44,8 @@ class DescriptionRollupService:
             collection = await self.collections.get_by_id(collection_id)
             if collection is None:
                 return
+            # Published with a 60 s countdown: the caller commits the Task row long before the
+            # worker can start it, so publishing before registration cannot drop a status report.
             celery_task_id = enqueue_rollup_collection_description(str(collection_id), ROLLUP_DELAY_SECONDS)
             await self.tasks.create(
                 celery_task_id, ROLLUP_COLLECTION_DESCRIPTION_TASK, collection.owner_id, collection_id=collection_id

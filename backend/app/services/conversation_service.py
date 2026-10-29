@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core import storage
 from app.core.security.factory import RequestContext
 from app.core.tasks import SCORE_DISCUSSION_TASK, enqueue_score_discussion
+from app.models.task import TaskStatus
 from app.repositories.chart_repository import ChartRepository
 from app.repositories.conversation_repository import ConversationRepository
 from app.repositories.discussion_feedback_repository import DiscussionFeedbackRepository
@@ -120,15 +121,23 @@ class ConversationService:
         # evaluation's score_discussion, the worker posts a fully computed one back once it's
         # done. The Task row is created here directly though - same pattern as
         # EvaluationService.trigger: this request already knows the user, no round trip needed.
-        celery_task_id = enqueue_score_discussion(str(conversation.id))
+        task_id = str(uuid.uuid4())
         await self.tasks.create(
-            celery_task_id,
+            task_id,
             SCORE_DISCUSSION_TASK,
             user.user_id,
             conversation_id=conversation.id,
         )
         await self.db.commit()
-        return celery_task_id
+        try:
+            result_id = enqueue_score_discussion(str(conversation.id), task_id=task_id)
+        except Exception as exc:
+            await self.tasks.set_status(task_id, TaskStatus.FAILURE, str(exc))
+            await self.db.commit()
+            raise
+        await self.tasks.rename_celery_task_id(task_id, result_id)
+        await self.db.commit()
+        return result_id
 
     async def list_discussion_scores(
         self, conversation_id: uuid.UUID, user: RequestContext
