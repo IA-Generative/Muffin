@@ -277,3 +277,37 @@ async def test_reap_stuck_tasks_marks_only_the_ones_started_before_the_timeout(c
     assert response.json() == {"reaped": 1}
     assert (await _task("celery-stuck")).status == "FAILURE"
     assert (await _task("celery-running")).status == "STARTED"
+
+
+async def test_update_task_status_refreshes_the_start_on_a_retry(client):
+    await _record_task()
+    old = datetime.now(UTC) - timedelta(hours=48)
+    async with async_session_factory() as session:
+        await session.execute(
+            update(Task).where(Task.celery_task_id == "celery-status").values(status="STARTED", started_at=old)
+        )
+        await session.commit()
+
+    response = await client.patch(
+        "/api/internal/tasks/celery-status/status", headers=_headers(), json={"status": "STARTED"}
+    )
+
+    assert response.status_code == 204
+    assert (await _task("celery-status")).started_at > old
+
+
+async def test_reap_stuck_tasks_leaves_unbounded_tasks_alone(client):
+    await _record_task("celery-evaluation")
+    old = datetime.now(UTC) - timedelta(hours=48)
+    async with async_session_factory() as session:
+        await session.execute(
+            update(Task)
+            .where(Task.celery_task_id == "celery-evaluation")
+            .values(status="STARTED", started_at=old, task_name="app.tasks.run_evaluation")
+        )
+        await session.commit()
+
+    response = await client.post("/api/internal/tasks/reap", headers=_headers())
+
+    assert response.json() == {"reaped": 0}
+    assert (await _task("celery-evaluation")).status == "STARTED"

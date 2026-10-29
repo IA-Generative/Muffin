@@ -71,8 +71,8 @@ class Task(UUIDMixin, TimestampMixin, Base):
         default=TaskStatus.PENDING,
         server_default=TaskStatus.PENDING.value,
     )
-    # Set when the worker reports STARTED, and when it reports a terminal status - the reaper
-    # reads started_at to tell a task that is genuinely long from one whose worker is gone.
+    # Set when the worker reports STARTED, refreshed on a retry/redelivery - the reaper reads
+    # started_at to tell a task that is genuinely long from one whose worker is gone.
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # The exception a FAILURE ended on, as the worker reported it.
