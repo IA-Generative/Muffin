@@ -264,9 +264,9 @@ Image à part (`worker-tabular`), sans modèle : DuckDB sur les copies Parquet d
 | `QUERY_WORK_DIR` | Où est fait le dossier privé de chaque requête (le volume inscriptible du pod) | `/tmp` (image) |
 | `SQL_TASK_SOFT_TIME_LIMIT_SECONDS` | Limite souple de la tâche, téléchargement compris | `180` |
 
-## worker/layout, worker/ocr et worker/table — pods d'OCR par layout (#406, #407, #410)
+## worker/layout, worker/ocr, worker/table et worker/vision — pods d'OCR par layout (#406, #407, #410, #411)
 
-Chacun est une image à part (`worker-ocr-layout`, `worker-ocr`, `worker-ocr-table`) avec ses modèles ONNX officiels de PaddlePaddle embarqués.
+Chacun est une image à part (`worker-ocr-layout`, `worker-ocr`, `worker-ocr-table`, `worker-ocr-vision`) avec ses modèles ONNX officiels de PaddlePaddle embarqués.
 Ils partagent avec le worker d'extraction `REDIS_URL`, `AWS_*`, `STORAGE_*_TIMEOUT_SECONDS`, le nom de leur queue
 (`LAYOUT_QUEUE_NAME` / `OCR_QUEUE_NAME`), `MODELS_DIR`, `OCR_REGION_MIN_SCORE`, `OCR_REGION_MIN_PIXELS`,
 `OCR_MAX_REGIONS_PER_PAGE` (layout) et la limite souple de leur tâche : voir plus haut. Propres aux pods :
@@ -285,6 +285,34 @@ Ils partagent avec le worker d'extraction `REDIS_URL`, `AWS_*`, `STORAGE_*_TIMEO
 | `TABLE_MAX_CELLS` | Au-delà de ce nombre de cellules, un tableau n'est pas lu (un tableur ne se lit pas sur un scan) et la page retombe sur la lecture de secours | `5000` | idem |
 | `TABLE_MAX_PER_PAGE` | Nombre maximal de tableaux lus par page | `20` | idem |
 | `ONNX_INTRA_OP_THREADS` | Threads qu'ONNX Runtime peut utiliser pour une page ou une région (`0` : son choix). À régler sur les CPU du pod divisés par la concurrence du worker | `0` | les deux pods |
+| `VISION_QUEUE_NAME` | Queue du pod vision | `document_vision` | **worker/vision** (`app/config.py`) et le worker d'extraction |
+| `VISION_MODEL_NAME` | Dossier, sous `MODELS_DIR`, de Florence-2 base (poids et code, embarqués dans l'image à une révision figée ; `transformers` est figé, rien n'est téléchargé à l'exécution) | `Florence-2-base` | **worker/vision** (`app/config.py`, `app/florence.py`) |
+| `VISION_TASK` | Tâche de Florence-2 demandée : la description détaillée | `<MORE_DETAILED_CAPTION>` | idem |
+| `VISION_MAX_NEW_TOKENS` / `VISION_NUM_BEAMS` | Longueur maximale d'une description et largeur de la recherche : bornent le temps d'une image | `128` / `3` | idem |
+| `VISION_CROP_MARGIN_PIXELS` | Pixels de la page gardés autour d'une région avant de la décrire | `8` | idem |
+| `VISION_MAX_REGIONS` | Régions décrites par page au plus (garde-fou du pod ; le worker d'extraction plafonne plus bas) | `50` | idem |
+| `TORCH_THREADS` | Threads de PyTorch pour une inférence (`0` : son choix). À régler sur les CPU du pod divisés par la concurrence (`-c`, 1 par défaut : le modèle pèse environ 2 Go par processus) | `0` | idem |
+| `VISION_TASK_SOFT_TIME_LIMIT_SECONDS` | Limite souple de la tâche d'une page | `300` | idem |
+
+## Description des images et des tableaux des pages scannées (#411)
+
+Qui décrit est un réglage **de la collection** (Paramètres → « Description des images ») : `caption_engine` = `local` (le
+pod vision, Florence-2, qui répond en anglais ; la description est traduite en français par le modèle de chat du pipeline)
+ou `openai` (un modèle du hub qui lit les images, `caption_model`, sinon le premier trouvé par `/api/vision-models`). Le
+moteur et le modèle entrent dans l'empreinte de l'extraction (#300) : changer de moteur ne redécrit pas les documents déjà
+extraits (pas de rattrapage) ; les ré-extraire les décrit. Variables du **worker d'extraction** :
+
+| Variable | Définition | Défaut | Utilisée par |
+|---|---|---|---|
+| `VISION_POD_ENABLED` | Le pod vision est déployé : sans lui, le moteur `local` ne décrit rien (le moteur `openai` n'en a pas besoin). Identique dans les trois pods de l'image, car dans l'empreinte | `false` (chart et compose : `true`) | **worker/document_process** (`app/config.py`, `app/ocr/describe.py`, `app/reuse.py`) |
+| `CAPTION_MIN_PIXELS` | Une image n'est décrite que si son petit côté fait au moins ce nombre de pixels de la page | `96` | idem |
+| `CAPTION_MAX_PER_PAGE` | Descriptions par page au plus, les plus grandes régions d'abord | `5` | idem |
+| `CAPTION_MAX_PER_DOCUMENT` | Descriptions par document au plus. Compté par tâche d'extraction : chaque plage de pages d'un long PDF compte pour elle-même | `50` | idem |
+| `CAPTION_TABLES` | Décrire aussi les tableaux lus comme des tableaux (la description va au bout de leur marqueur) | `true` | idem |
+| `CAPTION_TRANSLATE` | Traduire en français les descriptions de Florence-2 (un appel au modèle de chat par page) ; sinon elles restent en anglais | `true` | idem |
+| `CAPTION_MAX_CHARS` | Longueur maximale d'une description dans le texte de la page (coupée à un mot) | `600` | idem |
+| `CAPTION_STAGE_TIMEOUT_SECONDS` | Temps accordé aux descriptions d'une page. Passé ce délai, la page est gardée **sans** elles, sans repasser par la lecture de secours | `300` | idem |
+| `CAPTION_HUB_CONCURRENCY` / `CAPTION_HUB_MAX_TOKENS` | Appels simultanés au hub (moteur `openai`) et longueur maximale d'une réponse | `4` / `300` | idem |
 
 ## worker/agent_execution — budgets d'exécution de l'agent
 
