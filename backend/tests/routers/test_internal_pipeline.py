@@ -48,6 +48,21 @@ async def _create_collection_and_document() -> tuple[uuid.UUID, uuid.UUID]:
         return collection.id, document.id
 
 
+async def test_get_collection_settings_says_who_describes_the_images(client):
+    collection_id, _ = await _create_collection_and_document()
+    default = await client.get(f"/api/internal/collections/{collection_id}/settings", headers=_headers())
+    assert default.json()["caption_engine"] == "local"
+    assert default.json()["caption_model"] is None
+
+    async with async_session_factory() as session:
+        settings = await session.get(CollectionSettings, collection_id)
+        settings.caption_engine, settings.caption_model = "openai", "gpt-4o"
+        await session.commit()
+
+    chosen = await client.get(f"/api/internal/collections/{collection_id}/settings", headers=_headers())
+    assert (chosen.json()["caption_engine"], chosen.json()["caption_model"]) == ("openai", "gpt-4o")
+
+
 async def test_get_collection_settings_merges_saved_and_default_windows(client):
     collection_id, _ = await _create_collection_and_document()
 

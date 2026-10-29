@@ -221,5 +221,9 @@ class CollectionSettings(Base):
     # key the same way generation_models does; missing keys fall back to
     # PipelineWindowsOut's defaults, see app/schemas/collection.py.
     pipeline_windows: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    # What describes the images and the tables of a scanned page (#411): "local" is the vision pod's Florence-2,
+    # "openai" a multimodal chat model of the hub (caption_model, or the hub's first chat model when unset).
+    caption_engine: Mapped[str] = mapped_column(String(16), nullable=False, default="local", server_default="local")
+    caption_model: Mapped[str | None] = mapped_column(String, nullable=True)
 
     collection: Mapped["Collection"] = relationship(back_populates="settings")

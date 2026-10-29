@@ -60,6 +60,8 @@ async def get_collection_settings(
         },
         generation_models=settings.generation_models or {},
         pipeline_windows=settings.pipeline_windows or {},
+        caption_engine=settings.caption_engine,
+        caption_model=settings.caption_model,
     )
 
 
