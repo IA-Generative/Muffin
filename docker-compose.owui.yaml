@@ -119,5 +119,21 @@ services:
         condition: service_started
     restart: unless-stopped
 
+  # The beat that starts a synchronisation every OWUI_SYNC_INTERVAL_MINUTES: one process, not one per worker.
+  worker-owui-sync-beat:
+    build:
+      context: ./worker/owui_sync
+      dockerfile: Dockerfile
+    command: ["celery", "-A", "app.celery_app", "beat", "--loglevel=info", "-s", "/tmp/celerybeat-schedule"]
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      OWUI_SYNC_INTERVAL_MINUTES: ${OWUI_SYNC_INTERVAL_MINUTES:-60}
+    healthcheck:
+      disable: true
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   owui-data:

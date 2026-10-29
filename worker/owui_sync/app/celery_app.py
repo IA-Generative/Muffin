@@ -18,6 +18,18 @@ celery_app.conf.update(
     # Must match backend/app/core/tasks.py's for a consistent task history lifetime.
     result_expires=60 * 60 * 24 * 7,
     task_track_started=True,
+    # Run by the beat only: a worker started without it never schedules anything.
+    beat_schedule=(
+        {
+            "sync-owui": {
+                "task": "app.tasks.sync_owui",
+                "schedule": settings.OWUI_SYNC_INTERVAL_MINUTES * 60,
+                "options": {"queue": settings.CELERY_QUEUE_NAME},
+            }
+        }
+        if settings.OWUI_SYNC_INTERVAL_MINUTES > 0
+        else {}
+    ),
 )
 
 from app import tasks  # noqa: E402,F401
