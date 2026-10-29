@@ -95,6 +95,16 @@
         },
         {
           "type": "toml",
+          "path": "worker/owui_sync/pyproject.toml",
+          "jsonpath": "project.version"
+        },
+        {
+          "type": "toml",
+          "path": "worker/owui_sync/uv.lock",
+          "jsonpath": "$.package[?(@.name.value=='muffin-worker-owui-sync')].version"
+        },
+        {
+          "type": "toml",
           "path": "worker/document_process/pyproject.toml",
           "jsonpath": "project.version"
         },
