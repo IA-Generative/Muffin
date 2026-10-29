@@ -14,6 +14,22 @@ _client = boto3.client(
 )
 _bucket_ready = False
 
+# A key may name an object of another system, in its own bucket, as that system writes it: `s3://<bucket>/<key>`
+# (a file copied from Open WebUI, #453). Muffin reads it where it is, and never deletes it - it is not Muffin's.
+_FOREIGN_PREFIX = "s3://"
+
+
+def is_foreign(key: str) -> bool:
+    return key.startswith(_FOREIGN_PREFIX)
+
+
+def _location(key: str) -> tuple[str, str]:
+    """(bucket, key) of an object: Muffin's own bucket, or the one a foreign key names."""
+    if is_foreign(key):
+        bucket, _, name = key.removeprefix(_FOREIGN_PREFIX).partition("/")
+        return bucket, name
+    return _settings.AWS_BUCKET, key
+
 
 def _ensure_bucket() -> None:
     # Lazy: a real network call at import time would run during test
@@ -47,19 +63,21 @@ def copy_object(source_key: str, target_key: str) -> None:
     document that reuses another's page screenshots gets copies of its own (#300) - deleting a document
     deletes its objects, so one shared between two would vanish from the other."""
     _ensure_bucket()
+    source_bucket, source_name = _location(source_key)
     _client.copy_object(
         Bucket=_settings.AWS_BUCKET,
         Key=target_key,
-        CopySource={"Bucket": _settings.AWS_BUCKET, "Key": source_key},
+        CopySource={"Bucket": source_bucket, "Key": source_name},
     )
 
 
 def get_presigned_url(key: str, expires_in: int = 3600) -> str:
     """A short-lived, unauthenticated link to a stored object (e.g. a page screenshot) - handed
     to the end user in a chat answer, who has no RustFS credentials of their own."""
+    bucket, name = _location(key)
     return _client.generate_presigned_url(
         "get_object",
-        Params={"Bucket": _settings.AWS_BUCKET, "Key": key},
+        Params={"Bucket": bucket, "Key": name},
         ExpiresIn=expires_in,
     )
 
@@ -70,7 +88,8 @@ def get_object(key: str) -> tuple[bytes, str]:
     ownership/session on each request (e.g. a document's page screenshots in the document detail
     modal), instead of a link that, once handed out, keeps working on its own until it expires.
     """
-    result = _client.get_object(Bucket=_settings.AWS_BUCKET, Key=key)
+    bucket, name = _location(key)
+    result = _client.get_object(Bucket=bucket, Key=name)
     return (
         result["Body"].read(),
         result.get("ContentType") or "application/octet-stream",
@@ -81,6 +100,7 @@ def delete_objects(keys: list[str]) -> None:
     """Best-effort: called after the rows referencing these keys are already
     deleted from Postgres, so a RustFS/network failure here must not roll
     that back or block the request - it just leaves orphaned objects."""
+    keys = [key for key in keys if not is_foreign(key)]
     if not keys:
         return
     try:
