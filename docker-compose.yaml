@@ -183,8 +183,15 @@ services:
     build:
       context: ./worker/vision
       dockerfile: Dockerfile
-    environment: *ocr-pod-env
-    depends_on: *ocr-pod-depends-on
+    environment:
+      <<: *ocr-pod-env
+      # A model of the hub that reads images is asked through the backend's LLM proxy: no key of the hub in this pod.
+      BACKEND_API_URL: http://backend:8000
+      WORKER_API_KEY: ${WORKER_API_KEY:-dev-only-worker-key-not-for-prod}
+    depends_on:
+      <<: *ocr-pod-depends-on
+      backend:
+        condition: service_started
     restart: unless-stopped
 
   # Read-only SQL over the typed copies of tabular files (#432): DuckDB, locked down, nothing but S3 and Redis.

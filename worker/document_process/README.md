@@ -246,14 +246,15 @@ page (`include_complexity`), si elle a besoin d'un OCR. `app/ocr/scanned.py` (`r
   que la page soit écrite** (pas de rattrapage : la page est écrite une fois, avec). C'est l'étape `describe` du lecteur
   (`app/ocr/scanned.py`, `app/ocr/describe.py`), après la lecture du texte et des tableaux. Le **moteur est celui de la
   collection** : `local` envoie les régions au pod [`vision`](../vision/README.md) (Florence-2, en anglais : traduit en
-  français par le modèle de chat du pipeline), `openai` recadre chaque région et la montre à un modèle du hub qui lit les
-  images (`app/ocr/describe.py`, `HubDescriber`, la consommation étant enregistrée par le proxy LLM du backend). Dans le
+  français par le modèle de chat du pipeline), `openai` envoie les mêmes régions au même pod avec le `model` du hub choisi par la
+  collection (sinon le premier qui lit les images) : le pod les montre à ce modèle par le proxy LLM du backend, qui
+  enregistre la consommation. Dans le
   markdown : un bloc `[Image : <description>]` à la place de l'image dans l'ordre de lecture, et la description au bout du
   marqueur d'un tableau (`[Tableau … — 12 lignes — <description>]`). Elle est aussi gardée dans `caption` du registre des
   régions, avec le modèle dans `caption_model`. Le moteur et le modèle sont dans l'empreinte de l'extraction : un fichier
   déjà extrait n'est pas redécrit quand on change de moteur. **Une description qui échoue ne fait jamais échouer la page** :
   pod arrêté, réponse inattendue, `CAPTION_STAGE_TIMEOUT_SECONDS` dépassé, aucun modèle du hub qui lit les images - la page
-  est gardée sans elle. Sans pod déployé (`VISION_POD_ENABLED=false`, le défaut du code), le moteur `local` ne décrit rien.
+  est gardée sans elle. Sans pod déployé (`VISION_POD_ENABLED=false`, le défaut du code), rien n'est décrit, quel que soit le moteur.
 - **Le repli** : une page que les pods ne lisent pas (pod arrêté ou en erreur, réponse inattendue, aucune région, rien de
   lu, `OCR_STAGE_TIMEOUT_SECONDS` dépassé) retombe sur liteparse + Tesseract pour cette page seulement ; c'est dans les
   logs de la tâche (niveau `WARNING`) et le fichier continue. Il échoue seulement si ce repli échoue aussi.
