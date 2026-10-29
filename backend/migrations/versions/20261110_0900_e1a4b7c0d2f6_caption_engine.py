@@ -25,9 +25,11 @@ def upgrade() -> None:
         sa.Column("caption_engine", sa.String(length=16), server_default="local", nullable=False),
     )
     op.add_column("collection_settings", sa.Column("caption_model", sa.String(), nullable=True))
+    op.add_column("page_regions", sa.Column("caption_model", sa.String(length=128), nullable=True))
 
 
 def downgrade() -> None:
     """Downgrade schema."""
+    op.drop_column("page_regions", "caption_model")
     op.drop_column("collection_settings", "caption_model")
     op.drop_column("collection_settings", "caption_engine")

@@ -221,8 +221,9 @@ class PageRegion(UUIDMixin, Base):
     polygon: Mapped[list[list[float]] | None] = mapped_column(JSONB, nullable=True)
     # A title only: 1 for the document's, 2 for a section's.
     title_level: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    # Reserved: the description of an image or a table, once something describes them (#411).
+    # The description of an image or a table (#411), and the model that wrote it. NULL: not described.
     caption: Mapped[str | None] = mapped_column(Text, nullable=True)
+    caption_model: Mapped[str | None] = mapped_column(String(128), nullable=True)
     # The table read from this region (#410), when it is one and was read. Dropped (not the region) with its table.
     table_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("document_tables.id", ondelete="SET NULL", name="fk_page_regions_table_id"), nullable=True

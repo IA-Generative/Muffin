@@ -55,6 +55,9 @@ class RegionIn(BaseModel):
     y_max: float = Field(ge=0, le=1)
     polygon: list[tuple[float, float]] | None = Field(default=None, max_length=200)
     title_level: int | None = Field(default=None, ge=1, le=6)
+    # The description of an image or a table (#411), and the model that wrote it.
+    caption: str | None = Field(default=None, max_length=2000)
+    caption_model: str | None = Field(default=None, max_length=128)
 
     @model_validator(mode="after")
     def _box_and_outline_are_on_the_page(self) -> "RegionIn":
