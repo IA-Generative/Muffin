@@ -1,0 +1,144 @@
+"""The collections copied from Open WebUI (#453): what the worker writes, and who it is shared with."""
+
+import pytest
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy import delete, select
+from sqlalchemy.orm import selectinload
+
+from app.core.security import worker_auth
+from app.core.security.factory import get_current_user
+from app.db import async_session_factory
+from app.main import app
+from app.models.collection import Collection, CollectionShare, CollectionVisibility, ShareSubjectType
+from app.models.group import Group
+
+API_KEY = "test-worker-key"
+HEADERS = {"X-API-Key": API_KEY}
+
+
+@pytest.fixture(autouse=True)
+def _worker_key(monkeypatch):
+    monkeypatch.setattr(worker_auth._worker_settings, "WORKER_API_KEY", API_KEY)
+
+
+@pytest.fixture
+async def client():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as async_client:
+        yield async_client
+    app.dependency_overrides.pop(get_current_user, None)
+    async with async_session_factory() as session:
+        await session.execute(delete(Collection))
+        await session.execute(delete(Group))
+        await session.commit()
+
+
+async def _put(client, external_id="kb1", **overrides):
+    body = {"name": "Procédures", "owner_id": "sub-owner", "embedding_model": "bge-multilingual-gemma2", **overrides}
+    return await client.put(f"/api/internal/synced-collections/owui/{external_id}", headers=HEADERS, json=body)
+
+
+async def _group(client, external_id="g1", name="Équipe A") -> str:
+    response = await client.put(
+        f"/api/internal/groups/owui/{external_id}", headers=HEADERS, json={"name": name, "member_ids": []}
+    )
+    return response.json()["id"]
+
+
+async def _shares(collection_id) -> set[tuple[ShareSubjectType, str]]:
+    async with async_session_factory() as session:
+        rows = await session.scalars(select(CollectionShare).where(CollectionShare.collection_id == collection_id))
+        return {(share.subject_type, share.subject_id) for share in rows}
+
+
+async def test_the_worker_key_is_required(client):
+    response = await client.put("/api/internal/synced-collections/owui/kb1", json={})
+    assert response.status_code == 401
+
+
+async def test_a_collection_is_created_as_a_copy_with_its_owner_and_model(client):
+    body = (await _put(client, description="Les procédures")).json()
+
+    assert (body["created"], body["shares_added"], body["unknown_groups"]) == (True, 0, [])
+    async with async_session_factory() as session:
+        collection = (
+            await session.scalars(
+                select(Collection).where(Collection.id == body["id"]).options(selectinload(Collection.settings))
+            )
+        ).one()
+    assert (collection.source, collection.external_id) == ("owui", "kb1")
+    assert (collection.owner_id, collection.name, collection.description) == (
+        "sub-owner",
+        "Procédures",
+        "Les procédures",
+    )
+    assert collection.visibility == CollectionVisibility.PRIVATE
+    assert collection.settings.embedding_model == "bge-multilingual-gemma2"
+
+
+async def test_syncing_again_changes_nothing(client):
+    first = (await _put(client, user_shares=[{"subject_id": "sub-1", "email": "a@example.test"}])).json()
+    second = (await _put(client, user_shares=[{"subject_id": "sub-1", "email": "a@example.test"}])).json()
+
+    assert second["id"] == first["id"]
+    assert (second["created"], second["shares_added"], second["shares_removed"]) == (False, 0, 0)
+
+
+async def test_public_and_name_follow_the_other_system(client):
+    first = (await _put(client)).json()
+    await _put(client, name="Renommée", owner_id="sub-new", public=True)
+
+    async with async_session_factory() as session:
+        collection = await session.get(Collection, first["id"])
+    assert (collection.name, collection.owner_id, collection.visibility) == (
+        "Renommée",
+        "sub-new",
+        CollectionVisibility.PUBLIC,
+    )
+
+
+async def test_it_is_shared_with_the_users_and_the_groups_it_is_read_by(client):
+    group_id = await _group(client)
+
+    body = (
+        await _put(
+            client,
+            user_shares=[{"subject_id": "sub-1", "email": "julie@example.com"}],
+            group_external_ids=["g1"],
+        )
+    ).json()
+
+    assert body["shares_added"] == 2
+    assert await _shares(body["id"]) == {(ShareSubjectType.USER, "sub-1"), (ShareSubjectType.GROUP, group_id)}
+
+
+async def test_a_share_that_is_gone_in_the_other_system_is_removed(client):
+    group_id = await _group(client)
+    first = (await _put(client, user_shares=[{"subject_id": "sub-1"}, {"subject_id": "sub-2"}])).json()
+    second = (await _put(client, user_shares=[{"subject_id": "sub-2"}], group_external_ids=["g1"])).json()
+
+    assert (second["shares_added"], second["shares_removed"]) == (1, 1)
+    assert await _shares(first["id"]) == {(ShareSubjectType.USER, "sub-2"), (ShareSubjectType.GROUP, group_id)}
+
+
+async def test_a_group_without_a_copy_is_reported_and_not_shared(client):
+    body = (await _put(client, group_external_ids=["not-synced"])).json()
+
+    assert body["unknown_groups"] == ["not-synced"]
+    assert await _shares(body["id"]) == set()
+
+
+async def test_the_collections_made_in_muffin_are_not_the_synchronisations_to_write(client):
+    response = await client.put(
+        "/api/internal/synced-collections/muffin/kb1",
+        headers=HEADERS,
+        json={"name": "x", "owner_id": "o", "embedding_model": "m"},
+    )
+    assert response.status_code == 400
+
+
+async def test_listing_the_copies(client):
+    await _put(client, "kb1")
+    await _put(client, "kb2")
+
+    response = await client.get("/api/internal/synced-collections/owui", headers=HEADERS)
+    assert sorted(response.json()) == ["kb1", "kb2"]
