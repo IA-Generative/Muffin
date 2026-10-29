@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app import __version__
 from app.config import KeycloakSettings
 from app.routers.admin_cgu import router as admin_cgu_router
+from app.routers.admin_owui_sync import router as admin_owui_sync_router
 from app.routers.admin_prompts import router as admin_prompts_router
 from app.routers.admin_reports import router as admin_reports_router
 from app.routers.admin_settings import router as admin_settings_router
@@ -125,6 +126,7 @@ app.include_router(tasks_router, prefix="/api")
 app.include_router(runs_router, prefix="/api")
 app.include_router(admin_settings_router, prefix="/api")
 app.include_router(admin_prompts_router, prefix="/api")
+app.include_router(admin_owui_sync_router, prefix="/api")
 app.include_router(admin_cgu_router, prefix="/api")
 app.include_router(cgu_router, prefix="/api")
 app.include_router(admin_reports_router, prefix="/api")
