@@ -373,6 +373,37 @@ Délégation d'une modification de document vivant à l'agent d'édition (#171) 
 | `PREVIEW_TIMEOUT_SECONDS` | Durée maximale d'une conversion ODT → PDF avant qu'elle soit abandonnée (la tâche échoue alors avec un message clair) | `120` | idem |
 | `EDIT_MAX_OUTLINE_CHARS` | Taille maximale (en caractères) du plan du document envoyé au modèle. Au-delà, la tâche échoue avec un message clair plutôt que d'éditer à l'aveugle | `60000` | idem |
 
+## worker/owui_sync — synchronisation Open WebUI → Muffin (#453)
+
+Un worker à part (image `worker-owui-sync`, queue `owui_sync`) lit Open WebUI par son API REST et copie dans Muffin, par le backend, ses
+groupes, ses knowledge bases et leurs partages en lecture, ses fichiers et leurs chunks. Rien d'autre n'est copié : les fichiers restent
+dans le bucket d'Open WebUI et les vecteurs dans ses collections Qdrant. Il partage `REDIS_URL`, `BACKEND_API_URL`, `WORKER_API_KEY` et les
+réglages de logs avec les autres workers. Propres à ce worker :
+
+| Variable | Définition | Défaut | Utilisée par |
+|---|---|---|---|
+| `CELERY_QUEUE_NAME` | Sa queue, la même que `OWUI_SYNC_QUEUE` du backend | `owui_sync` | **worker/owui_sync** |
+| `OWUI_BASE_URL` | Adresse d'Open WebUI | `http://localhost:3001` | **worker/owui_sync** |
+| `OWUI_API_KEY` | Clé d'API d'un administrateur d'Open WebUI (lecture seule) | — | **worker/owui_sync** |
+| `OWUI_SYNC_INTERVAL_MINUTES` | Intervalle du beat (`celery beat`, un processus à part). `0` : aucune synchronisation planifiée, seulement `POST /api/admin/owui-sync` ou le CronJob Helm | `60` | **worker/owui_sync** |
+| `QDRANT_URL` / `QDRANT_API_KEY` | Le Qdrant d'Open WebUI, le même que celui de Muffin | `http://localhost:6333` / — | **worker/owui_sync** |
+| `OWUI_QDRANT_PREFIX` | Préfixe des collections d'Open WebUI (son `QDRANT_COLLECTION_PREFIX`, mode classique) : la knowledge base `X` est dans `<préfixe>_X`. À régler de la même façon côté backend, qui lit ces collections pour chercher | `open-webui` | **worker/owui_sync**, **backend** |
+
+Le compte S3 de Muffin doit pouvoir lire le bucket d'Open WebUI (le plus simple : le même bucket, Open WebUI écrivant sous son propre
+préfixe `S3_KEY_PREFIX`) ; Muffin n'y écrit ni n'y supprime jamais rien. Les utilisateurs et groupes d'Open WebUI doivent se connecter par le
+Keycloak de Muffin : un membre se retrouve par son `sub` (`oauth.oidc.sub`), et celui qui n'en a pas est laissé de côté.
+
+### Déploiement Helm
+
+Désactivé tant qu'aucun Open WebUI ne lui est donné : KEDA le garde à 0 pod quand sa queue est vide et le CronJob `owui-sync`, qui y met la
+tâche racine toutes les heures (`schedule`), est suspendu. Pour l'activer :
+
+1. créer le secret `muffin-owui-sync` avec `OWUI_BASE_URL` et `OWUI_API_KEY` ;
+2. régler `OWUI_QDRANT_PREFIX` côté worker (`worker_owui_sync.env`) **et** côté backend (`backend.env`) s'il n'est pas `open-webui` ;
+3. mettre `cronjobs.owui-sync.suspend: false` (ou lancer une synchronisation à la main par `POST /api/admin/owui-sync`).
+
+Le beat embarqué (`OWUI_SYNC_INTERVAL_MINUTES`) n'est pas déployé par Helm : le CronJob fait le même travail sans processus à surveiller.
+
 ## Frontend (Vite)
 
 | Variable | Définition | Défaut | Utilisée par |
