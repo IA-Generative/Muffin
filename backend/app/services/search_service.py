@@ -88,6 +88,8 @@ class SearchService:
         collections_by_model: dict[str, list[uuid.UUID]] = defaultdict(list)
         for collection_id, model in models_by_collection.items():
             collections_by_model[model].append(collection_id)
+        # The collections copied from Open WebUI (#453) are read in its Qdrant, as it writes it.
+        copied = await self.collections.get_external_ids(list(models_by_collection))
 
         scored_ids: dict[uuid.UUID, float] = {}
         for model, collections_for_model in collections_by_model.items():
@@ -100,7 +102,12 @@ class SearchService:
                 logger.exception(f"Failed to embed the search query with model '{model}'")
                 continue
             for collection_id in collections_for_model:
-                for chunk_id, score in vector_store.search(collection_id, query, query_embedding, limit):
+                if collection_id in copied:
+                    name = vector_store.external_collection_name(copied[collection_id][1])
+                    hits = vector_store.search_external(name, query_embedding, limit)
+                else:
+                    hits = vector_store.search(collection_id, query, query_embedding, limit)
+                for chunk_id, score in hits:
                     scored_ids[chunk_id] = max(score, scored_ids.get(chunk_id, float("-inf")))
 
         top_ids = sorted(scored_ids, key=lambda chunk_id: scored_ids[chunk_id], reverse=True)[:limit]
@@ -121,7 +128,10 @@ class SearchService:
     ) -> Sequence[tuple[QaPair, uuid.UUID, float]]:
         """QA-first retrieval tier (§ research agent): a previously answered question, matched by
         embedding its *question* text the same way a chunk's body text is - same vector space,
-        same collection, just filtered to QA-kind points (see vector_store.search_qa)."""
+        same collection, just filtered to QA-kind points (see vector_store.search_qa).
+
+        A collection copied from Open WebUI (#453) has no QA points - and no summaries - in an index of
+        Muffin's, so this tier and the next find nothing there and the chunks answer."""
         if _openai_client is None:
             return []
 
