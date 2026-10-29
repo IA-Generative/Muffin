@@ -14,7 +14,7 @@ Open WebUI répond sur http://localhost:3001. La version se change avec `OWUI_VE
 
 | | Réglage côté Open WebUI |
 |---|---|
-| S3 | bucket `owui-files` sur RustFS (`STORAGE_PROVIDER=s3`), séparé de `muffin-documents` |
+| S3 | le bucket de Muffin, `muffin-documents`, sur RustFS (`STORAGE_PROVIDER=s3`), sous le préfixe `open-webui/` (`S3_KEY_PREFIX`) ; Muffin écrit sous `documents/`. Le compte S3 de Muffin lit donc les fichiers d'Open WebUI sans réglage de plus |
 | Qdrant | mode classique : une collection `open-webui_<id de la knowledge base>` par knowledge base et une `open-webui_file-<id>` par fichier (`ENABLE_QDRANT_MULTITENANCY_MODE=false`) |
 | Extraction | Tika (`CONTENT_EXTRACTION_ENGINE=tika`) : un seul document par fichier, sans numéro de page |
 | Embeddings | le hub OpenAI-compatible de Muffin (`OPENAI_API_BASE_URL`, `OPENAI_API_KEY`), modèle `OWUI_EMBEDDING_MODEL` (par défaut `bge-multilingual-gemma2`) |
@@ -83,7 +83,7 @@ sparse. Le point a pour id l'id du chunk. Son payload :
 
 Pas de numéro de page avec Tika. `start_index` donne l'ordre des chunks et `embedding_config` le modèle d'embedding.
 
-**S3.** Les fichiers sont à la racine du bucket : `<id du fichier>_<nom>`.
+**S3.** Les fichiers sont sous `open-webui/` dans le bucket : `open-webui/<id du fichier>_<nom>`, et Open WebUI en donne le chemin complet (`s3://muffin-documents/open-webui/...`) dans `path`, que Muffin garde comme `storage_key`.
 
 **Droits.** Open WebUI 0.12.5 n'utilise plus `access_control` mais `access_grants`, une liste d'objets
 `{principal_type: "user" | "group", principal_id, permission: "read" | "write"}` portée par la knowledge base. L'identifiant `*` désigne

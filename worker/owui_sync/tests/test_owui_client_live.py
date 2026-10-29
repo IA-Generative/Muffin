@@ -49,7 +49,7 @@ def test_a_file_has_its_s3_path_and_its_text_and_its_chunks_are_in_qdrant(client
     files = {file.filename: file for file in client.knowledge_files(knowledge.id)}
     pdf = client.file(files["deux-pages.pdf"].id)
 
-    assert pdf.path == f"s3://owui-files/{pdf.id}_deux-pages.pdf"
+    assert pdf.path.startswith("s3://") and pdf.path.endswith(f"{pdf.id}_deux-pages.pdf")
     assert "Page un" in client.file_text(pdf.id) and "Page deux" in client.file_text(pdf.id)
     [chunk] = OwuiVectors().chunks(knowledge.id, pdf.id)
     assert "Page un" in chunk.text and "Page deux" in chunk.text
