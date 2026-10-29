@@ -380,3 +380,57 @@ def test_the_swap_is_atomic_for_searches_running_while_it_happens(request, colle
         thread.join()
 
     assert seen and set(seen) <= {(old,), (new,)}
+
+
+# -- the collections another system keeps in this Qdrant (Open WebUI, #453) ------------------------------------
+
+
+@pytest.fixture
+def owui_collection(qdrant):
+    """A knowledge base as Open WebUI writes it: one vector without a name, and `text` and `metadata` as payload."""
+    from qdrant_client import models
+
+    name = f"open-webui_{uuid.uuid4()}"
+    qdrant.create_collection(name, vectors_config=models.VectorParams(size=3, distance=models.Distance.COSINE))
+    yield name
+    qdrant.delete_collection(name)
+
+
+def _owui_point(client, name, embedding, text="t"):
+    from qdrant_client import models
+
+    point_id = uuid.uuid4()
+    client.upsert(
+        name,
+        [models.PointStruct(id=str(point_id), vector=embedding, payload={"text": text, "metadata": {"file_id": "f"}})],
+        wait=True,
+    )
+    return point_id
+
+
+def test_a_collection_of_open_webui_is_searched_on_its_own_vector_by_cosine(qdrant, owui_collection):
+    near = _owui_point(qdrant, owui_collection, [1.0, 0.1, 0.0])
+    far = _owui_point(qdrant, owui_collection, [0.0, 1.0, 0.0])
+
+    hits = vector_store.search_external(owui_collection, [1.0, 0.0, 0.0], 5)
+
+    assert [point_id for point_id, _ in hits] == [near, far]
+    assert hits[0][1] == pytest.approx(vector_store._cosine([1.0, 0.0, 0.0], [1.0, 0.1, 0.0]), abs=1e-4)
+    assert hits[1][1] == pytest.approx(0.0, abs=1e-4)
+
+
+def test_the_limit_applies_to_a_collection_of_open_webui(qdrant, owui_collection):
+    for x in (1.0, 0.9, 0.8):
+        _owui_point(qdrant, owui_collection, [x, 0.1, 0.0])
+
+    assert len(vector_store.search_external(owui_collection, [1.0, 0.0, 0.0], 2)) == 2
+
+
+def test_a_collection_of_open_webui_that_is_not_there_finds_nothing(qdrant):
+    assert vector_store.search_external("open-webui_missing", [1.0, 0.0, 0.0], 5) == []
+
+
+def test_the_name_of_the_collection_of_a_knowledge_base_carries_the_prefix(monkeypatch):
+    monkeypatch.setattr(vector_store._settings, "OWUI_QDRANT_PREFIX", "owui")
+
+    assert vector_store.external_collection_name("kb1") == "owui_kb1"
