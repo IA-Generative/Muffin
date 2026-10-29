@@ -94,3 +94,28 @@ def test_list_embedding_models_returns_503_when_llm_hub_is_not_configured(client
     response = client.get("/api/embedding-models")
 
     assert response.status_code == 503
+
+
+def test_list_vision_models_keeps_the_chat_models_that_accept_an_image(client, monkeypatch):
+    seen_with_image: list[str] = []
+
+    async def create_chat(model: str, messages, **_kwargs):
+        parts = messages[0]["content"]
+        if isinstance(parts, list) and any(part["type"] == "image_url" for part in parts):
+            if model != "gpt-4o":
+                raise RuntimeError("no images")
+            seen_with_image.append(parts[1]["image_url"]["url"])
+        return SimpleNamespace()
+
+    fake_client = _fake_openai_client(all_ids=["gpt-4o", "mistral-small"])
+    fake_client.chat.completions.create = AsyncMock(side_effect=create_chat)
+    monkeypatch.setattr(models_router, "_openai_client", fake_client)
+
+    with patch("app.routers.models.redis_connector") as mock_redis:
+        mock_redis.client.get.return_value = None
+        response = client.get("/api/vision-models")
+
+    assert response.status_code == 200
+    assert [m["id"] for m in response.json()["models"]] == ["gpt-4o"]
+    assert mock_redis.client.set.call_args[0][0] == models_router.VISION_CACHE_KEY
+    assert seen_with_image[0].startswith("data:image/png;base64,")
