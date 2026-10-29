@@ -39,7 +39,7 @@ def pipeline():
         patch("app.services.document_upload_service.storage.put_object"),
         patch(
             "app.services.document_upload_service.enqueue_process_document",
-            side_effect=lambda _id, bulk=False: str(uuid.uuid4()),
+            side_effect=lambda _id, bulk=False, **_: str(uuid.uuid4()),
         ),
     ):
         yield

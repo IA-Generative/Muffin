@@ -1,5 +1,5 @@
 import uuid
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -293,7 +293,7 @@ async def test_upload_conversation_file_creates_temporary_collection(client):
     assert body["type"] == "file"
     assert body["status"] == "pending"
     mock_put.assert_called_once()
-    mock_enqueue.assert_called_once_with(body["id"])
+    mock_enqueue.assert_called_once_with(body["id"], bulk=False, task_id=ANY)
 
     async with async_session_factory() as session:
         collection = (

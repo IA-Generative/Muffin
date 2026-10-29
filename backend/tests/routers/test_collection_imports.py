@@ -40,7 +40,7 @@ def stored(monkeypatch) -> MagicMock:
     storage.queued = []
     seen: set[str] = set()
 
-    def enqueue(doc_id, bulk=False):
+    def enqueue(doc_id, bulk=False, task_id=None):
         storage.queued.append(doc_id)
         # One id per call, like Celery's: a document processed again gets a task of its own.
         suffix = f"-{uuid.uuid4()}" if doc_id in seen else ""
@@ -675,7 +675,7 @@ async def test_the_sweep_releases_the_place_of_a_document_that_was_lost(client, 
 async def test_a_document_that_could_not_be_queued_waits_again(client, stored, _window, monkeypatch):
     body = (await _import(client)).json()
 
-    def broken(document_id, bulk=False):
+    def broken(document_id, bulk=False, task_id=None):
         raise ConnectionError("Redis is down")
 
     monkeypatch.setattr("app.services.import_processing_queue.enqueue_process_document", broken)

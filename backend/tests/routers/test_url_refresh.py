@@ -1,6 +1,6 @@
 import uuid
 from datetime import UTC, datetime, time, timedelta
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -45,7 +45,7 @@ async def client():
 def pipeline():
     """The processing queue, the vector store and the object store, faked."""
     with (
-        patch(f"{UPLOAD}.enqueue_process_document", side_effect=lambda _id: str(uuid.uuid4())) as enqueue,
+        patch(f"{UPLOAD}.enqueue_process_document", side_effect=lambda _id, **_: str(uuid.uuid4())) as enqueue,
         patch(f"{UPLOAD}.vector_store.delete_document_embeddings") as embeddings,
         patch(f"{UPLOAD}.storage.delete_objects"),
     ):
@@ -372,7 +372,7 @@ async def test_a_changed_page_reprocesses_the_document_from_scratch(client, pipe
     response = await _report(client, document_id, HASH_B)
 
     assert response.json() == {"changed": True}
-    enqueue.assert_called_once_with(str(document_id))
+    enqueue.assert_called_once_with(str(document_id), bulk=False, task_id=ANY)
     embeddings.assert_called_once()  # the old vectors go before the new ones come
     document = await _row(Document, document_id)
     # Back to pending; its summary, like everything the pipeline derives, is replaced by the new run.

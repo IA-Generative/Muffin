@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security.factory import RequestContext
 from app.core.tasks import RUN_EVALUATION_TASK, enqueue_run_evaluation
+from app.models.task import TaskStatus
 from app.repositories.collection_repository import CollectionRepository
 from app.repositories.evaluation_repository import EvaluationRepository
 from app.repositories.task_repository import TaskRepository
@@ -39,15 +40,23 @@ class EvaluationService:
         # pattern as DocumentUploadService.create_file_document: this request already knows the
         # user, so there's no need for the worker to call back just to record who owns it (it's a
         # single task with no children besides, unlike the document pipeline's cascade).
-        celery_task_id = enqueue_run_evaluation(str(collection_id), k, validated_only)
+        task_id = str(uuid.uuid4())
         await self.tasks.create(
-            celery_task_id,
+            task_id,
             RUN_EVALUATION_TASK,
             user.user_id,
             collection_id=collection_id,
         )
         await self.db.commit()
-        return celery_task_id
+        try:
+            result_id = enqueue_run_evaluation(str(collection_id), k, validated_only, task_id=task_id)
+        except Exception as exc:
+            await self.tasks.set_status(task_id, TaskStatus.FAILURE, str(exc))
+            await self.db.commit()
+            raise
+        await self.tasks.rename_celery_task_id(task_id, result_id)
+        await self.db.commit()
+        return result_id
 
     async def delete_run(self, collection_id: uuid.UUID, run_id: uuid.UUID, user: RequestContext) -> None:
         await self._get_accessible(collection_id, user)

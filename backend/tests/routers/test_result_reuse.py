@@ -604,7 +604,7 @@ async def test_a_document_that_is_reprocessed_is_no_longer_a_source(client, inde
         document = await session.get(Document, source)
         with patch(
             "app.services.document_upload_service.enqueue_process_document",
-            side_effect=lambda _id, bulk=False: str(uuid.uuid4()),
+            side_effect=lambda _id, bulk=False, **_: str(uuid.uuid4()),
         ):
             await DocumentUploadService(session).reprocess(document, "dev-user")
     target = await _document(await _collection())

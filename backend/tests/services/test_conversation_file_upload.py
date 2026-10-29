@@ -92,7 +92,7 @@ class TestCreateConversationFileDocument:
             patch("app.services.document_upload_service.storage.upload_fileobj"),
             patch(
                 "app.services.document_upload_service.enqueue_process_document",
-                side_effect=["celery-task-id-1", "celery-task-id-2"],
+                side_effect=lambda _id, **_: str(uuid.uuid4()),
             ),
         ):
             async with async_session_factory() as session:

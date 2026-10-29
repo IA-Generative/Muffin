@@ -55,6 +55,14 @@ class TaskRepository:
             where.append(Task.status != TaskStatus.REVOKED)
         await self.db.execute(update(Task).where(*where).values(**values))
 
+    async def rename_celery_task_id(self, old: str, new: str) -> None:
+        """Keeps the row in step with the id the enqueue helper returned. In production they are
+        the same - send_task is given the preallocated id - so this is a no-op; it only matters
+        when a caller (a test) substitutes an id of its own."""
+        if old == new:
+            return
+        await self.db.execute(update(Task).where(Task.celery_task_id == old).values(celery_task_id=new))
+
     async def mark_revoked(self, celery_task_ids: Sequence[str]) -> None:
         """The tasks the backend just revoked, so their status says so without waiting for a
         worker that may never report (one still waiting in the queue, or whose pod is gone)."""
