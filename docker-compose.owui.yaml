@@ -1,5 +1,5 @@
 # A real Open WebUI next to Muffin, to test the OWUI -> Muffin synchronisation (#453) against the real thing.
-# It shares Muffin's S3 (own bucket), Qdrant (classic mode, own prefix) and Keycloak, as in production.
+# It shares Muffin's S3 (same bucket, own key prefix), Qdrant (classic mode, own prefix) and Keycloak, as in production.
 #
 #   docker compose -f docker-compose.yaml -f docker-compose.owui.yaml up -d rustfs qdrant keycloak owui
 #
@@ -23,7 +23,7 @@ services:
       AWS_DEFAULT_REGION: us-east-1
     entrypoint: ["/bin/sh", "-c"]
     command:
-      - aws --endpoint-url http://rustfs:9000 s3api head-bucket --bucket owui-files 2>/dev/null || aws --endpoint-url http://rustfs:9000 s3 mb s3://owui-files
+      - aws --endpoint-url http://rustfs:9000 s3api head-bucket --bucket muffin-documents 2>/dev/null || aws --endpoint-url http://rustfs:9000 s3 mb s3://muffin-documents
 
   tika:
     image: apache/tika:3.2.3.0-full
@@ -51,7 +51,7 @@ services:
       ENABLE_SIGNUP: "true"
       # The sync reads OWUI with an API key (#453).
       ENABLE_API_KEYS: "true"
-      # Files in the same S3 as Muffin, in their own bucket.
+      # Files in the same bucket as Muffin's, under their own prefix.
       # Sign in with the Keycloak of Muffin, as in production: the users then carry their Keycloak subject
       # (`oauth.oidc.sub`), which is what the synchronisation ties the members of a group to.
       WEBUI_URL: http://localhost:3001
@@ -67,7 +67,9 @@ services:
       S3_ENDPOINT_URL: http://rustfs:9000
       S3_ACCESS_KEY_ID: rustfsadmin
       S3_SECRET_ACCESS_KEY: rustfsadmin
-      S3_BUCKET_NAME: owui-files
+      S3_BUCKET_NAME: muffin-documents
+      # Its own prefix in the bucket it shares with Muffin (whose keys are under documents/).
+      S3_KEY_PREFIX: open-webui
       S3_REGION_NAME: us-east-1
       S3_ADDRESSING_STYLE: path
       # Vectors in the same Qdrant, classic mode: one collection per knowledge base, prefixed.
@@ -105,7 +107,6 @@ services:
       AWS_ENDPOINT_URL: http://rustfs:9000
       AWS_ACCESS_KEY_ID: rustfsadmin
       AWS_SECRET_ACCESS_KEY: rustfsadmin
-      OWUI_S3_BUCKET: owui-files
       QDRANT_URL: http://qdrant:6333
       QDRANT_API_KEY: ${QDRANT_API_KEY:-dev-only-qdrant-key-not-for-prod}
       OWUI_QDRANT_PREFIX: open-webui
