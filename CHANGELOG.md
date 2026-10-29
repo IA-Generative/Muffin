@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.36.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.35.0...v0.36.0-rc) (2026-10-29)
+
+
+### Features
+
+* **collections:** choisir le moteur de description des images ([#411](https://github.com/IA-Generative/Muffin/issues/411)) ([dca108d](https://github.com/IA-Generative/Muffin/commit/dca108dc8ccd6f302332a78449b0aa5c2eabf299))
+* **collections:** choisir qui décrit les images dans les paramètres de la collection ([#411](https://github.com/IA-Generative/Muffin/issues/411)) ([f8fd489](https://github.com/IA-Generative/Muffin/commit/f8fd489ff594a2133752e938c54796df39f7f3c0))
+* **documents:** garder la description d'une région et le modèle qui l'a écrite ([#411](https://github.com/IA-Generative/Muffin/issues/411)) ([0b074a0](https://github.com/IA-Generative/Muffin/commit/0b074a07325f37dfad64acc52fcedf17300e813b))
+* **models:** lister les modèles du hub qui lisent les images ([#411](https://github.com/IA-Generative/Muffin/issues/411)) ([023ef39](https://github.com/IA-Generative/Muffin/commit/023ef39b2c17a87872d233dba69195c6b1c5b65d))
+* **ocr:** décrire les images et les tableaux des pages scannées pendant l'extraction ([#411](https://github.com/IA-Generative/Muffin/issues/411)) ([0590dd6](https://github.com/IA-Generative/Muffin/commit/0590dd63b3d2a3cd542427ab768bccc5c888376d))
+* **ocr:** le pod vision accepte un modèle du hub qui lit les images ([#411](https://github.com/IA-Generative/Muffin/issues/411)) ([5cadbe1](https://github.com/IA-Generative/Muffin/commit/5cadbe1c7dee23acb696c908a0becc3a91323193))
+* **ocr:** pod vision - Florence-2 base décrit les régions d'une page ([#411](https://github.com/IA-Generative/Muffin/issues/411)) ([1b63e16](https://github.com/IA-Generative/Muffin/commit/1b63e16965d023599af520e657d2405944abae72))
+
+
+### Bug Fixes
+
+* **frontend:** la section captions manquait à SECTION_FIELDS ([#411](https://github.com/IA-Generative/Muffin/issues/411)) ([c25c577](https://github.com/IA-Generative/Muffin/commit/c25c57742de11d56c8a035f39732a3f37bc6d65b))
+* **ocr:** pas de cd dans le RUN du Dockerfile vision, chemins absolus ([#411](https://github.com/IA-Generative/Muffin/issues/411)) ([1abf477](https://github.com/IA-Generative/Muffin/commit/1abf477b7be541299a8a5c0ca9577dfdaade333a))
+
 ## [0.35.0](https://github.com/IA-Generative/Muffin/compare/v0.34.0...v0.35.0) (2026-10-28)
 
 
