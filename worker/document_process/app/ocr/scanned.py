@@ -24,6 +24,7 @@ from app.ocr import assemble, describe, pages, regions, routing
 from app.ocr.contracts import PageDescriptions, PageLayout, PageTables, PageText, RegionToDescribe, RegionType
 from app.ocr.tables import RenderedTable, render_page
 from app.task_revocation import TaskRevoked, raise_if_revoked
+from app.usage_context import current_usage
 
 # The page's image at least this close to OCR_PAGE_DPI is read as it is, without rendering the page again.
 _DPI_TOLERANCE = 0.95
@@ -69,8 +70,6 @@ class _Job:
     layout: PageLayout | None = None
     # The regions that are tables read as text (OCR_READ_TABLES_AS_TEXT).
     tables: set[int] = field(default_factory=set)
-    # The page's image, kept for the descriptions of the hub's engine (the pod reads it from S3).
-    image: bytes = b""
     # What the read stage gave, while the descriptions (#411) are made.
     text: PageText | None = None
     rendered: list[RenderedTable] = field(default_factory=list)
@@ -98,7 +97,6 @@ class ScannedPageReader:
         # Who describes the images (#411); None: nobody does.
         self._captions = captions if captions is not None and captions.enabled else None
         self._backend = backend
-        self._hub: describe.HubDescriber | None = None
         # What is left of the document's cap on descriptions.
         self._budget = settings.CAPTION_MAX_PER_DOCUMENT
 
@@ -138,9 +136,6 @@ class ScannedPageReader:
             for job in active.values():
                 self._revoke(job)
             raise
-        finally:
-            if self._hub is not None:
-                self._hub.close()
         return read, failed
 
     def _start(self, document_id: str, page: Any, image: bytes | None) -> _Job | None:
@@ -149,7 +144,7 @@ class ScannedPageReader:
             return None
         try:
             key = pages.put_page_image(self._storage, document_id, page.page_num, image)
-            job = _Job(page=page, image_key=key, image=image)
+            job = _Job(page=page, image_key=key)
             self._send_layout(document_id, job)
             return job
         except Exception as error:
@@ -258,17 +253,15 @@ class ScannedPageReader:
     def _send_descriptions(self, document_id: str, job: _Job) -> None:
         assert self._captions is not None
         number = job.page.page_num
-        if self._captions.engine == "openai":
-            if self._hub is None:
-                self._hub = describe.HubDescriber(self._backend_client(), self._captions.model)
-            job.reads = {"describe": self._hub.start(document_id, number, job.image, job.to_describe)}
-        else:
-            regions_to_send = [region.model_dump(mode="json") for region in job.to_describe]
-            job.reads = {
-                "describe": self._app.send_task(
-                    routing.DESCRIBE_REGIONS_TASK, args=[document_id, number, job.image_key, regions_to_send]
-                )
-            }
+        regions_to_send = [region.model_dump(mode="json") for region in job.to_describe]
+        # The pod's own model, or the hub's model the collection chose (the pod asks the hub through the backend).
+        model = self._captions.resolve(self._backend_client())
+        job.reads = {
+            "describe": self._app.send_task(
+                routing.DESCRIBE_REGIONS_TASK,
+                args=[document_id, number, job.image_key, regions_to_send, None, model, current_usage()],
+            )
+        }
         job.stage = "describe"
         job.deadline = self._clock() + settings.CAPTION_STAGE_TIMEOUT_SECONDS
 
@@ -297,6 +290,7 @@ class ScannedPageReader:
             item for item in (described.descriptions if described else []) if item.id in asked and item.text.strip()
         ]
         texts = [describe.clean(item.text) for item in found]
+        # Florence-2 answers in English; a model of the hub is asked for French.
         if described is not None and described.model_version.lower().startswith("florence"):
             texts = [describe.clean(text) for text in describe.translate(texts, self._backend_client())]
         captions = {

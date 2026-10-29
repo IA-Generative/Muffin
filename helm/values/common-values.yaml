@@ -371,10 +371,14 @@ ocr_vision:
   - secretRef:
       name: "muffin-s3"
   - secretRef:
+      name: "muffin-worker"
+  - secretRef:
       name: "muffin-redis"
   env:
     AWS_ENDPOINT_URL: "https://s3.fr-par.scw.cloud"
     TORCH_THREADS: "4"
+    # A model of the hub that reads images is asked through the backend (WORKER_API_KEY comes from muffin-worker).
+    BACKEND_API_URL: "http://muffin-backend:8000"
   resources:
     requests:
       cpu: "4"

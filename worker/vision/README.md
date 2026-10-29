@@ -10,9 +10,12 @@ des régions (`caption`, `caption_model`) - #411.
   0 et 1). Le résultat est un `PageDescriptions` en JSON (`app/contracts.py`) : une description **par id** (une région dont
   le modèle ne dit rien est absente), la version du modèle et la consommation (`usage` : secondes ; les jetons ne sont
   comptés que par les modèles du hub).
-- **Le même contrat sert l'autre moteur**, celui d'un modèle du hub qui lit les images (réglage de la collection) : le
-  worker d'extraction l'exécute lui-même, sans ce pod. `prompt` et `model` sont ce que ce moteur prend ; Florence-2
-  répond à sa seule tâche et dit dans `model_version` qui a répondu.
+- **`model` choisit qui décrit.** Rien, ou `Florence-2-base` : le modèle local (sa seule tâche ; `prompt` ne sert pas). Tout
+  autre nom : un modèle du hub qui lit les images (compatible OpenAI), interrogé **par le proxy LLM du backend**
+  (`/api/internal/llm/chat`, `app/hub.py`) avec `prompt` (sinon une question pour une image, une pour un tableau, en
+  français) et le contexte `usage` donné : le pod ne porte aucune clé du hub, et le backend enregistre la consommation. La
+  sortie dit dans `usage` les jetons (comptés par le hub) et les secondes. Il faut donc `BACKEND_API_URL` et
+  `WORKER_API_KEY` ; le pod joint le backend (à ouvrir dans la NetworkPolicy du chart si elle est active).
 - **Florence-2 répond en anglais.** Le worker d'extraction traduit la description en français avec le modèle de chat du
   pipeline (`CAPTION_TRANSLATE`), et la garde telle quelle si aucun modèle n'est là.
 - **Chargé une fois par processus** (environ 2 Go) : la concurrence est de 1, et `TORCH_THREADS` se règle sur les CPU

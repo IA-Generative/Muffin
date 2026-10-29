@@ -292,6 +292,8 @@ Ils partagent avec le worker d'extraction `REDIS_URL`, `AWS_*`, `STORAGE_*_TIMEO
 | `VISION_CROP_MARGIN_PIXELS` | Pixels de la page gardés autour d'une région avant de la décrire | `8` | idem |
 | `VISION_MAX_REGIONS` | Régions décrites par page au plus (garde-fou du pod ; le worker d'extraction plafonne plus bas) | `50` | idem |
 | `TORCH_THREADS` | Threads de PyTorch pour une inférence (`0` : son choix). À régler sur les CPU du pod divisés par la concurrence (`-c`, 1 par défaut : le modèle pèse environ 2 Go par processus) | `0` | idem |
+| `BACKEND_API_URL` / `WORKER_API_KEY` | Le backend, par lequel le pod interroge un modèle du hub qui lit les images (`model` de la tâche autre que Florence-2) : `/api/internal/llm/chat`, la consommation y est enregistrée. Le pod ne porte aucune clé du hub | `http://localhost:8000` / vide | idem (`app/hub.py`) |
+| `HUB_TIMEOUT_SECONDS` / `HUB_MAX_TOKENS` | Délai d'un appel au hub et longueur maximale de sa réponse | `120` / `300` | idem |
 | `VISION_TASK_SOFT_TIME_LIMIT_SECONDS` | Limite souple de la tâche d'une page | `300` | idem |
 
 ## Description des images et des tableaux des pages scannées (#411)
@@ -304,15 +306,14 @@ extraits (pas de rattrapage) ; les ré-extraire les décrit. Variables du **work
 
 | Variable | Définition | Défaut | Utilisée par |
 |---|---|---|---|
-| `VISION_POD_ENABLED` | Le pod vision est déployé : sans lui, le moteur `local` ne décrit rien (le moteur `openai` n'en a pas besoin). Identique dans les trois pods de l'image, car dans l'empreinte | `false` (chart et compose : `true`) | **worker/document_process** (`app/config.py`, `app/ocr/describe.py`, `app/reuse.py`) |
+| `VISION_POD_ENABLED` | Le pod vision est déployé : sans lui, rien n'est décrit, quel que soit le moteur (les deux passent par lui : son modèle, ou un modèle du hub qu'il interroge par le backend). Identique dans les trois pods de l'image, car dans l'empreinte | `false` (chart et compose : `true`) | **worker/document_process** (`app/config.py`, `app/ocr/describe.py`, `app/reuse.py`) |
 | `CAPTION_MIN_PIXELS` | Une image n'est décrite que si son petit côté fait au moins ce nombre de pixels de la page | `96` | idem |
 | `CAPTION_MAX_PER_PAGE` | Descriptions par page au plus, les plus grandes régions d'abord | `5` | idem |
 | `CAPTION_MAX_PER_DOCUMENT` | Descriptions par document au plus. Compté par tâche d'extraction : chaque plage de pages d'un long PDF compte pour elle-même | `50` | idem |
 | `CAPTION_TABLES` | Décrire aussi les tableaux lus comme des tableaux (la description va au bout de leur marqueur) | `true` | idem |
-| `CAPTION_TRANSLATE` | Traduire en français les descriptions de Florence-2 (un appel au modèle de chat par page) ; sinon elles restent en anglais | `true` | idem |
+| `CAPTION_TRANSLATE` | Traduire en français les descriptions de Florence-2 (un appel au modèle de chat par page, depuis le worker d'extraction) ; sinon elles restent en anglais | `true` | idem |
 | `CAPTION_MAX_CHARS` | Longueur maximale d'une description dans le texte de la page (coupée à un mot) | `600` | idem |
 | `CAPTION_STAGE_TIMEOUT_SECONDS` | Temps accordé aux descriptions d'une page. Passé ce délai, la page est gardée **sans** elles, sans repasser par la lecture de secours | `300` | idem |
-| `CAPTION_HUB_CONCURRENCY` / `CAPTION_HUB_MAX_TOKENS` | Appels simultanés au hub (moteur `openai`) et longueur maximale d'une réponse | `4` / `300` | idem |
 
 ## worker/agent_execution — budgets d'exécution de l'agent
 

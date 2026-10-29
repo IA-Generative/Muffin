@@ -29,6 +29,13 @@ class VisionSettings(BaseSettings):
     # CPUs the pod is given, divided by the worker's concurrency.
     TORCH_THREADS: int = 0
 
+    # The hub's models that read images (any `model` of the task other than VISION_MODEL_NAME) are asked through the
+    # backend's LLM proxy: the pod holds no key of the hub, and the backend records what is consumed.
+    BACKEND_API_URL: str = "http://localhost:8000"
+    WORKER_API_KEY: str = ""
+    HUB_TIMEOUT_SECONDS: int = 120
+    HUB_MAX_TOKENS: int = 300
+
     # A page's task: an exception raised in it past the limit, never a kill (#294).
     VISION_TASK_SOFT_TIME_LIMIT_SECONDS: int = 5 * 60
     # Above the soft limit, or a task still running would be handed to another worker.
