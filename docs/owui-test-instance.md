@@ -19,6 +19,9 @@ Open WebUI répond sur http://localhost:3001. La version se change avec `OWUI_VE
 | Extraction | Tika (`CONTENT_EXTRACTION_ENGINE=tika`) : un seul document par fichier, sans numéro de page |
 | Embeddings | le hub OpenAI-compatible de Muffin (`OPENAI_API_BASE_URL`, `OPENAI_API_KEY`), modèle `OWUI_EMBEDDING_MODEL` (par défaut `bge-multilingual-gemma2`) |
 
+`ENV=dev` expose le schéma de l'API d'Open WebUI (http://localhost:3001/openapi.json et `/docs`), sur lequel le client de
+synchronisation est écrit.
+
 `ENABLE_PERSISTENT_CONFIG=false` : les variables d'environnement l'emportent toujours sur ce que l'interface d'administration a
 enregistré. Sans cela, `ENABLE_API_KEYS` et les autres réglages restent figés à leur première valeur.
 
