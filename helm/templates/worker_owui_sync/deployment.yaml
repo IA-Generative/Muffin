@@ -1,0 +1,25 @@
+{{- if .Values.enabled }}
+{{- if eq .Values.worker_owui_sync.deploymentType "Deployment" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "helper.componentFullname" (dict "root" . "componentName" "worker_owui_sync") }}
+  labels: {{- (include "helper.labels" (dict "root" . "componentName" "worker_owui_sync")) | nindent 4 }}
+spec:
+  {{- if not .Values.worker_owui_sync.autoscaling.enabled }}
+  replicas: {{ .Values.worker_owui_sync.replicaCount }}
+  {{- end }}
+  revisionHistoryLimit: {{ .Values.worker_owui_sync.revisionHistoryLimit | default 10 }}
+  selector:
+    matchLabels: {{- include "helper.selectorLabels" (dict "root" . "componentName" "worker_owui_sync") | nindent 6 }}
+  strategy:
+    type: {{ .Values.worker_owui_sync.strategy.type }}
+    {{- if eq .Values.worker_owui_sync.strategy.type "RollingUpdate" }}
+    rollingUpdate:
+      maxUnavailable: {{ .Values.worker_owui_sync.strategy.rollingUpdate.maxUnavailable }}
+      maxSurge: {{ .Values.worker_owui_sync.strategy.rollingUpdate.maxSurge }}
+    {{- end }}
+  template:
+    {{- include "helper.component.podTemplate" (dict "root" . "name" "worker_owui_sync" "component" .Values.worker_owui_sync) | nindent 4 }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,18 @@
+{{- if .Values.enabled }}
+{{- if eq .Values.worker_owui_sync.deploymentType "DaemonSet" }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "helper.componentFullname" (dict "root" . "componentName" "worker_owui_sync") }}
+  labels: {{- (include "helper.labels" (dict "root" . "componentName" "worker_owui_sync")) | nindent 4 }}
+spec:
+  revisionHistoryLimit: {{ .Values.worker_owui_sync.revisionHistoryLimit | default 10 }}
+  selector:
+    matchLabels: {{- include "helper.selectorLabels" (dict "root" . "componentName" "worker_owui_sync") | nindent 6 }}
+  {{- with .Values.worker_owui_sync.updateStrategy }}
+  updateStrategy: {{- toYaml . | nindent 4 }}
+  {{- end }}
+  template:
+    {{- include "helper.component.podTemplate" (dict "root" . "name" "worker_owui_sync" "component" .Values.worker_owui_sync) | nindent 4 }}
+{{- end }}
+{{- end }}

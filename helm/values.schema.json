@@ -384,6 +384,7 @@
     "agent_execution": { "$ref": "#/definitions/workloadComponent" },
     "worker_evaluation": { "$ref": "#/definitions/workloadComponent" },
     "worker_document_edit": { "$ref": "#/definitions/workloadComponent" },
+    "worker_owui_sync": { "$ref": "#/definitions/workloadComponent" },
     "document_enrichment": { "$ref": "#/definitions/workloadComponent" },
     "ocr_layout": { "$ref": "#/definitions/workloadComponent" },
     "ocr": { "$ref": "#/definitions/workloadComponent" },
