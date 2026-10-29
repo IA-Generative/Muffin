@@ -3,6 +3,7 @@ from loguru import logger
 from app.backend_client import backend_client
 from app.celery_app import celery_app
 from app.owui_client import OwuiClient
+from app.owui_vectors import OwuiVectors
 
 
 @celery_app.task(name="app.tasks.sync_owui")
@@ -102,3 +103,50 @@ def sync_knowledge(knowledge_id: str) -> dict:
         )
     logger.info("Knowledge base {} synchronised: {}", knowledge.name, result)
     return {**result, "readers_without_subject": without_subject, "write_grants_ignored": write_grants}
+
+
+# Muffin's own estimate (worker/document_process/app/chunking.py): good enough for what only sizes a chunk.
+_TOKENS_PER_CHAR = 0.25
+
+
+@celery_app.task(name="app.tasks.sync_knowledge_file")
+def sync_knowledge_file(knowledge_id: str, file_id: str) -> dict:
+    """Makes Muffin's copy of one file of an Open WebUI knowledge base what Open WebUI has (#453).
+
+    Nothing is copied but the rows: the file stays in Open WebUI's bucket (Muffin reads it there), the vectors in
+    its Qdrant, and the chunks - text and id of their point - come from that Qdrant. The text is one page: Open
+    WebUI's extraction (Tika) keeps no page boundary. The knowledge base must have been synchronised before."""
+    owui = OwuiClient()
+    file = owui.file(file_id)
+    if not file.path or not file.path.startswith("s3://"):
+        raise ValueError(f"File {file.filename} is not in S3 (path {file.path!r}): Muffin cannot read it where it is")
+
+    chunks = OwuiVectors().chunks(knowledge_id, file_id)
+    if not chunks:
+        logger.warning("File {} has no chunk in the knowledge base {}", file.filename, knowledge_id)
+    added_by = owui.user(file.user_id) if file.user_id else None
+
+    result = backend_client.sync_document(
+        "owui",
+        f"{knowledge_id}/{file_id}",
+        {
+            "collection_external_id": knowledge_id,
+            "name": file.filename,
+            "storage_key": file.path,
+            "content_hash": file.hash,
+            "added_by_user_id": added_by.keycloak_sub if added_by else None,
+            "added_by_display": added_by.name if added_by else None,
+            "text": owui.file_text(file_id),
+            "chunks": [
+                {
+                    "id": chunk.id,
+                    "index": index,
+                    "text": chunk.text,
+                    "token_count": round(len(chunk.text) * _TOKENS_PER_CHAR),
+                }
+                for index, chunk in enumerate(chunks)
+            ],
+        },
+    )
+    logger.info("File {} synchronised: {}", file.filename, result)
+    return result
