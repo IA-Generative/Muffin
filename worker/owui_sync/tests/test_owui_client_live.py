@@ -33,10 +33,23 @@ def test_group_members_carry_their_keycloak_subject(client):
 def test_knowledge_bases_files_and_grants(client):
     knowledge = {kb.name: kb for kb in client.knowledge_bases()}["kb-test"]
     assert {(g.principal_type, g.permission) for g in knowledge.access_grants} == {("group", "read"), ("user", "write")}
-    assert [file.filename for file in client.knowledge_files(knowledge.id)] == ["test.txt"]
+    assert {file.filename for file in client.knowledge_files(knowledge.id)} == {"test.txt", "deux-pages.pdf"}
 
 
 def test_one_knowledge_base_and_the_embedding_model(client):
     knowledge = {kb.name: kb for kb in client.knowledge_bases()}["kb-test"]
     assert client.knowledge(knowledge.id).name == "kb-test"
     assert client.embedding_model()
+
+
+def test_a_file_has_its_s3_path_and_its_text_and_its_chunks_are_in_qdrant(client):
+    from app.owui_vectors import OwuiVectors
+
+    knowledge = {kb.name: kb for kb in client.knowledge_bases()}["kb-test"]
+    files = {file.filename: file for file in client.knowledge_files(knowledge.id)}
+    pdf = client.file(files["deux-pages.pdf"].id)
+
+    assert pdf.path == f"s3://owui-files/{pdf.id}_deux-pages.pdf"
+    assert "Page un" in client.file_text(pdf.id) and "Page deux" in client.file_text(pdf.id)
+    [chunk] = OwuiVectors().chunks(knowledge.id, pdf.id)
+    assert "Page un" in chunk.text and "Page deux" in chunk.text
