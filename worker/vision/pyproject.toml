@@ -11,6 +11,7 @@ dependencies = [
     "boto3>=1.43.98",
     "pillow>=11.0.0",
     "numpy>=2.0",
+    "httpx>=0.28.0",
     # Florence-2 is loaded with its own modeling code (trust_remote_code), which is written against one range of
     # transformers: pinned, and the code is in the image, at a pinned revision (see the Dockerfile).
     "transformers==4.49.0",

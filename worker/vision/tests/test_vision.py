@@ -9,7 +9,7 @@ from PIL import Image
 
 from app import tasks
 from app.config import settings
-from app.contracts import Box, PageDescriptions, RegionToDescribe
+from app.contracts import Box, DescribeUsage, PageDescriptions, RegionToDescribe
 from app.florence import Describer, crop
 
 
@@ -77,3 +77,79 @@ def test_the_real_model_describes_an_image():
     image.save(out, format="PNG")
     result = Describer().describe(out.getvalue(), [_region(0, 0, 0, 1, 1)], "doc", 1)
     assert result.descriptions and result.descriptions[0].text
+
+
+# --- a model of the hub ---
+
+
+class FakeBackend:
+    """The backend's LLM proxy: answers each call, and keeps what it was asked."""
+
+    def __init__(self):
+        self.calls: list[dict] = []
+
+    def post(self, url, json):
+        self.calls.append({"url": url, **json})
+
+        class Response:
+            def raise_for_status(self):
+                pass
+
+            def json(_self):
+                return {"content": f"réponse {len(self.calls)}", "prompt_tokens": 50, "completion_tokens": 10}
+
+        return Response()
+
+
+def test_a_model_of_the_hub_is_shown_each_crop_through_the_backend_and_the_usage_is_added_up():
+    from app.hub import IMAGE_PROMPT, TABLE_PROMPT, HubDescriber
+
+    backend = FakeBackend()
+    regions = [_region(1, 0, 0, 0.5, 0.5), RegionToDescribe(id=2, box=_region(2, 0, 0, 1, 1).box, kind="table")]
+
+    result = HubDescriber(backend).describe(_png(), regions, "doc", 3, "gpt-4o", usage={"step": "caption"})
+
+    assert [(d.id, d.text) for d in result.descriptions] == [(1, "réponse 1"), (2, "réponse 2")]
+    assert result.model_version == "gpt-4o" and result.usage.model == "gpt-4o"
+    assert (result.usage.prompt_tokens, result.usage.completion_tokens) == (100, 20)
+    first = backend.calls[0]
+    assert first["url"] == "/api/internal/llm/chat" and first["model"] == "gpt-4o"
+    assert first["usage"] == {"step": "caption"}
+    assert first["messages"][0]["content"][0]["text"] == IMAGE_PROMPT
+    assert first["messages"][0]["content"][1]["image_url"]["url"].startswith("data:image/png;base64,")
+    assert backend.calls[1]["messages"][0]["content"][0]["text"] == TABLE_PROMPT
+
+
+def test_a_prompt_replaces_the_question_for_every_region():
+    from app.hub import HubDescriber
+
+    backend = FakeBackend()
+    HubDescriber(backend).describe(_png(), [_region(1, 0, 0, 1, 1)], "doc", 1, "gpt-4o", prompt="Que vois-tu ?")
+    assert backend.calls[0]["messages"][0]["content"][0]["text"] == "Que vois-tu ?"
+
+
+def test_the_task_sends_any_model_but_florence_to_the_hub(monkeypatch):
+    seen = {}
+
+    class Hub:
+        def describe(self, page, regions, document_id, page_number, model, prompt, usage):
+            seen.update(model=model, prompt=prompt, usage=usage)
+            return PageDescriptions(
+                document_id=document_id,
+                page_number=page_number,
+                descriptions=[],
+                model_version=model,
+                usage=DescribeUsage(model=model),
+            )
+
+    monkeypatch.setattr(tasks.storage, "get_object", lambda key: _png())
+    monkeypatch.setattr(tasks, "get_hub_describer", lambda: Hub())
+    monkeypatch.setattr(tasks, "describer", Describer(lambda image: "un chat"))
+    box = {"x_min": 0, "y_min": 0, "x_max": 1, "y_max": 1}
+
+    hub = tasks.describe_regions.run("doc", 1, "k", [{"id": 0, "box": box}], "Décris", "gpt-4o", {"step": "x"})
+    local = tasks.describe_regions.run("doc", 1, "k", [{"id": 0, "box": box}], None, settings.VISION_MODEL_NAME)
+
+    assert seen == {"model": "gpt-4o", "prompt": "Décris", "usage": {"step": "x"}}
+    assert hub["model_version"] == "gpt-4o"
+    assert local["descriptions"][0]["text"] == "un chat"

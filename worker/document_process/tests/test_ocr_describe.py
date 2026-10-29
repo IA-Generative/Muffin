@@ -3,7 +3,6 @@ the page's text and the registry keep of it."""
 
 import io
 import json
-import time
 
 import pytest
 from PIL import Image
@@ -20,7 +19,7 @@ from app.ocr.contracts import (
     RegionDescription,
     RegionType,
 )
-from app.ocr.describe import CaptionConfig, HubDescriber, select_regions
+from app.ocr.describe import CaptionConfig, select_regions
 from app.ocr.regions import regions_of
 from app.ocr.scanned import ScannedPageReader
 from tests.test_ocr_scanned import Clock, FakeApp, FakeResult, FakeStorage, _pages
@@ -139,34 +138,18 @@ def test_without_a_model_or_when_off_nothing_is_asked(monkeypatch):
     assert backend.chats == []
 
 
-# --- the engine of the hub ---
+# --- who is asked ---
 
 
-def test_the_hub_is_shown_each_crop_and_the_usage_is_added_up():
-    backend = FakeBackend()
-    regions = select_regions(_layout(_image(0), _image(1)), set(), 10)
-
-    result = HubDescriber(backend, "gpt-4o").describe("d", 1, _png(), regions)
-
-    assert [(d.id, d.text) for d in result.descriptions] == [(0, "description 1"), (1, "description 2")]
-    assert result.model_version == "gpt-4o"
-    assert (result.usage.prompt_tokens, result.usage.completion_tokens) == (200, 40)
-    parts = backend.chats[0][1][0]["content"]
-    assert parts[0]["text"] == describe.IMAGE_PROMPT
-    assert parts[1]["image_url"]["url"].startswith("data:image/png;base64,")
-
-
-def test_without_a_chosen_model_the_first_vision_model_of_the_hub_is_used():
-    backend = FakeBackend(vision="llava")
-    HubDescriber(backend, None).describe("d", 1, _png(), select_regions(_layout(_image(0)), set(), 10))
-    assert backend.chats[0][0] == "llava"
+def test_the_local_engine_asks_the_pods_own_model_and_the_other_a_model_of_the_hub():
+    assert CaptionConfig("local").resolve(FakeBackend()) is None
+    assert CaptionConfig("openai", "gpt-4o").resolve(FakeBackend()) == "gpt-4o"
+    assert CaptionConfig("openai").resolve(FakeBackend(vision="llava")) == "llava"
 
 
 def test_no_vision_model_at_all_is_an_error_not_a_made_up_description():
     with pytest.raises(RuntimeError):
-        HubDescriber(FakeBackend(vision=None), None).describe(
-            "d", 1, _png(), select_regions(_layout(_image(0)), set(), 10)
-        )
+        CaptionConfig("openai").resolve(FakeBackend(vision=None))
 
 
 # --- through the reader ---
@@ -184,15 +167,16 @@ class VisionApp(FakeApp):
         if name != routing.DESCRIBE_REGIONS_TASK:
             return super().send_task(name, args)
         self.sent.append((name, args))
-        document_id, number, _, regions = args
+        document_id, number, _, regions, prompt, model, usage = args
+        self.asked = {"prompt": prompt, "model": model, "usage": usage}
         page = PageDescriptions(
             document_id=document_id,
             page_number=number,
             descriptions=[
                 RegionDescription(id=r["id"], text=(self.described or {}).get(r["id"], "a bar chart")) for r in regions
             ],
-            model_version="Florence-2-base",
-            usage=DescribeUsage(model="Florence-2-base", seconds=1.5),
+            model_version=model or "Florence-2-base",
+            usage=DescribeUsage(model=model or "Florence-2-base", seconds=1.5),
         )
         result = FakeResult(page.model_dump(mode="json") if self.ok else RuntimeError("pod down"), ok=self.ok)
         self.results.append(result)
@@ -202,12 +186,9 @@ class VisionApp(FakeApp):
 def _reader(app, config=None, backend=None, clock=None):
     clock = clock or Clock()
 
-    def sleep(seconds):
-        # The hub's engine runs in threads: they need real time to answer, the clock only counts it.
-        time.sleep(0.005)
-        clock.sleep(seconds)
-
-    return ScannedPageReader(app=app, storage=FakeStorage(), clock=clock, sleep=sleep, captions=config, backend=backend)
+    return ScannedPageReader(
+        app=app, storage=FakeStorage(), clock=clock, sleep=clock.sleep, captions=config, backend=backend
+    )
 
 
 def _read(app, config, backend, number=3):
@@ -249,24 +230,37 @@ def test_a_table_read_as_a_table_gets_its_description_at_the_end_of_its_marker(m
     assert page.captions[3] == ("les ventes par année", "Florence-2-base")
 
 
-def test_the_openai_engine_describes_without_the_vision_pod(monkeypatch):
-    monkeypatch.setattr(settings, "VISION_POD_ENABLED", False)
+def test_the_openai_engine_asks_the_pod_for_a_model_of_the_hub_and_keeps_the_french_as_it_comes():
     backend = FakeBackend()
-    app = VisionApp()
+    app = VisionApp(descriptions={2: "Un histogramme des ventes."})
 
     page = _read(app, CaptionConfig("openai", "gpt-4o"), backend)
 
+    assert app.asked["model"] == "gpt-4o"
+    assert "[Image : Un histogramme des ventes.]" in page.markdown
+    assert page.captions == {2: ("Un histogramme des ventes.", "gpt-4o")}
+    # The hub was asked for French: nothing to translate, and the worker itself calls no model.
+    assert backend.chats == []
+
+
+def test_the_local_engine_asks_the_pods_own_model():
+    app = VisionApp()
+    _read(app, CaptionConfig("local"), FakeBackend(chat=json.dumps(["x"])))
+    assert app.asked["model"] is None
+
+
+def test_no_vision_model_in_the_hub_leaves_the_page_without_descriptions_but_read():
+    app = VisionApp()
+    page = _read(app, CaptionConfig("openai"), FakeBackend(vision=None))
     assert routing.DESCRIBE_REGIONS_TASK not in [name for name, _ in app.sent]
-    assert "[Image : description 1]" in page.markdown
-    assert page.captions == {2: ("description 1", "gpt-4o")}
-    # In the language the prompt asked for: nothing to translate.
-    assert backend.chats[0][0] == "gpt-4o" and len(backend.chats) == 1
+    assert page.captions == {} and "[Image" not in page.markdown
 
 
-def test_the_local_engine_does_nothing_while_the_pod_is_not_deployed(monkeypatch):
+@pytest.mark.parametrize("config", [CaptionConfig("local"), CaptionConfig("openai", "gpt-4o")])
+def test_nothing_is_described_while_the_pod_is_not_deployed(monkeypatch, config):
     monkeypatch.setattr(settings, "VISION_POD_ENABLED", False)
     app = VisionApp()
-    page = _read(app, CaptionConfig("local"), FakeBackend())
+    page = _read(app, config, FakeBackend())
     assert routing.DESCRIBE_REGIONS_TASK not in [name for name, _ in app.sent]
     assert "[Image" not in page.markdown and page.captions == {}
 
