@@ -235,7 +235,7 @@ async def test_trigger_discussion_score_enqueues_and_creates_task(client):
 
     assert response.status_code == 202
     assert response.json() == {"celery_task_id": "celery-score-1"}
-    mock_enqueue.assert_called_once_with(run["conversation_id"])
+    mock_enqueue.assert_called_once_with(run["conversation_id"], task_id=ANY)
 
     async with async_session_factory() as session:
         task = (await session.execute(select(Task).where(Task.celery_task_id == "celery-score-1"))).scalar_one()

@@ -45,8 +45,11 @@ class TaskRepository:
         if status is TaskStatus.STARTED:
             # Refresh on every start, including a retry/redelivery: the reaper compares started_at
             # to its cutoff, and a task redelivered after a long outage must not be reaped while
-            # this new attempt is running.
+            # this new attempt is running. The previous attempt's end and error go with it: the
+            # row must not describe a running task and a finished failure at once.
             values["started_at"] = func.now()
+            values["finished_at"] = None
+            values["error"] = None
         elif status in TERMINAL_TASK_STATUSES:
             values["finished_at"] = func.now()
             values["error"] = error

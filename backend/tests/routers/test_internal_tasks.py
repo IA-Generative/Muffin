@@ -296,6 +296,27 @@ async def test_update_task_status_refreshes_the_start_on_a_retry(client):
     assert (await _task("celery-status")).started_at > old
 
 
+async def test_update_task_status_clears_the_previous_attempts_end_and_error(client):
+    await _record_task()
+    async with async_session_factory() as session:
+        await session.execute(
+            update(Task)
+            .where(Task.celery_task_id == "celery-status")
+            .values(status="FAILURE", finished_at=datetime.now(UTC), error="previous attempt")
+        )
+        await session.commit()
+
+    response = await client.patch(
+        "/api/internal/tasks/celery-status/status", headers=_headers(), json={"status": "STARTED"}
+    )
+
+    assert response.status_code == 204
+    task = await _task("celery-status")
+    assert task.status == "STARTED"
+    assert task.finished_at is None
+    assert task.error is None
+
+
 async def test_reap_stuck_tasks_leaves_unbounded_tasks_alone(client):
     await _record_task("celery-evaluation")
     old = datetime.now(UTC) - timedelta(hours=48)

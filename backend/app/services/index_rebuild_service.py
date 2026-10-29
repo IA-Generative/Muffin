@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.security.factory import RequestContext
 from app.core.tasks import REBUILD_INDEX_TASK, enqueue_rebuild_index
 from app.models.index_rebuild import ACTIVE_REBUILD_STATUSES, IndexRebuild, IndexRebuildStatus
+from app.models.task import TaskStatus
 from app.repositories.collection_repository import CollectionRepository
 from app.repositories.index_rebuild_repository import IndexRebuildRepository
 from app.repositories.task_repository import TaskRepository
@@ -79,8 +80,16 @@ class IndexRebuildService:
         except IntegrityError as error:  # the lock, raced by a second request
             await self.db.rollback()
             raise RebuildInProgressError(str(collection_id)) from error
-        celery_task_id = enqueue_rebuild_index(str(rebuild.id))
-        await self.tasks.create(celery_task_id, REBUILD_INDEX_TASK, user.user_id, collection_id=collection_id)
+        task_id = str(uuid.uuid4())
+        await self.tasks.create(task_id, REBUILD_INDEX_TASK, user.user_id, collection_id=collection_id)
+        await self.db.commit()
+        try:
+            result_id = enqueue_rebuild_index(str(rebuild.id), task_id=task_id)
+        except Exception as exc:
+            await self.tasks.set_status(task_id, TaskStatus.FAILURE, str(exc))
+            await self.db.commit()
+            raise
+        await self.tasks.rename_celery_task_id(task_id, result_id)
         await self.db.commit()
         return IndexRebuildOut.model_validate(rebuild)
 
@@ -114,8 +123,16 @@ class IndexRebuildService:
         await self.db.commit()
         vector_store.delete_next_index(collection_id)
         # The old index missed whatever was written since the swap: the job reconciles it once.
-        celery_task_id = enqueue_rebuild_index(str(rebuild.id))
-        await self.tasks.create(celery_task_id, REBUILD_INDEX_TASK, user.user_id, collection_id=collection_id)
+        task_id = str(uuid.uuid4())
+        await self.tasks.create(task_id, REBUILD_INDEX_TASK, user.user_id, collection_id=collection_id)
+        await self.db.commit()
+        try:
+            result_id = enqueue_rebuild_index(str(rebuild.id), task_id=task_id)
+        except Exception as exc:
+            await self.tasks.set_status(task_id, TaskStatus.FAILURE, str(exc))
+            await self.db.commit()
+            raise
+        await self.tasks.rename_celery_task_id(task_id, result_id)
         await self.db.commit()
         return IndexRebuildOut.model_validate(rebuild)
 

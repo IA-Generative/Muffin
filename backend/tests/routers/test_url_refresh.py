@@ -456,7 +456,7 @@ async def test_refresh_now_queues_a_fetch_recorded_as_the_users_task(client):
         response = await client.post(f"/api/collections/{collection_id}/documents/{document_id}/refresh")
 
     assert response.status_code == 202
-    enqueue.assert_called_once_with(str(document_id))
+    enqueue.assert_called_once_with(str(document_id), task_id=ANY)
     async with async_session_factory() as session:
         task = (await session.execute(select(Task).where(Task.celery_task_id == "celery-refresh-1"))).scalar_one()
     assert response.json() == {"task_id": str(task.id)}

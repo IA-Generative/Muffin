@@ -32,7 +32,9 @@ def test_enqueue_rebuild_index_uses_its_own_queue_apart_from_ingestion():
         task_id = tasks.enqueue_rebuild_index("rebuild-1")
 
     assert task_id == "celery-id"
-    send_task.assert_called_once_with("app.tasks.rebuild_index", args=["rebuild-1"], queue="index_rebuild")
+    send_task.assert_called_once_with(
+        "app.tasks.rebuild_index", args=["rebuild-1"], queue="index_rebuild", task_id=None
+    )
     assert tasks.INDEX_REBUILD_QUEUE != tasks.DOCUMENT_EXTRACTION_QUEUE
 
 

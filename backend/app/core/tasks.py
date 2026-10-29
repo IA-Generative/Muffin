@@ -86,28 +86,34 @@ def enqueue_process_document(document_id: str, *, bulk: bool = False, task_id: s
     return result.id
 
 
-def enqueue_refresh_url_document(document_id: str) -> str:
+def enqueue_refresh_url_document(document_id: str, task_id: str | None = None) -> str:
     """A URL document's page fetched now rather than at its next scheduled check. Returns the Celery
-    task id, as enqueue_process_document does."""
-    result = _celery_app.send_task(REFRESH_URL_DOCUMENT_TASK, args=[document_id], queue=DOCUMENT_EXTRACTION_QUEUE)
+    task id, as enqueue_process_document does. `task_id`: preallocated by the caller when it records
+    the Task row before publishing."""
+    result = _celery_app.send_task(
+        REFRESH_URL_DOCUMENT_TASK, args=[document_id], queue=DOCUMENT_EXTRACTION_QUEUE, task_id=task_id
+    )
     return result.id
 
 
-def enqueue_rollup_collection_description(collection_id: str, countdown: int) -> str:
+def enqueue_rollup_collection_description(collection_id: str, countdown: int, task_id: str | None = None) -> str:
     """Returns the Celery task id. `countdown` delays the run so that every change to the
-    sub-collections within that window is picked up by this single run."""
+    sub-collections within that window is picked up by this single run. `task_id`: preallocated by
+    the caller when it records the Task row before publishing."""
     result = _celery_app.send_task(
         ROLLUP_COLLECTION_DESCRIPTION_TASK,
         args=[collection_id],
         queue=DOCUMENT_ENRICHMENT_QUEUE,
         countdown=countdown,
+        task_id=task_id,
     )
     return result.id
 
 
-def enqueue_import_zip(import_id: str) -> str:
-    """Returns the Celery task id, recorded as a collection-scoped Task row."""
-    result = _celery_app.send_task(IMPORT_ZIP_TASK, args=[import_id], queue=DOCUMENT_IMPORT_QUEUE)
+def enqueue_import_zip(import_id: str, task_id: str | None = None) -> str:
+    """Returns the Celery task id, recorded as a collection-scoped Task row. `task_id`: preallocated
+    by the caller when it records the Task row before publishing."""
+    result = _celery_app.send_task(IMPORT_ZIP_TASK, args=[import_id], queue=DOCUMENT_IMPORT_QUEUE, task_id=task_id)
     return result.id
 
 
@@ -143,7 +149,7 @@ def enqueue_run_evaluation(collection_id: str, k: int, validated_only: bool = Fa
     return result.id
 
 
-def enqueue_score_discussion(conversation_id: str, model: str | None = None) -> str:
+def enqueue_score_discussion(conversation_id: str, model: str | None = None, task_id: str | None = None) -> str:
     """Returns the Celery task id, recorded as a conversation-scoped Task row (see
     app/routers/internal_tasks.py) - same reasoning as enqueue_run_evaluation, the DiscussionScore
     row only ever exists once the worker posts a fully computed one.
@@ -151,9 +157,10 @@ def enqueue_score_discussion(conversation_id: str, model: str | None = None) -> 
     When `model` is None, the worker picks the hub's default chat model. When set, the worker
     uses that specific model - the (conversation, content_hash, model) unique index means
     re-scoring the same transcript with a different model creates a new score row instead of
-    being a no-op."""
+    being a no-op. `task_id`: preallocated by the caller when it records the Task row before
+    publishing."""
     args: list = [conversation_id] if model is None else [conversation_id, model]
-    result = _celery_app.send_task(SCORE_DISCUSSION_TASK, args=args, queue=EVALUATION_QUEUE)
+    result = _celery_app.send_task(SCORE_DISCUSSION_TASK, args=args, queue=EVALUATION_QUEUE, task_id=task_id)
     return result.id
 
 
@@ -182,8 +189,8 @@ def enqueue_render_upload(payload: dict, task_id: str | None = None) -> str:
     return result.id
 
 
-def enqueue_rebuild_index(rebuild_id: str) -> str:
-    result = _celery_app.send_task(REBUILD_INDEX_TASK, args=[rebuild_id], queue=INDEX_REBUILD_QUEUE)
+def enqueue_rebuild_index(rebuild_id: str, task_id: str | None = None) -> str:
+    result = _celery_app.send_task(REBUILD_INDEX_TASK, args=[rebuild_id], queue=INDEX_REBUILD_QUEUE, task_id=task_id)
     return result.id
 
 

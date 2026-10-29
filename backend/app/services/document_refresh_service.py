@@ -8,6 +8,7 @@ from app.core.security.factory import RequestContext
 from app.core.tasks import REFRESH_URL_DOCUMENT_TASK, enqueue_refresh_url_document
 from app.models.document import Document, DocumentStatus, DocumentType
 from app.models.document_refresh_schedule import SCAN_MINUTES, DocumentRefreshSchedule, RefreshKind
+from app.models.task import TaskStatus
 from app.repositories.collection_repository import CollectionRepository
 from app.repositories.document_refresh_repository import DocumentRefreshRepository
 from app.repositories.document_repository import DocumentRepository
@@ -122,14 +123,23 @@ class DocumentRefreshService:
             raise NotUrlDocumentError(str(document_id))
         if document.status in (DocumentStatus.PENDING, DocumentStatus.INDEXING):
             raise DocumentBeingProcessedError(str(document_id))
-        celery_task_id = enqueue_refresh_url_document(str(document.id))
-        task = await TaskRepository(self.db).create(
-            celery_task_id,
+        tasks = TaskRepository(self.db)
+        task_id = str(uuid.uuid4())
+        task = await tasks.create(
+            task_id,
             REFRESH_URL_DOCUMENT_TASK,
             user.user_id,
             document_id=document.id,
             collection_id=collection_id,
         )
+        await self.db.commit()
+        try:
+            result_id = enqueue_refresh_url_document(str(document.id), task_id=task_id)
+        except Exception as exc:
+            await tasks.set_status(task_id, TaskStatus.FAILURE, str(exc))
+            await self.db.commit()
+            raise
+        await tasks.rename_celery_task_id(task_id, result_id)
         await self.db.commit()
         return task.id
 
