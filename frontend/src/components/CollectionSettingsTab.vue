@@ -88,6 +88,7 @@ const hasErrors = computed(() => Object.keys(errors.value).length > 0)
 
 const SECTION_FIELDS: Record<SectionKey, (keyof SettingsErrors)[]> = {
   embedding: [],
+  captions: [],
   chunking: ['chunkSize', 'chunkOverlap', 'chunkingWindowPages', 'chunkingSlidePages'],
   summary: ['summaryPagesPerMap'],
   qa: ['qaWindowPages', 'qaSlidePages', 'qaQuestionsPerWindow', 'collectionQaCount'],
