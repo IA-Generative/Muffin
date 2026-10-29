@@ -1,6 +1,5 @@
 from app.celery_app import celery_app
 from app.config import settings
-from app.tasks import sync_owui
 
 
 def test_the_worker_has_its_own_queue():
@@ -9,6 +8,14 @@ def test_the_worker_has_its_own_queue():
     assert celery_app.amqp.router.route({}, "app.tasks.sync_owui")["queue"].name == "owui_sync"
 
 
-def test_sync_owui_is_registered():
-    assert "app.tasks.sync_owui" in celery_app.tasks
-    assert sync_owui.run() == {"status": "nothing_to_do"}
+def test_the_tasks_of_a_synchronisation_are_registered():
+    for name in (
+        "sync_owui",
+        "sync_group",
+        "sync_knowledge",
+        "sync_knowledge_file",
+        "sync_knowledge_bases",
+        "sync_files",
+        "finish_sync",
+    ):
+        assert f"app.tasks.{name}" in celery_app.tasks
