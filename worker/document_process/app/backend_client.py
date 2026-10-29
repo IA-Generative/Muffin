@@ -385,6 +385,20 @@ class BackendClient:
         response.raise_for_status()
         return response.json()["deleted"]
 
+    def update_task_status(self, celery_task_id: str, status: str, error: str | None = None) -> None:
+        """A short timeout: the status is best-effort, a task never waits on it."""
+        response = self._client.patch(
+            f"/api/internal/tasks/{celery_task_id}/status",
+            json={"status": status, "error": error},
+            timeout=5.0,
+        )
+        response.raise_for_status()
+
+    def reap_stuck_tasks(self) -> int:
+        response = self._client.post("/api/internal/tasks/reap")
+        response.raise_for_status()
+        return response.json()["reaped"]
+
     def llm_chat(self, model: str, messages: list[dict[str, str]], max_tokens: int | None = None) -> str:
         response = self._client.post(
             "/api/internal/llm/chat",

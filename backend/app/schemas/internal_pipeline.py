@@ -5,6 +5,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, Field, model_validator
 
 from app.models.entity import EntityType
+from app.models.task import TaskStatus
 
 
 class CollectionSettingsInternalOut(BaseModel):
@@ -28,6 +29,14 @@ class TaskCreate(BaseModel):
     # Links this task under the run that spawned it (e.g. chunk_document is a
     # child of process_document) so the UI can group a pipeline run together.
     parent_celery_task_id: str | None = None
+
+
+class TaskStatusUpdate(BaseModel):
+    """What a worker reports as it runs a task (see each worker's app/task_status.py)."""
+
+    status: TaskStatus
+    # The exception a FAILURE ended on.
+    error: str | None = None
 
 
 class TaskLogsUpdate(BaseModel):

@@ -11,7 +11,7 @@ from app.config import DocumentSettings
 from app.core import storage
 from app.core.file_hash import sha256_stream
 from app.core.security.factory import RequestContext
-from app.core.tasks import PROCESS_DOCUMENT_TASK, active_task_ids, enqueue_process_document, revoke_tasks
+from app.core.tasks import PROCESS_DOCUMENT_TASK, enqueue_process_document, revoke_tasks
 from app.models.document import Document, DocumentStatus
 from app.repositories.collection_hierarchy_repository import CollectionHierarchyRepository
 from app.repositories.collection_repository import CollectionRepository
@@ -345,9 +345,12 @@ class DocumentUploadService:
 
     async def _stop_running_tasks(self, document_id: uuid.UUID) -> None:
         tasks = await self.tasks.list_for_document(document_id)
-        # Redis is called for each task: off the event loop.
-        active = await asyncio.to_thread(active_task_ids, [task.celery_task_id for task in tasks])
+        # The persisted status says which are still to run or running - no Redis round-trip per
+        # task, and a task whose worker died is still revoked (harmlessly).
+        active = [task.celery_task_id for task in tasks if task.is_active]
         await asyncio.to_thread(revoke_tasks, active)
+        await self.tasks.mark_revoked(active)
+        await self.db.commit()
 
     async def get_document(
         self, collection_id: uuid.UUID, user: RequestContext, document_id: uuid.UUID

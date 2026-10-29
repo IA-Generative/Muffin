@@ -1,5 +1,4 @@
 from celery import Celery
-from celery.result import AsyncResult
 
 from app.config import RedisSettings
 
@@ -180,25 +179,12 @@ def enqueue_rebuild_index(rebuild_id: str) -> str:
     return result.id
 
 
-def get_task_status(celery_task_id: str) -> str:
-    return AsyncResult(celery_task_id, app=_celery_app).status
-
-
-# A task that is still to run or running: the only ones worth revoking. Celery reports PENDING for an
-# id it knows nothing about as well, which here is a task waiting in the queue - or one whose result
-# expired long ago, harmlessly revoked again.
-ACTIVE_TASK_STATES = frozenset({"PENDING", "RECEIVED", "STARTED", "RETRY"})
-
 # The flag a revoked task leaves in Redis, which every worker looks at when a task starts (see
 # app/task_revocation.py in each worker - the key must be the same). Celery's own revoke is a broadcast
 # to the workers up at that moment, kept in their memory: a task revoked while it waits in the queue
 # runs all the same on a pod that starts afterwards (a deploy, a scale-up), and one whose worker died
 # runs again, revoked or not, when Redis hands it out again - after the visibility timeout, hours.
 REVOKED_KEY = "muffin:revoked:{task_id}"
-
-
-def active_task_ids(celery_task_ids: list[str]) -> list[str]:
-    return [task_id for task_id in celery_task_ids if get_task_status(task_id) in ACTIVE_TASK_STATES]
 
 
 def revoke_tasks(celery_task_ids: list[str]) -> None:

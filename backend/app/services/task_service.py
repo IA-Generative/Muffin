@@ -5,9 +5,9 @@ from collections.abc import Iterable, Sequence
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security.factory import RequestContext
-from app.core.tasks import active_task_ids, get_task_status, revoke_tasks
+from app.core.tasks import revoke_tasks
 from app.models.document import DocumentStatus
-from app.models.task import Task
+from app.models.task import Task, TaskStatus
 from app.models.task_log_entry import TaskLogEntry
 from app.repositories.collection_repository import CollectionRepository
 from app.repositories.document_repository import DocumentRepository
@@ -54,11 +54,13 @@ class TaskService:
             raise TaskNotFoundError(str(task_id))
         descendants = await self.tasks.list_descendants([task.id])
         tasks = [task, *descendants]
-        # Redis is called for each task: off the event loop.
-        active = await asyncio.to_thread(active_task_ids, [item.celery_task_id for item in tasks])
+        # The persisted status says which are still to run or running - no Redis round-trip per
+        # task, and a task whose worker died is still revoked (harmlessly).
+        active = [item.celery_task_id for item in tasks if item.is_active]
         await asyncio.to_thread(revoke_tasks, active)
+        await self.tasks.mark_revoked(active)
         await self._cancel_processing(item for item in tasks if item.celery_task_id in active)
-        return self._to_out(task, status="REVOKED" if task.celery_task_id in active else None)
+        return self._to_out(task, status=TaskStatus.REVOKED.value if task.celery_task_id in active else None)
 
     async def _cancel_processing(self, revoked: Iterable[Task]) -> None:
         document_ids = {item.document_id for item in revoked if item.document_id is not None}
@@ -106,7 +108,7 @@ class TaskService:
         return TaskOut(
             id=task.id,
             task_name=task.task_name,
-            status=status or get_task_status(task.celery_task_id),
+            status=status or task.status.value,
             document_id=task.document_id,
             document_name=task.document.name if task.document else None,
             collection_id=task.collection_id,

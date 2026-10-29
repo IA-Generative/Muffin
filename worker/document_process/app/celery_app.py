@@ -5,6 +5,7 @@ from kombu import Exchange, Queue
 from app import (  # noqa: F401 - loguru everywhere, each task's lines (#305) and its time, CPU and memory, to the backend
     execution_metrics,
     task_logging,
+    task_status,
 )
 from app.config import settings
 from app.ocr.routing import ocr_task_queues
@@ -25,6 +26,7 @@ _EXTRACTION_TASKS = (
     "app.tasks.refresh_url_document",
     "app.tasks.scan_url_refresh",
     "app.tasks.purge_task_logs",
+    "app.tasks.reap_stuck_tasks",
     "app.tasks.release_import_queue",
 )
 _ENRICHMENT_TASKS = (
@@ -103,6 +105,12 @@ celery_app.conf.update(
         "purge-task-logs": {
             "task": "app.tasks.purge_task_logs",
             "schedule": crontab(minute=15),
+            "options": {"queue": settings.EXTRACTION_QUEUE_NAME},
+        },
+        # The tasks whose worker died while running them, once an hour.
+        "reap-stuck-tasks": {
+            "task": "app.tasks.reap_stuck_tasks",
+            "schedule": crontab(minute=45),
             "options": {"queue": settings.EXTRACTION_QUEUE_NAME},
         },
     },

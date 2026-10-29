@@ -14,6 +14,7 @@ EXTRACTION = [
     "app.tasks.refresh_url_document",
     "app.tasks.scan_url_refresh",
     "app.tasks.purge_task_logs",
+    "app.tasks.reap_stuck_tasks",
     "app.tasks.release_import_queue",
 ]
 ENRICHMENT = [
