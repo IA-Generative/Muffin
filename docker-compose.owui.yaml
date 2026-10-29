@@ -34,6 +34,8 @@ services:
         condition: service_started
     environment:
       WEBUI_SECRET_KEY: dev-only-owui-secret-not-for-prod
+      # dev exposes the API schema (/openapi.json, /docs), which the sync client is written against.
+      ENV: dev
       WEBUI_AUTH: "true"
       # The environment always wins over what the admin UI saved, so the stack behaves the same on every start.
       ENABLE_PERSISTENT_CONFIG: "false"
