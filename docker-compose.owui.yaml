@@ -1,0 +1,72 @@
+# A real Open WebUI next to Muffin, to test the OWUI -> Muffin synchronisation (#453) against the real thing.
+# It shares Muffin's S3 (own bucket), Qdrant (classic mode, own prefix) and Keycloak, as in production.
+#
+#   docker compose -f docker-compose.yaml -f docker-compose.owui.yaml up -d rustfs qdrant keycloak owui
+#
+# Open WebUI is then on http://localhost:3001. See docs/owui-test-instance.md.
+services:
+  owui-bucket:
+    image: amazon/aws-cli:2.17.0
+    depends_on:
+      rustfs:
+        condition: service_healthy
+    environment:
+      AWS_ACCESS_KEY_ID: rustfsadmin
+      AWS_SECRET_ACCESS_KEY: rustfsadmin
+      AWS_DEFAULT_REGION: us-east-1
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - aws --endpoint-url http://rustfs:9000 s3api head-bucket --bucket owui-files 2>/dev/null || aws --endpoint-url http://rustfs:9000 s3 mb s3://owui-files
+
+  tika:
+    image: apache/tika:3.2.3.0-full
+    ports:
+      - "9998:9998"
+
+  owui:
+    image: ghcr.io/open-webui/open-webui:${OWUI_VERSION:-v0.12.5}
+    depends_on:
+      owui-bucket:
+        condition: service_completed_successfully
+      qdrant:
+        condition: service_healthy
+      tika:
+        condition: service_started
+    environment:
+      WEBUI_SECRET_KEY: dev-only-owui-secret-not-for-prod
+      WEBUI_AUTH: "true"
+      # The environment always wins over what the admin UI saved, so the stack behaves the same on every start.
+      ENABLE_PERSISTENT_CONFIG: "false"
+      ENABLE_SIGNUP: "true"
+      # The sync reads OWUI with an API key (#453).
+      ENABLE_API_KEYS: "true"
+      # Files in the same S3 as Muffin, in their own bucket.
+      STORAGE_PROVIDER: s3
+      S3_ENDPOINT_URL: http://rustfs:9000
+      S3_ACCESS_KEY_ID: rustfsadmin
+      S3_SECRET_ACCESS_KEY: rustfsadmin
+      S3_BUCKET_NAME: owui-files
+      S3_REGION_NAME: us-east-1
+      S3_ADDRESSING_STYLE: path
+      # Vectors in the same Qdrant, classic mode: one collection per knowledge base, prefixed.
+      VECTOR_DB: qdrant
+      QDRANT_URI: http://qdrant:6333
+      QDRANT_API_KEY: ${QDRANT_API_KEY:-dev-only-qdrant-key-not-for-prod}
+      QDRANT_COLLECTION_PREFIX: open-webui
+      ENABLE_QDRANT_MULTITENANCY_MODE: "false"
+      # Tika, as in production: one document per file, no page numbers.
+      CONTENT_EXTRACTION_ENGINE: tika
+      TIKA_SERVER_URL: http://tika:9998
+      # Embeddings from the same OpenAI-compatible hub as Muffin, so both read the same vector space.
+      RAG_EMBEDDING_ENGINE: openai
+      RAG_OPENAI_API_BASE_URL: ${OPENAI_API_BASE_URL:-}
+      RAG_OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      RAG_EMBEDDING_MODEL: ${OWUI_EMBEDDING_MODEL:-bge-multilingual-gemma2}
+    volumes:
+      - owui-data:/app/backend/data
+    ports:
+      - "3001:8080"
+    restart: unless-stopped
+
+volumes:
+  owui-data:
