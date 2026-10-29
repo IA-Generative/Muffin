@@ -24,12 +24,11 @@ snapshot_download('${MODEL_REPO}', revision='${MODEL_REVISION}', local_dir='/mod
 allow_patterns=['model.safetensors', 'config.json', 'preprocessor_config.json', 'tokenizer.json', \
 'tokenizer_config.json', 'vocab.json', 'configuration_florence2.py', 'modeling_florence2.py', \
 'processing_florence2.py'])" \
-    && cd /models/Florence-2-base \
-    && echo "${WEIGHTS_SHA256}  model.safetensors" | sha256sum -c - \
-    && echo "${CONFIGURATION_SHA256}  configuration_florence2.py" | sha256sum -c - \
-    && echo "${MODELING_SHA256}  modeling_florence2.py" | sha256sum -c - \
-    && echo "${PROCESSING_SHA256}  processing_florence2.py" | sha256sum -c - \
-    && rm -rf .cache
+    && echo "${WEIGHTS_SHA256}  /models/Florence-2-base/model.safetensors" | sha256sum -c - \
+    && echo "${CONFIGURATION_SHA256}  /models/Florence-2-base/configuration_florence2.py" | sha256sum -c - \
+    && echo "${MODELING_SHA256}  /models/Florence-2-base/modeling_florence2.py" | sha256sum -c - \
+    && echo "${PROCESSING_SHA256}  /models/Florence-2-base/processing_florence2.py" | sha256sum -c - \
+    && rm -rf /models/Florence-2-base/.cache
 
 FROM python:3.12-slim AS runtime
 # pip is a build tool: the runtime image never installs anything, and the pip bundled with the base
