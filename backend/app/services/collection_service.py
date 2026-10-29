@@ -226,6 +226,8 @@ class CollectionService:
                 else None
             ),
             pipeline_windows=windows_update,
+            caption_engine=update.caption_engine,
+            caption_model=update.caption_model,
         )
 
         # No refresh needed: only collection_settings columns changed (none

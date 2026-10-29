@@ -275,6 +275,8 @@ class CollectionRepository:
                 instructions_summary=settings_template.instructions_summary,
                 generation_models=dict(settings_template.generation_models or {}) or None,
                 pipeline_windows=dict(settings_template.pipeline_windows or {}) or None,
+                caption_engine=settings_template.caption_engine,
+                caption_model=settings_template.caption_model,
             )
         self.db.add(collection)
         await self.db.flush()
@@ -370,6 +372,8 @@ class CollectionRepository:
         instructions: dict[str, str] | None,
         generation_models: dict[str, str | None] | None,
         pipeline_windows: dict[str, Any] | None,
+        caption_engine: str | None = None,
+        caption_model: str | None = None,
     ) -> bool:
         """Returns whether the embedding model actually changed - the caller
         uses that to flip reindex_required."""
@@ -399,6 +403,10 @@ class CollectionRepository:
             settings.generation_models = {**(settings.generation_models or {}), **generation_models}
         if pipeline_windows is not None:
             settings.pipeline_windows = {**(settings.pipeline_windows or {}), **pipeline_windows}
+        if caption_engine is not None:
+            settings.caption_engine = caption_engine
+        if caption_model is not None:
+            settings.caption_model = caption_model or None
 
         return embedding_model_changed
 

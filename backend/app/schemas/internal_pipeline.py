@@ -19,6 +19,9 @@ class CollectionSettingsInternalOut(BaseModel):
     instructions: dict[str, str]
     generation_models: dict[str, str | None]
     pipeline_windows: dict[str, Any]
+    # Who describes the images and tables of a scanned page (#411): "local" (the vision pod) or "openai".
+    caption_engine: str = "local"
+    caption_model: str | None = None
 
 
 class TaskCreate(BaseModel):
@@ -159,7 +162,8 @@ class Prune(BaseModel):
 
 class LlmChatMessage(BaseModel):
     role: str
-    content: str
+    # Text, or the parts of a multimodal message (#411): [{"type": "text", ...}, {"type": "image_url", ...}].
+    content: str | list[dict[str, Any]]
 
 
 class LlmUsageContext(BaseModel):

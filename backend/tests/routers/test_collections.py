@@ -253,6 +253,29 @@ async def test_update_settings_generation_models_merge_not_replace(client):
     assert body["generation_models"]["tagging"] == "model-b"
 
 
+async def test_caption_engine_is_local_until_chosen_then_follows_the_collection(client):
+    created = (await client.post("/api/collections")).json()
+    assert created["caption_engine"] == "local"
+    assert created["caption_model"] is None
+
+    response = await client.patch(
+        f"/api/collections/{created['id']}/settings",
+        json={"caption_engine": "openai", "caption_model": "gpt-4o"},
+    )
+    assert response.status_code == 200
+    assert response.json()["caption_engine"] == "openai"
+    assert response.json()["caption_model"] == "gpt-4o"
+
+    # Another field alone leaves them; an empty model clears it (the hub's first chat model is then used).
+    kept = await client.patch(f"/api/collections/{created['id']}/settings", json={"chunk_size": 700})
+    assert kept.json()["caption_engine"] == "openai"
+    cleared = await client.patch(f"/api/collections/{created['id']}/settings", json={"caption_model": ""})
+    assert cleared.json()["caption_model"] is None
+
+    rejected = await client.patch(f"/api/collections/{created['id']}/settings", json={"caption_engine": "florence"})
+    assert rejected.status_code == 422
+
+
 async def test_pipeline_windows_default_when_never_saved(client):
     created = (await client.post("/api/collections")).json()
 
