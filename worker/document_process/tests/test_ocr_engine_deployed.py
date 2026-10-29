@@ -29,6 +29,13 @@ def test_every_pod_of_the_chart_reads_the_scanned_pages_the_same_way(chart):
     assert set(engines.values()) == {"layout"}, engines
 
 
+def test_every_pod_of_the_chart_and_compose_tells_the_vision_pod_is_there(chart, compose):
+    """Part of the fingerprint (who describes the images), and what decides whether the local engine asks the pod."""
+    values = {pod: chart[pod]["env"].get("VISION_POD_ENABLED") for pod in PODS}
+    values |= {name: compose[name]["environment"].get("VISION_POD_ENABLED") for name in SERVICES}
+    assert set(values.values()) == {"true"}, values
+
+
 def test_every_pod_of_the_chart_reads_the_tables_the_same_way(chart):
     """Part of the fingerprint too, and what decides whether the table pod is asked."""
     values = {pod: chart[pod]["env"].get("OCR_READ_TABLES_AS_TEXT") for pod in PODS}
@@ -37,14 +44,19 @@ def test_every_pod_of_the_chart_reads_the_tables_the_same_way(chart):
 
 def test_the_chart_runs_the_pods_that_engine_sends_pages_to(chart):
     """OCR_ENGINE=layout with no pod to send to would make every scanned page wait for its timeout."""
-    for pod, queue in (("ocr_layout", "document_layout"), ("ocr", "document_ocr"), ("ocr_table", "document_table")):
+    for pod, queue in (
+        ("ocr_layout", "document_layout"),
+        ("ocr", "document_ocr"),
+        ("ocr_table", "document_table"),
+        ("ocr_vision", "document_vision"),
+    ):
         assert queue in chart[pod]["args"], pod
     scaled = {
         obj["spec"]["triggers"][0]["metadata"]["listName"]
         for obj in chart["extraObjects"].values()
         if obj.get("kind") == "ScaledObject"
     }
-    assert {"document_layout", "document_ocr", "document_table"} <= scaled
+    assert {"document_layout", "document_ocr", "document_table", "document_vision"} <= scaled
 
 
 def test_every_service_of_the_compose_file_reads_the_scanned_pages_the_same_way(compose):
@@ -58,7 +70,7 @@ def test_every_service_of_the_compose_file_reads_the_tables_the_same_way(compose
 
 
 def test_the_compose_file_starts_the_ocr_pods_with_everything_else(compose):
-    for name in ("worker-ocr-layout", "worker-ocr", "worker-ocr-table"):
+    for name in ("worker-ocr-layout", "worker-ocr", "worker-ocr-table", "worker-ocr-vision"):
         assert "profiles" not in compose[name], f"{name} would not start with `docker compose up`"
         assert "redis" in compose[name]["depends_on"] and "rustfs" in compose[name]["depends_on"]
 
@@ -69,3 +81,4 @@ def test_the_code_default_stays_the_one_that_changes_nothing():
 
     assert WorkerSettings.model_fields["OCR_ENGINE"].default == "tesseract"
     assert WorkerSettings.model_fields["OCR_READ_TABLES_AS_TEXT"].default is True
+    assert WorkerSettings.model_fields["VISION_POD_ENABLED"].default is False

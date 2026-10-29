@@ -1,0 +1,23 @@
+{{- if .Values.enabled }}
+{{- if .Values.ocr_vision.metrics.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "helper.componentFullname" (dict "root" . "componentName" "ocr_vision-metrics") }}
+  labels: {{- (include "helper.labels" (dict "root" . "componentName" "ocr_vision-metrics")) | nindent 4 }}
+  {{- if .Values.ocr_vision.metrics.service.labels }}
+    {{- toYaml .Values.ocr_vision.metrics.service.labels | nindent 4 }}
+  {{- end }}
+  {{- if .Values.ocr_vision.metrics.service.annotations }}
+  annotations: {{- toYaml .Values.ocr_vision.metrics.service.annotations | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.ocr_vision.metrics.service.type | default "ClusterIP" }}
+  ports:
+  - port: {{ .Values.ocr_vision.metrics.service.port }}
+    targetPort: {{ .Values.ocr_vision.metrics.service.targetPort }}
+    protocol: TCP
+    name: {{ .Values.ocr_vision.metrics.service.portName | default "metrics" }}
+  selector: {{- include "helper.selectorLabels" (dict "root" . "componentName" "ocr_vision") | nindent 4 }}
+{{- end }}
+{{- end }}

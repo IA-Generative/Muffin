@@ -14,6 +14,7 @@ Add one `include` line per component when you add components to this chart.
 {{- include "helper.component.validate" (dict "name" "ocr_layout" "component" .Values.ocr_layout) }}
 {{- include "helper.component.validate" (dict "name" "ocr" "component" .Values.ocr) }}
 {{- include "helper.component.validate" (dict "name" "ocr_table" "component" .Values.ocr_table) }}
+{{- include "helper.component.validate" (dict "name" "ocr_vision" "component" .Values.ocr_vision) }}
 {{- include "helper.component.validate" (dict "name" "tabular" "component" .Values.tabular) }}
 {{- include "helper.component.validate" (dict "name" "index_rebuild" "component" .Values.index_rebuild) }}
 {{- end }}

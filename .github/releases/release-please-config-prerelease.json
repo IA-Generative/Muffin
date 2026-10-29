@@ -85,6 +85,16 @@
         },
         {
           "type": "toml",
+          "path": "worker/vision/pyproject.toml",
+          "jsonpath": "project.version"
+        },
+        {
+          "type": "toml",
+          "path": "worker/vision/uv.lock",
+          "jsonpath": "$.package[?(@.name.value=='muffin-worker-ocr-vision')].version"
+        },
+        {
+          "type": "toml",
           "path": "worker/document_process/pyproject.toml",
           "jsonpath": "project.version"
         },
