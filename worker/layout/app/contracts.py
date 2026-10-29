@@ -181,3 +181,39 @@ class PageTables(_Contract):
     page_number: int = Field(ge=1)
     tables: list[TableStructure] = Field(default_factory=list)
     model_version: str
+
+
+class RegionToDescribe(_Plain):
+    """A region to describe: `id` is the reading_order of the region of the page's layout, the box is the one the
+    layout found (between 0 and 1)."""
+
+    id: int = Field(ge=0)
+    box: Box
+    # "image" or "table": what the region is, which the description is asked for in the prompt's words.
+    kind: str = "image"
+
+
+class RegionDescription(_Plain):
+    id: int = Field(ge=0)
+    text: str
+
+
+class DescribeUsage(_Plain):
+    """What describing cost, for the caller to record: tokens when the model counts them (a model of the hub does, the
+    local one does not), and the seconds the inference took."""
+
+    model: str
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    seconds: float = 0.0
+
+
+class PageDescriptions(_Contract):
+    """What the vision pod describes in the regions of a page, by the id of each. A region it could not describe is
+    absent."""
+
+    document_id: str
+    page_number: int = Field(ge=1)
+    descriptions: list[RegionDescription] = Field(default_factory=list)
+    model_version: str
+    usage: DescribeUsage
