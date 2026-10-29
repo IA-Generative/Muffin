@@ -26,7 +26,7 @@ class CollectionSyncRepository:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
-    async def _get(self, source: ResourceSource, external_id: str) -> Collection | None:
+    async def get(self, source: ResourceSource, external_id: str) -> Collection | None:
         return await self.db.scalar(
             select(Collection)
             .where(Collection.source == source, Collection.external_id == external_id)
@@ -34,7 +34,7 @@ class CollectionSyncRepository:
         )
 
     async def sync(self, source: ResourceSource, external_id: str, data: CollectionSyncIn) -> CollectionSyncResult:
-        collection = await self._get(source, external_id)
+        collection = await self.get(source, external_id)
         created = collection is None
         if collection is None:
             collection = await CollectionRepository(self.db).create(
@@ -95,3 +95,12 @@ class CollectionSyncRepository:
             select(Collection.external_id).where(Collection.source == source, Collection.external_id.is_not(None))
         )
         return list(result)
+
+    async def delete(self, source: ResourceSource, external_id: str) -> Collection | None:
+        """Drops the copy of a collection that is gone from the other system, and with it its files and chunks
+        (cascade). Nothing of the other system is touched: the objects the files point to are not Muffin's."""
+        collection = await self.get(source, external_id)
+        if collection is not None:
+            await self.db.delete(collection)
+            await self.db.flush()
+        return collection
