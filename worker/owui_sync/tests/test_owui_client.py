@@ -93,3 +93,17 @@ def test_a_knowledge_base_carries_its_access_grants():
         ("group", "g1", "read"),
         ("user", "*", "write"),
     ]
+
+
+def test_the_members_of_a_group_come_with_what_they_signed_in_with():
+    asked = []
+
+    def handler(request):
+        asked.append(request.url.path)
+        if request.url.path.endswith("/export"):
+            return httpx.Response(200, json={"user_ids": ["u1"]})
+        return httpx.Response(200, json={**_user(1), "oauth": {"oidc": {"sub": "kc-1"}}})
+
+    [member] = list(_client(handler).group_members("g1"))
+    assert member.keycloak_sub == "kc-1"
+    assert asked == ["/api/v1/groups/id/g1/export", "/api/v1/users/u1"]
