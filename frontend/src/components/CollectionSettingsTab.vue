@@ -13,6 +13,7 @@ import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import '../assets/settings-form.css'
 import { useCollections } from '../composables/useCollections'
 import { useEmbeddingModels } from '../composables/useEmbeddingModels'
+import { useVisionModels } from '../composables/useVisionModels'
 import type { Collection } from '../types/collection'
 import { applyProfile, detectProfile, profileById, type Profile } from '../utils/collectionProfiles'
 import {
@@ -49,6 +50,7 @@ const {
   finalizeIndexRebuild,
   rollbackIndexRebuild,
 } = useCollections()
+const { models: visionModels, isLoading: isLoadingVisionModels, error: visionModelsError } = useVisionModels()
 const { models: embeddingModels, isLoading: isLoadingEmbeddingModels, error: embeddingModelsError } = useEmbeddingModels()
 
 // -- le brouillon ------------------------------------------------------------------------------------------------
@@ -381,6 +383,51 @@ const STRATEGY_HINT = {
             </template>
           </SettingsField>
         </div>
+
+        <SettingsSection
+          title="Description des images"
+          :summary="draft.captions.engine === 'local' ? 'Florence-2 (local)' : draft.captions.model || 'Modèle du hub'"
+          :changed="isChanged('captions')"
+        >
+          <p class="sf-hint">
+            Sur les pages scannées, les images et les tableaux reçoivent une courte description, pour pouvoir être
+            retrouvés par la recherche.
+          </p>
+          <SettingsField id="caption-engine" label="Qui décrit les images ?">
+            <template #default="{ id }">
+              <select :id="id" v-model="draft.captions.engine" class="fr-select">
+                <option value="local">Florence-2, en local</option>
+                <option value="openai">Un modèle du hub qui lit les images</option>
+              </select>
+            </template>
+          </SettingsField>
+          <SettingsField
+            v-if="draft.captions.engine === 'openai'"
+            id="caption-model"
+            label="Modèle"
+            hint="Seuls les modèles qui acceptent des images sont proposés. Sans choix, le premier d'entre eux est utilisé."
+            :error="visionModelsError ?? undefined"
+          >
+            <template #default="{ id, describedby }">
+              <select
+                :id="id"
+                v-model="draft.captions.model"
+                class="fr-select"
+                :disabled="isLoadingVisionModels"
+                :aria-describedby="describedby"
+              >
+                <option value="">Premier modèle disponible</option>
+                <option
+                  v-if="draft.captions.model && !visionModels.some((model) => model.id === draft.captions.model)"
+                  :value="draft.captions.model"
+                >
+                  {{ draft.captions.model }}
+                </option>
+                <option v-for="model in visionModels" :key="model.id" :value="model.id">{{ model.id }}</option>
+              </select>
+            </template>
+          </SettingsField>
+        </SettingsSection>
 
         <SettingsSection
           title="Résumé"
