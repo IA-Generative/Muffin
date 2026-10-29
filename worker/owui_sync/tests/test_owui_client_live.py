@@ -18,11 +18,16 @@ def test_users(client):
     assert "admin@example.test" in {user.email for user in client.users()}
 
 
-def test_groups_and_their_members(client):
-    groups = {group.name: group for group in client.groups()}
-    members = client.group_member_ids(groups["equipe-a"].id)
-    users = {user.id: user.email for user in client.users()}
-    assert [users[member] for member in members] == ["alice@example.test"]
+def test_group_members_carry_their_keycloak_subject(client):
+    """Needs julie and michou signed in through Keycloak and in the group (docs/owui-test-instance.md)."""
+    group = {group.name: group for group in client.groups()}["equipe-a"]
+    subjects = {member.email: member.keycloak_sub for member in client.group_members(group.id)}
+    assert subjects == {
+        "julie@example.com": subjects["julie@example.com"],
+        "michou@example.com": subjects["michou@example.com"],
+        "alice@example.test": None,
+    }
+    assert subjects["julie@example.com"] and subjects["michou@example.com"]
 
 
 def test_knowledge_bases_files_and_grants(client):

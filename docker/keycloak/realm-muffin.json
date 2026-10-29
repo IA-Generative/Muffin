@@ -67,6 +67,20 @@
           }
         }
       ]
+    },
+    {
+      "clientId": "open-webui",
+      "name": "Open WebUI (test instance, #453)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "secret": "dev-only-secret-not-for-prod",
+      "redirectUris": ["http://localhost:3001/oauth/oidc/callback"],
+      "webOrigins": ["http://localhost:3001"],
+      "defaultClientScopes": ["openid", "profile", "email"]
     }
   ],
   "users": [
