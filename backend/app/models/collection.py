@@ -14,6 +14,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
@@ -52,6 +53,9 @@ class Collection(UUIDMixin, TimestampMixin, Base):
 
     # Keycloak subject (sub) claim; a collection always has exactly one owner.
     owner_id: Mapped[str] = mapped_column(String, index=True, nullable=False)
+    # Made here, or copied from Open WebUI (#453) - then external_id is the id it has there.
+    source: Mapped[str] = mapped_column(String(16), nullable=False, default="muffin", server_default="muffin")
+    external_id: Mapped[str | None] = mapped_column(String, nullable=True)
     visibility: Mapped[CollectionVisibility] = mapped_column(
         Enum(CollectionVisibility, name="collection_visibility"),
         nullable=False,
@@ -126,6 +130,14 @@ class Collection(UUIDMixin, TimestampMixin, Base):
         CheckConstraint("parent_id IS NULL OR parent_id <> id", name="ck_collections_not_own_parent"),
         # A temporary collection is conversation/holding-scoped and never part of a hierarchy.
         CheckConstraint("NOT (is_temporary AND parent_id IS NOT NULL)", name="ck_collections_temporary_has_no_parent"),
+        # One copy per collection of the other system (#453); what is made in Muffin has no external id.
+        Index(
+            "uq_collections_source_external_id",
+            "source",
+            "external_id",
+            unique=True,
+            postgresql_where=text("external_id IS NOT NULL"),
+        ),
     )
 
 
