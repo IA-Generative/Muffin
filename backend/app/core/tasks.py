@@ -64,6 +64,9 @@ DOCUMENT_EDIT_QUEUE = "document_edit"
 INDEX_REBUILD_QUEUE = "index_rebuild"
 REBUILD_INDEX_TASK = "app.tasks.rebuild_index"
 EDIT_DOCUMENT_TASK = "app.tasks.edit_document"
+# The synchronisation with Open WebUI (#453): its own worker and queue, which lists and copies a whole Open WebUI.
+OWUI_SYNC_QUEUE = "owui_sync"
+SYNC_OWUI_TASK = "app.tasks.sync_owui"
 # Same worker and queue: putting a user's uploaded images into an ODT draft (#169).
 INSERT_IMAGES_TASK = "app.tasks.insert_images"
 # Same worker and queue: rendering the PDF previews of a file the user picked to replace a document.
@@ -158,6 +161,11 @@ def enqueue_edit_document(payload: dict, task_id: str | None = None) -> str:
     the validate/adjust/refuse loop lives in the backend."""
     result = _celery_app.send_task(EDIT_DOCUMENT_TASK, args=[payload], queue=DOCUMENT_EDIT_QUEUE, task_id=task_id)
     return result.id
+
+
+def enqueue_sync_owui() -> str:
+    """Starts a synchronisation with Open WebUI now, on top of the periodic one. Returns the Celery task id."""
+    return _celery_app.send_task(SYNC_OWUI_TASK, queue=OWUI_SYNC_QUEUE).id
 
 
 def enqueue_insert_images(payload: dict, task_id: str | None = None) -> str:
