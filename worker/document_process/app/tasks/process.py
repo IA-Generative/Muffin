@@ -80,6 +80,18 @@ def _process_markdown(document_id: str, data: bytes) -> None:
     _shared.backend_client.prune_pages(document_id, keep=1)
 
 
+def _collection_settings(document: dict) -> dict | None:
+    """The collection's settings, for the extraction's fingerprint: who describes the images of a scanned page (#411)
+    is part of what the pages are. Only asked for when the OCR pods read them; None if the backend does not say."""
+    if settings.OCR_ENGINE != "layout":
+        return None
+    try:
+        return _shared.backend_client.get_collection_settings(document["collection_id"])
+    except Exception as error:
+        logger.warning(f"Could not read the settings of the collection of {document['id']}: {error}")
+        return None
+
+
 def _extract_file(document: dict, parent_task_id: str) -> bool:
     """The pages of a file - unless another document of the same file already has them (#300), in which
     case the backend copies them and the OCR is not run. True: the pages are there. False: it is a long PDF,
@@ -92,7 +104,7 @@ def _extract_file(document: dict, parent_task_id: str) -> bool:
         # that are about to be parsed anyway.
         data = _shared.storage.get_object(storage_key)
         content_hash = hashlib.sha256(data).hexdigest()
-    fingerprint = reuse.extraction(content_hash)
+    fingerprint = reuse.extraction(content_hash, _collection_settings(document))
     if reuse.begin(document_id, reuse.EXTRACTION, fingerprint, content_hash=content_hash):
         logger.info(f"Pages of document {document_id} reused from another document of the same file")
         return True
