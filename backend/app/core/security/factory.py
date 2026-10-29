@@ -1,12 +1,15 @@
 import os
 from dataclasses import dataclass, field
 
-from fastapi import HTTPException, Request, Security, status
+from fastapi import Depends, HTTPException, Request, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import KeycloakSettings
 from app.core.security.claims import extract_identity
 from app.core.security.keycloak_client import keycloak_openid, session_store
+from app.db import get_db
+from app.repositories.group_repository import GroupRepository
 
 
 @dataclass
@@ -87,9 +90,24 @@ bearer_scheme = HTTPBearer(
     "cookie instead - this is only for testing endpoints directly from Swagger UI.",
 )
 _bearer_security = Security(bearer_scheme)
+_db_dependency = Depends(get_db)
 
 
-def get_current_user(
+def get_token_identity(
     request: Request, _credentials: HTTPAuthorizationCredentials | None = _bearer_security
 ) -> RequestContext:
+    """Who is asking according to their token alone - what get_current_user starts from."""
     return TokenVerifier(request)
+
+
+_identity_dependency = Depends(get_token_identity)
+
+
+async def get_current_user(
+    context: RequestContext = _identity_dependency,
+    db: AsyncSession = _db_dependency,
+) -> RequestContext:
+    """Who is asking, with the groups of their token plus the ones they are a member of in Muffin (#453) -
+    so that a share to either reaches them, and so does what snapshots `groups` (a run's `user_groups`)."""
+    context.groups = list(dict.fromkeys([*context.groups, *await GroupRepository(db).group_ids_of(context.user_id)]))
+    return context
