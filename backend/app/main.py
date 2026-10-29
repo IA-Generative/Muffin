@@ -27,6 +27,7 @@ from app.routers.internal_document_drafts import router as internal_document_dra
 from app.routers.internal_documents import router as internal_documents_router
 from app.routers.internal_edit_requests import router as internal_edit_requests_router
 from app.routers.internal_evaluation import router as internal_evaluation_router
+from app.routers.internal_groups import router as internal_groups_router
 from app.routers.internal_llm import router as internal_llm_router
 from app.routers.internal_pipeline import router as internal_pipeline_router
 from app.routers.internal_prompts import router as internal_prompts_router
@@ -125,6 +126,7 @@ app.include_router(admin_prompts_router, prefix="/api")
 app.include_router(admin_cgu_router, prefix="/api")
 app.include_router(cgu_router, prefix="/api")
 app.include_router(admin_reports_router, prefix="/api")
+app.include_router(internal_groups_router, prefix="/api")
 app.include_router(reports_router, prefix="/api")
 app.include_router(quality_router, prefix="/api")
 app.include_router(usage_router, prefix="/api")
