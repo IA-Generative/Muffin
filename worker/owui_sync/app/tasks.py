@@ -32,3 +32,73 @@ def sync_group(group_id: str) -> dict:
     result = backend_client.sync_group("owui", group.id, group.name, group.description or "", subjects)
     logger.info("Group {} synchronised: {}", group.name, result)
     return {**result, "members_without_subject": len(unresolved)}
+
+
+# The owner a collection gets when the one it had in Open WebUI never signed in through Keycloak: a collection
+# needs one, and it is only the other readers (and everyone, if it is public) that can reach it.
+_UNKNOWN_OWNER = "owui:{user_id}"
+
+
+@celery_app.task(name="app.tasks.sync_knowledge")
+def sync_knowledge(knowledge_id: str) -> dict:
+    """Makes Muffin's copy of one Open WebUI knowledge base what Open WebUI has (#453): its name, its owner and
+    who may read it. Its groups must have been synchronised before (sync_group): a group Muffin has no copy of
+    gets no share, and is reported.
+
+    Only the `read` grants are copied: Muffin has no shared writing yet, so a `write` grant is left out."""
+    owui = OwuiClient()
+    knowledge = owui.knowledge(knowledge_id)
+
+    owner = owui.user(knowledge.user_id).keycloak_sub
+    if owner is None:
+        owner = _UNKNOWN_OWNER.format(user_id=knowledge.user_id)
+        logger.warning("Knowledge base {}: its owner has no Keycloak subject, owned by {}", knowledge.name, owner)
+
+    public = False
+    user_shares: list[dict] = []
+    group_ids: list[str] = []
+    without_subject = write_grants = 0
+    for grant in knowledge.access_grants:
+        if grant.permission != "read":
+            write_grants += 1
+        elif grant.principal_id == "*":
+            public = True
+        elif grant.principal_type == "group":
+            group_ids.append(grant.principal_id)
+        else:
+            user = owui.user(grant.principal_id)
+            if user.keycloak_sub is None:
+                without_subject += 1
+                logger.warning(
+                    "Knowledge base {}: reader {} has no Keycloak subject, left out", knowledge.name, user.email
+                )
+            else:
+                user_shares.append({"subject_id": user.keycloak_sub, "email": user.email})
+    if write_grants:
+        logger.info(
+            "Knowledge base {}: {} write grant(s) not copied (no shared writing in Muffin)",
+            knowledge.name,
+            write_grants,
+        )
+
+    result = backend_client.sync_collection(
+        "owui",
+        knowledge.id,
+        {
+            "name": knowledge.name,
+            "description": knowledge.description or "",
+            "owner_id": owner,
+            "embedding_model": owui.embedding_model(),
+            "public": public,
+            "user_shares": user_shares,
+            "group_external_ids": group_ids,
+        },
+    )
+    if result["unknown_groups"]:
+        logger.warning(
+            "Knowledge base {}: groups not synchronised yet, no share for them: {}",
+            knowledge.name,
+            result["unknown_groups"],
+        )
+    logger.info("Knowledge base {} synchronised: {}", knowledge.name, result)
+    return {**result, "readers_without_subject": without_subject, "write_grants_ignored": write_grants}
