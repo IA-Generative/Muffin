@@ -66,6 +66,8 @@ class OwuiFile(_Model):
     user_id: str | None = None
     filename: str
     hash: str | None = None
+    # Where Open WebUI keeps the file, `s3://<bucket>/<key>` with its S3 storage. Only a single file's route gives it.
+    path: str | None = None
     meta: dict[str, Any] = Field(default_factory=dict)
     created_at: int | None = None
     updated_at: int | None = None
@@ -156,6 +158,13 @@ class OwuiClient:
     def group_member_ids(self, group_id: str) -> list[str]:
         """The users that belong to the group itself, not through one of its sub-groups."""
         return self._get(f"/api/v1/groups/id/{group_id}/export")["user_ids"]
+
+    def file(self, file_id: str) -> OwuiFile:
+        return OwuiFile.model_validate(self._get(f"/api/v1/files/{file_id}"))
+
+    def file_text(self, file_id: str) -> str:
+        """The text Open WebUI extracted from the whole file - one string, no page boundary."""
+        return self._get(f"/api/v1/files/{file_id}/data/content")["content"] or ""
 
     def knowledge(self, knowledge_id: str) -> OwuiKnowledge:
         return OwuiKnowledge.model_validate(self._get(f"/api/v1/knowledge/{knowledge_id}"))
