@@ -19,5 +19,5 @@ COPY --from=builder --chown=worker:worker /app/app /app/app
 USER worker
 ENV PATH="/app/.venv/bin:$PATH"
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-  CMD celery -A app.celery_app inspect ping -d celery@$$HOSTNAME || exit 1
+  CMD celery -A app.celery_app inspect ping -d celery@$HOSTNAME || exit 1
 CMD ["celery", "-A", "app.celery_app", "worker", "--loglevel=info"]
