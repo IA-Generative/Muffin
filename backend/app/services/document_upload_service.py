@@ -447,6 +447,7 @@ class DocumentUploadService:
                 polygon=[(x, y) for x, y in region.polygon] if region.polygon else None,
                 title_level=region.title_level,
                 caption=region.caption,
+                caption_model=region.caption_model,
             )
             for region, number in found
         ]

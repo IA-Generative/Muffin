@@ -85,6 +85,16 @@ async def _stored(document_id, number=1) -> list[PageRegion]:
 # --- written with the page ---
 
 
+async def test_the_description_of_a_region_is_kept_with_the_model_that_wrote_it(client):
+    _, document_id = await _document()
+    described = [{**REGIONS[4], "caption": "Un graphique en barres.", "caption_model": "Florence-2-base"}]
+
+    await _write(client, document_id, regions=[*REGIONS[:4], *described])
+
+    image = (await _stored(document_id))[4]
+    assert (image.caption, image.caption_model) == ("Un graphique en barres.", "Florence-2-base")
+
+
 async def test_a_page_is_written_with_every_region_of_its_layout_in_reading_order(client):
     _, document_id = await _document()
 
@@ -96,8 +106,8 @@ async def test_a_page_is_written_with_every_region_of_its_layout_in_reading_orde
     assert (stored[1].title_level, stored[2].title_level) == (1, None)
     assert (stored[4].score, stored[4].x_min, stored[4].y_max) == (0.97, 0.1, pytest.approx(0.7))
     assert stored[2].polygon == [[0.1, 0.25], [0.9, 0.25], [0.9, 0.35], [0.1, 0.35]]
-    # Reserved for what describes an image (#411) and reads a table (#410).
-    assert all(region.caption is None and region.table_id is None for region in stored)
+    # Nothing described them (#411), and no table was read here (#410).
+    assert all(region.caption is None and region.caption_model is None and region.table_id is None for region in stored)
 
 
 async def test_a_page_written_again_replaces_its_regions_instead_of_adding_a_second_copy(client):

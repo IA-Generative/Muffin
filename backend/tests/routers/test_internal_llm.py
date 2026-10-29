@@ -206,3 +206,28 @@ async def test_chat_stream_sends_the_text_as_it_is_written_then_the_usage(client
 async def test_chat_stream_requires_api_key(client):
     response = await client.post("/api/internal/llm/chat-stream", json={"model": "gpt-4o", "messages": []})
     assert response.status_code == 401
+
+
+async def test_default_vision_model_is_the_first_chat_model_that_reads_images(client, monkeypatch):
+    async def create(model, messages, **_kwargs):
+        content = messages[0]["content"]
+        if isinstance(content, list) and model != "gpt-4o":
+            raise RuntimeError("no images")
+        return SimpleNamespace()
+
+    fake = SimpleNamespace(
+        models=SimpleNamespace(
+            list=AsyncMock(
+                return_value=SimpleNamespace(data=[SimpleNamespace(id="mistral"), SimpleNamespace(id="gpt-4o")])
+            )
+        ),
+        chat=SimpleNamespace(completions=SimpleNamespace(create=AsyncMock(side_effect=create))),
+    )
+    monkeypatch.setattr(internal_llm, "_openai_client", fake)
+    monkeypatch.setattr(
+        internal_llm.redis_connector, "client", SimpleNamespace(get=lambda key: None, set=lambda *a, **k: None)
+    )
+
+    response = await client.get("/api/internal/llm/default-vision-model", headers=_headers())
+
+    assert response.json() == {"model": "gpt-4o"}

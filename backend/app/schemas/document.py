@@ -93,6 +93,7 @@ class RegionOut(BaseModel):
     polygon: list[tuple[float, float]] | None = None
     title_level: int | None = None
     caption: str | None = None
+    caption_model: str | None = None
 
 
 class TableSummaryOut(BaseModel):

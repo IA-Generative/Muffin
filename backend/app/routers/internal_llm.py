@@ -47,12 +47,35 @@ _openai_client = (
 # client instance so its tests can monkeypatch it in isolation.
 _CHAT_MODELS_CACHE_KEY = "llm:chat_models"
 _EMBEDDING_MODELS_CACHE_KEY = "llm:embedding_models"
+_VISION_MODELS_CACHE_KEY = "llm:vision_models"
 
 
 async def _supports_chat(model_id: str) -> bool:
     try:
         await _openai_client.chat.completions.create(
             model=model_id, messages=[{"role": "user", "content": "ping"}], max_tokens=1
+        )
+        return True
+    except Exception:
+        return False
+
+
+async def _supports_vision(model_id: str) -> bool:
+    from app.routers.models import _probe_image_url
+
+    try:
+        await _openai_client.chat.completions.create(
+            model=model_id,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "ping"},
+                        {"type": "image_url", "image_url": {"url": _probe_image_url()}},
+                    ],
+                }
+            ],
+            max_tokens=1,
         )
         return True
     except Exception:
@@ -180,6 +203,17 @@ async def chat_stream(request: LlmChatRequest) -> StreamingResponse:
 )
 async def default_chat_model() -> dict[str, str | None]:
     return {"model": await _default_chat_model()}
+
+
+@router.get(
+    "/llm/default-vision-model",
+    summary="The hub's first chat model that reads images, for describing the images of a scan",
+)
+async def default_vision_model() -> dict[str, str | None]:
+    if _openai_client is None:
+        return {"model": None}
+    model_ids = await _discover_models(_VISION_MODELS_CACHE_KEY, _supports_vision)
+    return {"model": model_ids[0] if model_ids else None}
 
 
 @router.post(
