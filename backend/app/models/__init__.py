@@ -47,6 +47,7 @@ from app.models.feedback import (
     FeedbackSourceRole,
     FeedbackValue,
 )
+from app.models.group import Group, GroupMember, ResourceSource
 from app.models.import_document import ImportDocument
 from app.models.index_rebuild import IndexRebuild, IndexRebuildStatus
 from app.models.message import Message, MessageRole
@@ -107,6 +108,8 @@ __all__ = [
     "FeedbackSource",
     "FeedbackSourceRole",
     "FeedbackValue",
+    "Group",
+    "GroupMember",
     "Message",
     "MessageRole",
     "MessageSource",
@@ -118,6 +121,7 @@ __all__ = [
     "Report",
     "ReportStatus",
     "ReportType",
+    "ResourceSource",
     "Run",
     "RunEvent",
     "RunPromptUsage",
