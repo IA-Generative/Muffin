@@ -16,6 +16,9 @@ class WorkerSettings(BaseSettings):
     # The Open WebUI read by the synchronisation (#453): its REST API, with the key of an administrator.
     OWUI_BASE_URL: str = "http://localhost:3001"
     OWUI_API_KEY: str = ""
+    # A synchronisation every this many minutes, started by the beat (`celery -A app.celery_app beat`, one
+    # process, not one per worker pod). 0 starts none by itself: only the administrator's button does.
+    OWUI_SYNC_INTERVAL_MINUTES: int = 60
 
     # S3 and Qdrant are the ones Open WebUI already uses: the worker reads the files and the vectors where
     # they are and copies neither.

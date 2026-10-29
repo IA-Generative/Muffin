@@ -19,3 +19,10 @@ def test_the_tasks_of_a_synchronisation_are_registered():
         "finish_sync",
     ):
         assert f"app.tasks.{name}" in celery_app.tasks
+
+
+def test_a_synchronisation_is_scheduled_every_interval():
+    entry = celery_app.conf.beat_schedule["sync-owui"]
+    assert entry["task"] == "app.tasks.sync_owui"
+    assert entry["schedule"] == settings.OWUI_SYNC_INTERVAL_MINUTES * 60
+    assert entry["options"] == {"queue": "owui_sync"}
