@@ -34,3 +34,9 @@ def test_knowledge_bases_files_and_grants(client):
     knowledge = {kb.name: kb for kb in client.knowledge_bases()}["kb-test"]
     assert {(g.principal_type, g.permission) for g in knowledge.access_grants} == {("group", "read"), ("user", "write")}
     assert [file.filename for file in client.knowledge_files(knowledge.id)] == ["test.txt"]
+
+
+def test_one_knowledge_base_and_the_embedding_model(client):
+    knowledge = {kb.name: kb for kb in client.knowledge_bases()}["kb-test"]
+    assert client.knowledge(knowledge.id).name == "kb-test"
+    assert client.embedding_model()
