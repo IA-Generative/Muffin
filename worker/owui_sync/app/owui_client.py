@@ -157,6 +157,13 @@ class OwuiClient:
         """The users that belong to the group itself, not through one of its sub-groups."""
         return self._get(f"/api/v1/groups/id/{group_id}/export")["user_ids"]
 
+    def knowledge(self, knowledge_id: str) -> OwuiKnowledge:
+        return OwuiKnowledge.model_validate(self._get(f"/api/v1/knowledge/{knowledge_id}"))
+
+    def embedding_model(self) -> str:
+        """The model Open WebUI makes its vectors with."""
+        return self._get("/api/v1/retrieval/embedding")["RAG_EMBEDDING_MODEL"]
+
     def knowledge_bases(self) -> Iterator[OwuiKnowledge]:
         for items in self._pages("/api/v1/knowledge/", "items"):
             yield from (OwuiKnowledge.model_validate(item) for item in items)

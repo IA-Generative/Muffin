@@ -25,6 +25,12 @@ class BackendClient:
         response.raise_for_status()
         return response.json()
 
+    def sync_collection(self, source: str, external_id: str, body: dict) -> dict:
+        """Makes Muffin's copy of a collection what the other system has, and who may read it."""
+        response = self._client.put(f"/api/internal/synced-collections/{source}/{external_id}", json=body)
+        response.raise_for_status()
+        return response.json()
+
     def add_task_logs(self, lines: list[dict]) -> None:
         """A short timeout: the lines are sent again with the next batch, a task never waits on them."""
         response = self._client.post("/api/internal/task-logs", json={"entries": lines}, timeout=5.0)
