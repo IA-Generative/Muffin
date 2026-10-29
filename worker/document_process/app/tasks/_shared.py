@@ -6,6 +6,7 @@ pour éviter les dépendances circulaires entre modules de tâches.
 """
 
 import json
+import uuid
 from typing import Any
 
 from loguru import logger
@@ -89,8 +90,19 @@ def _spawn(
     priority: int | None = None,
 ) -> None:
     options = {} if priority is None else {"priority": priority}
-    result = task.apply_async(args=args, **options)
-    backend_client.create_task(result.id, task_name, document_id, parent_celery_task_id=parent_task_id)
+    # Record the child before publishing it: a window can start and finish before the backend
+    # would otherwise have its row, and its STARTED/SUCCESS reports would be dropped - leaving
+    # the row PENDING for ever, out of the reaper's reach (it only looks at STARTED).
+    task_id = str(uuid.uuid4())
+    backend_client.create_task(task_id, task_name, document_id, parent_celery_task_id=parent_task_id)
+    try:
+        task.apply_async(args=args, task_id=task_id, **options)
+    except Exception as exc:
+        try:
+            backend_client.update_task_status(task_id, "FAILURE", str(exc))
+        except Exception:
+            logger.exception(f"Could not mark task {task_id} as failed after it could not be published")
+        raise
 
 
 def start_lanes(

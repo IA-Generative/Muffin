@@ -1,6 +1,7 @@
 from bisect import bisect
-from unittest.mock import MagicMock
+from unittest.mock import ANY, MagicMock
 
+import pytest
 from kombu.transport import redis as redis_transport
 
 from app import task_logging, tasks
@@ -34,10 +35,38 @@ def test_spawn_sends_the_task_with_the_priority_only_when_one_is_given(monkeypat
     task = MagicMock()
 
     _shared._spawn(task, ["doc"], "app.tasks.x", "doc", "parent")
-    task.apply_async.assert_called_with(args=["doc"])
+    task.apply_async.assert_called_with(args=["doc"], task_id=ANY)
 
     _shared._spawn(task, ["doc"], "app.tasks.x", "doc", "parent", priority=3)
-    task.apply_async.assert_called_with(args=["doc"], priority=3)
+    task.apply_async.assert_called_with(args=["doc"], priority=3, task_id=ANY)
+
+
+def test_spawn_records_the_child_before_publishing_it(monkeypatch):
+    backend = MagicMock()
+    monkeypatch.setattr(_shared, "backend_client", backend)
+    task = MagicMock()
+    order = []
+    backend.create_task.side_effect = lambda *args, **kwargs: order.append("create")
+    task.apply_async.side_effect = lambda *args, **kwargs: order.append("publish")
+
+    _shared._spawn(task, ["doc"], "app.tasks.x", "doc", "parent")
+
+    assert order == ["create", "publish"]
+    task_id = backend.create_task.call_args.args[0]
+    assert task.apply_async.call_args.kwargs["task_id"] == task_id
+
+
+def test_spawn_marks_the_child_failed_when_it_cannot_be_published(monkeypatch):
+    backend = MagicMock()
+    monkeypatch.setattr(_shared, "backend_client", backend)
+    task = MagicMock()
+    task.apply_async.side_effect = RuntimeError("broker down")
+
+    with pytest.raises(RuntimeError):
+        _shared._spawn(task, ["doc"], "app.tasks.x", "doc", "parent")
+
+    task_id = backend.create_task.call_args.args[0]
+    backend.update_task_status.assert_called_once_with(task_id, "FAILURE", "broker down")
 
 
 def test_a_document_sends_its_windows_below_the_tasks_that_make_it_searchable(monkeypatch):
