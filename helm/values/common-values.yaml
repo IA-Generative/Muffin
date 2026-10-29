@@ -558,6 +558,43 @@ worker_document_edit:
     BACKEND_API_URL: "http://muffin-backend:8000"
     AWS_ENDPOINT_URL: "https://s3.fr-par.scw.cloud"
 
+# Celery worker - synchronisation Open WebUI -> Muffin (worker/owui_sync, #453). Reads Open WebUI with the key
+# of an administrator and writes Muffin through the backend; the files stay in Open WebUI's bucket and the
+# vectors in its Qdrant collections (same S3 and same Qdrant as Muffin's), so there is no `muffin-s3` here.
+# Off until an Open WebUI is given to it: KEDA scales it to 0 while its queue is empty and the cronjob below,
+# which fills the queue every hour, is suspended. To turn it on, create the `muffin-owui-sync` secret
+# (OWUI_BASE_URL, OWUI_API_KEY) and set `cronjobs.owui-sync.suspend: false`.
+worker_owui_sync:
+  image:
+    registry: "harbor.sdid.cpin.numerique-interieur.com"
+    repository: "{{ .Values.global.project }}/muffin-worker-owui-sync"
+    pullPolicy: "Always"
+  serviceAccount:
+    enabled: true
+    create: true
+  # KEDA ScaledObject on the Celery Redis queue - see document_process above.
+  # Probes disabled - see document_process above for rationale.
+  probes:
+    startupProbe: null
+    readinessProbe: null
+    livenessProbe: null
+  envFrom:
+  - secretRef:
+      name: "muffin-worker"
+  - secretRef:
+      name: "muffin-redis"
+  - secretRef:
+      name: "muffin-qdrant"
+  - secretRef:
+      name: "muffin-owui-sync"
+      optional: true
+  env:
+    CELERY_QUEUE_NAME: "owui_sync"
+    BACKEND_API_URL: "http://muffin-backend:8000"
+    QDRANT_URL: "http://muffin-qdrant:6333"
+    # No beat in this pod: the cronjob below starts a synchronisation.
+    OWUI_SYNC_INTERVAL_MINUTES: "0"
+
 cronjobs:
   # Backup of Qdrant (the only place the vectors are, besides what is rebuilt from PostgreSQL): a snapshot of
   # the whole storage every night, the last 7 kept on the snapshots volume of the qdrant pod. To restore one,
@@ -600,6 +637,36 @@ cronjobs:
       limits:
         cpu: "200m"
         memory: "128Mi"
+    serviceAccount:
+      enabled: true
+      create: true
+    backoffLimit: 1
+    restartPolicy: "Never"
+
+  # Starts a synchronisation Open WebUI -> Muffin (#453): puts the root task in the queue of worker_owui_sync, which
+  # does the rest. Suspended until an Open WebUI is configured (see worker_owui_sync above).
+  owui-sync:
+    schedule: "0 * * * *"
+    concurrencyPolicy: "Forbid"
+    suspend: true
+    image:
+      registry: "harbor.sdid.cpin.numerique-interieur.com"
+      repository: "{{ .Values.global.project }}/muffin-worker-owui-sync"
+      pullPolicy: "IfNotPresent"
+    command: ["celery", "-A", "app.celery_app", "call", "app.tasks.sync_owui", "--queue", "owui_sync"]
+    envFrom:
+    - secretRef:
+        name: "muffin-redis"
+    env:
+      CELERY_QUEUE_NAME: "owui_sync"
+    # Required by the namespace quota, like on every other pod.
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "128Mi"
+      limits:
+        cpu: "200m"
+        memory: "256Mi"
     serviceAccount:
       enabled: true
       create: true
@@ -1419,6 +1486,30 @@ extraObjects:
           address: "muffin-redis.{{ .Release.Namespace }}.svc.cluster.local:6379"
           listName: "document_edit"
           listLength: "3"
+        authenticationRef:
+          name: muffin-keda-triggerauth
+
+  # ScaledObject for worker_owui_sync (queue: owui_sync). Down to 0 while there is nothing to synchronise.
+  muffin-keda-worker-owui-sync:
+    apiVersion: keda.sh/v1alpha1
+    kind: ScaledObject
+    metadata:
+      name: muffin-worker-owui-sync
+    spec:
+      scaleTargetRef:
+        name: muffin-worker-owui-sync
+        kind: Deployment
+        apiVersion: apps/v1
+      minReplicaCount: 0
+      maxReplicaCount: 3
+      pollingInterval: 30
+      triggers:
+      - type: redis
+        metricType: AverageValue
+        metadata:
+          address: "muffin-redis.{{ .Release.Namespace }}.svc.cluster.local:6379"
+          listName: "owui_sync"
+          listLength: "5"
         authenticationRef:
           name: muffin-keda-triggerauth
 

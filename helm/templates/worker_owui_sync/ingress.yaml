@@ -1,0 +1,53 @@
+{{- if .Values.enabled }}
+{{- if .Values.worker_owui_sync.ingress.enabled -}}
+{{- $fullNameApp := include "helper.componentFullname" (dict "root" . "componentName" "worker_owui_sync") -}}
+{{- $svcPortApp := .Values.worker_owui_sync.service.port -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "helper.componentFullname" (dict "root" . "componentName" "worker_owui_sync") }}
+  labels: {{- (include "helper.labels" (dict "root" . "componentName" "worker_owui_sync")) | nindent 4 }}
+  {{- if .Values.worker_owui_sync.ingress.labels }}
+    {{- toYaml .Values.worker_owui_sync.ingress.labels | nindent 4 }}
+  {{- end }}
+  {{- if .Values.worker_owui_sync.ingress.annotations }}
+  annotations:
+    {{- tpl (toYaml .Values.worker_owui_sync.ingress.annotations) . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.worker_owui_sync.ingress.className }}
+  ingressClassName: {{ .Values.worker_owui_sync.ingress.className }}
+  {{- end }}
+  {{- if gt (len .Values.worker_owui_sync.ingress.tls) 0 }}
+  tls:
+  {{- range .Values.worker_owui_sync.ingress.tls }}
+  - hosts:
+    {{- range .hosts }}
+    - {{ . | quote }}
+    {{- end }}
+    secretName: {{ .secretName | default (printf "%s-%s" $fullNameApp "tls") | quote }}
+  {{- end }}
+  {{- end }}
+  rules:
+  {{- range .Values.worker_owui_sync.ingress.hosts }}
+  - host: {{ .name | quote }}
+    http:
+      paths:
+      {{- range .paths }}
+      - path: {{ .path | default "/" }}
+        pathType: {{ .pathType | default "Prefix" }}
+        backend:
+          service:
+          {{- if .backend }}
+            name: {{ .backend.serviceName | default $fullNameApp }}
+            port:
+              number: {{ .backend.portNumber | default $svcPortApp }}
+          {{- else }}
+            name: {{ $fullNameApp }}
+            port:
+              number: 80
+          {{- end }}
+      {{- end }}
+  {{- end }}
+{{- end }}
+{{- end }}

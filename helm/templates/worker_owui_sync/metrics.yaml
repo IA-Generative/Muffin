@@ -1,0 +1,23 @@
+{{- if .Values.enabled }}
+{{- if .Values.worker_owui_sync.metrics.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "helper.componentFullname" (dict "root" . "componentName" "worker_owui_sync-metrics") }}
+  labels: {{- (include "helper.labels" (dict "root" . "componentName" "worker_owui_sync-metrics")) | nindent 4 }}
+  {{- if .Values.worker_owui_sync.metrics.service.labels }}
+    {{- toYaml .Values.worker_owui_sync.metrics.service.labels | nindent 4 }}
+  {{- end }}
+  {{- if .Values.worker_owui_sync.metrics.service.annotations }}
+  annotations: {{- toYaml .Values.worker_owui_sync.metrics.service.annotations | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.worker_owui_sync.metrics.service.type | default "ClusterIP" }}
+  ports:
+  - port: {{ .Values.worker_owui_sync.metrics.service.port }}
+    targetPort: {{ .Values.worker_owui_sync.metrics.service.targetPort }}
+    protocol: TCP
+    name: {{ .Values.worker_owui_sync.metrics.service.portName | default "metrics" }}
+  selector: {{- include "helper.selectorLabels" (dict "root" . "componentName" "worker_owui_sync") | nindent 4 }}
+{{- end }}
+{{- end }}
