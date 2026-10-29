@@ -198,14 +198,15 @@ pour une adresse) dit où est un passage : les intervalles de caractères à sur
 ## Pages scannées par analyse de layout (#403)
 
 Chantier en cours : lire une page scannée région par région (layout, puis OCR, puis tableaux) au lieu de la confier
-d'un bloc à Tesseract. **Un pod et une image Docker par modèle** : `layout`, `ocr`, `table` (puis `vision`), chacun avec
+d'un bloc à Tesseract. **Un pod et une image Docker par modèle** : `layout`, `ocr`, `table` et `vision`, chacun avec
 sa queue Celery. Le pod d'extraction garde liteparse et orchestre ; il envoie les tâches des autres par leur nom
 (`app/ocr/routing.py`) sans consommer leurs queues.
 
 Les pods : [`worker/layout`](../layout/README.md) (régions et ordre de lecture, PP-DocLayoutV3) et
 [`worker/ocr`](../ocr/README.md) (texte des régions, PP-OCRv5 mobile) - les modèles sont les exports **ONNX officiels**
-de PaddlePaddle, lancés par ONNX Runtime. Restent à faire : l'orchestration ici (#408), les recadrages (#409), les
-tableaux (#410) et la vision (#411).
+de PaddlePaddle, lancés par ONNX Runtime. Les
+autres pods : [`worker/table`](../table/README.md) (tableaux) et [`worker/vision`](../vision/README.md) (descriptions,
+Florence-2 base).
 
 ## L'orchestration (#408)
 
@@ -240,6 +241,19 @@ page (`include_complexity`), si elle a besoin d'un OCR. `app/ocr/scanned.py` (`r
   douteuse ». **Un tableau que le pod n'a pas lu, ou qu'il a mal rendu, fait retomber la page entière sur le repli** :
   son contenu ne serait nulle part. Avec `true` (le défaut du code), les tableaux sont lus comme du texte, une ligne du
   tableau par ligne du markdown, et le pod `table` n'est jamais appelé.
+- **Les descriptions** (#411) : les images (au-dessus de `CAPTION_MIN_PIXELS`, les `CAPTION_MAX_PER_PAGE` plus grandes
+  d'une page, `CAPTION_MAX_PER_DOCUMENT` par tâche d'extraction) et les tableaux lus comme des tableaux sont décrits **avant
+  que la page soit écrite** (pas de rattrapage : la page est écrite une fois, avec). C'est l'étape `describe` du lecteur
+  (`app/ocr/scanned.py`, `app/ocr/describe.py`), après la lecture du texte et des tableaux. Le **moteur est celui de la
+  collection** : `local` envoie les régions au pod [`vision`](../vision/README.md) (Florence-2, en anglais : traduit en
+  français par le modèle de chat du pipeline), `openai` recadre chaque région et la montre à un modèle du hub qui lit les
+  images (`app/ocr/describe.py`, `HubDescriber`, la consommation étant enregistrée par le proxy LLM du backend). Dans le
+  markdown : un bloc `[Image : <description>]` à la place de l'image dans l'ordre de lecture, et la description au bout du
+  marqueur d'un tableau (`[Tableau … — 12 lignes — <description>]`). Elle est aussi gardée dans `caption` du registre des
+  régions, avec le modèle dans `caption_model`. Le moteur et le modèle sont dans l'empreinte de l'extraction : un fichier
+  déjà extrait n'est pas redécrit quand on change de moteur. **Une description qui échoue ne fait jamais échouer la page** :
+  pod arrêté, réponse inattendue, `CAPTION_STAGE_TIMEOUT_SECONDS` dépassé, aucun modèle du hub qui lit les images - la page
+  est gardée sans elle. Sans pod déployé (`VISION_POD_ENABLED=false`, le défaut du code), le moteur `local` ne décrit rien.
 - **Le repli** : une page que les pods ne lisent pas (pod arrêté ou en erreur, réponse inattendue, aucune région, rien de
   lu, `OCR_STAGE_TIMEOUT_SECONDS` dépassé) retombe sur liteparse + Tesseract pour cette page seulement ; c'est dans les
   logs de la tâche (niveau `WARNING`) et le fichier continue. Il échoue seulement si ce repli échoue aussi.
