@@ -43,8 +43,10 @@ class TaskRepository:
         overwrite the revocation."""
         values: dict[str, Any] = {"status": status}
         if status is TaskStatus.STARTED:
-            # A retry starts the task again: keep the first start, it is when it really began.
-            values["started_at"] = func.coalesce(Task.started_at, func.now())
+            # Refresh on every start, including a retry/redelivery: the reaper compares started_at
+            # to its cutoff, and a task redelivered after a long outage must not be reaped while
+            # this new attempt is running.
+            values["started_at"] = func.now()
         elif status in TERMINAL_TASK_STATUSES:
             values["finished_at"] = func.now()
             values["error"] = error
@@ -64,13 +66,18 @@ class TaskRepository:
             .values(status=TaskStatus.REVOKED, finished_at=func.now())
         )
 
-    async def reap_stuck(self, before: datetime) -> int:
+    async def reap_stuck(self, before: datetime, *, exclude_task_names: Sequence[str] = ()) -> int:
         """Marks the tasks still STARTED since before `before` as failed: their worker died and
         Celery will not report them (see the beat's reap_stuck_tasks). A task that is genuinely
-        long is left alone - the timeout is well past the workers' own limits."""
+        long is left alone - the timeout is well past the workers' own limits. `exclude_task_names`
+        leaves out the tasks with no enforced runtime limit, whose age alone cannot tell a healthy
+        run from a lost one (see UNBOUNDED_TASK_NAMES)."""
+        where = [Task.status == TaskStatus.STARTED, Task.started_at < before]
+        if exclude_task_names:
+            where.append(Task.task_name.notin_(exclude_task_names))
         result = await self.db.execute(
             update(Task)
-            .where(Task.status == TaskStatus.STARTED, Task.started_at < before)
+            .where(*where)
             .values(
                 status=TaskStatus.FAILURE,
                 finished_at=func.now(),

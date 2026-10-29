@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import LoggingSettings, TaskSettings
 from app.core.security.worker_auth import require_worker_api_key
+from app.core.tasks import UNBOUNDED_TASK_NAMES
 from app.db import get_db
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.task_log_repository import TaskLogRepository
@@ -72,7 +73,7 @@ async def update_task_status(
 @router.post("/tasks/reap", summary="Mark the tasks stuck running past their timeout as failed (run by the beat)")
 async def reap_stuck_tasks(db: Annotated[AsyncSession, Depends(get_db)]) -> dict[str, int]:
     before = datetime.now(UTC) - timedelta(hours=_task_settings.TASK_STUCK_AFTER_HOURS)
-    reaped = await TaskRepository(db).reap_stuck(before)
+    reaped = await TaskRepository(db).reap_stuck(before, exclude_task_names=UNBOUNDED_TASK_NAMES)
     await db.commit()
     return {"reaped": reaped}
 

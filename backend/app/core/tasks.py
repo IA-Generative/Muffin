@@ -55,6 +55,11 @@ RUN_EVALUATION_TASK = "app.tasks.run_evaluation"
 # run_evaluation, so it doesn't warrant its own dedicated service/Dockerfile/queue.
 SCORE_DISCUSSION_TASK = "app.tasks.score_discussion"
 
+# Tasks with no enforced runtime limit: a healthy one can legitimately outlive the reaper's
+# cutoff, so age alone cannot tell it from a lost one. The reaper leaves them alone (see
+# TaskRepository.reap_stuck) - a dead one stays STARTED, but the user can still revoke it.
+UNBOUNDED_TASK_NAMES = frozenset({RUN_EVALUATION_TASK, SCORE_DISCUSSION_TASK})
+
 # And again for worker/document_edit (#167) - an edit job runs an LLM and a LibreOffice
 # conversion, so it gets its own queue rather than competing with the others.
 DOCUMENT_EDIT_QUEUE = "document_edit"
