@@ -25,6 +25,7 @@ from app.routers.internal_collection_sync import router as internal_collection_s
 from app.routers.internal_collections import router as internal_collections_router
 from app.routers.internal_conversations import router as internal_conversations_router
 from app.routers.internal_document_drafts import router as internal_document_drafts_router
+from app.routers.internal_document_sync import router as internal_document_sync_router
 from app.routers.internal_documents import router as internal_documents_router
 from app.routers.internal_edit_requests import router as internal_edit_requests_router
 from app.routers.internal_evaluation import router as internal_evaluation_router
@@ -129,6 +130,7 @@ app.include_router(cgu_router, prefix="/api")
 app.include_router(admin_reports_router, prefix="/api")
 app.include_router(internal_groups_router, prefix="/api")
 app.include_router(internal_collection_sync_router, prefix="/api")
+app.include_router(internal_document_sync_router, prefix="/api")
 app.include_router(reports_router, prefix="/api")
 app.include_router(quality_router, prefix="/api")
 app.include_router(usage_router, prefix="/api")
