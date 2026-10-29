@@ -41,6 +41,16 @@ class OwuiUser(_Model):
     email: str
     name: str
     role: str = "user"
+    # {provider: {"sub": ...}} for a user who signed in through an identity provider, null for a local account.
+    oauth: dict[str, Any] | None = None
+
+    @property
+    def keycloak_sub(self) -> str | None:
+        """The Keycloak subject of the user - what Muffin knows them by - if they signed in through it."""
+        for identity in (self.oauth or {}).values():
+            if isinstance(identity, dict) and identity.get("sub"):
+                return str(identity["sub"])
+        return None
 
 
 class OwuiGroup(_Model):
@@ -129,6 +139,19 @@ class OwuiClient:
 
     def groups(self) -> list[OwuiGroup]:
         return [OwuiGroup.model_validate(item) for item in self._get("/api/v1/groups/")]
+
+    def group(self, group_id: str) -> OwuiGroup:
+        return OwuiGroup.model_validate(self._get(f"/api/v1/groups/id/{group_id}"))
+
+    def user(self, user_id: str) -> OwuiUser:
+        return OwuiUser.model_validate(self._get(f"/api/v1/users/{user_id}"))
+
+    def group_members(self, group_id: str) -> Iterator[OwuiUser]:
+        """The users of the group itself, not through one of its sub-groups, with what they signed in with.
+
+        Not `/users/?group_id=`: Open WebUI 0.12.5 accepts that filter and returns every user all the same."""
+        for user_id in self.group_member_ids(group_id):
+            yield self.user(user_id)
 
     def group_member_ids(self, group_id: str) -> list[str]:
         """The users that belong to the group itself, not through one of its sub-groups."""
