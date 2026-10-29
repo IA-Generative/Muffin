@@ -88,3 +88,24 @@ Pas de numéro de page avec Tika. `start_index` donne l'ordre des chunks et `emb
 **Droits.** Open WebUI 0.12.5 n'utilise plus `access_control` mais `access_grants`, une liste d'objets
 `{principal_type: "user" | "group", principal_id, permission: "read" | "write"}` portée par la knowledge base. L'identifiant `*` désigne
 tout le monde. Les groupes ont un `parent_group_id` (hiérarchie).
+
+## Lancer une synchronisation
+
+Le worker `worker-owui-sync` lit Open WebUI avec la clé de l'administrateur (`OWUI_API_KEY`) et écrit dans Muffin par le backend.
+Son beat (`worker-owui-sync-beat`) en lance une toutes les `OWUI_SYNC_INTERVAL_MINUTES` minutes (60 par défaut, 0 pour aucune).
+
+```bash
+export OWUI_API_KEY=sk-...   # la clé d'API créée plus haut
+docker compose -f docker-compose.yaml -f docker-compose.owui.yaml up -d --build migrate backend worker-owui-sync worker-owui-sync-beat
+
+# tout de suite, sans attendre le beat
+docker compose -f docker-compose.yaml -f docker-compose.owui.yaml exec worker-owui-sync celery -A app.celery_app call app.tasks.sync_owui
+docker compose -f docker-compose.yaml -f docker-compose.owui.yaml logs -f worker-owui-sync   # le bilan : "Synchronisation ... done"
+```
+
+Un administrateur de Muffin peut aussi la lancer par `POST /api/admin/owui-sync`.
+
+Une synchronisation enchaîne quatre phases, chacune éclatée en une tâche par objet : les groupes, puis les knowledge bases, puis
+leurs fichiers, puis une clôture qui supprime de Muffin ce qui a disparu d'Open WebUI. Une tâche en erreur est retentée trois fois,
+puis reportée dans le bilan sans arrêter les autres. La clôture ne supprime rien d'une knowledge base dont la copie a échoué ou
+dont les fichiers n'ont pas pu être listés, ni rien du tout si Open WebUI ne liste plus aucun objet d'un type.
