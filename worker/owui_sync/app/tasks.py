@@ -1,3 +1,9 @@
+import functools
+import uuid
+from collections.abc import Callable, Iterable
+
+from celery import chord
+from celery.canvas import Signature
 from loguru import logger
 
 from app.backend_client import backend_client
@@ -5,16 +11,43 @@ from app.celery_app import celery_app
 from app.owui_client import OwuiClient
 from app.owui_vectors import OwuiVectors
 
+# A synchronisation is many small tasks (#453), so that a collection that fails or is slow never holds back the
+# others: the phases below run one after the other (groups, then knowledge bases, then files, then the closing),
+# and inside a phase one task per object runs in parallel (fan-out), the next phase starting when they are all done
+# (fan-in).
+_MAX_RETRIES = 3
+_RETRY_SECONDS = 5
 
-@celery_app.task(name="app.tasks.sync_owui")
-def sync_owui() -> dict:
-    """Root of a synchronisation Open WebUI -> Muffin (#453). The tasks that read Open WebUI and write
-    Muffin come with the following steps."""
-    logger.info("Open WebUI synchronisation requested")
-    return {"status": "nothing_to_do"}
+
+def unit_task(name: str) -> Callable:
+    """A task of one object. Tried again a few times - Open WebUI or Muffin may be busy - and then reported as an
+    error in its result instead of raised: the tasks of the phase are a chord, which a raised one would cancel.
+    A ValueError is a fact about the object (not in S3...), trying again changes nothing."""
+
+    def decorate(function: Callable) -> Callable:
+        @celery_app.task(name=name, bind=True)
+        @functools.wraps(function)
+        def task(self, *args):
+            try:
+                return function(*args)
+            except Exception as error:
+                if self.request.called_directly:
+                    raise
+                if not isinstance(error, ValueError) and self.request.retries < _MAX_RETRIES:
+                    raise self.retry(exc=error, countdown=_RETRY_SECONDS * 2**self.request.retries) from error
+                logger.exception("{}{} failed", name, args)
+                return {
+                    "status": "error",
+                    "error": f"{type(error).__name__}: {error}",
+                    "object": args[-1] if args else None,
+                }
+
+        return task
+
+    return decorate
 
 
-@celery_app.task(name="app.tasks.sync_group")
+@unit_task("app.tasks.sync_group")
 def sync_group(group_id: str) -> dict:
     """Makes Muffin's copy of one Open WebUI group what Open WebUI has (#453): its name and its members.
 
@@ -40,7 +73,7 @@ def sync_group(group_id: str) -> dict:
 _UNKNOWN_OWNER = "owui:{user_id}"
 
 
-@celery_app.task(name="app.tasks.sync_knowledge")
+@unit_task("app.tasks.sync_knowledge")
 def sync_knowledge(knowledge_id: str) -> dict:
     """Makes Muffin's copy of one Open WebUI knowledge base what Open WebUI has (#453): its name, its owner and
     who may read it. Its groups must have been synchronised before (sync_group): a group Muffin has no copy of
@@ -109,7 +142,7 @@ def sync_knowledge(knowledge_id: str) -> dict:
 _TOKENS_PER_CHAR = 0.25
 
 
-@celery_app.task(name="app.tasks.sync_knowledge_file")
+@unit_task("app.tasks.sync_knowledge_file")
 def sync_knowledge_file(knowledge_id: str, file_id: str) -> dict:
     """Makes Muffin's copy of one file of an Open WebUI knowledge base what Open WebUI has (#453).
 
@@ -150,3 +183,129 @@ def sync_knowledge_file(knowledge_id: str, file_id: str) -> dict:
     )
     logger.info("File {} synchronised: {}", file.filename, result)
     return result
+
+
+# -- the phases ------------------------------------------------------------------------------------------
+
+
+def _fan_out(units: Iterable[Signature], next_phase: Signature) -> None:
+    """Runs the tasks of a phase together, then `next_phase` with their results. A phase with nothing to do goes
+    straight to the next, since a chord of nothing would never call it."""
+    units = list(units)
+    if units:
+        chord(units)(next_phase)
+    else:
+        next_phase.apply_async(args=([],))
+
+
+def _errors(results: list) -> list[dict]:
+    return [result for result in results if isinstance(result, dict) and result.get("status") == "error"]
+
+
+@celery_app.task(name="app.tasks.sync_owui")
+def sync_owui() -> dict:
+    """Root of a synchronisation Open WebUI -> Muffin (#453): lists the groups and starts a task for each."""
+    run = {"id": str(uuid.uuid4())}
+    group_ids = [group.id for group in OwuiClient().groups()]
+    run["group_ids"] = group_ids
+    logger.info("Synchronisation {} started: {} group(s)", run["id"], len(group_ids))
+    _fan_out((sync_group.s(group_id) for group_id in group_ids), sync_knowledge_bases.s(run))
+    return {"run": run["id"], "groups": len(group_ids)}
+
+
+@celery_app.task(name="app.tasks.sync_knowledge_bases")
+def sync_knowledge_bases(group_results: list, run: dict) -> dict:
+    """Second phase, once the groups are copied (a knowledge base is shared with them): one task per knowledge base."""
+    run["group_errors"] = _errors(group_results)
+    knowledge_ids = [knowledge.id for knowledge in OwuiClient().knowledge_bases()]
+    run["knowledge_ids"] = knowledge_ids
+    logger.info("Synchronisation {}: {} knowledge base(s)", run["id"], len(knowledge_ids))
+    _fan_out((sync_knowledge.s(knowledge_id) for knowledge_id in knowledge_ids), sync_files.s(run))
+    return {"knowledge_bases": len(knowledge_ids)}
+
+
+@celery_app.task(name="app.tasks.sync_files")
+def sync_files(knowledge_results: list, run: dict) -> dict:
+    """Third phase, once the knowledge bases are copied (a file goes into one): one task per file of each.
+
+    A knowledge base whose copy failed, or whose files could not be listed, is left out of the cleaning at the
+    end: what is missing from the list is not known to be gone from Open WebUI."""
+    errors = _errors(knowledge_results)
+    run["knowledge_errors"] = errors
+    unsafe = {error["object"] for error in errors}
+    owui = OwuiClient()
+    pairs: list[tuple[str, str]] = []
+    for knowledge_id in run["knowledge_ids"]:
+        if knowledge_id in unsafe:
+            continue
+        try:
+            pairs.extend((knowledge_id, file.id) for file in owui.knowledge_files(knowledge_id))
+        except Exception:
+            logger.exception(
+                "Synchronisation {}: the files of knowledge base {} could not be listed", run["id"], knowledge_id
+            )
+            unsafe.add(knowledge_id)
+    run["unsafe_knowledge_ids"] = sorted(unsafe)
+    run["document_ids"] = [f"{knowledge_id}/{file_id}" for knowledge_id, file_id in pairs]
+    logger.info("Synchronisation {}: {} file(s)", run["id"], len(pairs))
+    _fan_out((sync_knowledge_file.s(knowledge_id, file_id) for knowledge_id, file_id in pairs), finish_sync.s(run))
+    return {"files": len(pairs)}
+
+
+def _gone(copied: list[str], seen: list[str], what: str, run_id: str) -> list[str]:
+    """What Muffin has copied and Open WebUI no longer lists. If Open WebUI listed none at all while Muffin has
+    some, the listing is not trusted (a key that lost its rights lists nothing): nothing is dropped."""
+    gone = sorted(set(copied) - set(seen))
+    if gone and not seen:
+        logger.warning(
+            "Synchronisation {}: Open WebUI lists no {} but Muffin has {}: none dropped", run_id, what, len(copied)
+        )
+        return []
+    return gone
+
+
+@celery_app.task(name="app.tasks.finish_sync")
+def finish_sync(file_results: list, run: dict) -> dict:
+    """Last phase: drops from Muffin what is gone from Open WebUI - files, then collections, then groups, so that
+    nothing is left pointing to what was dropped - and gives the account of the synchronisation."""
+    run_id = run["id"]
+    unsafe = set(run["unsafe_knowledge_ids"])
+    gone_documents = [
+        external_id
+        for external_id in _gone(
+            backend_client.list_synced("synced-documents", "owui"), run["document_ids"], "file", run_id
+        )
+        if external_id.split("/", 1)[0] not in unsafe
+    ]
+    gone_collections = _gone(
+        backend_client.list_synced("synced-collections", "owui"), run["knowledge_ids"], "knowledge base", run_id
+    )
+    gone_groups = _gone(backend_client.list_synced("groups", "owui"), run["group_ids"], "group", run_id)
+    for kind, ids in (
+        ("synced-documents", gone_documents),
+        ("synced-collections", gone_collections),
+        ("groups", gone_groups),
+    ):
+        for external_id in ids:
+            backend_client.delete_synced(kind, "owui", external_id)
+
+    account = {
+        "run": run_id,
+        "groups": {"seen": len(run["group_ids"]), "errors": len(run["group_errors"]), "dropped": len(gone_groups)},
+        "knowledge_bases": {
+            "seen": len(run["knowledge_ids"]),
+            "errors": len(run["knowledge_errors"]),
+            "unlisted": len(unsafe),
+            "dropped": len(gone_collections),
+        },
+        "files": {
+            "seen": len(run["document_ids"]),
+            "errors": len(_errors(file_results)),
+            "dropped": len(gone_documents),
+        },
+    }
+    errors = run["group_errors"] + run["knowledge_errors"] + _errors(file_results)
+    for error in errors:
+        logger.error("Synchronisation {}: {}", run_id, error)
+    logger.info("Synchronisation {} done: {}", run_id, account)
+    return account

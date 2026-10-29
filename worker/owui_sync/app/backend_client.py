@@ -37,6 +37,19 @@ class BackendClient:
         response.raise_for_status()
         return response.json()
 
+    def list_synced(self, kind: str, source: str) -> list[str]:
+        """The ids, in the other system, of what Muffin has copied from it: `groups`, `synced-collections` or
+        `synced-documents`."""
+        response = self._client.get(f"/api/internal/{kind}/{source}")
+        response.raise_for_status()
+        return response.json()
+
+    def delete_synced(self, kind: str, source: str, external_id: str) -> None:
+        """Drops the copy of what is gone from the other system. Already gone is as good."""
+        response = self._client.delete(f"/api/internal/{kind}/{source}/{external_id}")
+        if response.status_code != 404:
+            response.raise_for_status()
+
     def add_task_logs(self, lines: list[dict]) -> None:
         """A short timeout: the lines are sent again with the next batch, a task never waits on them."""
         response = self._client.post("/api/internal/task-logs", json={"entries": lines}, timeout=5.0)
