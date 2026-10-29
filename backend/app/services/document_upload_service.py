@@ -13,6 +13,7 @@ from app.core.file_hash import sha256_stream
 from app.core.security.factory import RequestContext
 from app.core.tasks import PROCESS_DOCUMENT_TASK, enqueue_process_document, revoke_tasks
 from app.models.document import Document, DocumentStatus
+from app.models.task import TaskStatus
 from app.repositories.collection_hierarchy_repository import CollectionHierarchyRepository
 from app.repositories.collection_repository import CollectionRepository
 from app.repositories.document_repository import DocumentRepository
@@ -170,15 +171,7 @@ class DocumentUploadService:
         await self.db.commit()
         if defer_processing:
             return document
-        celery_task_id = enqueue_process_document(str(document.id))
-        await self.tasks.create(
-            celery_task_id,
-            PROCESS_DOCUMENT_TASK,
-            owner_id,
-            document_id=document.id,
-            collection_id=collection_id,
-        )
-        await self.db.commit()
+        await self._dispatch_processing(document, owner_id, collection_id)
         return document
 
     async def create_conversation_file_document(
@@ -261,15 +254,7 @@ class DocumentUploadService:
 
             await DocumentRefreshService(self.db).apply(document.id, refresh_schedule)
         await self.db.commit()
-        celery_task_id = enqueue_process_document(str(document.id))
-        await self.tasks.create(
-            celery_task_id,
-            PROCESS_DOCUMENT_TASK,
-            user.user_id,
-            document_id=document.id,
-            collection_id=collection_id,
-        )
-        await self.db.commit()
+        await self._dispatch_processing(document, user.user_id, collection_id)
         return DocumentOut.model_validate(document)
 
     async def reprocess(self, document: Document, user_id: str, *, enqueue: bool = True, bulk: bool = False) -> None:
@@ -292,15 +277,7 @@ class DocumentUploadService:
         if not enqueue:
             return
 
-        celery_task_id = enqueue_process_document(str(document.id), **({"bulk": True} if bulk else {}))
-        await self.tasks.create(
-            celery_task_id,
-            PROCESS_DOCUMENT_TASK,
-            user_id,
-            document_id=document.id,
-            collection_id=document.collection_id,
-        )
-        await self.db.commit()
+        await self._dispatch_processing(document, user_id, document.collection_id, bulk=bulk)
 
     async def reprocess_failed_document(
         self, collection_id: uuid.UUID, user: RequestContext, document_id: uuid.UUID
@@ -350,6 +327,29 @@ class DocumentUploadService:
         active = [task.celery_task_id for task in tasks if task.is_active]
         await asyncio.to_thread(revoke_tasks, active)
         await self.tasks.mark_revoked(active)
+        await self.db.commit()
+
+    async def _dispatch_processing(
+        self, document: Document, owner_id: str, collection_id: uuid.UUID, *, bulk: bool = False
+    ) -> None:
+        """Records the Task row before publishing, so the worker's first status report finds it.
+        If the broker refuses, the row is marked failed rather than left PENDING forever."""
+        task_id = str(uuid.uuid4())
+        await self.tasks.create(
+            task_id,
+            PROCESS_DOCUMENT_TASK,
+            owner_id,
+            document_id=document.id,
+            collection_id=collection_id,
+        )
+        await self.db.commit()
+        try:
+            result_id = enqueue_process_document(str(document.id), bulk=bulk, task_id=task_id)
+        except Exception as exc:
+            await self.tasks.set_status(task_id, TaskStatus.FAILURE, str(exc))
+            await self.db.commit()
+            raise
+        await self.tasks.rename_celery_task_id(task_id, result_id)
         await self.db.commit()
 
     async def get_document(
@@ -677,15 +677,7 @@ class DocumentUploadService:
         await self.db.commit()
         storage.delete_objects(orphaned_screenshot_keys)
 
-        celery_task_id = enqueue_process_document(str(document.id))
-        await self.tasks.create(
-            celery_task_id,
-            PROCESS_DOCUMENT_TASK,
-            user.user_id,
-            document_id=document.id,
-            collection_id=target_collection_id,
-        )
-        await self.db.commit()
+        await self._dispatch_processing(document, user.user_id, target_collection_id)
 
     async def _get_owned_collection(self, collection_id: uuid.UUID, user: RequestContext) -> None:
         collection = await self.collections.get(collection_id, user.user_id)

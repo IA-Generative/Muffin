@@ -74,13 +74,14 @@ INSERT_IMAGES_TASK = "app.tasks.insert_images"
 RENDER_UPLOAD_TASK = "app.tasks.render_upload"
 
 
-def enqueue_process_document(document_id: str, *, bulk: bool = False) -> str:
+def enqueue_process_document(document_id: str, *, bulk: bool = False, task_id: str | None = None) -> str:
     """Returns the Celery task id, so the caller can record it (see
     app/models/task.py) for later status lookups and revocation. `bulk`: one of the many documents
-    of a ZIP import, processed after any other waiting."""
+    of a ZIP import, processed after any other waiting. `task_id`: preallocated by the caller when
+    it records the Task row before publishing, so the worker's first status report finds it."""
     options = {"priority": BULK_PRIORITY} if bulk else {}
     result = _celery_app.send_task(
-        PROCESS_DOCUMENT_TASK, args=[document_id], queue=DOCUMENT_EXTRACTION_QUEUE, **options
+        PROCESS_DOCUMENT_TASK, args=[document_id], queue=DOCUMENT_EXTRACTION_QUEUE, task_id=task_id, **options
     )
     return result.id
 
@@ -127,15 +128,17 @@ def enqueue_resume_agent(run_id: str, answer: str) -> str:
     return result.id
 
 
-def enqueue_run_evaluation(collection_id: str, k: int, validated_only: bool = False) -> str:
+def enqueue_run_evaluation(collection_id: str, k: int, validated_only: bool = False, task_id: str | None = None) -> str:
     """Returns the Celery task id, recorded as a collection-scoped Task row (see
     app/routers/internal_tasks.py) rather than on a pre-created EvaluationRun - the model has no
     in-progress state, the run row only ever exists once the worker posts a fully computed one.
+    `task_id`: preallocated by the caller when it records the Task row before publishing.
     """
     result = _celery_app.send_task(
         RUN_EVALUATION_TASK,
         args=[collection_id, k, validated_only],
         queue=EVALUATION_QUEUE,
+        task_id=task_id,
     )
     return result.id
 

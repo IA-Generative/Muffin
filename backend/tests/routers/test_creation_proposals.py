@@ -44,7 +44,7 @@ def stored():
     objects: dict[str, bytes] = {}
     with (
         patch(f"{LIVING}.storage.put_object", lambda key, data, content_type="": objects.__setitem__(key, data)),
-        patch(f"{LIVING}.enqueue_process_document", side_effect=lambda _id: str(uuid.uuid4())) as process,
+        patch(f"{LIVING}.enqueue_process_document", side_effect=lambda _id, **_: str(uuid.uuid4())) as process,
     ):
         objects["process"] = process  # type: ignore[assignment]
         yield objects

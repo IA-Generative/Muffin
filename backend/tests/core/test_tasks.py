@@ -43,8 +43,13 @@ def test_a_document_goes_to_the_extraction_queue_and_a_zip_import_s_with_the_low
         tasks.enqueue_process_document("doc-2", bulk=True)
 
     dropped, imported = send_task.call_args_list
-    assert dropped.kwargs == {"args": ["doc-1"], "queue": "document_extraction"}
-    assert imported.kwargs == {"args": ["doc-2"], "queue": "document_extraction", "priority": 9}
+    assert dropped.kwargs == {"args": ["doc-1"], "queue": "document_extraction", "task_id": None}
+    assert imported.kwargs == {
+        "args": ["doc-2"],
+        "queue": "document_extraction",
+        "priority": 9,
+        "task_id": None,
+    }
 
 
 def test_an_import_runs_on_its_own_queue_and_a_rollup_on_the_enrichment_one():

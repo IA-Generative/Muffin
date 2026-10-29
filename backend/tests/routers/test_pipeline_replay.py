@@ -272,7 +272,7 @@ async def test_reprocessing_a_document_regenerates_what_it_derived_but_keeps_val
         document = await session.get(Document, document_id)
         with patch(
             "app.services.document_upload_service.enqueue_process_document",
-            side_effect=lambda _id: str(uuid.uuid4()),
+            side_effect=lambda _id, **_: str(uuid.uuid4()),
         ):
             await DocumentUploadService(session).reprocess(document, "dev-user")
 
@@ -292,7 +292,7 @@ async def test_regenerating_after_a_reprocess_gives_the_same_state_as_the_first_
         document = await session.get(Document, document_id)
         with patch(
             "app.services.document_upload_service.enqueue_process_document",
-            side_effect=lambda _id: str(uuid.uuid4()),
+            side_effect=lambda _id, **_: str(uuid.uuid4()),
         ):
             await DocumentUploadService(session).reprocess(document, "dev-user")
         # What the pipeline then runs again.

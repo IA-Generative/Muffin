@@ -1,6 +1,6 @@
 import uuid
 from contextlib import contextmanager
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -33,7 +33,7 @@ def _mocked_io():
         patch(f"{SERVICE}.storage.put_object") as put,
         patch(f"{SERVICE}.storage.delete_objects") as delete_objects,
         patch(f"{SERVICE}.vector_store.delete_document_embeddings") as delete_vectors,
-        patch(f"{SERVICE}.enqueue_process_document", side_effect=lambda _id: str(uuid.uuid4())) as enqueue,
+        patch(f"{SERVICE}.enqueue_process_document", side_effect=lambda _id, **_: str(uuid.uuid4())) as enqueue,
     ):
         yield {"put": put, "delete_objects": delete_objects, "delete_vectors": delete_vectors, "enqueue": enqueue}
 
@@ -67,7 +67,7 @@ async def test_create_living_document_stores_first_revision_and_queues_processin
     assert body["type"] == "file"
     assert body["status"] == "pending"
     io["put"].assert_called_once()
-    io["enqueue"].assert_called_once_with(body["id"])
+    io["enqueue"].assert_called_once_with(body["id"], task_id=ANY)
 
     revisions = (await client.get(f"/api/collections/{collection_id}/documents/{body['id']}/revisions")).json()
     assert len(revisions) == 1
@@ -115,7 +115,7 @@ async def test_replace_appends_a_revision_and_reindexes_that_document_only(clien
     assert response.json()["status"] == "pending"
     io["delete_vectors"].assert_called_once()
     assert str(io["delete_vectors"].call_args.args[1]) == created["id"]
-    io["enqueue"].assert_called_once_with(created["id"])
+    io["enqueue"].assert_called_once_with(created["id"], task_id=ANY)
 
     revisions = (await client.get(f"/api/collections/{collection_id}/documents/{created['id']}/revisions")).json()
     assert [(r["number"], r["filename"], r["is_current"]) for r in revisions] == [
@@ -187,7 +187,7 @@ async def test_restore_appends_a_revision_pointing_at_the_old_file(client):
     assert response.status_code == 200
     # Restoring re-uses revision 1's file: nothing new is uploaded, but the document is reprocessed.
     io["put"].assert_not_called()
-    io["enqueue"].assert_called_once_with(created["id"])
+    io["enqueue"].assert_called_once_with(created["id"], task_id=ANY)
     revisions = (await client.get(f"/api/collections/{collection_id}/documents/{created['id']}/revisions")).json()
     assert [r["number"] for r in revisions] == [3, 2, 1]
     assert revisions[0]["origin"] == "restore"
@@ -474,7 +474,7 @@ async def test_create_markdown_document_from_scratch(client):
     key, data = io["put"].call_args.args[:2]
     assert key.endswith("-Notes de réunion.md")
     assert data == "# Réunion\n\nDécision : go.".encode()
-    io["enqueue"].assert_called_once_with(body["id"])
+    io["enqueue"].assert_called_once_with(body["id"], task_id=ANY)
 
     revisions = (await client.get(_doc_url(collection_id, body["id"], "/revisions"))).json()
     assert [(r["number"], r["format"], r["origin"]) for r in revisions] == [(1, "md", "ui")]
