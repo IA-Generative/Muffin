@@ -142,6 +142,9 @@ jobs:
           - name: worker-ocr-vision
             context: worker/vision
             dockerfile: worker/vision/Dockerfile
+          - name: worker-owui-sync
+            context: worker/owui_sync
+            dockerfile: worker/owui_sync/Dockerfile
           - name: worker-tabular
             context: worker/tabular
             dockerfile: worker/tabular/Dockerfile
