@@ -1,0 +1,18 @@
+{{- if .Values.enabled }}
+{{- if eq .Values.ocr_vision.deploymentType "DaemonSet" }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "helper.componentFullname" (dict "root" . "componentName" "ocr_vision") }}
+  labels: {{- (include "helper.labels" (dict "root" . "componentName" "ocr_vision")) | nindent 4 }}
+spec:
+  revisionHistoryLimit: {{ .Values.ocr_vision.revisionHistoryLimit | default 10 }}
+  selector:
+    matchLabels: {{- include "helper.selectorLabels" (dict "root" . "componentName" "ocr_vision") | nindent 6 }}
+  {{- with .Values.ocr_vision.updateStrategy }}
+  updateStrategy: {{- toYaml . | nindent 4 }}
+  {{- end }}
+  template:
+    {{- include "helper.component.podTemplate" (dict "root" . "name" "ocr_vision" "component" .Values.ocr_vision) | nindent 4 }}
+{{- end }}
+{{- end }}
