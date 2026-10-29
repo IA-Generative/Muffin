@@ -68,5 +68,33 @@ services:
       - "3001:8080"
     restart: unless-stopped
 
+  # The synchronisation Open WebUI -> Muffin (#453). OWUI_API_KEY is the key of an Open WebUI administrator
+  # (docs/owui-test-instance.md).
+  worker-owui-sync:
+    build:
+      context: ./worker/owui_sync
+      dockerfile: Dockerfile
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      BACKEND_API_URL: http://backend:8000
+      WORKER_API_KEY: ${WORKER_API_KEY:-dev-only-worker-key-not-for-prod}
+      OWUI_BASE_URL: http://owui:8080
+      OWUI_API_KEY: ${OWUI_API_KEY:-}
+      AWS_ENDPOINT_URL: http://rustfs:9000
+      AWS_ACCESS_KEY_ID: rustfsadmin
+      AWS_SECRET_ACCESS_KEY: rustfsadmin
+      OWUI_S3_BUCKET: owui-files
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_API_KEY: ${QDRANT_API_KEY:-dev-only-qdrant-key-not-for-prod}
+      OWUI_QDRANT_PREFIX: open-webui
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_started
+      owui:
+        condition: service_started
+    restart: unless-stopped
+
 volumes:
   owui-data:
