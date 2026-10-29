@@ -20,8 +20,8 @@ from loguru import logger
 from pydantic import ValidationError
 
 from app.config import settings
-from app.ocr import assemble, pages, regions, routing
-from app.ocr.contracts import PageLayout, PageTables, PageText, RegionType
+from app.ocr import assemble, describe, pages, regions, routing
+from app.ocr.contracts import PageDescriptions, PageLayout, PageTables, PageText, RegionToDescribe, RegionType
 from app.ocr.tables import RenderedTable, render_page
 from app.task_revocation import TaskRevoked, raise_if_revoked
 
@@ -51,6 +51,8 @@ class ReadPage:
     layout: PageLayout
     # The tables read on the page, as tables (#410), in reading order. None when they were read as text.
     tables: list[RenderedTable] = field(default_factory=list)
+    # The descriptions of its images and tables (#411): the reading order of the region -> (text, model that wrote it).
+    captions: dict[int, tuple[str, str]] = field(default_factory=dict)
 
 
 @dataclass
@@ -67,6 +69,12 @@ class _Job:
     layout: PageLayout | None = None
     # The regions that are tables read as text (OCR_READ_TABLES_AS_TEXT).
     tables: set[int] = field(default_factory=set)
+    # The page's image, kept for the descriptions of the hub's engine (the pod reads it from S3).
+    image: bytes = b""
+    # What the read stage gave, while the descriptions (#411) are made.
+    text: PageText | None = None
+    rendered: list[RenderedTable] = field(default_factory=list)
+    to_describe: list[RegionToDescribe] = field(default_factory=list)
 
 
 class ScannedPageReader:
@@ -79,12 +87,20 @@ class ScannedPageReader:
         storage: Any = None,
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
+        captions: describe.CaptionConfig | None = None,
+        backend: Any = None,
     ) -> None:
         if app is None:
             from app.celery_app import celery_app as app
         if storage is None:
             from app.storage import storage
         self._app, self._storage, self._clock, self._sleep = app, storage, clock, sleep
+        # Who describes the images (#411); None: nobody does.
+        self._captions = captions if captions is not None and captions.enabled else None
+        self._backend = backend
+        self._hub: describe.HubDescriber | None = None
+        # What is left of the document's cap on descriptions.
+        self._budget = settings.CAPTION_MAX_PER_DOCUMENT
 
     def read(
         self, document_id: str, scanned: list[Any], images: dict[int, bytes]
@@ -122,6 +138,9 @@ class ScannedPageReader:
             for job in active.values():
                 self._revoke(job)
             raise
+        finally:
+            if self._hub is not None:
+                self._hub.close()
         return read, failed
 
     def _start(self, document_id: str, page: Any, image: bytes | None) -> _Job | None:
@@ -130,7 +149,7 @@ class ScannedPageReader:
             return None
         try:
             key = pages.put_page_image(self._storage, document_id, page.page_num, image)
-            job = _Job(page=page, image_key=key)
+            job = _Job(page=page, image_key=key, image=image)
             self._send_layout(document_id, job)
             return job
         except Exception as error:
@@ -145,6 +164,10 @@ class ScannedPageReader:
         """None: not yet. A string: why the page could not be read. Otherwise, the page read."""
         if self._clock() > job.deadline:
             self._revoke(job)
+            if job.stage == "describe":
+                # The page is read: it is kept without its descriptions.
+                logger.warning(f"Descriptions of page {job.page.page_num} of {document_id} took too long, left out")
+                return self._finalize(document_id, job, None)
             return f"the {job.stage} step took more than {settings.OCR_STAGE_TIMEOUT_SECONDS} s"
         pending = {"layout": job.result} if job.stage == "layout" else job.reads
         # Looked at once each: it is a request to Redis.
@@ -155,6 +178,11 @@ class ScannedPageReader:
                 reason = f"the {name} step failed: {result.result!r}"
                 self._revoke(job)
                 self._forget(job)
+                if job.stage == "describe":
+                    logger.warning(
+                        f"Descriptions of page {job.page.page_num} of {document_id} failed, left out: {reason}"
+                    )
+                    return self._finalize(document_id, job, None)
                 return reason
         if not all(ready.values()):
             return None
@@ -162,6 +190,8 @@ class ScannedPageReader:
         try:
             if stage == "layout":
                 return self._on_layout(document_id, job)
+            if stage == "describe":
+                return self._on_described(document_id, job)
             return self._on_read(document_id, job)
         except (ValidationError, ValueError, TypeError) as error:
             self._forget(job)
@@ -199,20 +229,93 @@ class ScannedPageReader:
         job.deadline = self._clock() + settings.OCR_STAGE_TIMEOUT_SECONDS
         return None
 
-    def _on_read(self, document_id: str, job: _Job) -> ReadPage | str:
+    def _on_read(self, document_id: str, job: _Job) -> ReadPage | str | None:
         assert job.layout is not None
-        text = PageText.model_validate(job.reads["ocr"].result)
-        rendered: list[RenderedTable] = []
+        job.text = PageText.model_validate(job.reads["ocr"].result)
+        job.rendered = []
         if "table" in job.reads:
-            rendered = render_page(
+            job.rendered = render_page(
                 job.layout, PageTables.model_validate(job.reads["table"].result), document_id, job.page.page_num
             )
         self._forget(job)
+        job.reads = {}
+        job.to_describe = self._to_describe(job)
+        if job.to_describe:
+            try:
+                self._send_descriptions(document_id, job)
+                return None
+            except Exception as error:
+                logger.warning(f"Page {job.page.page_num} of {document_id}: descriptions not asked, left out: {error}")
+        return self._finalize(document_id, job, None)
+
+    def _to_describe(self, job: _Job) -> list[RegionToDescribe]:
+        if self._captions is None or job.layout is None:
+            return []
+        selected = describe.select_regions(job.layout, {table.region_order for table in job.rendered}, self._budget)
+        self._budget -= len(selected)
+        return selected
+
+    def _send_descriptions(self, document_id: str, job: _Job) -> None:
+        assert self._captions is not None
+        number = job.page.page_num
+        if self._captions.engine == "openai":
+            if self._hub is None:
+                self._hub = describe.HubDescriber(self._backend_client(), self._captions.model)
+            job.reads = {"describe": self._hub.start(document_id, number, job.image, job.to_describe)}
+        else:
+            regions_to_send = [region.model_dump(mode="json") for region in job.to_describe]
+            job.reads = {
+                "describe": self._app.send_task(
+                    routing.DESCRIBE_REGIONS_TASK, args=[document_id, number, job.image_key, regions_to_send]
+                )
+            }
+        job.stage = "describe"
+        job.deadline = self._clock() + settings.CAPTION_STAGE_TIMEOUT_SECONDS
+
+    def _backend_client(self) -> Any:
+        if self._backend is None:
+            from app.tasks._shared import backend_client
+
+            self._backend = backend_client
+        return self._backend
+
+    def _on_described(self, document_id: str, job: _Job) -> ReadPage | str:
+        try:
+            described = PageDescriptions.model_validate(job.reads["describe"].result)
+        except (ValidationError, ValueError, TypeError) as error:
+            logger.warning(f"Page {job.page.page_num} of {document_id}: descriptions unexpected, left out: {error}")
+            described = None
+        self._forget(job)
+        return self._finalize(document_id, job, described)
+
+    def _finalize(self, document_id: str, job: _Job, described: PageDescriptions | None) -> ReadPage | str:
+        """The page's markdown, with its descriptions when there are some: `[Image : ...]` where an image is in the
+        reading order, and the end of a table's marker."""
+        assert job.layout is not None and job.text is not None
+        asked = {region.id for region in job.to_describe}
+        found = [
+            item for item in (described.descriptions if described else []) if item.id in asked and item.text.strip()
+        ]
+        texts = [describe.clean(item.text) for item in found]
+        if described is not None and described.model_version.lower().startswith("florence"):
+            texts = [describe.clean(text) for text in describe.translate(texts, self._backend_client())]
+        captions = {
+            item.id: (text, described.model_version)
+            for item, text in zip(found, texts, strict=True)
+            if text and described
+        }
+        rendered = [
+            table.described(captions[table.region_order][0]) if table.region_order in captions else table
+            for table in job.rendered
+        ]
         markers = {table.region_order: table.marker for table in rendered}
-        markdown, items = assemble.assemble(job.layout, text, job.page.width, job.page.height, job.tables, markers)
+        for order, (text, _) in captions.items():
+            if order not in markers:
+                markers[order] = describe.image_block(text)
+        markdown, items = assemble.assemble(job.layout, job.text, job.page.width, job.page.height, job.tables, markers)
         if not markdown.strip():
             return "nothing was read on the page"
-        return ReadPage(markdown, items, job.layout, rendered)
+        return ReadPage(markdown, items, job.layout, rendered, captions)
 
     def _revoke(self, job: _Job) -> None:
         for result in [job.result, *job.reads.values()]:
@@ -254,6 +357,19 @@ def _images_for(data: bytes, scanned: list[Any], result: Any) -> dict[int, bytes
     return images
 
 
+def caption_config(document_id: str) -> describe.CaptionConfig | None:
+    """Who describes this document's images, by its collection's settings (#411). None when they cannot be known: the
+    pages are then read without descriptions."""
+    try:
+        from app.tasks._shared import backend_client
+
+        collection_id = backend_client.get_document(document_id)["collection_id"]
+        return describe.CaptionConfig.of(backend_client.get_collection_settings(collection_id))
+    except Exception as error:
+        logger.warning(f"Could not tell who describes the images of {document_id}, none will be: {error}")
+        return None
+
+
 def read_scanned_pages(document_id: str, data: bytes, result: Any, reader: ScannedPageReader | None = None) -> Any:
     """`result` (a liteparse ParseResult) with its scanned pages read by the OCR pods. Unchanged - and nothing is
     touched - when OCR_ENGINE is not "layout", or no page needs an OCR."""
@@ -272,7 +388,8 @@ def read_scanned_pages(document_id: str, data: bytes, result: Any, reader: Scann
     started = time.monotonic()
     try:
         images = _images_for(data, scanned, result)
-        read, failed = (reader or ScannedPageReader(storage=storage)).read(document_id, scanned, images)
+        reader = reader or ScannedPageReader(storage=storage, captions=caption_config(document_id))
+        read, failed = reader.read(document_id, scanned, images)
     finally:
         try:
             pages.delete_pages_images(storage, document_id, numbers)
@@ -285,7 +402,7 @@ def read_scanned_pages(document_id: str, data: bytes, result: Any, reader: Scann
             next(page for page in scanned if page.page_num == number), text=done.markdown, text_items=done.items
         )
         # The page's layout (#409), kept by the backend with the page. A page that Tesseract read has none.
-        page.layout_regions = regions.regions_of(done.layout)
+        page.layout_regions = regions.regions_of(done.layout, done.captions)
         page.layout_tables = [table.payload(done.layout) for table in done.tables]
         replaced[number] = page
     if failed:

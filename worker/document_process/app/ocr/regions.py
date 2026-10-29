@@ -12,8 +12,10 @@ from app.ocr.contracts import PageLayout
 MAX_REGIONS = 500
 
 
-def regions_of(layout: PageLayout) -> list[dict[str, Any]]:
-    """The layout's regions in the shape of the backend's `RegionIn`, in reading order."""
+def regions_of(layout: PageLayout, captions: dict[int, tuple[str, str]] | None = None) -> list[dict[str, Any]]:
+    """The layout's regions in the shape of the backend's `RegionIn`, in reading order. `captions`: the description of
+    a region (#411) by its reading order, with the model that wrote it."""
+    described = captions or {}
     return [
         {
             "type": region.type.value,
@@ -24,6 +26,8 @@ def regions_of(layout: PageLayout) -> list[dict[str, Any]]:
             "y_max": region.box.y_max,
             "polygon": [[x, y] for x, y in region.polygon] if region.polygon else None,
             "title_level": region.title_level,
+            "caption": described[region.reading_order][0] if region.reading_order in described else None,
+            "caption_model": described[region.reading_order][1] if region.reading_order in described else None,
         }
         for region in layout.regions[:MAX_REGIONS]
     ]

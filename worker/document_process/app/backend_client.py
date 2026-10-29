@@ -393,6 +393,23 @@ class BackendClient:
         response.raise_for_status()
         return response.json()["content"]
 
+    def llm_chat_usage(
+        self, model: str, messages: list[dict[str, Any]], max_tokens: int | None = None
+    ) -> dict[str, Any]:
+        """Same call as `llm_chat`, with what it consumed: {"content", "prompt_tokens", "completion_tokens"}. The
+        messages may hold images (a content that is a list of parts)."""
+        response = self._client.post(
+            "/api/internal/llm/chat",
+            json={"model": model, "messages": messages, "max_tokens": max_tokens, "usage": current_usage()},
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def get_default_vision_model(self) -> str | None:
+        response = self._client.get("/api/internal/llm/default-vision-model")
+        response.raise_for_status()
+        return response.json()["model"]
+
     def get_default_chat_model(self) -> str | None:
         response = self._client.get("/api/internal/llm/default-chat-model")
         response.raise_for_status()

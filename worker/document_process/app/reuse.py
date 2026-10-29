@@ -58,7 +58,27 @@ def _base(stage: str, content_hash: str) -> dict[str, Any]:
     return {"version": FINGERPRINT_VERSION, "stage": stage, "file": content_hash}
 
 
-def _ocr_pods() -> dict[str, Any]:
+def _captions(collection_settings: dict[str, Any] | None) -> dict[str, Any]:
+    """Who describes the images and tables of a scanned page, and which of them (#411): part of what the pages are,
+    since the descriptions are in their text. Nothing when no one does, so that the fingerprints of before stay."""
+    from app.ocr.describe import CaptionConfig
+
+    config = CaptionConfig.of(collection_settings or {})
+    if not config.enabled:
+        return {}
+    return {
+        "engine": config.engine,
+        # The vision pod's model is in its image, as the other pods' (OCR_PIPELINE_VERSION is raised when it changes).
+        "model": config.model if config.engine == "openai" else None,
+        "min_pixels": worker_settings.CAPTION_MIN_PIXELS,
+        "per_page": worker_settings.CAPTION_MAX_PER_PAGE,
+        "per_document": worker_settings.CAPTION_MAX_PER_DOCUMENT,
+        "tables": worker_settings.CAPTION_TABLES,
+        "translate": worker_settings.CAPTION_TRANSLATE,
+    }
+
+
+def _ocr_pods(collection_settings: dict[str, Any] | None = None) -> dict[str, Any]:
     """What the OCR pods' reading of a scanned page depends on (#403). The models are in the pods, not here:
     OCR_PIPELINE_VERSION is raised when they change."""
     return {
@@ -76,10 +96,11 @@ def _ocr_pods() -> dict[str, Any]:
         # setting above says.
         "tables": 1,
         "table_min_score": worker_settings.OCR_TABLE_MIN_SCORE,
+        **({"captions": captions} if (captions := _captions(collection_settings)) else {}),
     }
 
 
-def extraction(content_hash: str) -> str:
+def extraction(content_hash: str, collection_settings: dict[str, Any] | None = None) -> str:
     return _digest(
         {
             **_base(EXTRACTION, content_hash),
@@ -93,14 +114,14 @@ def extraction(content_hash: str) -> str:
             "layout": 1,
             # The scanned pages read by the OCR pods are not the ones Tesseract reads. Only then: the fingerprints
             # of the default engine stay what they were, and what it extracted is still reused.
-            **({"ocr_pods": _ocr_pods()} if worker_settings.OCR_ENGINE == "layout" else {}),
+            **({"ocr_pods": _ocr_pods(collection_settings)} if worker_settings.OCR_ENGINE == "layout" else {}),
         }
     )
 
 
-def _extraction_of(content_hash: str) -> str:
+def _extraction_of(content_hash: str, collection_settings: dict[str, Any] | None = None) -> str:
     # Every later stage starts from the same pages: it depends on how they were extracted.
-    return extraction(content_hash)
+    return extraction(content_hash, collection_settings)
 
 
 def chunks(content_hash: str, collection_settings: dict[str, Any]) -> str:
@@ -108,7 +129,7 @@ def chunks(content_hash: str, collection_settings: dict[str, Any]) -> str:
     return _digest(
         {
             **_base(CHUNKS, content_hash),
-            "extraction": _extraction_of(content_hash),
+            "extraction": _extraction_of(content_hash, collection_settings),
             # The chunks carry where they are in their pages (#353), and a semantic chunk its own pages: chunks
             # made before have neither, and a document chunked now must not be given them.
             "positions": 1,
@@ -174,7 +195,7 @@ def summary(content_hash: str, collection_settings: dict[str, Any], model: str) 
     return _digest(
         {
             **_base(SUMMARY, content_hash),
-            "extraction": _extraction_of(content_hash),
+            "extraction": _extraction_of(content_hash, collection_settings),
             "model": model,
             "instructions": collection_settings["instructions"].get("summary", ""),
             "pages_per_map": windows["summary_pages_per_map"],
@@ -188,7 +209,7 @@ def qa(content_hash: str, collection_settings: dict[str, Any], model: str) -> st
     return _digest(
         {
             **_base(QA, content_hash),
-            "extraction": _extraction_of(content_hash),
+            "extraction": _extraction_of(content_hash, collection_settings),
             "model": model,
             "instructions": collection_settings["instructions"].get("qa", ""),
             "window": windows["qa_window_pages"],
@@ -204,7 +225,7 @@ def entities(content_hash: str, collection_settings: dict[str, Any], model: str)
     return _digest(
         {
             **_base(ENTITIES, content_hash),
-            "extraction": _extraction_of(content_hash),
+            "extraction": _extraction_of(content_hash, collection_settings),
             # The entities carry where they are in the text and the sentence behind each relation (#352): an
             # extraction made before has neither, and a document extracted now must not be given it.
             "positions": 1,
