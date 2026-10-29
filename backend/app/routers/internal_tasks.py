@@ -4,16 +4,23 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import LoggingSettings
+from app.config import LoggingSettings, TaskSettings
 from app.core.security.worker_auth import require_worker_api_key
 from app.db import get_db
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.task_log_repository import TaskLogRepository
 from app.repositories.task_repository import TaskRepository
-from app.schemas.internal_pipeline import ExecutionMetricIn, TaskCreate, TaskLogEntriesIn, TaskLogsUpdate
+from app.schemas.internal_pipeline import (
+    ExecutionMetricIn,
+    TaskCreate,
+    TaskLogEntriesIn,
+    TaskLogsUpdate,
+    TaskStatusUpdate,
+)
 from app.services.usage_service import UsageService
 
 _logging_settings = LoggingSettings()
+_task_settings = TaskSettings()
 
 router = APIRouter(prefix="/internal", tags=["Internal"], dependencies=[Depends(require_worker_api_key)])
 
@@ -46,6 +53,28 @@ async def create_task(body: TaskCreate, db: Annotated[AsyncSession, Depends(get_
     )
     await db.commit()
     return {"status": "ok"}
+
+
+@router.patch(
+    "/tasks/{celery_task_id}/status",
+    summary="Record what a worker reports about a task as it runs it",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def update_task_status(
+    celery_task_id: str, body: TaskStatusUpdate, db: Annotated[AsyncSession, Depends(get_db)]
+) -> None:
+    # A task with no Task row (the beat's, the agent's runs) is a no-op: the worker reports every
+    # task it runs, and only some of them are recorded here.
+    await TaskRepository(db).set_status(celery_task_id, body.status, body.error)
+    await db.commit()
+
+
+@router.post("/tasks/reap", summary="Mark the tasks stuck running past their timeout as failed (run by the beat)")
+async def reap_stuck_tasks(db: Annotated[AsyncSession, Depends(get_db)]) -> dict[str, int]:
+    before = datetime.now(UTC) - timedelta(hours=_task_settings.TASK_STUCK_AFTER_HOURS)
+    reaped = await TaskRepository(db).reap_stuck(before)
+    await db.commit()
+    return {"reaped": reaped}
 
 
 @router.post(

@@ -2,7 +2,13 @@
 
 from unittest.mock import patch
 
+from celery.result import AsyncResult
+
 from app.core import tasks
+
+
+def _task_status(task_id: str) -> str:
+    return AsyncResult(task_id, app=tasks._celery_app).status
 
 
 def test_a_revoked_task_leaves_a_flag_for_the_workers_and_says_so_in_its_status():
@@ -12,7 +18,7 @@ def test_a_revoked_task_leaves_a_flag_for_the_workers_and_says_so_in_its_status(
         tasks.revoke_tasks([task_id])
 
     assert tasks._celery_app.backend.client.exists(tasks.REVOKED_KEY.format(task_id=task_id))
-    assert tasks.get_task_status(task_id) == "REVOKED"
+    assert _task_status(task_id) == "REVOKED"
     broadcast.assert_called_once_with([task_id], terminate=True)
 
 
@@ -34,7 +40,8 @@ def test_nothing_to_revoke_sends_nothing():
 
 
 def test_only_the_tasks_still_to_run_or_running_are_active():
-    states = {"waiting": "PENDING", "running": "STARTED", "done": "SUCCESS", "failed": "FAILURE", "stopped": "REVOKED"}
+    from app.models.task import Task, TaskStatus
 
-    with patch.object(tasks, "get_task_status", side_effect=states.get):
-        assert tasks.active_task_ids(list(states)) == ["waiting", "running"]
+    active = {TaskStatus.PENDING, TaskStatus.STARTED}
+    for status in TaskStatus:
+        assert Task(status=status).is_active is (status in active)

@@ -486,10 +486,9 @@ def relaunch():
         patch("app.services.document_upload_service.enqueue_process_document", enqueued),
         patch("app.services.document_upload_service.vector_store", MagicMock()),
         patch("app.services.document_upload_service.storage", MagicMock()),
-        patch("app.services.document_upload_service.active_task_ids", return_value=[]) as active,
         patch("app.services.document_upload_service.revoke_tasks", revoked),
     ):
-        enqueued.revoked, enqueued.active = revoked, active
+        enqueued.revoked = revoked
         yield enqueued
 
 
@@ -571,11 +570,13 @@ async def test_a_document_that_still_has_tasks_running_has_them_stopped_before_i
     collection_id = await _create_collection(client)
     document_id = await _add_url_document(client, collection_id)
     await _fail(document_id)
-    relaunch.active.return_value = ["running-task"]
+    async with async_session_factory() as session:
+        task = (await session.execute(select(Task).where(Task.document_id == uuid.UUID(document_id)))).scalars().first()
 
     await client.post(f"/api/collections/{collection_id}/documents/{document_id}/reprocess")
 
-    relaunch.revoked.assert_called_once_with(["running-task"])
+    # The task the upload recorded is still PENDING: it is stopped before the document is queued again.
+    relaunch.revoked.assert_called_once_with([task.celery_task_id])
 
 
 async def test_every_document_in_error_of_a_collection_and_its_sub_collections_is_relaunched(client, relaunch):

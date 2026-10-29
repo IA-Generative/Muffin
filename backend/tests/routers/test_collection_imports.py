@@ -819,7 +819,7 @@ async def test_the_documents_of_an_import_in_error_are_relaunched_through_its_wi
 ):
     for target in ("vector_store", "storage"):
         monkeypatch.setattr(f"app.services.document_upload_service.{target}", MagicMock())
-    monkeypatch.setattr("app.services.document_upload_service.active_task_ids", lambda ids: [])
+    monkeypatch.setattr("app.services.document_upload_service.revoke_tasks", lambda ids: None)
     body = (await _import(client)).json()
     ids = await _add(client, body, 6)
     assert stored.queued == ids[:3]

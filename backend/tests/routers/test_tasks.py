@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete
+from sqlalchemy import delete, update
 
 from app.core.security.factory import RequestContext, get_current_user
 from app.db import async_session_factory
@@ -34,6 +34,13 @@ def _as_user(user_id: str, email: str):
     return override
 
 
+async def _set_status(celery_task_id: str, status: str) -> None:
+    """What a worker reports as it runs the task (see the internal status endpoint)."""
+    async with async_session_factory() as session:
+        await session.execute(update(Task).where(Task.celery_task_id == celery_task_id).values(status=status))
+        await session.commit()
+
+
 async def _create_document(client) -> tuple[str, str]:
     collection_id = (await client.post("/api/collections")).json()["id"]
     with (
@@ -47,9 +54,9 @@ async def _create_document(client) -> tuple[str, str]:
 
 async def test_list_tasks_reports_status_and_linked_document(client):
     collection_id, document_id = await _create_document(client)
+    await _set_status("celery-abc", "STARTED")
 
-    with patch("app.services.task_service.get_task_status", return_value="STARTED"):
-        response = await client.get("/api/tasks")
+    response = await client.get("/api/tasks")
 
     assert response.status_code == 200
     body = response.json()
@@ -84,8 +91,7 @@ async def test_list_tasks_pagination_counts_runs_not_raw_rows(client):
             )
         await session.commit()
 
-    with patch("app.services.task_service.get_task_status", return_value="SUCCESS"):
-        response = await client.get("/api/tasks")
+    response = await client.get("/api/tasks")
 
     assert response.status_code == 200
     body = response.json()
@@ -99,8 +105,7 @@ async def test_list_tasks_is_scoped_to_owner(client):
     await _create_document(client)
     app.dependency_overrides[get_current_user] = _as_user("user-b", "b@example.com")
 
-    with patch("app.services.task_service.get_task_status", return_value="PENDING"):
-        response = await client.get("/api/tasks")
+    response = await client.get("/api/tasks")
 
     assert response.status_code == 200
     body = response.json()
@@ -129,14 +134,10 @@ async def _add_children(client, document_id, collection_id, count=2, parent_cele
 
 async def test_revoke_task(client):
     _, document_id = await _create_document(client)
+    await _set_status("celery-abc", "STARTED")
 
-    with (
-        patch("app.services.task_service.get_task_status", return_value="STARTED"),
-        patch("app.services.task_service.active_task_ids", return_value=["celery-abc"]),
-        patch("app.services.task_service.revoke_tasks") as mock_revoke,
-    ):
-        list_response = await client.get("/api/tasks")
-        task_id = list_response.json()["items"][0]["id"]
+    with patch("app.services.task_service.revoke_tasks") as mock_revoke:
+        task_id = (await client.get("/api/tasks")).json()["items"][0]["id"]
         response = await client.post(f"/api/tasks/{task_id}/revoke")
 
     assert response.status_code == 200
@@ -148,16 +149,13 @@ async def test_revoke_task(client):
 async def test_revoking_a_task_revokes_the_tasks_it_started_that_are_still_active(client):
     collection_id, document_id = await _create_document(client)
     await _add_children(client, document_id, collection_id, count=3)
+    # The root and one child are still going; the other children are over.
+    await _set_status("celery-abc", "STARTED")
+    await _set_status("celery-child-1", "STARTED")
+    await _set_status("celery-child-0", "SUCCESS")
+    await _set_status("celery-child-2", "FAILURE")
 
-    def active(ids):
-        # The root and one child are still going; the other children are over.
-        return [task_id for task_id in ids if task_id in ("celery-abc", "celery-child-1")]
-
-    with (
-        patch("app.services.task_service.get_task_status", return_value="STARTED"),
-        patch("app.services.task_service.active_task_ids", side_effect=active),
-        patch("app.services.task_service.revoke_tasks") as mock_revoke,
-    ):
+    with patch("app.services.task_service.revoke_tasks") as mock_revoke:
         task_id = (await client.get("/api/tasks")).json()["items"][0]["id"]
         await client.post(f"/api/tasks/{task_id}/revoke")
 
@@ -166,12 +164,9 @@ async def test_revoking_a_task_revokes_the_tasks_it_started_that_are_still_activ
 
 async def test_revoking_a_task_that_is_over_leaves_it_as_it_ended(client):
     _, document_id = await _create_document(client)
+    await _set_status("celery-abc", "SUCCESS")
 
-    with (
-        patch("app.services.task_service.get_task_status", return_value="SUCCESS"),
-        patch("app.services.task_service.active_task_ids", return_value=[]),
-        patch("app.services.task_service.revoke_tasks") as mock_revoke,
-    ):
+    with patch("app.services.task_service.revoke_tasks") as mock_revoke:
         task_id = (await client.get("/api/tasks")).json()["items"][0]["id"]
         response = await client.post(f"/api/tasks/{task_id}/revoke")
 
@@ -189,12 +184,9 @@ async def _document_state(document_id: str) -> tuple[str, str | None]:
 
 async def test_revoking_the_processing_of_a_document_marks_it_as_cancelled(client):
     _, document_id = await _create_document(client)  # a new document is pending
+    await _set_status("celery-abc", "STARTED")
 
-    with (
-        patch("app.services.task_service.get_task_status", return_value="STARTED"),
-        patch("app.services.task_service.active_task_ids", return_value=["celery-abc"]),
-        patch("app.services.task_service.revoke_tasks"),
-    ):
+    with patch("app.services.task_service.revoke_tasks"):
         task_id = (await client.get("/api/tasks")).json()["items"][0]["id"]
         await client.post(f"/api/tasks/{task_id}/revoke")
 
@@ -208,12 +200,9 @@ async def test_revoking_a_task_of_a_document_already_indexed_leaves_the_document
     async with async_session_factory() as session:
         (await session.get(Document, uuid.UUID(document_id))).status = DocumentStatus.INDEXED
         await session.commit()
+    await _set_status("celery-abc", "STARTED")
 
-    with (
-        patch("app.services.task_service.get_task_status", return_value="STARTED"),
-        patch("app.services.task_service.active_task_ids", return_value=["celery-abc"]),
-        patch("app.services.task_service.revoke_tasks"),
-    ):
+    with patch("app.services.task_service.revoke_tasks"):
         task_id = (await client.get("/api/tasks")).json()["items"][0]["id"]
         await client.post(f"/api/tasks/{task_id}/revoke")
 
@@ -228,9 +217,7 @@ async def test_revoke_unknown_task_returns_404(client):
 async def test_revoke_someone_elses_task_returns_404(client):
     app.dependency_overrides[get_current_user] = _as_user("user-a", "a@example.com")
     await _create_document(client)
-
-    with patch("app.services.task_service.get_task_status", return_value="PENDING"):
-        task_id = (await client.get("/api/tasks")).json()["items"][0]["id"]
+    task_id = (await client.get("/api/tasks")).json()["items"][0]["id"]
 
     app.dependency_overrides[get_current_user] = _as_user("user-b", "b@example.com")
     response = await client.post(f"/api/tasks/{task_id}/revoke")
@@ -257,8 +244,7 @@ async def _log(celery_task_id: str, document_id: str | None, *lines: tuple[str, 
 
 
 async def _task_id(client) -> str:
-    with patch("app.services.task_service.get_task_status", return_value="STARTED"):
-        return (await client.get("/api/tasks")).json()["items"][0]["id"]
+    return (await client.get("/api/tasks")).json()["items"][0]["id"]
 
 
 async def test_get_task_logs_returns_its_lines_in_order(client):
