@@ -132,3 +132,14 @@ async def test_the_files_made_in_muffin_are_not_the_synchronisations_to_write(cl
         json={"collection_external_id": "kb1", "name": "x", "storage_key": "k"},
     )
     assert response.status_code == 400
+
+
+async def test_a_file_gone_from_the_other_system_is_dropped_with_its_chunks(client):
+    document_id = (await _put(client)).json()["id"]
+
+    assert (await client.get("/api/internal/synced-documents/owui", headers=HEADERS)).json() == [FILE]
+    assert (await client.delete(f"/api/internal/synced-documents/owui/{FILE}", headers=HEADERS)).status_code == 204
+
+    assert (await client.get("/api/internal/synced-documents/owui", headers=HEADERS)).json() == []
+    assert await _chunks(document_id) == []
+    assert (await client.delete(f"/api/internal/synced-documents/owui/{FILE}", headers=HEADERS)).status_code == 404

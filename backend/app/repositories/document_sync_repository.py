@@ -108,3 +108,20 @@ class DocumentSyncRepository:
                 )
             )
         return len(data.chunks), len(stale)
+
+    async def external_ids(self, source: ResourceSource) -> list[str]:
+        result = await self.db.scalars(
+            select(Document.external_id).where(Document.source == source, Document.external_id.is_not(None))
+        )
+        return list(result)
+
+    async def delete(self, source: ResourceSource, external_id: str) -> bool:
+        """Drops the copy of a file that is gone from the other system, with its page and chunks (cascade)."""
+        document = await self.db.scalar(
+            select(Document).where(Document.source == source, Document.external_id == external_id)
+        )
+        if document is None:
+            return False
+        await self.db.delete(document)
+        await self.db.flush()
+        return True

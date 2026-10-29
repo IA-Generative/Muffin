@@ -1,5 +1,7 @@
 """The collections copied from Open WebUI (#453): what the worker writes, and who it is shared with."""
 
+import uuid
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, select
@@ -9,7 +11,9 @@ from app.core.security import worker_auth
 from app.core.security.factory import get_current_user
 from app.db import async_session_factory
 from app.main import app
+from app.models.chunk import Chunk
 from app.models.collection import Collection, CollectionShare, CollectionVisibility, ShareSubjectType
+from app.models.document import Document
 from app.models.group import Group
 
 API_KEY = "test-worker-key"
@@ -142,3 +146,29 @@ async def test_listing_the_copies(client):
 
     response = await client.get("/api/internal/synced-collections/owui", headers=HEADERS)
     assert sorted(response.json()) == ["kb1", "kb2"]
+
+
+async def test_a_collection_gone_from_the_other_system_is_dropped_with_its_files(client):
+    await _put(client)
+    document = await client.put(
+        "/api/internal/synced-documents/owui/kb1/f1",
+        headers=HEADERS,
+        json={
+            "collection_external_id": "kb1",
+            "name": "a.pdf",
+            "storage_key": "s3://bucket/open-webui/a.pdf",
+            "chunks": [{"id": str(uuid.uuid4()), "index": 0, "text": "t", "token_count": 1}],
+        },
+    )
+    document_id = document.json()["id"]
+
+    assert (await client.delete("/api/internal/synced-collections/owui/kb1", headers=HEADERS)).status_code == 204
+
+    assert (await client.get("/api/internal/synced-collections/owui", headers=HEADERS)).json() == []
+    async with async_session_factory() as session:
+        assert await session.get(Document, document_id) is None
+        assert (await session.scalars(select(Chunk).where(Chunk.document_id == document_id))).all() == []
+
+
+async def test_dropping_a_collection_that_is_not_there_is_not_found(client):
+    assert (await client.delete("/api/internal/synced-collections/owui/nope", headers=HEADERS)).status_code == 404
