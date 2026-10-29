@@ -283,6 +283,24 @@ def search_summaries(
     return _hybrid(_alias(collection_id), query, query_embedding, limit, _kind_filter(_KIND_SUMMARY))
 
 
+def external_collection_name(external_id: str) -> str:
+    """The Qdrant collection Open WebUI keeps a knowledge base's chunks in (#453)."""
+    return f"{_settings.OWUI_QDRANT_PREFIX}_{external_id}"
+
+
+def search_external(name: str, query_embedding: list[float], limit: int) -> list[tuple[uuid.UUID, float]]:
+    """A collection another system keeps in this Qdrant (Open WebUI, #453), read where it is and left as it is.
+
+    The same search as the dense branch of the others - the query's embedding against the points' - on the field
+    that system writes: one vector, no name (`using` left out), no BM25 and no `kind`, so no fusion, no QA and no
+    summaries. The score is the same too, the cosine, which a cosine collection returns as its score: a result
+    competes with the other collections' on equal terms. The ids are those of the chunks copied into Postgres."""
+    if not _exists(name):
+        return []
+    result = _client.query_points(name, query=query_embedding, limit=limit)
+    return [(uuid.UUID(str(point.id)), point.score) for point in result.points]
+
+
 def explain_search(
     collection_id: uuid.UUID, query: str, query_embedding: list[float], kind: str = _KIND_CHUNK
 ) -> dict[str, dict[uuid.UUID, int]]:

@@ -56,6 +56,27 @@ qui demande des données réelles.
 `SEARCH_LOG_BRANCHES=true` journalise (debug), pour chaque recherche, le rang que chaque branche donnerait seule à chaque résultat ;
 `vector_store.explain_search` renvoie la même chose (utilisé par les tests).
 
+## Collections copiées d'Open WebUI (#453)
+
+Une collection copiée d'Open WebUI (`source = owui`) n'a pas d'index de Muffin : ses vecteurs restent dans le Qdrant d'Open WebUI, qui
+les écrit à sa façon, et Muffin les lit sur place (`vector_store.search_external`).
+
+| | Collection de Muffin | Collection copiée d'Open WebUI |
+|---|---|---|
+| Collection Qdrant | alias `chunks_<id>` | `<OWUI_QDRANT_PREFIX>_<id de la knowledge base dans Open WebUI>` |
+| Vecteurs | `dense` et `sparse` (BM25), nommés | un seul vecteur dense, sans nom |
+| Requête | deux branches fusionnées en RRF | la branche dense seule, sur le champ qu'Open WebUI écrit |
+| Score | cosinus requête / vecteur dense | le même : le score d'une collection cosinus |
+| QA et résumés | oui | non (rien à chercher : l'étape ne trouve rien et les chunks répondent) |
+
+Le principe est donc le même, un résultat se compare aux autres au cosinus et ils se mélangent dans une même réponse, mais il n'y a pas
+de branche lexicale : un code ou un nom propre que l'embedding ne rapproche pas de la question n'est pas retrouvé. La requête est
+vectorisée avec le modèle d'embedding d'Open WebUI, enregistré sur la collection par la synchronisation : c'est le même modèle des deux
+côtés, ou la recherche ne vaut rien.
+
+Les chunks sont relus dans Postgres par l'identifiant de leur point, comme les autres : la synchronisation les y a écrits sous cet
+identifiant. Ils n'ont pas de numéro de page (l'extraction d'Open WebUI, Tika, n'en garde pas).
+
 ## Écriture, lecture, suppression
 
 - Écritures par lots, avec `wait=true` : ce qu'on relit juste après est déjà là.

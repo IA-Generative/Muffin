@@ -35,4 +35,8 @@ class SearchSettings(BaseSettings):
     # Logs, for every search, what each branch alone would have ranked (extra queries: debugging only).
     SEARCH_LOG_BRANCHES: bool = False
 
+    # The collections copied from Open WebUI (#453) are read in its own Qdrant collections, named
+    # `<prefix>_<id of the knowledge base in Open WebUI>` (its QDRANT_COLLECTION_PREFIX, classic mode).
+    OWUI_QDRANT_PREFIX: str = "open-webui"
+
     model_config = SettingsConfigDict(case_sensitive=True, env_file=(".env", ".env.local"), extra="ignore")

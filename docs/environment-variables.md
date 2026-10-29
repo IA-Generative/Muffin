@@ -105,6 +105,7 @@ Moteur, modèle de données, BM25 et RRF : voir [docs/search.md](search.md). Sau
 | `SEARCH_BM25_AVG_LENGTH` | Longueur moyenne, en termes, d'un texte indexé (un chunk) - Qdrant ne la fournit pas | `200` | **backend** (idem) |
 | `SEARCH_LANGUAGE` | Langue de la racinisation et des mots vides (algorithme Snowball : `french`, `english`...), identique à l'indexation et à la requête. **Changer la langue impose de ré-indexer** | `french` | **backend** (idem) |
 | `SEARCH_LOG_BRANCHES` | Journalise (niveau debug), pour chaque recherche, le rang que chaque branche donnerait seule à chaque résultat (requêtes supplémentaires : pour le débogage) | `false` | **backend** (`vector_store._log_branches`) |
+| `OWUI_QDRANT_PREFIX` | Préfixe des collections Qdrant d'Open WebUI (son `QDRANT_COLLECTION_PREFIX`, mode classique) : une collection copiée d'Open WebUI est lue dans `<préfixe>_<id de la knowledge base>` (#453) | `open-webui` | **backend** (`vector_store.external_collection_name`) |
 
 Les workers n'accèdent jamais directement à Qdrant : toute recherche/écriture vectorielle
 passe par les endpoints internes du backend (`/internal/search`, `/internal/qa-search`,
