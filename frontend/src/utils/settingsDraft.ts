@@ -1,7 +1,7 @@
 // Le brouillon des réglages d'une collection : tout ce que l'onglet Paramètres modifie, enregistré d'un seul bloc.
 // Pur (pas de Vue, pas de réseau) pour que la validation, le calcul des modifications et le corps de la requête
 // soient testables.
-import type { ChunkingSettings, Collection, GenerationModels, PipelineInstructions } from '../types/collection.ts'
+import type { CaptionEngine, ChunkingSettings, Collection, GenerationModels, PipelineInstructions } from '../types/collection.ts'
 import {
   draftFromSettings,
   toPayload,
@@ -34,17 +34,19 @@ export type WindowFields = Record<WindowKey, NumberField>
 export interface SettingsDraft {
   chunking: { strategy: ChunkingSettings['strategy']; chunkSize: NumberField; chunkOverlap: NumberField }
   embeddingModel: string
+  captions: { engine: CaptionEngine; model: string }
   instructions: PipelineInstructions
   models: StepModels
   windows: WindowFields
   longDocs: LongDocumentsDraft
 }
 
-export type SettingsSection = 'embedding' | 'chunking' | 'summary' | 'qa' | 'extraction' | 'tagging' | 'longDocs'
+export type SettingsSection = 'embedding' | 'chunking' | 'captions' | 'summary' | 'qa' | 'extraction' | 'tagging' | 'longDocs'
 
 export const SECTION_LABELS: Record<SettingsSection, string> = {
   embedding: "Modèle d'embedding",
   chunking: 'Découpage',
+  captions: 'Description des images',
   summary: 'Résumé',
   qa: 'Questions-réponses',
   extraction: 'Entités et relations',
@@ -54,7 +56,7 @@ export const SECTION_LABELS: Record<SettingsSection, string> = {
 
 type CollectionSettingsSource = Pick<
   Collection,
-  'chunkingSettings' | 'embeddingModel' | 'instructions' | 'generationModels' | 'pipelineWindows'
+  'chunkingSettings' | 'embeddingModel' | 'instructions' | 'generationModels' | 'pipelineWindows' | 'captionEngine' | 'captionModel'
 >
 
 export function draftFromCollection(collection: CollectionSettingsSource): SettingsDraft {
@@ -67,6 +69,7 @@ export function draftFromCollection(collection: CollectionSettingsSource): Setti
       chunkOverlap: collection.chunkingSettings.chunkOverlap,
     },
     embeddingModel: collection.embeddingModel,
+    captions: { engine: collection.captionEngine, model: collection.captionModel ?? '' },
     instructions: { ...collection.instructions },
     models: {
       qa: models.qa ?? '',
@@ -99,6 +102,7 @@ export function assignDraft(target: SettingsDraft, source: SettingsDraft): void 
   const copy = cloneDraft(source)
   target.chunking = copy.chunking
   target.embeddingModel = copy.embeddingModel
+  target.captions = copy.captions
   target.instructions = copy.instructions
   target.models = copy.models
   target.windows = copy.windows
@@ -125,6 +129,7 @@ export function changedSections(draft: SettingsDraft, saved: SettingsDraft): Set
       d.models.chunking,
       pick(d.windows, ['chunkingWindowPages', 'chunkingSlidePages']),
     ],
+    captions: d.captions,
     summary: [d.instructions.summary, d.models.summary, d.windows.summaryPagesPerMap],
     qa: [
       d.instructions.qa,
@@ -205,6 +210,8 @@ export interface SettingsPatch {
   instructions: PipelineInstructions
   generation_models: Partial<GenerationModels>
   pipeline_windows: Record<string, number | string | null>
+  caption_engine: CaptionEngine
+  caption_model: string
 }
 
 // Valable seulement quand le brouillon est valide (voir validateSettings).
@@ -221,6 +228,8 @@ export function toPatch(draft: SettingsDraft, saved: SettingsDraft): SettingsPat
     instructions: { ...draft.instructions },
     generation_models: models,
     pipeline_windows: { ...windows, ...toPayload(draft.longDocs) },
+    caption_engine: draft.captions.engine,
+    caption_model: draft.captions.engine === 'openai' ? draft.captions.model : '',
   }
 }
 

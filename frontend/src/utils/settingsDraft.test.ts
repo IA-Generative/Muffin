@@ -16,6 +16,8 @@ import {
 const collection = {
   chunkingSettings: { strategy: 'llm', chunkSize: 512, chunkOverlap: 50 },
   embeddingModel: 'embedder',
+  captionEngine: 'local',
+  captionModel: null,
   instructions: { qa: 'q', extraction: 'e', chunking: 'c', tagging: 't', summary: 's' },
   generationModels: { qa: 'gpt', extraction: null, chunking: null, tagging: null, summary: 'gpt' },
   pipelineWindows: {
@@ -119,4 +121,16 @@ test('assignDraft recopie sans partager d\'objets avec la source', () => {
   source.instructions.qa = 'modifié après'
   assert.equal(target.instructions.qa, 'q')
   assert.deepEqual(cloneDraft(target), fresh())
+})
+
+test('le moteur de description suit le brouillon, et le modèle est vidé quand le moteur est local', () => {
+  const draft = fresh()
+  assert.deepEqual(draft.captions, { engine: 'local', model: '' })
+  draft.captions = { engine: 'openai', model: 'gpt-4o' }
+  const patch = toPatch(draft, fresh())
+  assert.equal(patch.caption_engine, 'openai')
+  assert.equal(patch.caption_model, 'gpt-4o')
+  assert.ok(changedSections(draft, fresh()).includes('captions'))
+  draft.captions.engine = 'local'
+  assert.equal(toPatch(draft, fresh()).caption_model, '')
 })
