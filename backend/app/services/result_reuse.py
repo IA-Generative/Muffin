@@ -146,6 +146,7 @@ class ResultReuse:
                         "polygon": region.polygon,
                         "title_level": region.title_level,
                         "caption": region.caption,
+                        "caption_model": region.caption_model,
                     }
                     for region in source_regions
                 ],
