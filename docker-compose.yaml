@@ -98,6 +98,8 @@ services:
       OCR_ENGINE: layout
       # The tables are read as tables by the worker-ocr-table service (#410), not as text. Same in the three services.
       OCR_READ_TABLES_AS_TEXT: "false"
+      # The images and tables are described by the worker-ocr-vision service (#411) when a collection chose the local engine.
+      VISION_POD_ENABLED: "true"
       REDIS_URL: redis://redis:6379/0
       BACKEND_API_URL: http://backend:8000
       WORKER_API_KEY: ${WORKER_API_KEY:-dev-only-worker-key-not-for-prod}
@@ -170,6 +172,16 @@ services:
   worker-ocr-table:
     build:
       context: ./worker/table
+      dockerfile: Dockerfile
+    environment: *ocr-pod-env
+    depends_on: *ocr-pod-depends-on
+    restart: unless-stopped
+
+  # The descriptions of the images and tables of the scanned pages (#411): Florence-2 base. CPU inference is the slowest
+  # step of the chain and the model weighs about 2 GB of memory per process: one at a time.
+  worker-ocr-vision:
+    build:
+      context: ./worker/vision
       dockerfile: Dockerfile
     environment: *ocr-pod-env
     depends_on: *ocr-pod-depends-on

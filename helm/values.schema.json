@@ -388,6 +388,7 @@
     "ocr_layout": { "$ref": "#/definitions/workloadComponent" },
     "ocr": { "$ref": "#/definitions/workloadComponent" },
     "ocr_table": { "$ref": "#/definitions/workloadComponent" },
+    "ocr_vision": { "$ref": "#/definitions/workloadComponent" },
     "tabular": { "$ref": "#/definitions/workloadComponent" },
     "index_rebuild": { "$ref": "#/definitions/workloadComponent" },
     "jobs": {
