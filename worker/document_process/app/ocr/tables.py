@@ -10,7 +10,7 @@ grid, that grid as Markdown, and as HTML: a cell that spans rows or columns cann
 the exact one and the Markdown the grid with such a cell's text in its first place."""
 
 import html as html_lib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from app.config import settings
@@ -42,6 +42,10 @@ class RenderedTable:
     reliable: bool
     model_version: str
     marker: str
+
+    def described(self, description: str) -> "RenderedTable":
+        """The table with its description (#411) at the end of its marker."""
+        return replace(self, marker=f"{self.marker[:-1]} — {description}]")
 
     def payload(self, layout: PageLayout) -> dict[str, Any]:
         """The table as the backend's `TableIn` takes it, tied to its region by the region's place in the layout it is

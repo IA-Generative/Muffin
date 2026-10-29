@@ -60,6 +60,8 @@ def test_a_region_is_sent_with_its_score_its_box_and_its_outline():
         "y_max": 0.4,
         "polygon": [[0.2, 0.3], [0.6, 0.4]],
         "title_level": None,
+        "caption": None,
+        "caption_model": None,
     }
 
 

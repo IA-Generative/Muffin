@@ -27,7 +27,6 @@ class WorkerSettings(BaseSettings):
     LAYOUT_QUEUE_NAME: str = "document_layout"
     OCR_QUEUE_NAME: str = "document_ocr"
     TABLE_QUEUE_NAME: str = "document_table"
-    # Reserved: the vision pod comes after the others.
     VISION_QUEUE_NAME: str = "document_vision"
 
     BACKEND_API_URL: str = "http://localhost:8000"
@@ -66,6 +65,27 @@ class WorkerSettings(BaseSettings):
     # A table the table pod read scores at least this to be kept as reliable; under it, it is kept all the same, and
     # said to be doubtful (the structure of a borderless table read wrong scored 0.49, the right ones 1.0 and 0.999).
     OCR_TABLE_MIN_SCORE: float = 0.6
+    # The images and the tables of a scanned page are described while it is read (#411), by what the collection chose
+    # (its caption_engine): the vision pod (Florence-2, "local") or a model of the hub that reads images ("openai").
+    # Without the pod deployed (false), the local engine describes nothing - the page is read as before.
+    VISION_POD_ENABLED: bool = False
+    # An image is described when its smaller side is at least this many pixels of the page (a rule, a bullet or a
+    # stamp is not worth a description), and only the CAPTION_MAX_PER_PAGE biggest of a page are. The document's cap
+    # is counted by extraction task: a long PDF is extracted by ranges of pages, each its own count.
+    CAPTION_MIN_PIXELS: int = 96
+    CAPTION_MAX_PER_PAGE: int = 5
+    CAPTION_MAX_PER_DOCUMENT: int = 50
+    # A table read as a table is described too (its marker says what it is about).
+    CAPTION_TABLES: bool = True
+    # Florence-2 answers in English: the descriptions are translated by the pipeline's model. Off, they stay English.
+    CAPTION_TRANSLATE: bool = True
+    # A description is short in the page's text: cut here, at a word.
+    CAPTION_MAX_CHARS: int = 600
+    # How long the descriptions of a page may take. Past it, the page is kept without them - it is not read again.
+    CAPTION_STAGE_TIMEOUT_SECONDS: int = 5 * 60
+    # Descriptions asked of the hub at once, for the "openai" engine.
+    CAPTION_HUB_CONCURRENCY: int = 4
+    CAPTION_HUB_MAX_TOKENS: int = 300
     # Part of the extraction's fingerprint (#300): raise it when the models of the pods change (the pods hold
     # the models, not this worker), or a file extracted with the former ones would be taken for extracted with the
     # new.

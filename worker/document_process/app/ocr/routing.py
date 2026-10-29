@@ -7,7 +7,7 @@ from app.config import settings
 LAYOUT_PAGE_TASK = "app.tasks.layout_page"
 OCR_REGIONS_TASK = "app.tasks.ocr_regions"
 TABLE_REGIONS_TASK = "app.tasks.table_regions"
-# Reserved: the vision pod comes after the others (#411).
+# The vision pod (#411).
 DESCRIBE_REGIONS_TASK = "app.tasks.describe_regions"
 
 
