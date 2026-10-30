@@ -12,7 +12,13 @@ from app.core.security.factory import get_current_user
 from app.db import async_session_factory
 from app.main import app
 from app.models.chunk import Chunk
-from app.models.collection import Collection, CollectionShare, CollectionVisibility, ShareSubjectType
+from app.models.collection import (
+    Collection,
+    CollectionSettings,
+    CollectionShare,
+    CollectionVisibility,
+    ShareSubjectType,
+)
 from app.models.document import Document
 from app.models.group import Group
 
@@ -211,3 +217,36 @@ async def _permissions(collection_id) -> dict:
     async with async_session_factory() as session:
         rows = await session.scalars(select(CollectionShare).where(CollectionShare.collection_id == collection_id))
         return {(share.subject_type, share.subject_id): share.permission for share in rows}
+
+
+async def test_the_description_is_the_other_systems_only_at_the_start(client):
+    """Muffin keeps it up to date from the summaries (#457): a later synchronisation must not write it back."""
+    first = (await _put(client, name="Procédures", description="Celle d'Open WebUI")).json()
+    async with async_session_factory() as session:
+        collection = await session.get(Collection, first["id"])
+        collection.description = "Celle que Muffin a écrite"
+        await session.commit()
+
+    await _put(client, name="Renommée", description="Celle d'Open WebUI, modifiée")
+
+    async with async_session_factory() as session:
+        collection = await session.get(Collection, first["id"])
+    assert (collection.name, collection.description) == ("Renommée", "Celle que Muffin a écrite")
+
+
+async def test_a_copy_never_asks_for_a_reindex(client):
+    first = (await _put(client)).json()
+    async with async_session_factory() as session:
+        settings = (
+            await session.scalars(select(CollectionSettings).where(CollectionSettings.collection_id == first["id"]))
+        ).one()
+        settings.reindex_required = True
+        await session.commit()
+
+    await _put(client)
+
+    async with async_session_factory() as session:
+        settings = (
+            await session.scalars(select(CollectionSettings).where(CollectionSettings.collection_id == first["id"]))
+        ).one()
+    assert settings.reindex_required is False

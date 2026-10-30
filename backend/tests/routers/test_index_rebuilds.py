@@ -235,6 +235,20 @@ async def test_starting_a_rebuild_on_an_unknown_collection_is_a_404(client):
     assert response.status_code == 404
 
 
+async def test_a_collection_copied_from_another_system_is_never_rebuilt(client, enqueued):
+    """Its vectors are that system's, in its Qdrant: Muffin has no index of its own to rebuild (#453)."""
+    ids = await _collection_with_content(client)
+    async with async_session_factory() as session:
+        collection = await session.get(Collection, ids["collection"])
+        collection.source, collection.external_id = "owui", "kb1"
+        await session.commit()
+
+    response = await client.post(f"/api/collections/{ids['collection']}/documents/reindex")
+
+    assert response.status_code == 409
+    enqueued.assert_not_called()
+
+
 async def test_a_collection_you_do_not_own_cannot_be_rebuilt(client):
     ids = await _collection_with_content(client)
     async with async_session_factory() as session:
