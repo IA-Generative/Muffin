@@ -22,6 +22,7 @@ from app.schemas.collection import (
     RelationOut,
     ShareCreate,
     ShareOut,
+    ShareUpdate,
     VisibilityUpdate,
 )
 from app.schemas.evaluation import EvaluationRunOut, EvaluationTriggerRequest
@@ -435,6 +436,22 @@ async def list_shares(collection_id: uuid.UUID, user: UserDep, service: ServiceD
         return await service.list_shares(collection_id, user)
     except CollectionNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
+
+
+@router.patch(
+    "/collections/{collection_id}/shares/{share_id}",
+    summary="Let a share read only, or also write - owner only",
+    response_model=ShareOut,
+)
+async def update_share(
+    collection_id: uuid.UUID, share_id: uuid.UUID, update: ShareUpdate, user: UserDep, service: ServiceDep
+) -> ShareOut:
+    try:
+        return await service.update_share(collection_id, user, share_id, update)
+    except CollectionNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
+    except ShareNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Share not found") from error
 
 
 @router.delete(

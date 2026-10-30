@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.core.page_ranges import InvalidPageRangesError, parse_page_ranges
-from app.models.collection import CollectionVisibility, ShareStatus, ShareSubjectType
+from app.models.collection import CollectionVisibility, SharePermission, ShareStatus, ShareSubjectType
 
 if TYPE_CHECKING:
     from app.models.collection import Collection as CollectionModel
@@ -285,6 +285,9 @@ class CollectionOut(BaseModel):
     # read-only) or shared (an ACTIVE CollectionShare, read-only). Drives which actions the UI
     # offers (settings/reindex/delete/sharing are owner-only, see CollectionService._get_owned).
     is_owner: bool
+    # May change it: its owner, anyone a share lets write on it or on an ancestor (#454), or an administrator.
+    # What the UI offers for the living documents; settings, sharing and deletion stay with the owner.
+    can_edit: bool
 
     # Not wired yet - documents come first, then QA/entities/relations/chunks/evaluation.
     # Always empty for now so the response already matches the shape those phases need.
@@ -317,9 +320,12 @@ class CollectionOut(BaseModel):
         children_count: int = 0,
         document_counts: tuple[int, int] = (0, 0),
         inherited_public_from: CollectionPathItem | None = None,
+        can_edit: bool | None = None,
     ) -> "CollectionOut":
         settings = collection.settings
         path = path or []
+        if can_edit is None:
+            can_edit = collection.owner_id == viewer_id
         return cls(
             id=collection.id,
             name=collection.name,
@@ -350,6 +356,7 @@ class CollectionOut(BaseModel):
             updated_at=collection.updated_at,
             visibility=collection.visibility,
             is_owner=collection.owner_id == viewer_id,
+            can_edit=can_edit,
             chunking_settings=ChunkingSettings(
                 strategy=settings.chunking_strategy,
                 chunk_size=settings.chunk_size,
@@ -416,6 +423,11 @@ class ShareCreate(BaseModel):
     # token's `groups` claim (subject_type=group) - never looked up, never stored as-is, see
     # app/core/sharing.py. Not re-exposed anywhere after this request.
     identifier: str
+    permission: SharePermission = SharePermission.READ
+
+
+class ShareUpdate(BaseModel):
+    permission: SharePermission
 
 
 class ShareOut(BaseModel):
@@ -424,6 +436,7 @@ class ShareOut(BaseModel):
     id: uuid.UUID
     subject_type: ShareSubjectType
     status: ShareStatus
+    permission: SharePermission
     # Non-reversible ("j***@e***.com") - see app/core/sharing.py:mask_email/mask_group. Never the
     # full email/group identifier the owner originally typed.
     display_hint: str
@@ -440,6 +453,7 @@ class ShareOut(BaseModel):
             id=share.id,
             subject_type=share.subject_type,
             status=share.status,
+            permission=share.permission,
             display_hint=share.display_hint,
             created_at=share.created_at,
             inherited_from=inherited_from,
