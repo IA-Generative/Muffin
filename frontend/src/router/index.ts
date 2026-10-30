@@ -27,5 +27,10 @@ export const router = createRouter({
     { path: '/admin/cgu', name: 'admin-cgu', component: () => import('../components/AdminCguView.vue') },
     { path: '/admin/reports', name: 'admin-reports', component: () => import('../components/AdminReportsView.vue') },
     { path: '/admin/usage', name: 'admin-usage', component: () => import('../components/AdminUsageView.vue') },
+    {
+      path: '/admin/owui-sync',
+      name: 'admin-owui-sync',
+      component: () => import('../components/AdminOwuiSyncView.vue'),
+    },
   ],
 })
