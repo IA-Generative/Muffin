@@ -390,7 +390,7 @@ Délégation d'une modification de document vivant à l'agent d'édition (#171) 
 
 Un worker à part (image `worker-owui-sync`, queue `owui_sync`) lit Open WebUI par son API REST et copie dans Muffin, par le backend, ses
 groupes, ses knowledge bases et leurs partages en lecture, ses fichiers et leurs chunks. Rien d'autre n'est copié : les fichiers restent
-dans le bucket d'Open WebUI et les vecteurs dans ses collections Qdrant. Il partage `REDIS_URL`, `BACKEND_API_URL`, `WORKER_API_KEY` et les
+dans le bucket qu'ils partagent et les vecteurs dans ses collections Qdrant. Il partage `REDIS_URL`, `BACKEND_API_URL`, `WORKER_API_KEY` et les
 réglages de logs avec les autres workers. Propres à ce worker :
 
 | Variable | Définition | Défaut | Utilisée par |
@@ -398,13 +398,17 @@ réglages de logs avec les autres workers. Propres à ce worker :
 | `CELERY_QUEUE_NAME` | Sa queue, la même que `OWUI_SYNC_QUEUE` du backend | `owui_sync` | **worker/owui_sync** |
 | `OWUI_BASE_URL` | Adresse d'Open WebUI | `http://localhost:3001` | **worker/owui_sync** |
 | `OWUI_API_KEY` | Clé d'API d'un administrateur d'Open WebUI (lecture seule) | — | **worker/owui_sync** |
+| `AWS_BUCKET` | Le bucket de Muffin, partagé avec Open WebUI : un fichier qui y est garde la clé qu'Open WebUI lui a donnée | `muffin-documents` | **worker/owui_sync** |
 | `OWUI_SYNC_INTERVAL_MINUTES` | Intervalle du beat (`celery beat`, un processus à part). `0` : aucune synchronisation planifiée, seulement `POST /api/admin/owui-sync` ou le CronJob Helm | `60` | **worker/owui_sync** |
 | `ENRICHMENT_QUEUE_NAME` / `SUMMARY_PRIORITY` | La file du worker d'enrichissement (`document_enrichment`) et la priorité (`9`, la plus basse) avec lesquelles il envoie le résumé d'un fichier copié et la mise à jour de la description de sa collection (#457). Ils suivent `DOCUMENT_ENRICHMENT_QUEUE` et `BULK_PRIORITY` du backend | `document_enrichment` / `9` | **worker/owui_sync** |
 | `QDRANT_URL` / `QDRANT_API_KEY` | Le Qdrant d'Open WebUI, le même que celui de Muffin | `http://localhost:6333` / — | **worker/owui_sync** |
 | `OWUI_QDRANT_PREFIX` | Préfixe des collections d'Open WebUI (son `QDRANT_COLLECTION_PREFIX`, mode classique) : la knowledge base `X` est dans `<préfixe>_X`. À régler de la même façon côté backend, qui lit ces collections pour chercher | `open-webui` | **worker/owui_sync**, **backend** |
 
-Le compte S3 de Muffin doit pouvoir lire le bucket d'Open WebUI (le plus simple : le même bucket, Open WebUI écrivant sous son propre
-préfixe `S3_KEY_PREFIX`) ; Muffin n'y écrit ni n'y supprime jamais rien. Les utilisateurs et groupes d'Open WebUI doivent se connecter par le
+Le bucket S3 est **partagé** avec Open WebUI : `AWS_BUCKET` du worker (et des autres services de Muffin) est celui que `S3_BUCKET_NAME`
+désigne côté Open WebUI, avec les mêmes accès. Un fichier copié garde la clé qu'Open WebUI lui a donnée, telle quelle (`<id>_<nom>`
+à la racine du bucket s'il n'y a pas de préfixe, `<préfixe>/<id>_<nom>` s'il y en a un) : Muffin n'y ajoute ni n'y retire rien, et ne
+supprime jamais le fichier d'un document copié (ni en supprimant le document, ni la collection). Un fichier d'un autre bucket garde
+la forme `s3://<bucket>/<clé>` et n'est lu que par le backend. Les utilisateurs et groupes d'Open WebUI doivent se connecter par le
 Keycloak de Muffin : un membre se retrouve par son `sub` (`oauth.oidc.sub`), et celui qui n'en a pas est laissé de côté.
 
 ### Cohérence des vecteurs
