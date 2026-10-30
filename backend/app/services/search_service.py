@@ -189,6 +189,38 @@ class SearchService:
         rows = await self.documents.get_by_ids(top_ids)
         return sorted(((document, scored_ids[document.id]) for document in rows), key=lambda row: row[1], reverse=True)
 
+    async def search_points(
+        self, collection_ids: list[uuid.UUID], query: str, limit: int
+    ) -> list[tuple[uuid.UUID, uuid.UUID, float]]:
+        """The best points of these collections for a question, of every kind and with no cascade (#467):
+        (point id, collection id, score), best first. A collection copied from Open WebUI is read in its own Qdrant,
+        where there are only chunks (#453). One that cannot be searched - a model that fails to embed the query - gives
+        nothing, and the others answer."""
+        if _openai_client is None or not collection_ids:
+            return []
+        models_by_collection = await self.collections.get_embedding_models(collection_ids)
+        copied = await self.collections.get_external_ids(list(models_by_collection))
+        embeddings: dict[str, list[float] | None] = {}
+        hits: list[tuple[uuid.UUID, uuid.UUID, float]] = []
+        for collection_id, model in models_by_collection.items():
+            if model not in embeddings:
+                try:
+                    embeddings[model] = await self._embed(model, query)
+                except Exception:
+                    logger.exception(f"Failed to embed the search query with model '{model}'")
+                    embeddings[model] = None
+            embedding = embeddings[model]
+            if embedding is None:
+                continue
+            if collection_id in copied:
+                found = vector_store.search_external(
+                    vector_store.external_collection_name(copied[collection_id][1]), embedding, limit
+                )
+            else:
+                found = vector_store.search_any(collection_id, query, embedding, limit)
+            hits.extend((point_id, collection_id, score) for point_id, score in found)
+        return sorted(hits, key=lambda hit: hit[2], reverse=True)[:limit]
+
     async def search_collections(
         self, collection_ids: list[uuid.UUID], query: str, limit: int
     ) -> Sequence[tuple[uuid.UUID, float]]:
