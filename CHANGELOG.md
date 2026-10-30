@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.38.0-rc.1](https://github.com/IA-Generative/Muffin/compare/v0.38.0-rc...v0.38.0-rc.1) (2026-10-30)
+
+
+### Features
+
+* **mcp:** serveur MCP avec les outils suggest_collections et search ([#467](https://github.com/IA-Generative/Muffin/issues/467)) ([c7ac957](https://github.com/IA-Generative/Muffin/commit/c7ac957679987ff44ddd997296a85b6eccf4c455))
+* **mcp:** un lien vers Muffin pour chaque source et chaque collection ([#467](https://github.com/IA-Generative/Muffin/issues/467)) ([903cb31](https://github.com/IA-Generative/Muffin/commit/903cb313a9837cb8352e98ca2af0cf7954e1e682))
+* **search:** chercher dans tous les points d'une collection sans cascade ([#467](https://github.com/IA-Generative/Muffin/issues/467)) ([60b7d2f](https://github.com/IA-Generative/Muffin/commit/60b7d2faade79d474eee6f33dd6443149f433c18))
+* **sync:** contenu des collections copiées en lecture seule ([#464](https://github.com/IA-Generative/Muffin/issues/464)) ([318d16c](https://github.com/IA-Generative/Muffin/commit/318d16c4f8652debd7ec0bfbe3573d5da5f204b6))
+* **sync:** reprendre une collection copiée en réindexant son index ([#462](https://github.com/IA-Generative/Muffin/issues/462), [#463](https://github.com/IA-Generative/Muffin/issues/463)) ([9f0b5dc](https://github.com/IA-Generative/Muffin/commit/9f0b5dc12939b14f105b0f6ed4147fa867f7243d))
+
+
+### Dependencies
+
+* **backend:** ajouter la bibliothèque MCP ([#467](https://github.com/IA-Generative/Muffin/issues/467)) ([6083392](https://github.com/IA-Generative/Muffin/commit/6083392e0cc6548afe02ef2a2fb7e3763c18c71e))
+
 ## [0.38.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.37.0...v0.38.0-rc) (2026-10-30)
 
 
