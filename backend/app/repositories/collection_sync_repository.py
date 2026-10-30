@@ -53,8 +53,11 @@ class CollectionSyncRepository:
             )
             collection.source, collection.external_id = source, external_id
         else:
-            collection.owner_id, collection.name, collection.description = data.owner_id, data.name, data.description
+            # Not the description: Open WebUI's only starts the copy, Muffin keeps it up to date from the summaries.
+            collection.owner_id, collection.name = data.owner_id, data.name
             collection.settings.embedding_model = data.embedding_model
+            # Its model is the other system's, and that is what its vectors were made with: nothing to rebuild.
+            collection.settings.reindex_required = False
         collection.visibility = CollectionVisibility.PUBLIC if data.public else CollectionVisibility.PRIVATE
 
         wanted, unknown_groups = await self._wanted_shares(source, data)

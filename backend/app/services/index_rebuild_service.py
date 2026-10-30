@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security.factory import RequestContext
 from app.core.tasks import REBUILD_INDEX_TASK, enqueue_rebuild_index
+from app.models.group import ResourceSource
 from app.models.index_rebuild import ACTIVE_REBUILD_STATUSES, IndexRebuild, IndexRebuildStatus
 from app.repositories.collection_repository import CollectionRepository
 from app.repositories.index_rebuild_repository import IndexRebuildRepository
@@ -36,6 +37,10 @@ def _working_model(rebuild: IndexRebuild) -> str:
     return rebuild.previous_model if rebuild.status == IndexRebuildStatus.ROLLED_BACK else rebuild.target_model
 
 
+class CopiedCollectionError(Exception):
+    """The collection is a copy of another system's (#453): its vectors are that system's, not Muffin's to rebuild."""
+
+
 class IndexRebuildService:
     """Blue/green rebuild of a collection's search index for a new embedding model (#12).
 
@@ -59,6 +64,8 @@ class IndexRebuildService:
         collection = await self.collections.get(collection_id, user.user_id)
         if collection is None:
             raise CollectionNotFoundError(str(collection_id))
+        if collection.source != ResourceSource.MUFFIN:
+            raise CopiedCollectionError(str(collection_id))
         if await self.rebuilds.get_active(collection_id) is not None:
             raise RebuildInProgressError(str(collection_id))
         settings = collection.settings
