@@ -9,6 +9,7 @@ from app.models.collection import (
     CollectionSettings,
     CollectionShare,
     CollectionTag,
+    SharePermission,
     ShareSubjectType,
 )
 from app.models.collection_import import CollectionImport, CollectionImportStatus
@@ -128,6 +129,7 @@ __all__ = [
     "RunPromptUsage",
     "RevisionOrigin",
     "RunStatus",
+    "SharePermission",
     "ShareSubjectType",
     "Source",
     "Task",

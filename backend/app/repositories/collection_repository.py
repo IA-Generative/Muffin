@@ -13,6 +13,7 @@ from app.models.collection import (
     CollectionShare,
     CollectionTag,
     CollectionVisibility,
+    SharePermission,
     ShareStatus,
     ShareSubjectType,
 )
@@ -45,7 +46,9 @@ class CollectionRepository:
         readable = readable.union(select(child.id).where(child.parent_id == readable.c.id))
         return Collection.id.in_(select(readable.c.id))
 
-    def _accessible_among_where(self, collection_ids: Sequence[uuid.UUID], user_id: str, group_ids: Sequence[str]):
+    def _accessible_among_where(
+        self, collection_ids: Sequence[uuid.UUID], user_id: str, group_ids: Sequence[str], *, write: bool = False
+    ):
         """Same barrier as _accessible_where, for a known set of ids: walks up from those ids
         (a handful of rows each) instead of down from everything the caller can read, which
         is what every lookup of a single collection needs - see the #216 benchmark.
@@ -65,7 +68,11 @@ class CollectionRepository:
         readable_ids = (
             select(chain.c.start_id)
             .join(granted, granted.id == chain.c.node_id)
-            .where(self._granted_where(granted, user_id, group_ids))
+            .where(
+                self._write_granted_where(granted, user_id, group_ids)
+                if write
+                else self._granted_where(granted, user_id, group_ids)
+            )
         )
         return Collection.id.in_(readable_ids)
 
@@ -95,6 +102,47 @@ class CollectionRepository:
             direct_share,
             group_share,
         )
+
+    @staticmethod
+    def _write_granted_where(target, user_id: str, group_ids: Sequence[str]):
+        """owner OR an ACTIVE share that lets write, direct or to one of the caller's groups, on `target`
+        itself (#454). A public collection lets read, never write."""
+        direct = exists().where(
+            CollectionShare.collection_id == target.id,
+            CollectionShare.subject_type == ShareSubjectType.USER,
+            CollectionShare.status == ShareStatus.ACTIVE,
+            CollectionShare.permission == SharePermission.WRITE,
+            CollectionShare.subject_id == user_id,
+        )
+        group = (
+            exists().where(
+                CollectionShare.collection_id == target.id,
+                CollectionShare.subject_type == ShareSubjectType.GROUP,
+                CollectionShare.status == ShareStatus.ACTIVE,
+                CollectionShare.permission == SharePermission.WRITE,
+                CollectionShare.subject_id.in_(group_ids),
+            )
+            if group_ids
+            else false()
+        )
+        return or_(target.owner_id == user_id, direct, group)
+
+    async def filter_editable_ids(
+        self, collections: Sequence[Collection], user_id: str, group_ids: Sequence[str], is_admin: bool
+    ) -> set[uuid.UUID]:
+        """The collections, among these the caller can already read, that they may also change (#454): their
+        own, those where a share lets them write on the collection or on an ancestor (write is inherited down
+        the tree like read, #216), and - for a platform administrator - all of them."""
+        if is_admin:
+            return {collection.id for collection in collections}
+        editable = {collection.id for collection in collections if collection.owner_id == user_id}
+        others = [collection.id for collection in collections if collection.id not in editable]
+        if others:
+            result = await self.db.scalars(
+                select(Collection.id).where(self._accessible_among_where(others, user_id, group_ids, write=True))
+            )
+            editable |= set(result.all())
+        return editable
 
     async def list_accessible(
         self,
@@ -456,11 +504,17 @@ class CollectionRepository:
         collection.visibility = visibility
 
     async def create_share(
-        self, collection_id: uuid.UUID, subject_type: ShareSubjectType, identifier_hash: str, display_hint: str
+        self,
+        collection_id: uuid.UUID,
+        subject_type: ShareSubjectType,
+        identifier_hash: str,
+        display_hint: str,
+        permission: SharePermission = SharePermission.READ,
     ) -> CollectionShare:
         share = CollectionShare(
             collection_id=collection_id,
             subject_type=subject_type,
+            permission=permission,
             status=ShareStatus.PENDING,
             invited_identifier_hash=identifier_hash,
             display_hint=display_hint,
