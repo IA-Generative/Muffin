@@ -285,6 +285,14 @@ def search(
     return _hybrid(_alias(collection_id), query, query_embedding, limit, _kind_filter(_KIND_CHUNK))
 
 
+def search_any(
+    collection_id: uuid.UUID, query: str, query_embedding: list[float], limit: int
+) -> list[tuple[uuid.UUID, float]]:
+    """The collection's whole index, whatever a point is - a chunk, a QA pair or a summary - with no cascade (#467).
+    The caller tells them apart by the id."""
+    return _hybrid(_alias(collection_id), query, query_embedding, limit, models.Filter())
+
+
 def search_qa(
     collection_id: uuid.UUID, query: str, query_embedding: list[float], limit: int
 ) -> list[tuple[uuid.UUID, float]]:

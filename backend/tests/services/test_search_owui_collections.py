@@ -101,3 +101,48 @@ async def test_a_copied_collection_that_cannot_be_searched_does_not_take_the_oth
         rows = await SearchService(session).search([copied.id, own.id], "question", 5)
 
     assert [chunk.id for chunk, *_ in rows] == [own_chunk.id]
+
+
+async def test_every_kind_of_point_of_a_collection_of_muffin_is_searched_with_no_cascade(embedding, monkeypatch):
+    async with async_session_factory() as session:
+        own, _ = await _collection(session, "own")
+        await session.commit()
+        asked = {}
+
+        def search_any(collection_id, query, query_embedding, limit):
+            asked["collection"] = collection_id
+            return [(uuid.uuid4(), 0.5)]
+
+        monkeypatch.setattr(vector_store, "search_any", search_any)
+        monkeypatch.setattr(vector_store, "search", lambda *args: pytest.fail("only the chunks were looked at"))
+
+        hits = await SearchService(session).search_points([own.id], "question", 5)
+
+    assert asked["collection"] == own.id and [(collection_id, score) for _, collection_id, score in hits] == [
+        (own.id, 0.5)
+    ]
+
+
+async def test_a_copied_collection_is_searched_in_the_other_systems_qdrant_by_search_points(embedding, monkeypatch):
+    async with async_session_factory() as session:
+        copied, copied_chunk = await _collection(session, "copied", external_id="kb1")
+        await session.commit()
+        monkeypatch.setattr(vector_store, "search_external", lambda name, e, limit: [(copied_chunk.id, 0.7)])
+        monkeypatch.setattr(vector_store, "search_any", lambda *args: pytest.fail("looked for an index of Muffin's"))
+
+        hits = await SearchService(session).search_points([copied.id], "question", 5)
+
+    assert hits == [(copied_chunk.id, copied.id, 0.7)]
+
+
+async def test_search_points_orders_every_collection_together_and_keeps_the_best(embedding, monkeypatch):
+    async with async_session_factory() as session:
+        one, _ = await _collection(session, "one")
+        two, _ = await _collection(session, "two")
+        await session.commit()
+        points = {one.id: [(uuid.uuid4(), 0.4), (uuid.uuid4(), 0.9)], two.id: [(uuid.uuid4(), 0.6)]}
+        monkeypatch.setattr(vector_store, "search_any", lambda cid, q, e, limit: points[cid])
+
+        hits = await SearchService(session).search_points([one.id, two.id], "question", 2)
+
+    assert [score for _, _, score in hits] == [0.9, 0.6]
