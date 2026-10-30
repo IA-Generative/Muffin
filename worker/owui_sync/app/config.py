@@ -10,6 +10,12 @@ class WorkerSettings(BaseSettings):
     # backend/app/core/tasks.py's OWUI_SYNC_QUEUE.
     CELERY_QUEUE_NAME: str = "owui_sync"
 
+    # Where the summary of a copied file is made (#457): the enrichment queue of worker/document_process, and the
+    # lowest Celery priority, so that it holds up neither the ingestion of Muffin's documents nor an answer. Must
+    # match backend/app/core/tasks.py's DOCUMENT_ENRICHMENT_QUEUE and BULK_PRIORITY.
+    ENRICHMENT_QUEUE_NAME: str = "document_enrichment"
+    SUMMARY_PRIORITY: int = 9
+
     BACKEND_API_URL: str = "http://localhost:8000"
     WORKER_API_KEY: str = ""
 

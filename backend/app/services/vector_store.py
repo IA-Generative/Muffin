@@ -529,6 +529,16 @@ def upsert_collection_description(
     )
 
 
+def has_collection_description(collection_id: uuid.UUID) -> bool:
+    """Whether the collection has its point in the index of the descriptions. False when it cannot be told: the
+    caller then writes the point, which is harmless."""
+    try:
+        return _exists(_COLLECTIONS) and bool(_client.retrieve(_COLLECTIONS, [str(collection_id)], with_vectors=False))
+    except Exception:
+        logger.exception(f"Failed to look for the description of collection {collection_id} in the index")
+        return False
+
+
 def update_collection_tags_in_index(collection_id: uuid.UUID, tags: list[str]) -> None:
     """Partial update: the tags are searchable text next to the description, so the sparse vector is made
     again, the embedding is left as is - a no-op if the collection has no description embedded yet

@@ -13,6 +13,7 @@ from app.main import app
 from app.models.chunk import Chunk
 from app.models.collection import Collection
 from app.models.document import Document, DocumentPage, DocumentStatus
+from app.routers import internal_document_sync
 
 API_KEY = "test-worker-key"
 HEADERS = {"X-API-Key": API_KEY}
@@ -143,3 +144,63 @@ async def test_a_file_gone_from_the_other_system_is_dropped_with_its_chunks(clie
     assert (await client.get("/api/internal/synced-documents/owui", headers=HEADERS)).json() == []
     assert await _chunks(document_id) == []
     assert (await client.delete(f"/api/internal/synced-documents/owui/{FILE}", headers=HEADERS)).status_code == 404
+
+
+async def _set_summary(document_id, summary="A summary."):
+    async with async_session_factory() as session:
+        document = await session.get(Document, document_id)
+        document.summary = summary
+        await session.commit()
+
+
+async def test_a_new_file_is_due_a_summary_in_its_collection(client):
+    body = (await _put(client)).json()
+
+    assert body["summary_due"] is True
+    async with async_session_factory() as session:
+        assert body["collection_id"] == str((await session.get(Document, body["id"])).collection_id)
+
+
+async def test_a_file_with_a_summary_that_did_not_change_is_not_due_another(client):
+    document_id = (await _put(client)).json()["id"]
+    await _set_summary(document_id)
+
+    assert (await _put(client)).json()["summary_due"] is False
+
+
+async def test_a_file_that_still_has_no_summary_is_due_one_again(client):
+    await _put(client)
+
+    assert (await _put(client)).json()["summary_due"] is True
+
+
+async def test_a_file_whose_content_changed_loses_its_summary_and_is_due_a_new_one(client, monkeypatch):
+    dropped = []
+    monkeypatch.setattr(
+        internal_document_sync.vector_store,
+        "delete_document_embeddings",
+        lambda collection_id, document_id, chunk_ids: dropped.append((document_id, chunk_ids)),
+    )
+    document_id = (await _put(client)).json()["id"]
+    await _set_summary(document_id)
+
+    body = (await _put(client, content_hash="def")).json()
+
+    assert body["summary_due"] is True
+    assert [(str(identifier), chunk_ids) for identifier, chunk_ids in dropped] == [(document_id, [])]
+    async with async_session_factory() as session:
+        assert (await session.get(Document, document_id)).summary is None
+
+
+async def test_the_summary_point_of_a_file_gone_is_removed(client, monkeypatch):
+    dropped = []
+    monkeypatch.setattr(
+        internal_document_sync.vector_store,
+        "delete_document_embeddings",
+        lambda collection_id, document_id, chunk_ids: dropped.append(document_id),
+    )
+    document_id = (await _put(client)).json()["id"]
+
+    await client.delete(f"/api/internal/synced-documents/owui/{FILE}", headers=HEADERS)
+
+    assert [str(identifier) for identifier in dropped] == [document_id]

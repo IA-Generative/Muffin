@@ -223,6 +223,9 @@ class CollectionMetadataOut(BaseModel):
     # Direct sub-collections that already have a description (#218) - what a parent's
     # description is rolled up from, alongside its own document summaries.
     sub_collections: list[SubCollectionDescriptionOut] = []
+    # Whether the description has its point in the index that routes a question to a collection: a collection copied
+    # from another system starts with a description that never went through the task that writes it there (#457).
+    description_indexed: bool = True
 
 
 class CollectionDescriptionUpdate(BaseModel):
