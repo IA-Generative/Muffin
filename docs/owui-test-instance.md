@@ -18,6 +18,7 @@ Open WebUI répond sur http://localhost:3001. La version se change avec `OWUI_VE
 | Qdrant | mode classique : une collection `open-webui_<id de la knowledge base>` par knowledge base et une `open-webui_file-<id>` par fichier (`ENABLE_QDRANT_MULTITENANCY_MODE=false`) |
 | Extraction | Tika (`CONTENT_EXTRACTION_ENGINE=tika`) : un seul document par fichier, sans numéro de page |
 | Chat | le même hub (`OPENAI_API_BASE_URL`, `OPENAI_API_KEY`), pour essayer les outils MCP de Muffin (#467) depuis son chat |
+| Modèles | `BYPASS_MODEL_ACCESS_CONTROL` : un utilisateur connecté par Keycloak voit les modèles du hub (sans cela, il n'en voit aucun) |
 | Embeddings | le hub OpenAI-compatible de Muffin (`OPENAI_API_BASE_URL`, `OPENAI_API_KEY`), modèle `OWUI_EMBEDDING_MODEL` (par défaut `bge-multilingual-gemma2`) |
 
 `ENV=dev` expose le schéma de l'API d'Open WebUI (http://localhost:3001/openapi.json et `/docs`), sur lequel le client de

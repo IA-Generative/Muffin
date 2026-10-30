@@ -84,6 +84,8 @@ services:
       # Chat from the same hub too, to try Muffin's MCP tools (#467) from Open WebUI's own chat.
       OPENAI_API_BASE_URL: ${OPENAI_API_BASE_URL:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # Everyone who signs in may use the models of the hub, as the test of the tools (#467, #476) is done by a user.
+      BYPASS_MODEL_ACCESS_CONTROL: "true"
       # Embeddings from the same OpenAI-compatible hub as Muffin, so both read the same vector space.
       RAG_EMBEDDING_ENGINE: openai
       RAG_OPENAI_API_BASE_URL: ${OPENAI_API_BASE_URL:-}
