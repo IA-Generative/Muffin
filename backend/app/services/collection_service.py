@@ -49,6 +49,7 @@ from app.schemas.pagination import Page, PaginationParams
 from app.services import embedding_model_lookup, vector_store
 from app.services.collection_hierarchy_service import CollectionHierarchyService
 from app.services.description_rollup_service import DescriptionRollupService
+from app.services.group_service import GroupService
 
 # Last resort only, when the hub is unreachable/unconfigured and there's nothing else to go on -
 # see create_collection, which otherwise resolves the admin-configured or hub-discovered model.
@@ -437,6 +438,9 @@ class CollectionService:
         avoids, and the response here must never depend on whether it does."""
         await self._get_owned(collection_id, user)
 
+        if create.group_id is not None:
+            return await self._create_group_share(collection_id, user, create)
+
         if create.subject_type == ShareSubjectType.USER:
             normalized = normalize_email(create.identifier)
             display_hint = mask_email(normalized)
@@ -451,6 +455,22 @@ class CollectionService:
                 hash_identifier(normalized),
                 display_hint,
                 create.permission,
+            )
+            await self.db.commit()
+        except IntegrityError as error:
+            await self.db.rollback()
+            raise AlreadyInvitedError(str(collection_id)) from error
+        return ShareOut.from_model(share)
+
+    async def _create_group_share(
+        self, collection_id: uuid.UUID, user: RequestContext, create: ShareCreate
+    ) -> ShareOut:
+        """With a group made in Muffin (#455), which the caller must own or be in (or be an administrator): any
+        other id answers as if there were no such group."""
+        group = await GroupService(self.db).get_visible(create.group_id, user)
+        try:
+            share = await self.repository.create_active_group_share(
+                collection_id, group.id, group.name, create.permission
             )
             await self.db.commit()
         except IntegrityError as error:

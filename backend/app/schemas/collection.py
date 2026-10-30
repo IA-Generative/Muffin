@@ -422,8 +422,20 @@ class ShareCreate(BaseModel):
     # An email (subject_type=user) or the exact group path/name as it appears in the Keycloak
     # token's `groups` claim (subject_type=group) - never looked up, never stored as-is, see
     # app/core/sharing.py. Not re-exposed anywhere after this request.
-    identifier: str
+    identifier: str | None = None
+    # Or, for subject_type=group, one of the groups made in Muffin that the caller owns or is in (#455): a known
+    # object rather than an identifier typed blind, so the share is active at once.
+    group_id: uuid.UUID | None = None
     permission: SharePermission = SharePermission.READ
+
+    @model_validator(mode="after")
+    def _who(self) -> "ShareCreate":
+        if self.subject_type == ShareSubjectType.USER:
+            if not self.identifier or self.group_id is not None:
+                raise ValueError("a share with a user is made with an email")
+        elif (not self.identifier) == (self.group_id is None):
+            raise ValueError("a share with a group is made with either an identifier or a group_id")
+        return self
 
 
 class ShareUpdate(BaseModel):
