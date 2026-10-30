@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.38.0-rc.3](https://github.com/IA-Generative/Muffin/compare/v0.38.0-rc.2...v0.38.0-rc.3) (2026-10-30)
+
+
+### Features
+
+* **owui:** outil Open WebUI qui affiche les sources de Muffin dans son panneau ([#476](https://github.com/IA-Generative/Muffin/issues/476)) ([83ac983](https://github.com/IA-Generative/Muffin/commit/83ac98350713e923172894876e6a8c7fdc5b4323))
+
 ## [0.38.0-rc.2](https://github.com/IA-Generative/Muffin/compare/v0.38.0-rc.1...v0.38.0-rc.2) (2026-10-30)
 
 
