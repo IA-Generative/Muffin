@@ -14,8 +14,12 @@ RUN pnpm build
 FROM nginxinc/nginx-unprivileged:1.31-alpine AS runtime
 # The base image only gets rebuilt now and then: pull in the Alpine fixes published since (openssl,
 # zlib, musl...). It needs root, which the base image doesn't run as - dropped again right after.
+# A build cache keeps the result of the upgrade as long as this line does not change, so a fix published
+# after it was cached (brotli-libs 1.2.1, CVE-2026-111497) never gets in: when Trivy reports a fixable
+# critical in the frontend image, bring this date forward to run the upgrade again.
+ARG APK_UPGRADE_AS_OF=2026-10-30
 USER root
-RUN apk upgrade --no-cache
+RUN echo "Alpine fixes as of ${APK_UPGRADE_AS_OF}" && apk upgrade --no-cache
 COPY --chown=nginx:nginx docker/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --chown=nginx:nginx --from=build /app/dist /usr/share/nginx/html
 # Explicit rather than inherited from the base image: same user as before (nginx, uid 101), but
