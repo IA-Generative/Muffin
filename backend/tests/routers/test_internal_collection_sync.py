@@ -172,3 +172,42 @@ async def test_a_collection_gone_from_the_other_system_is_dropped_with_its_files
 
 async def test_dropping_a_collection_that_is_not_there_is_not_found(client):
     assert (await client.delete("/api/internal/synced-collections/owui/nope", headers=HEADERS)).status_code == 404
+
+
+async def test_a_share_that_writes_is_copied_as_such_and_follows_the_other_system(client):
+    group_id = await _group(client)
+    first = (
+        await _put(
+            client,
+            user_shares=[{"subject_id": "sub-1", "permission": "write"}, {"subject_id": "sub-2"}],
+            group_external_ids=["g1"],
+            write_group_external_ids=["g1"],
+        )
+    ).json()
+
+    assert await _permissions(first["id"]) == {
+        (ShareSubjectType.USER, "sub-1"): "write",
+        (ShareSubjectType.USER, "sub-2"): "read",
+        (ShareSubjectType.GROUP, group_id): "write",
+    }
+
+    second = (
+        await _put(
+            client,
+            user_shares=[{"subject_id": "sub-1"}, {"subject_id": "sub-2", "permission": "write"}],
+            group_external_ids=["g1"],
+        )
+    ).json()
+
+    assert (second["shares_added"], second["shares_removed"], second["shares_updated"]) == (0, 0, 3)
+    assert await _permissions(first["id"]) == {
+        (ShareSubjectType.USER, "sub-1"): "read",
+        (ShareSubjectType.USER, "sub-2"): "write",
+        (ShareSubjectType.GROUP, group_id): "read",
+    }
+
+
+async def _permissions(collection_id) -> dict:
+    async with async_session_factory() as session:
+        rows = await session.scalars(select(CollectionShare).where(CollectionShare.collection_id == collection_id))
+        return {(share.subject_type, share.subject_id): share.permission for share in rows}

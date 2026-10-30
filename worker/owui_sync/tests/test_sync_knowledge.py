@@ -62,13 +62,40 @@ def test_the_read_grants_become_who_it_is_shared_with(run):
     body, result = run([_grant("user", "u1"), _grant("user", "u2"), _grant("group", "g1"), _grant("user", "*")], users)
 
     assert body["public"] is True
-    assert body["user_shares"] == [{"subject_id": "kc-1", "email": "u1@example.test"}]
+    assert body["user_shares"] == [{"subject_id": "kc-1", "email": "u1@example.test", "permission": "read"}]
     assert body["group_external_ids"] == ["g1"]
+    assert body["write_group_external_ids"] == []
     assert result["readers_without_subject"] == 1
 
 
-def test_a_write_grant_is_not_copied(run):
-    body, result = run([_grant("user", "u1", "write"), _grant("group", "g1", "write")], {"owner": _user("owner", "kc")})
+def test_a_reader_who_also_writes_in_open_webui_writes_in_muffin(run):
+    users = {"owner": _user("owner", "kc-owner"), "u1": _user("u1", "kc-1"), "u2": _user("u2", "kc-2")}
+    body, _ = run(
+        [
+            _grant("user", "u1"),
+            _grant("user", "u1", "write"),
+            _grant("user", "u2"),
+            _grant("group", "g1"),
+            _grant("group", "g1", "write"),
+            _grant("group", "g2"),
+        ],
+        users,
+    )
+
+    assert {share["subject_id"]: share["permission"] for share in body["user_shares"]} == {
+        "kc-1": "write",
+        "kc-2": "read",
+    }
+    assert body["group_external_ids"] == ["g1", "g2"]
+    assert body["write_group_external_ids"] == ["g1"]
+
+
+def test_muffin_is_never_more_generous_than_open_webui(run):
+    body, result = run(
+        [_grant("user", "u1", "write"), _grant("group", "g1", "write"), _grant("user", "*", "write")],
+        {"owner": _user("owner", "kc")},
+    )
 
     assert (body["public"], body["user_shares"], body["group_external_ids"]) == (False, [], [])
-    assert result["write_grants_ignored"] == 2
+    assert body["write_group_external_ids"] == []
+    assert result["write_grants_ignored"] == 3

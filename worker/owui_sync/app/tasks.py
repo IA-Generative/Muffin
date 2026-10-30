@@ -76,10 +76,12 @@ _UNKNOWN_OWNER = "owui:{user_id}"
 @unit_task("app.tasks.sync_knowledge")
 def sync_knowledge(knowledge_id: str) -> dict:
     """Makes Muffin's copy of one Open WebUI knowledge base what Open WebUI has (#453): its name, its owner and
-    who may read it. Its groups must have been synchronised before (sync_group): a group Muffin has no copy of
-    gets no share, and is reported.
+    who may read it, or also write (#454). Its groups must have been synchronised before (sync_group): a group
+    Muffin has no copy of gets no share, and is reported.
 
-    Only the `read` grants are copied: Muffin has no shared writing yet, so a `write` grant is left out."""
+    A share exists for whoever Open WebUI lets read, and lets write too if Open WebUI also gives them write: Muffin
+    is never more generous than Open WebUI. Write alone is left out, and so is write for everyone (`*`), since a
+    public collection only lets read."""
     owui = OwuiClient()
     knowledge = owui.knowledge(knowledge_id)
 
@@ -88,32 +90,43 @@ def sync_knowledge(knowledge_id: str) -> dict:
         owner = _UNKNOWN_OWNER.format(user_id=knowledge.user_id)
         logger.warning("Knowledge base {}: its owner has no Keycloak subject, owned by {}", knowledge.name, owner)
 
+    reading: set[tuple[str, str]] = set()
+    writing: set[tuple[str, str]] = set()
     public = False
+    ignored = 0
+    for grant in knowledge.access_grants:
+        if grant.principal_id == "*":
+            if grant.permission == "read":
+                public = True
+            else:
+                ignored += 1
+        else:
+            (reading if grant.permission == "read" else writing).add((grant.principal_type, grant.principal_id))
+    ignored += len(writing - reading)
+    if ignored:
+        logger.info(
+            "Knowledge base {}: {} write grant(s) without read, or for everyone, not copied", knowledge.name, ignored
+        )
+
     user_shares: list[dict] = []
     group_ids: list[str] = []
-    without_subject = write_grants = 0
-    for grant in knowledge.access_grants:
-        if grant.permission != "read":
-            write_grants += 1
-        elif grant.principal_id == "*":
-            public = True
-        elif grant.principal_type == "group":
-            group_ids.append(grant.principal_id)
+    write_group_ids: list[str] = []
+    without_subject = 0
+    for principal_type, principal_id in sorted(reading):
+        can_write = (principal_type, principal_id) in writing
+        if principal_type == "group":
+            group_ids.append(principal_id)
+            if can_write:
+                write_group_ids.append(principal_id)
+            continue
+        user = owui.user(principal_id)
+        if user.keycloak_sub is None:
+            without_subject += 1
+            logger.warning("Knowledge base {}: reader {} has no Keycloak subject, left out", knowledge.name, user.email)
         else:
-            user = owui.user(grant.principal_id)
-            if user.keycloak_sub is None:
-                without_subject += 1
-                logger.warning(
-                    "Knowledge base {}: reader {} has no Keycloak subject, left out", knowledge.name, user.email
-                )
-            else:
-                user_shares.append({"subject_id": user.keycloak_sub, "email": user.email})
-    if write_grants:
-        logger.info(
-            "Knowledge base {}: {} write grant(s) not copied (no shared writing in Muffin)",
-            knowledge.name,
-            write_grants,
-        )
+            user_shares.append(
+                {"subject_id": user.keycloak_sub, "email": user.email, "permission": "write" if can_write else "read"}
+            )
 
     result = backend_client.sync_collection(
         "owui",
@@ -126,6 +139,7 @@ def sync_knowledge(knowledge_id: str) -> dict:
             "public": public,
             "user_shares": user_shares,
             "group_external_ids": group_ids,
+            "write_group_external_ids": write_group_ids,
         },
     )
     if result["unknown_groups"]:
@@ -135,7 +149,7 @@ def sync_knowledge(knowledge_id: str) -> dict:
             result["unknown_groups"],
         )
     logger.info("Knowledge base {} synchronised: {}", knowledge.name, result)
-    return {**result, "readers_without_subject": without_subject, "write_grants_ignored": write_grants}
+    return {**result, "readers_without_subject": without_subject, "write_grants_ignored": ignored}
 
 
 # Muffin's own estimate (worker/document_process/app/chunking.py): good enough for what only sizes a chunk.
