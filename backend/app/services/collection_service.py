@@ -42,6 +42,7 @@ from app.schemas.collection import (
     RelevantDocumentOut,
     ShareCreate,
     ShareOut,
+    ShareUpdate,
 )
 from app.schemas.feedback import FeedbackStatsOut
 from app.schemas.pagination import Page, PaginationParams
@@ -449,6 +450,7 @@ class CollectionService:
                 create.subject_type,
                 hash_identifier(normalized),
                 display_hint,
+                create.permission,
             )
             await self.db.commit()
         except IntegrityError as error:
@@ -474,6 +476,19 @@ class CollectionService:
                 if share.collection_id == ancestor.id
             ]
         return own + inherited
+
+    async def update_share(
+        self, collection_id: uuid.UUID, user: RequestContext, share_id: uuid.UUID, update: ShareUpdate
+    ) -> ShareOut:
+        """Lets a share read only, or also write (#454). Only a share of this collection: one inherited from an
+        ancestor is changed on that ancestor."""
+        await self._get_owned(collection_id, user)
+        share = await self.repository.get_share(collection_id, share_id)
+        if share is None:
+            raise ShareNotFoundError(str(share_id))
+        share.permission = update.permission
+        await self.db.commit()
+        return ShareOut.from_model(share)
 
     async def delete_share(self, collection_id: uuid.UUID, user: RequestContext, share_id: uuid.UUID) -> None:
         await self._get_owned(collection_id, user)
@@ -529,6 +544,7 @@ class CollectionService:
         related_ids |= {child_id for child_ids in children.values() for child_id in child_ids}
         readable = await self.repository.filter_accessible_ids(list(related_ids), user.user_id, user.groups)
         document_counts = await self.repository.document_counts(ids)
+        editable = await self.repository.filter_editable_ids(collections, user.user_id, user.groups, user.is_admin)
 
         presented = []
         for collection in collections:
@@ -558,6 +574,7 @@ class CollectionService:
                     children_count=children_count,
                     document_counts=document_counts.get(collection.id, (0, 0)),
                     inherited_public_from=inherited_public_from,
+                    can_edit=collection.id in editable,
                 )
             )
         return presented

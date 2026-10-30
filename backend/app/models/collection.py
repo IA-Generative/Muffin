@@ -28,6 +28,14 @@ class ShareSubjectType(enum.StrEnum):
     GROUP = "group"
 
 
+class SharePermission(enum.StrEnum):
+    """What a share lets the person do: read the collection, or also change it (#454). A share always lets
+    them read."""
+
+    READ = "read"
+    WRITE = "write"
+
+
 class ShareStatus(enum.StrEnum):
     # Created from an email/group identifier the backend never confirmed against Keycloak (no
     # live lookup - see app/core/sharing.py) - resolved to ACTIVE the next time a matching
@@ -168,6 +176,9 @@ class CollectionShare(UUIDMixin, TimestampMixin, Base):
     )
     status: Mapped[ShareStatus] = mapped_column(
         Enum(ShareStatus, name="share_status"), nullable=False, default=ShareStatus.PENDING, index=True
+    )
+    permission: Mapped[str] = mapped_column(
+        String(16), nullable=False, default=SharePermission.READ, server_default="read"
     )
     # Keycloak sub (subject_type=user) or group id/path (subject_type=group) - NULL until resolved.
     subject_id: Mapped[str | None] = mapped_column(String, nullable=True)

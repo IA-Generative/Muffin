@@ -16,7 +16,6 @@ from app.schemas.document_draft import DraftOut
 from app.schemas.internal_edit_request import EditableCollectionOut, EditableDocumentOut, EditRequestCreate
 from app.services.document_draft_service import DocumentDraftService
 from app.services.document_upload_service import DocumentNotFoundError
-from app.services.editing_rights import can_edit
 
 # How the research agent delegates an edit of a living document to the editing agent (#171): it asks
 # the backend, which creates the draft (and its lock) and sends the job, then it follows the draft
@@ -61,7 +60,10 @@ async def list_editable_documents(
     run = await _run(db, run_id)
     user = _identity(run)
     collections = await CollectionRepository(db).list_all_accessible(user.user_id, user.groups)
-    editable = {c.id: c for c in collections if can_edit(user, c) and not c.is_temporary}
+    editable_ids = await CollectionRepository(db).filter_editable_ids(
+        collections, user.user_id, user.groups, user.is_admin
+    )
+    editable = {c.id: c for c in collections if c.id in editable_ids and not c.is_temporary}
     documents = await DocumentRepository(db).list_living_by_collections(list(editable))
     return [
         EditableDocumentOut(
@@ -86,7 +88,10 @@ async def list_editable_collections(
     run = await _run(db, run_id)
     user = _identity(run)
     collections = await CollectionRepository(db).list_all_accessible(user.user_id, user.groups)
-    editable = [c for c in collections if can_edit(user, c) and not c.is_temporary]
+    editable_ids = await CollectionRepository(db).filter_editable_ids(
+        collections, user.user_id, user.groups, user.is_admin
+    )
+    editable = [c for c in collections if c.id in editable_ids and not c.is_temporary]
     return [
         EditableCollectionOut(
             collection_id=collection.id,
