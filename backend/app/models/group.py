@@ -1,7 +1,7 @@
 import enum
 import uuid
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, Text, func, text
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, String, Text, UniqueConstraint, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin, UUIDMixin
@@ -39,14 +39,40 @@ class Group(UUIDMixin, TimestampMixin, Base):
         String(16), nullable=False, default=ResourceSource.MUFFIN, server_default="muffin"
     )
     external_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Keycloak subject of the person who made it and manages it (#455). None for a group copied from another
+    # system: nobody owns it, only the synchronisation changes it.
+    owner_id: Mapped[str | None] = mapped_column(String, index=True, nullable=True)
 
 
-class GroupMember(Base):
+class MemberStatus(enum.StrEnum):
+    ACTIVE = "active"
+    PENDING = "pending"
+
+
+class GroupMember(UUIDMixin, Base):
+    """Someone in a group: a Keycloak subject, or - until they sign in - an invitation made by the hash of their
+    email, never looked up, like a collection share (app/core/sharing.py, docs/collection-sharing.md)."""
+
     __tablename__ = "group_members"
-
-    group_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("groups.id", ondelete="CASCADE"), primary_key=True, nullable=False
+    __table_args__ = (
+        # NULLs are never equal in a unique constraint: these only bind the rows that have the column.
+        UniqueConstraint("group_id", "user_id", name="uq_group_members_group_user"),
+        UniqueConstraint("group_id", "invited_identifier_hash", name="uq_group_members_pending_identifier"),
+        CheckConstraint(
+            "(status = 'active' AND user_id IS NOT NULL)"
+            " OR (status = 'pending' AND invited_identifier_hash IS NOT NULL)",
+            name="ck_group_members_status_fields",
+        ),
     )
-    # Keycloak subject (sub) claim, like Collection.owner_id.
-    user_id: Mapped[str] = mapped_column(String, primary_key=True, index=True, nullable=False)
+
+    group_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("groups.id", ondelete="CASCADE"), index=True, nullable=False)
+    # Keycloak subject (sub) claim, like Collection.owner_id. None while the invitation is pending.
+    user_id: Mapped[str | None] = mapped_column(String, index=True, nullable=True)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default=MemberStatus.ACTIVE, server_default="active", index=True
+    )
+    # HMAC of the normalised email invited, cleared once the person signed in and the member is active.
+    invited_identifier_hash: Mapped[str | None] = mapped_column(String, index=True, nullable=True)
+    # "j***@e***.com": what the owner sees of a pending invitation, never the address again.
+    display_hint: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at = mapped_column(DateTime(timezone=True), server_default=func.now())
