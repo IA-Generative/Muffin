@@ -6,7 +6,7 @@ from loguru import logger
 from openai import AsyncOpenAI
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import LlmSettings, McpSettings
+from app.config import KeycloakSettings, LlmSettings, McpSettings
 from app.core.security.factory import RequestContext
 from app.models.token_usage import TokenUsageKind
 from app.repositories.chunk_repository import ChunkRepository
@@ -29,6 +29,7 @@ _openai_client = (
     else None
 )
 _mcp_settings = McpSettings()
+_keycloak_settings = KeycloakSettings()
 
 _SPLIT_PROMPT = (
     "Split the user's question into independent sub-questions, each of which can be looked up on its own, in the "
@@ -40,6 +41,19 @@ _MAX_SUB_QUERY_CHARS = 500
 
 class NoAccessibleCollectionError(ValueError):
     """The collections asked for are not all ones the caller may read."""
+
+
+def collection_url(collection_id: uuid.UUID) -> str:
+    """Where Muffin's interface opens a collection: the link a client shows, whichever client asked."""
+    return f"{_keycloak_settings.FRONTEND_URL.rstrip('/')}/collections/{collection_id}"
+
+
+def document_url(collection_id: uuid.UUID, document_id: uuid.UUID | None) -> str:
+    return (
+        collection_url(collection_id)
+        if document_id is None
+        else f"{collection_url(collection_id)}/documents/{document_id}"
+    )
 
 
 def _bounded(value: int | None, default: int, ceiling: int) -> int:
@@ -87,6 +101,7 @@ class McpSearchService:
                     path=[*path, names[collection_id].name],
                     description=collection.description or "",
                     score=score,
+                    url=collection_url(collection_id),
                 )
             )
         return suggestions
@@ -149,6 +164,7 @@ class McpSearchService:
                     path=[*path, collection.name],
                     description=collection.description or "",
                     score=0.0,
+                    url=collection_url(collection_id),
                 )
             )
         return described
@@ -215,6 +231,7 @@ class McpSearchService:
                         document_id=chunk.document_id,
                         document_name=document_name,
                         page=pages[0] if pages else None,
+                        url=document_url(collection_id, chunk.document_id),
                         **common,
                     )
                 )
@@ -227,6 +244,7 @@ class McpSearchService:
                         document_id=pair.document_id,
                         document_name=pair.document.name if pair.document else None,
                         page=pair.source_page,
+                        url=document_url(collection_id, pair.document_id),
                         **common,
                     )
                 )
@@ -239,6 +257,7 @@ class McpSearchService:
                         document_id=document.id,
                         document_name=document.name,
                         page=None,
+                        url=document_url(collection_id, document.id),
                         **common,
                     )
                 )

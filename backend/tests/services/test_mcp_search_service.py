@@ -114,6 +114,7 @@ async def test_suggested_collections_come_with_their_path_and_description_best_f
         ("Congés", ["RH", "Congés"], "Poser des congés", 0.9),
         ("Budget", ["Budget"], "", 0.4),
     ]
+    assert result.collections[0].url == f"http://localhost:5173/collections/{leaf.id}"
 
 
 async def test_the_path_leaves_out_an_ancestor_the_caller_cannot_read(searches):
@@ -191,6 +192,9 @@ async def test_the_question_is_split_and_each_sub_question_has_its_collections_a
     assert [(s.kind, s.text, s.document_name, s.page) for s in second.sources] == [
         ("summary", "La charte du télétravail", "teletravail.pdf", None)
     ]
+    # Each source links to its document in Muffin, whichever client asked.
+    assert first.sources[0].url == f"http://localhost:5173/collections/{conges.id}/documents/{document.id}"
+    assert second.sources[0].url == f"http://localhost:5173/collections/{remote.id}/documents/{remote_doc.id}"
     assert llm.calls[0][0] == "hub-chat"
     assert "at most 4" in llm.calls[0][1][0]["content"]
 
@@ -319,3 +323,22 @@ async def test_a_point_postgres_no_longer_knows_is_dropped(llm, searches):
         result = await McpSearchService(session).search(USER, "q", None, None, None, None, None)
 
     assert result.sub_queries[0].sources == []
+
+
+async def test_a_question_about_no_document_links_to_its_collection(llm, searches):
+    llm.reply = json.dumps(["q"])
+    async with async_session_factory() as session:
+        collection = await _collection(session, "C", description="d")
+        pair = QaPair(
+            collection_id=collection.id, question="Quoi ?", answer="Ça.", origin=QaOrigin.GENERATED, document_id=None
+        )
+        session.add(pair)
+        await session.flush()
+        await session.commit()
+        searches["by_description"]["q"] = [(collection.id, 0.9)]
+        searches["points"]["q"] = [(pair.id, collection.id, 0.8)]
+
+        result = await McpSearchService(session).search(USER, "q", None, None, None, None, None)
+
+    (source,) = result.sub_queries[0].sources
+    assert (source.document_id, source.url) == (None, f"http://localhost:5173/collections/{collection.id}")
