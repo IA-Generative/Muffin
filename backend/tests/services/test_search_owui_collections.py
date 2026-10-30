@@ -82,3 +82,22 @@ async def test_a_copied_collection_is_never_searched_in_an_index_of_muffins(embe
         rows = await SearchService(session).search([copied.id], "question", 5)
 
     assert [chunk.id for chunk, *_ in rows] == [copied_chunk.id]
+
+
+async def test_a_copied_collection_that_cannot_be_searched_does_not_take_the_others_down(embedding, monkeypatch):
+    async with async_session_factory() as session:
+        copied, _ = await _collection(session, "copied", external_id="kb1")
+        own, own_chunk = await _collection(session, "own")
+        await session.commit()
+
+        monkeypatch.setattr(vector_store, "_exists", lambda name: True)
+        monkeypatch.setattr(
+            vector_store._client, "query_points", lambda *args, **kwargs: (_ for _ in ()).throw(ValueError("dim"))
+        )
+        monkeypatch.setattr(
+            vector_store, "search", lambda cid, q, e, limit: [(own_chunk.id, 0.9)] if cid == own.id else []
+        )
+
+        rows = await SearchService(session).search([copied.id, own.id], "question", 5)
+
+    assert [chunk.id for chunk, *_ in rows] == [own_chunk.id]
