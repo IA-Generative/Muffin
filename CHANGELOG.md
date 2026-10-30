@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.38.1](https://github.com/IA-Generative/Muffin/compare/v0.38.0...v0.38.1) (2026-10-30)
+
+
+### Bug Fixes
+
+* **owui:** garder la clé S3 d'Open WebUI et ne pas supprimer ses fichiers ([ee0a999](https://github.com/IA-Generative/Muffin/commit/ee0a999be6d00f6011b70f27b079df5b039b9caf))
+
 ## [0.38.1-rc](https://github.com/IA-Generative/Muffin/compare/v0.38.0...v0.38.1-rc) (2026-10-30)
 
 

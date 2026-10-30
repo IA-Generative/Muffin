@@ -1,6 +1,6 @@
 [project]
 name = "muffin-worker-agent-execution"
-version = "0.38.1-rc"
+version = "0.38.1"
 description = "Celery worker that executes research agent runs (LangGraph orchestration)"
 requires-python = ">=3.12"
 dependencies = [
