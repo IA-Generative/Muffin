@@ -203,11 +203,14 @@ export interface CollectionPathItem {
 
 export type ShareSubjectType = 'user' | 'group'
 export type ShareStatus = 'pending' | 'active'
+// What a share lets the person do: read the collection, or also change it (#454).
+export type SharePermission = 'read' | 'write'
 
 export interface Share {
   id: string
   subjectType: ShareSubjectType
   status: ShareStatus
+  permission: SharePermission
   // Non-reversible ("j***@e***.com") - never the full email/group the owner typed. See
   // backend/app/core/sharing.py.
   displayHint: string
@@ -229,6 +232,9 @@ export interface Collection {
   // Whether the current user owns this collection - false for a public collection browsed by
   // someone else, or one shared with them. Gates every write action in the UI.
   isOwner: boolean
+  // May change its living documents: the owner, anyone a share lets write on it or on an ancestor (#454), or
+  // an administrator. Settings, sharing and deletion stay with the owner (isOwner).
+  canEdit: boolean
   // Sub-collections (#215), all relative to what the current user can read: `parentId` is null
   // for a top-level collection or one whose parent they can't read, `path` runs from the root down
   // to the parent, `childrenCount` counts readable direct sub-collections.
