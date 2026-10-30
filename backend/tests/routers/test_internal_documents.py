@@ -140,7 +140,8 @@ async def test_create_document_chunk_with_embedding_upserts_into_qdrant(client, 
 
     assert response.status_code == 201
     assert len(upserted) == 1
-    collection_id, chunk_id, embedding, text, model = upserted[0]
+    collection_id, chunk_id, embedding, text, model, point_document = upserted[0]
+    assert point_document == uuid.UUID(str(document_id))  # the chunk carries its document (#468)
     assert embedding == [0.1, 0.2, 0.3]
     assert text == "Hello world"
     # Recorded with the vector: what a rebuild checks to redo one made with another model (#12).

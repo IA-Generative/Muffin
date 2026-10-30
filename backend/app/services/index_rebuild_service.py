@@ -177,7 +177,11 @@ class IndexRebuildService:
             if current.get(str(point.id)) == point.text
         ]
         vector_store.upsert_points(
-            rebuild.collection_id, kept, model, next_index=rebuild.status == IndexRebuildStatus.BUILDING
+            rebuild.collection_id,
+            kept,
+            model,
+            next_index=rebuild.status == IndexRebuildStatus.BUILDING,
+            documents=await self.rebuilds.documents_of([point_id for _, point_id, _, _ in kept]),
         )
         return len(kept)
 

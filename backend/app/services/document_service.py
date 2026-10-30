@@ -80,7 +80,9 @@ class DocumentService:
                 self.db, document.collection_id, chunk.text, chunk.embedding, chunk.embedding_model
             )
             if embedding is not None:
-                vector_store.upsert_chunk_embedding(document.collection_id, created.id, embedding, chunk.text, model)
+                vector_store.upsert_chunk_embedding(
+                    document.collection_id, created.id, embedding, chunk.text, model, document.id
+                )
         return created
 
     async def prune_pages(self, document_id: uuid.UUID, keep: int) -> None:
