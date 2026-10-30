@@ -107,3 +107,11 @@ def test_the_members_of_a_group_come_with_what_they_signed_in_with():
     [member] = list(_client(handler).group_members("g1"))
     assert member.keycloak_sub == "kc-1"
     assert asked == ["/api/v1/groups/id/g1/export", "/api/v1/users/u1"]
+
+
+def test_a_knowledge_base_without_files_may_come_with_null_files():
+    body = {"id": "kb1", "user_id": "u1", "name": "kb", "files": None}
+
+    knowledge = _client(lambda request: httpx.Response(200, json=body)).knowledge("kb1")
+
+    assert not knowledge.files

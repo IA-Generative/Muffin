@@ -8,7 +8,7 @@ from loguru import logger
 
 from app.backend_client import backend_client
 from app.celery_app import celery_app
-from app.owui_client import OwuiClient
+from app.owui_client import OwuiClient, OwuiKnowledge
 from app.owui_vectors import OwuiVectors
 
 # A synchronisation is many small tasks (#453), so that a collection that fails or is slow never holds back the
@@ -66,6 +66,42 @@ def sync_group(group_id: str) -> dict:
     result = backend_client.sync_group("owui", group.id, group.name, group.description or "", subjects)
     logger.info("Group {} synchronised: {}", group.name, result)
     return {**result, "members_without_subject": len(unresolved)}
+
+
+# What a model's vectors are long, learnt once per model by embedding a word: it only changes with the model.
+_MODEL_DIMENSIONS: dict[str, int] = {}
+
+
+def _dimension_of(model: str) -> int | None:
+    if model not in _MODEL_DIMENSIONS:
+        try:
+            _MODEL_DIMENSIONS[model] = len(backend_client.embed(model, "dimension"))
+        except Exception:
+            logger.warning("Could not embed a probe with model {}: its dimension is not checked", model)
+            return None
+    return _MODEL_DIMENSIONS[model]
+
+
+def _vector_problems(knowledge: OwuiKnowledge, expected_model: str) -> list[str]:
+    """What would make Muffin's search of a knowledge base give wrong results, or none (#453).
+
+    Muffin embeds the question with `expected_model` (Open WebUI's) and compares it to the vectors Open WebUI
+    stored: they must be of that model, hence that length. Open WebUI may have changed model since, without
+    re-embedding all it holds. Reported, never a reason not to copy: the rest is right, and the search of a
+    collection like that already answers nothing rather than fail."""
+    info = OwuiVectors().inspect(knowledge.id)
+    if not info.exists:
+        return ["its collection is not in Qdrant"] if knowledge.files else []
+    problems = []
+    others = sorted(info.models - {expected_model})
+    if others:
+        problems.append(f"chunks made with {', '.join(others)}, while Open WebUI is set to {expected_model}")
+    dimension = _dimension_of(expected_model)
+    if info.dimension is None:
+        problems.append("its vectors are not one unnamed vector, which is not how Open WebUI writes them")
+    elif dimension is not None and dimension != info.dimension:
+        problems.append(f"vectors of dimension {info.dimension}, while {expected_model} gives {dimension}")
+    return problems
 
 
 # The owner a collection gets when the one it had in Open WebUI never signed in through Keycloak: a collection
@@ -128,6 +164,11 @@ def sync_knowledge(knowledge_id: str) -> dict:
                 {"subject_id": user.keycloak_sub, "email": user.email, "permission": "write" if can_write else "read"}
             )
 
+    embedding_model = owui.embedding_model()
+    problems = _vector_problems(knowledge, embedding_model)
+    for problem in problems:
+        logger.warning("Knowledge base {}: {} - its search will be wrong or empty", knowledge.name, problem)
+
     result = backend_client.sync_collection(
         "owui",
         knowledge.id,
@@ -135,7 +176,7 @@ def sync_knowledge(knowledge_id: str) -> dict:
             "name": knowledge.name,
             "description": knowledge.description or "",
             "owner_id": owner,
-            "embedding_model": owui.embedding_model(),
+            "embedding_model": embedding_model,
             "public": public,
             "user_shares": user_shares,
             "group_external_ids": group_ids,
@@ -149,7 +190,13 @@ def sync_knowledge(knowledge_id: str) -> dict:
             result["unknown_groups"],
         )
     logger.info("Knowledge base {} synchronised: {}", knowledge.name, result)
-    return {**result, "readers_without_subject": without_subject, "write_grants_ignored": ignored}
+    return {
+        **result,
+        "knowledge_id": knowledge.id,
+        "readers_without_subject": without_subject,
+        "write_grants_ignored": ignored,
+        "vector_problems": problems,
+    }
 
 
 # Muffin's own estimate (worker/document_process/app/chunking.py): good enough for what only sizes a chunk.
@@ -246,6 +293,11 @@ def sync_files(knowledge_results: list, run: dict) -> dict:
     end: what is missing from the list is not known to be gone from Open WebUI."""
     errors = _errors(knowledge_results)
     run["knowledge_errors"] = errors
+    run["knowledge_inconsistent"] = [
+        {"knowledge_id": result["knowledge_id"], "problems": result["vector_problems"]}
+        for result in knowledge_results
+        if isinstance(result, dict) and result.get("vector_problems")
+    ]
     unsafe = {error["object"] for error in errors}
     owui = OwuiClient()
     pairs: list[tuple[str, str]] = []
@@ -310,6 +362,7 @@ def finish_sync(file_results: list, run: dict) -> dict:
             "seen": len(run["knowledge_ids"]),
             "errors": len(run["knowledge_errors"]),
             "unlisted": len(unsafe),
+            "inconsistent": len(run.get("knowledge_inconsistent", [])),
             "dropped": len(gone_collections),
         },
         "files": {
@@ -321,5 +374,9 @@ def finish_sync(file_results: list, run: dict) -> dict:
     errors = run["group_errors"] + run["knowledge_errors"] + _errors(file_results)
     for error in errors:
         logger.error("Synchronisation {}: {}", run_id, error)
+    for inconsistent in run.get("knowledge_inconsistent", []):
+        logger.warning(
+            "Synchronisation {}: knowledge base {} - {}", run_id, inconsistent["knowledge_id"], inconsistent["problems"]
+        )
     logger.info("Synchronisation {} done: {}", run_id, account)
     return account

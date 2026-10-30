@@ -90,6 +90,7 @@ def _run(**overrides) -> dict:
         "unsafe_knowledge_ids": ["kb2"],
         "group_errors": [],
         "knowledge_errors": [],
+        "knowledge_inconsistent": [],
         **overrides,
     }
 
@@ -161,3 +162,29 @@ def test_a_fact_about_the_object_is_not_tried_again(monkeypatch):
 
     assert result["status"] == "error" and "not in S3" in result["error"]
     assert owui.file.call_count == 1
+
+
+def test_the_knowledge_bases_whose_vectors_do_not_match_are_counted_in_the_account(backend):
+    inconsistent = [{"knowledge_id": "kb1", "problems": ["vectors of dimension 1024, while m gives 3"]}]
+
+    account = tasks.finish_sync.run([], _run(knowledge_inconsistent=inconsistent))
+
+    assert account["knowledge_bases"]["inconsistent"] == 1
+
+
+def test_the_results_that_report_problems_are_kept_for_the_account(monkeypatch, fan_out):
+    owui = MagicMock()
+    owui.knowledge_files.return_value = []
+    monkeypatch.setattr(tasks, "OwuiClient", lambda: owui)
+    run = {"id": "r", "knowledge_ids": ["kb1", "kb2"]}
+
+    tasks.sync_files.run(
+        [
+            {"id": "x", "knowledge_id": "kb1", "vector_problems": ["its collection is not in Qdrant"]},
+            {"id": "y", "knowledge_id": "kb2", "vector_problems": []},
+            {"status": "error", "error": "boom", "object": "kb3"},
+        ],
+        run,
+    )
+
+    assert run["knowledge_inconsistent"] == [{"knowledge_id": "kb1", "problems": ["its collection is not in Qdrant"]}]

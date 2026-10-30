@@ -53,3 +53,12 @@ def test_a_file_has_its_s3_path_and_its_text_and_its_chunks_are_in_qdrant(client
     assert "Page un" in client.file_text(pdf.id) and "Page deux" in client.file_text(pdf.id)
     [chunk] = OwuiVectors().chunks(knowledge.id, pdf.id)
     assert "Page un" in chunk.text and "Page deux" in chunk.text
+
+
+def test_the_vectors_of_a_real_knowledge_base_are_those_of_the_model_open_webui_is_set_to(client):
+    from app.owui_vectors import OwuiVectors
+
+    knowledge = {kb.name: kb for kb in client.knowledge_bases()}["kb-test"]
+    info = OwuiVectors().inspect(knowledge.id)
+
+    assert info.exists and info.dimension and info.models == {client.embedding_model()}
