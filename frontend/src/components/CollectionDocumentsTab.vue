@@ -182,7 +182,7 @@ const STATUS_LABEL = {
     />
     <AddUrlModal v-if="pendingUrl !== null" :url="pendingUrl" @add="confirmUrl" @cancel="pendingUrl = null" />
 
-    <div v-if="collection.isOwner" class="documents-tab__living">
+    <div v-if="collection.canEdit" class="documents-tab__living">
       <label class="fr-btn fr-btn--secondary fr-btn--sm documents-tab__living-button">
         Ajouter un document vivant
         <input
@@ -285,6 +285,7 @@ const STATUS_LABEL = {
       :collection-id="collection.id"
       :document="openDocument"
       :editable="collection.isOwner"
+      :can-edit-living="collection.canEdit"
       @close="closeDocumentModal"
       @changed="reloadDocuments(collection.id)"
     />

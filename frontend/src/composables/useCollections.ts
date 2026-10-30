@@ -20,6 +20,7 @@ import type {
   QaPair,
   Relation,
   Share,
+  SharePermission,
   ShareSubjectType,
 } from '../types/collection'
 import type { LongDocumentsPayload } from '../utils/longDocuments'
@@ -37,6 +38,7 @@ interface CollectionOut {
   updated_at: string
   visibility: CollectionVisibility
   is_owner: boolean
+  can_edit: boolean
   parent_id: string | null
   path: CollectionPathItem[]
   children_count: number
@@ -117,6 +119,7 @@ function toCollection(raw: CollectionOut): Collection {
     updatedAt: raw.updated_at,
     visibility: raw.visibility,
     isOwner: raw.is_owner,
+    canEdit: raw.can_edit,
     parentId: raw.parent_id,
     path: raw.path,
     childrenCount: raw.children_count,
@@ -153,6 +156,7 @@ interface ShareOut {
   id: string
   subject_type: ShareSubjectType
   status: Share['status']
+  permission: SharePermission
   display_hint: string
   created_at: string
   inherited_from: CollectionPathItem | null
@@ -163,6 +167,7 @@ function toShare(raw: ShareOut): Share {
     id: raw.id,
     subjectType: raw.subject_type,
     status: raw.status,
+    permission: raw.permission,
     displayHint: raw.display_hint,
     createdAt: raw.created_at,
     inheritedFrom: raw.inherited_from,
@@ -500,22 +505,40 @@ async function refreshShares(collectionId: string) {
   }
 }
 
+// What is shared with: an email or a Keycloak group typed in (`identifier`), or one of the groups made in Muffin
+// (`groupId`, #455). `permission` is what the share lets: read, or also change (#454).
+interface ShareTarget {
+  subjectType: ShareSubjectType
+  identifier?: string
+  groupId?: string
+  permission?: SharePermission
+}
+
 // Never confirms whether `identifier` resolves to a real account/group - the invitation is
 // always created PENDING and resolved passively the next time a matching user logs in (see
 // backend/app/core/sharing.py). shareError surfaces only real failures (already invited,
-// sharing not configured), never "does this email exist".
-async function createShare(collectionId: string, subjectType: ShareSubjectType, identifier: string) {
+// sharing not configured), never "does this email exist". A group made in Muffin is a known
+// object, so that share is active at once.
+async function createShare(collectionId: string, target: ShareTarget) {
   shareError.value = null
-  if (!identifier.trim()) return
+  const identifier = target.identifier?.trim()
+  if (!identifier && !target.groupId) return
+  const body: Record<string, string> = { subject_type: target.subjectType, permission: target.permission ?? 'read' }
+  if (target.groupId) body.group_id = target.groupId
+  else if (identifier) body.identifier = identifier
   try {
     const response = await fetch(`${API_BASE_URL}/api/collections/${collectionId}/shares`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ subject_type: subjectType, identifier: identifier.trim() }),
+      body: JSON.stringify(body),
     })
     if (response.status === 409) {
       shareError.value = 'Cet email ou ce groupe est déjà invité sur cette collection.'
+      return
+    }
+    if (response.status === 404 && target.groupId) {
+      shareError.value = "Ce groupe n'existe plus ou vous n'en faites pas partie."
       return
     }
     if (response.status === 503) {
@@ -528,6 +551,27 @@ async function createShare(collectionId: string, subjectType: ShareSubjectType, 
     }
   } catch {
     shareError.value = "Échec de l'invitation : le serveur est inaccessible."
+    return
+  }
+  await refreshShares(collectionId)
+}
+
+// Lets a share read only, or also write (#454).
+async function updateSharePermission(collectionId: string, shareId: string, permission: SharePermission) {
+  shareError.value = null
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/collections/${collectionId}/shares/${shareId}`, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ permission }),
+    })
+    if (!response.ok) {
+      shareError.value = 'Échec du changement de droit.'
+      return
+    }
+  } catch {
+    shareError.value = 'Échec du changement de droit : le serveur est inaccessible.'
     return
   }
   await refreshShares(collectionId)
@@ -1411,6 +1455,7 @@ export function useCollections() {
     updateVisibility,
     refreshShares,
     createShare,
+    updateSharePermission,
     deleteShare,
     addDocuments,
     addLivingDocuments,

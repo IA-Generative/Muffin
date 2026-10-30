@@ -1,16 +1,21 @@
 <script setup lang="ts">
 // Qui peut voir la collection : la visibilité et les partages. Ces deux réglages s'appliquent tout de suite (ils
 // n'attendent pas le bouton « Enregistrer » des autres paramètres : ils ne changent pas l'indexation).
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import '../assets/settings-form.css'
 import { useCollections } from '../composables/useCollections'
 import { useCurrentUser } from '../composables/useCurrentUser'
-import type { Collection, ShareSubjectType } from '../types/collection'
+import { useGroups } from '../composables/useGroups'
+import type { Collection, SharePermission, ShareSubjectType } from '../types/collection'
 import SettingsField from './SettingsField.vue'
 import SettingsSection from './SettingsSection.vue'
 
 const props = defineProps<{ collection: Collection }>()
-const { updateVisibility, createShare, deleteShare, shareError } = useCollections()
+const { updateVisibility, createShare, updateSharePermission, deleteShare, shareError } = useCollections()
+
+// Les groupes faits dans Muffin (#455) : ceux qu'on a créés ou dont on fait partie.
+const { groups: muffinGroups, refreshGroups } = useGroups()
+onMounted(refreshGroups)
 
 const visibilityDraft = ref(props.collection.visibility)
 watch(
@@ -34,8 +39,14 @@ function applyVisibility() {
   updateVisibility(props.collection.id, visibilityDraft.value)
 }
 
-const shareSubjectType = ref<ShareSubjectType>('user')
+type ShareKind = ShareSubjectType | 'muffin-group'
+const shareKind = ref<ShareKind>('user')
+const sharePermission = ref<SharePermission>('read')
 const shareIdentifier = ref('')
+const muffinGroupId = ref('')
+
+// Le type envoyé au serveur : un groupe de Muffin est un groupe, désigné par son id.
+const shareSubjectType = computed<ShareSubjectType>(() => (shareKind.value === 'user' ? 'user' : 'group'))
 
 // Les groupes de l'utilisateur sont proposés en liste ; « Autre groupe » garde la saisie libre
 // pour un groupe dont il n'est pas membre.
@@ -46,24 +57,31 @@ const groupChoice = ref(OTHER_GROUP)
 const isFreeGroup = computed(() => myGroups.value.length === 0 || groupChoice.value === OTHER_GROUP)
 
 watch(
-  [shareSubjectType, myGroups],
+  [shareKind, myGroups],
   () => {
-    if (shareSubjectType.value === 'group' && !myGroups.value.includes(groupChoice.value)) {
+    if (shareKind.value === 'group' && !myGroups.value.includes(groupChoice.value)) {
       groupChoice.value = myGroups.value[0] ?? OTHER_GROUP
     }
   },
   { immediate: true },
 )
 
-const shareTarget = computed(() =>
-  shareSubjectType.value === 'group' && !isFreeGroup.value ? groupChoice.value : shareIdentifier.value.trim(),
-)
+const shareTarget = computed(() => {
+  if (shareKind.value === 'muffin-group') return muffinGroupId.value
+  return shareKind.value === 'group' && !isFreeGroup.value ? groupChoice.value : shareIdentifier.value.trim()
+})
 
 function submitShare() {
   if (!shareTarget.value) return
-  createShare(props.collection.id, shareSubjectType.value, shareTarget.value)
+  createShare(props.collection.id, {
+    subjectType: shareSubjectType.value,
+    ...(shareKind.value === 'muffin-group' ? { groupId: shareTarget.value } : { identifier: shareTarget.value }),
+    permission: sharePermission.value,
+  })
   shareIdentifier.value = ''
 }
+
+const PERMISSION_LABEL: Record<SharePermission, string> = { read: 'Lecture', write: 'Lecture et écriture' }
 
 const SHARE_STATUS_LABEL: Record<'pending' | 'active', string> = { pending: 'En attente', active: 'Actif' }
 
@@ -107,12 +125,23 @@ const sharesSummary = computed(() => {
         <SettingsField id="share-subject-type" label="Inviter un utilisateur ou un groupe">
           <template #default="{ id }">
             <div class="access__share-form">
-              <select :id="id" v-model="shareSubjectType" class="fr-select" aria-label="Type de destinataire">
+              <select :id="id" v-model="shareKind" class="fr-select" aria-label="Type de destinataire">
                 <option value="user">Email</option>
+                <option value="muffin-group">Groupe Muffin</option>
                 <option value="group">Groupe Keycloak</option>
               </select>
               <select
-                v-if="shareSubjectType === 'group' && myGroups.length"
+                v-if="shareKind === 'muffin-group'"
+                id="share-muffin-group"
+                v-model="muffinGroupId"
+                class="fr-select"
+                aria-label="Groupe Muffin"
+              >
+                <option value="" disabled>Choisir un groupe…</option>
+                <option v-for="group in muffinGroups" :key="group.id" :value="group.id">{{ group.name }}</option>
+              </select>
+              <select
+                v-if="shareKind === 'group' && myGroups.length"
                 id="share-group"
                 v-model="groupChoice"
                 class="fr-select"
@@ -125,21 +154,29 @@ const sharesSummary = computed(() => {
               </select>
               <div class="access__share-row">
                 <input
-                  v-if="shareSubjectType === 'user' || isFreeGroup"
+                  v-if="shareKind === 'user' || (shareKind === 'group' && isFreeGroup)"
                   id="share-identifier"
                   v-model="shareIdentifier"
                   type="text"
                   aria-label="Adresse email ou nom du groupe"
-                  :placeholder="shareSubjectType === 'user' ? 'personne@exemple.fr' : '/nom-du-groupe'"
+                  :placeholder="shareKind === 'user' ? 'personne@exemple.fr' : '/nom-du-groupe'"
                 />
-                <button type="submit" class="fr-btn fr-btn--sm" :disabled="!shareTarget">Inviter</button>
+                <select v-model="sharePermission" class="fr-select access__permission" aria-label="Droit accordé">
+                  <option value="read">{{ PERMISSION_LABEL.read }}</option>
+                  <option value="write">{{ PERMISSION_LABEL.write }}</option>
+                </select>
+                <button type="submit" class="fr-btn fr-btn--sm" :disabled="!shareTarget">
+                  {{ shareKind === 'muffin-group' ? 'Partager' : 'Inviter' }}
+                </button>
               </div>
             </div>
           </template>
         </SettingsField>
         <p class="sf-hint">
-          Aucune vérification n'est faite ici : l'invitation est créée et s'activera automatiquement à la prochaine
-          connexion de la personne ou d'un membre du groupe. Un partage s'applique aussi aux sous-collections.
+          Un email ou un groupe Keycloak n'est pas vérifié ici : l'invitation s'active à la prochaine connexion de la
+          personne ou d'un membre du groupe. Un groupe Muffin est actif tout de suite. « Lecture et écriture » permet aussi
+          de modifier les documents vivants, mais pas les réglages, le partage ni la suppression, qui restent au propriétaire.
+          Un partage s'applique aussi aux sous-collections.
         </p>
         <p v-if="shareError" class="sf-error" role="alert">{{ shareError }}</p>
       </form>
@@ -148,6 +185,19 @@ const sharesSummary = computed(() => {
         <li v-for="share in collection.shares" :key="share.id" class="access__item">
           <span class="access__who">{{ share.displayHint }}</span>
           <span v-if="share.inheritedFrom" class="access__inherited">Hérité de « {{ share.inheritedFrom.name }} »</span>
+          <select
+            v-if="!share.inheritedFrom"
+            class="fr-select access__permission"
+            :value="share.permission"
+            :aria-label="`Droit de ${share.displayHint}`"
+            @change="
+              updateSharePermission(collection.id, share.id, ($event.target as HTMLSelectElement).value as SharePermission)
+            "
+          >
+            <option value="read">{{ PERMISSION_LABEL.read }}</option>
+            <option value="write">{{ PERMISSION_LABEL.write }}</option>
+          </select>
+          <span v-else class="access__inherited-permission">{{ PERMISSION_LABEL[share.permission] }}</span>
           <span class="access__status" :class="`access__status--${share.status}`">
             {{ SHARE_STATUS_LABEL[share.status] }}
           </span>
@@ -182,6 +232,16 @@ const sharesSummary = computed(() => {
 .access__share-row input {
   flex: 1;
   min-width: 0;
+}
+
+.access__permission {
+  width: auto;
+  flex-shrink: 0;
+}
+
+.access__inherited-permission {
+  font-size: 0.75rem;
+  color: var(--text-mention-grey);
 }
 
 .access__list {
