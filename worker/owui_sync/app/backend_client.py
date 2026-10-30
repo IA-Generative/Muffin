@@ -1,4 +1,5 @@
 import httpx
+from loguru import logger
 
 from app.config import settings
 from app.usage_context import current_usage
@@ -31,6 +32,15 @@ class BackendClient:
         response = self._client.put(f"/api/internal/synced-collections/{source}/{external_id}", json=body)
         response.raise_for_status()
         return response.json()
+
+    def report_run(self, run_id: str, status: str, **fields) -> None:
+        """Tells the backend where a synchronisation is - started, done with its account, or failed - for the
+        administrators' page (#466). Never raises: a synchronisation is not worth failing over its own report."""
+        try:
+            response = self._client.put(f"/api/internal/owui-sync/runs/{run_id}", json={"status": status, **fields})
+            response.raise_for_status()
+        except Exception:
+            logger.exception("Could not report synchronisation {} ({})", run_id, status)
 
     def sync_document(self, source: str, external_id: str, body: dict) -> dict:
         """Makes Muffin's copy of a file what the other system has, with the chunks it cut it into."""

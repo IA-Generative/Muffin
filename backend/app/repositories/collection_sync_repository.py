@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from sqlalchemy import delete, exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -73,6 +74,7 @@ class CollectionSyncRepository:
             # Its model is the other system's, and that is what its vectors were made with: nothing to rebuild.
             collection.settings.reindex_required = False
         collection.visibility = CollectionVisibility.PUBLIC if data.public else CollectionVisibility.PRIVATE
+        collection.synced_at, collection.sync_problems = datetime.now(UTC), data.vector_problems or None
 
         wanted, unknown_groups = await self._wanted_shares(source, data)
         shares = list(

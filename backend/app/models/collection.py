@@ -67,6 +67,10 @@ class Collection(UUIDMixin, TimestampMixin, Base):
     # When Muffin took the collection over (#462): from then on it is a collection like any other, whatever its origin.
     # `source` and `external_id` stay, as the memory of where it came from.
     adopted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # For a copy (#453): when the synchronisation last brought it up to date, and what it found wrong with the vectors
+    # of the other system (#466).
+    synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    sync_problems: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
     visibility: Mapped[CollectionVisibility] = mapped_column(
         Enum(CollectionVisibility, name="collection_visibility"),
         nullable=False,

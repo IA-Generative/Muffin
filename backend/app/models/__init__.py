@@ -52,6 +52,7 @@ from app.models.group import Group, GroupMember, MemberStatus, ResourceSource
 from app.models.import_document import ImportDocument
 from app.models.index_rebuild import IndexRebuild, IndexRebuildStatus
 from app.models.message import Message, MessageRole
+from app.models.owui_sync_run import OwuiSyncRun
 from app.models.prompt import PromptVersion, RunPromptUsage
 from app.models.qa import QaOrigin, QaPair
 from app.models.report import Report, ReportStatus, ReportType
@@ -113,6 +114,7 @@ __all__ = [
     "GroupMember",
     "MemberStatus",
     "Message",
+    "OwuiSyncRun",
     "MessageRole",
     "MessageSource",
     "PipelineStage",

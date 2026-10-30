@@ -188,3 +188,60 @@ def test_the_results_that_report_problems_are_kept_for_the_account(monkeypatch, 
     )
 
     assert run["knowledge_inconsistent"] == [{"knowledge_id": "kb1", "problems": ["its collection is not in Qdrant"]}]
+
+
+# -- the account the administrators' page shows (#466) ----------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def reports(monkeypatch):
+    """What the synchronisation tells the backend of itself: (run, status, fields)."""
+    sent = []
+    monkeypatch.setattr(
+        tasks.backend_client, "report_run", lambda run_id, status, **fields: sent.append((run_id, status, fields))
+    )
+    return sent
+
+
+def test_the_root_reports_the_run_as_started(monkeypatch, fan_out, reports):
+    owui = MagicMock()
+    owui.groups.return_value = [OwuiGroup(id="g1", name="A")]
+    monkeypatch.setattr(tasks, "OwuiClient", lambda: owui)
+
+    result = tasks.sync_owui.run()
+
+    [(run_id, status, fields)] = reports
+    assert (run_id, status) == (fan_out[0][1].args[0]["id"], "running") and fields["started_at"]
+    assert result["run"] == run_id
+
+
+def test_a_synchronisation_that_cannot_read_open_webui_reports_why(monkeypatch, fan_out, reports):
+    owui = MagicMock()
+    owui.groups.side_effect = RuntimeError("401 Unauthorized")
+    monkeypatch.setattr(tasks, "OwuiClient", lambda: owui)
+
+    with pytest.raises(RuntimeError):
+        tasks.sync_owui.run()
+
+    [(_, status, fields)] = reports
+    assert (status, fields["error"]) == ("failed", "401 Unauthorized")
+    assert fan_out == []
+
+
+def test_the_closing_reports_the_account(monkeypatch, reports):
+    backend = MagicMock()
+    backend.list_synced.return_value = []
+    monkeypatch.setattr(tasks, "backend_client", backend)
+    run = {
+        "id": "run-1",
+        "group_ids": [],
+        "knowledge_ids": [],
+        "document_ids": [],
+        "unsafe_knowledge_ids": [],
+        "group_errors": [],
+        "knowledge_errors": [],
+    }
+
+    account = tasks.finish_sync.run([], run)
+
+    backend.report_run.assert_called_once_with("run-1", "done", account=account)
