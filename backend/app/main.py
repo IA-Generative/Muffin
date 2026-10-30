@@ -1,5 +1,6 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app import __version__
 from app.config import KeycloakSettings
@@ -47,6 +48,7 @@ from app.routers.reports import router as reports_router
 from app.routers.runs import router as runs_router
 from app.routers.tasks import router as tasks_router
 from app.routers.usage import router as usage_router
+from app.services.copied_collections import CopiedCollectionError
 
 _keycloak_settings = KeycloakSettings()
 
@@ -97,6 +99,18 @@ app = FastAPI(
         },
     ],
 )
+
+
+@app.exception_handler(CopiedCollectionError)
+async def copied_collection_handler(_request: Request, _error: CopiedCollectionError) -> JSONResponse:
+    """What is in a copy of another system's collection is changed there, not here (#464)."""
+    return JSONResponse(
+        status_code=409,
+        content={
+            "detail": "This collection is a copy of another system's: change it there, or have Muffin take it over"
+        },
+    )
+
 
 # Explicit origin (not "*") required: credentialed cookie requests are
 # rejected by browsers if allow_origins is a wildcard.

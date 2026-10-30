@@ -13,6 +13,7 @@ from app.repositories.document_refresh_repository import DocumentRefreshReposito
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.task_repository import TaskRepository
 from app.schemas.document import RefreshSchedule, RefreshScheduleOut
+from app.services.copied_collections import ensure_not_copied
 
 from .collection_service import CollectionNotFoundError
 from .document_upload_service import DocumentNotFoundError, DocumentUploadService
@@ -102,8 +103,9 @@ class DocumentRefreshService:
         document_id: uuid.UUID,
         refresh_schedule: RefreshSchedule | None,
     ) -> RefreshScheduleOut:
-        if await self.collections.get(collection_id, user.user_id) is None:
+        if (collection := await self.collections.get(collection_id, user.user_id)) is None:
             raise CollectionNotFoundError(str(collection_id))
+        ensure_not_copied(collection)
         document = await self._document(collection_id, document_id)
         if document.type != DocumentType.URL:
             raise NotUrlDocumentError(str(document_id))
@@ -115,8 +117,9 @@ class DocumentRefreshService:
         """Fetches the page now, whatever its schedule (which goes on unchanged): the same check as a
         scheduled one - reprocessed if the page changed, only its date of last fetch otherwise. Returns
         the id of the task, which the user follows in their tasks, logs included."""
-        if await self.collections.get(collection_id, user.user_id) is None:
+        if (collection := await self.collections.get(collection_id, user.user_id)) is None:
             raise CollectionNotFoundError(str(collection_id))
+        ensure_not_copied(collection)
         document = await self._document(collection_id, document_id)
         if document.type != DocumentType.URL:
             raise NotUrlDocumentError(str(document_id))

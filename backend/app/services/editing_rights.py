@@ -1,6 +1,7 @@
 from app.core.security.factory import RequestContext
 from app.models.collection import Collection
 from app.repositories.collection_repository import CollectionRepository
+from app.services.copied_collections import ensure_not_copied
 
 from .collection_service import CollectionNotEditableError, CollectionNotFoundError
 
@@ -18,6 +19,8 @@ async def require_editable_collection(
     collection = await collections.get_accessible(collection_id, user.user_id, user.groups)
     if collection is None:
         raise CollectionNotFoundError(str(collection_id))
+    # A copy of another system's collection is changed there (#464): not even by an administrator.
+    ensure_not_copied(collection)
     editable = await collections.filter_editable_ids([collection], user.user_id, user.groups, user.is_admin)
     if collection.id not in editable:
         raise CollectionNotEditableError(str(collection_id))
