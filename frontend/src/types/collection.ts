@@ -235,6 +235,12 @@ export interface Collection {
   // May change its living documents: the owner, anyone a share lets write on it or on an ancestor (#454), or
   // an administrator. Settings, sharing and deletion stay with the owner (isOwner).
   canEdit: boolean
+  // Copied from another system (Open WebUI) and not taken over by Muffin yet (#462, #464): its content, settings and
+  // sharing are changed there, so no action that changes them is offered. `adopted`: it came from there and is Muffin's.
+  copied: boolean
+  adopted: boolean
+  // Owns it and may change it: `isOwner`, but not for a copy. Gates the actions that change the collection.
+  canManage: boolean
   // Sub-collections (#215), all relative to what the current user can read: `parentId` is null
   // for a top-level collection or one whose parent they can't read, `path` runs from the root down
   // to the parent, `childrenCount` counts readable direct sub-collections.

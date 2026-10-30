@@ -39,6 +39,7 @@ from app.schemas.document import (
 )
 from app.schemas.pagination import Page, PaginationParams
 from app.services import embedding_model_lookup, vector_store
+from app.services.copied_collections import ensure_not_copied
 from app.services.document_derived_data import DocumentDerivedData
 from app.services.import_processing_queue import ImportProcessingQueue
 from app.services.page_highlights import chunk_pages_of, chunk_spans_on, locate_passage, rects_for_span
@@ -689,6 +690,8 @@ class DocumentUploadService:
         collection = await self.collections.get(collection_id, user.user_id)
         if collection is None:
             raise CollectionNotFoundError(str(collection_id))
+        # What is in a copy of another system's collection is that system's, changed there (#464).
+        ensure_not_copied(collection)
 
     async def _get_readable_collection(self, collection_id: uuid.UUID, user: RequestContext) -> None:
         # Reads follow the collection's own read access (owner, public - inherited or not - or

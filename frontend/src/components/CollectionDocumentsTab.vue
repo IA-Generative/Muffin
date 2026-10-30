@@ -204,7 +204,7 @@ const STATUS_LABEL = {
 
     <p v-if="documentError && !showMarkdownModal" class="documents-tab__error" role="alert">{{ documentError }}</p>
 
-    <div v-if="collection.isOwner && failedCount" class="documents-tab__failed">
+    <div v-if="collection.canManage && failedCount" class="documents-tab__failed">
       <button type="button" class="fr-btn fr-btn--secondary fr-btn--sm" @click="relaunchAll">
         Relancer {{ failedCount > 1 ? `les ${failedCount} documents en erreur` : 'le document en erreur' }}
       </button>
@@ -250,7 +250,7 @@ const STATUS_LABEL = {
         </button>
 
         <button
-          v-if="collection.isOwner && document.status === 'error'"
+          v-if="collection.canManage && document.status === 'error'"
           type="button"
           class="fr-btn fr-btn--tertiary fr-btn--sm documents-tab__item-retry"
           :aria-label="`Réessayer l'indexation de ${document.name}`"
@@ -284,7 +284,7 @@ const STATUS_LABEL = {
       v-if="openDocument"
       :collection-id="collection.id"
       :document="openDocument"
-      :editable="collection.isOwner"
+      :editable="collection.canManage"
       :can-edit-living="collection.canEdit"
       @close="closeDocumentModal"
       @changed="reloadDocuments(collection.id)"

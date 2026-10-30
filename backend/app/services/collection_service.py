@@ -48,6 +48,7 @@ from app.schemas.feedback import FeedbackStatsOut
 from app.schemas.pagination import Page, PaginationParams
 from app.services import embedding_model_lookup, vector_store
 from app.services.collection_hierarchy_service import CollectionHierarchyService
+from app.services.copied_collections import ensure_not_copied
 from app.services.description_rollup_service import DescriptionRollupService
 from app.services.group_service import GroupService
 
@@ -167,7 +168,7 @@ class CollectionService:
     async def update_collection(
         self, collection_id: uuid.UUID, user: RequestContext, update: CollectionUpdate
     ) -> CollectionOut:
-        collection = await self._get_owned(collection_id, user)
+        collection = await self._get_writable(collection_id, user)
         updated_by = _display_name(user)
         previous_parent_id = collection.parent_id
         previous_description = collection.description
@@ -200,7 +201,7 @@ class CollectionService:
         user: RequestContext,
         update: CollectionSettingsUpdate,
     ) -> CollectionOut:
-        collection = await self._get_owned(collection_id, user)
+        collection = await self._get_writable(collection_id, user)
         windows_update = (
             update.pipeline_windows.model_dump(exclude_unset=True) if update.pipeline_windows is not None else None
         )
@@ -399,7 +400,7 @@ class CollectionService:
         ]
 
     async def delete_collection(self, collection_id: uuid.UUID, user: RequestContext) -> None:
-        collection = await self._get_owned(collection_id, user)
+        collection = await self._get_writable(collection_id, user)
         # The whole sub-collection subtree goes with it (ON DELETE CASCADE on parent_id, #213) -
         # a descendant always has the same owner, so the ownership check above covers it too.
         subtree_ids = [collection_id, *await self.hierarchy.descendant_ids(collection_id)]
@@ -423,7 +424,7 @@ class CollectionService:
         user: RequestContext,
         visibility: CollectionVisibility,
     ) -> CollectionOut:
-        collection = await self._get_owned(collection_id, user)
+        collection = await self._get_writable(collection_id, user)
         await self.repository.update_visibility(collection, visibility)
         await self.db.commit()
         # Same reasoning as update_collection: onupdate=func.now() expires updated_at after the
@@ -436,7 +437,7 @@ class CollectionService:
         PENDING row from its hash. See app/core/sharing.py for why: confirming or denying that an
         identifier resolves to a real account/group is exactly the enumeration risk this design
         avoids, and the response here must never depend on whether it does."""
-        await self._get_owned(collection_id, user)
+        await self._get_writable(collection_id, user)
 
         if create.group_id is not None:
             return await self._create_group_share(collection_id, user, create)
@@ -502,7 +503,7 @@ class CollectionService:
     ) -> ShareOut:
         """Lets a share read only, or also write (#454). Only a share of this collection: one inherited from an
         ancestor is changed on that ancestor."""
-        await self._get_owned(collection_id, user)
+        await self._get_writable(collection_id, user)
         share = await self.repository.get_share(collection_id, share_id)
         if share is None:
             raise ShareNotFoundError(str(share_id))
@@ -511,7 +512,7 @@ class CollectionService:
         return ShareOut.from_model(share)
 
     async def delete_share(self, collection_id: uuid.UUID, user: RequestContext, share_id: uuid.UUID) -> None:
-        await self._get_owned(collection_id, user)
+        await self._get_writable(collection_id, user)
         share = await self.repository.get_share(collection_id, share_id)
         if share is None:
             raise ShareNotFoundError(str(share_id))
@@ -523,6 +524,10 @@ class CollectionService:
         if collection is None:
             raise CollectionNotFoundError(str(collection_id))
         return collection
+
+    async def _get_writable(self, collection_id: uuid.UUID, user: RequestContext) -> Collection:
+        """The owner's collection to change - not a copy of another system's, which is changed there (#464)."""
+        return ensure_not_copied(await self._get_owned(collection_id, user))
 
     async def _get_accessible(self, collection_id: uuid.UUID, user: RequestContext) -> Collection:
         collection = await self.repository.get_accessible(collection_id, user.user_id, user.groups)
