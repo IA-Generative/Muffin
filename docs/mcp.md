@@ -76,6 +76,35 @@ Ce qui reste vrai de ce côté :
 - L'appel par l'API `POST /api/chat/completions` seule n'exécute pas les outils : il rend l'appel au client. Ils s'exécutent dans le
   fil d'un chat, comme le fait l'interface.
 
+## Les sources dans le panneau d'Open WebUI (#476)
+
+Une connexion MCP donne le résultat au modèle comme du texte : Open WebUI n'en fait des sources que pour ses propres outils. Pour que
+les sources de Muffin s'affichent dans le panneau « Sources » du chat, avec le nom du document et un lien qui l'ouvre dans Muffin, un
+**outil Open WebUI** (`docker/owui/muffin_search_tool.py`) appelle le même serveur MCP et envoie lui-même un événement `citation` par
+document trouvé.
+
+```bash
+OWUI_URL=http://localhost:3001 OWUI_API_KEY=sk-... OWUI_BASE_MODEL=<un modèle du hub> \
+  python3 docker/owui/install_muffin_tool.py
+```
+
+Le script installe (ou met à jour) l'outil, partagé avec tous, et fait avec `OWUI_BASE_MODEL` un modèle **« Assistant Muffin »** : l'outil
+attaché, une consigne qui demande de citer par numéro, et les outils de connaissances d'Open WebUI **coupés**.
+
+- **Authentification** : l'outil appelle Muffin avec le jeton Keycloak de l'utilisateur, que sa session de connexion à Open WebUI
+  fournit (`__oauth_token__`) et qu'Open WebUI renouvelle : chacun cherche avec ses propres droits, et le jeton n'expire plus au
+  bout de quelques minutes. Un utilisateur sans session Keycloak dans Open WebUI reçoit un message le disant ; la valve
+  `FALLBACK_TOKEN` donne un jeton d'essai.
+- **Numérotation** : un document est une source, numérotée dans l'ordre où elle est envoyée pour le message, même si le modèle appelle
+  l'outil plusieurs fois ; les passages d'un même document sont groupés. Le modèle les cite par `[n]`.
+- **Pourquoi couper les outils intégrés** : avec eux, le modèle prend les numéros de sources pour des identifiants de fichier, ouvre
+  des fichiers qu'Open WebUI ne connaît pas (`File not found`, `Access denied to knowledge base`) et conclut qu'il n'a pas accès au
+  contenu. Sans eux, 3 essais sur 3 enchaînent `suggest_collections` puis `search` et citent les sources.
+- Les valves de l'outil : adresse du serveur MCP (`http://backend:8000/api/mcp/`), délai, longueur d'un passage.
+
+Pour l'instance de test (`docs/owui-test-instance.md`), `BYPASS_MODEL_ACCESS_CONTROL` laisse un utilisateur de Keycloak voir les modèles
+du hub.
+
 ## Réglages
 
 Voir `MCP_*` dans `environment-variables.md` : modèle de découpage par défaut, valeurs par défaut de chaque borne et plafonds
