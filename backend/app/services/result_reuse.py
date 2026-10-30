@@ -195,6 +195,7 @@ class ResultReuse:
             vector_store.KIND_CHUNK,
             [(old, new.id, new.text) for old, new in copies],
             undo,
+            target.id,
         )
 
     async def _copy_summary(self, source: Document, target: Document, undo: Undo) -> None:
@@ -248,6 +249,7 @@ class ResultReuse:
         kind: str,
         points: Sequence[tuple[uuid.UUID, uuid.UUID, str]],
         undo: Undo,
+        document_id: uuid.UUID | None = None,
     ) -> None:
         """Writes to the target's index the vectors of the source's points, as (source id, new id, text).
         A vector made with another model than the target's index - the source's collection uses another
@@ -270,4 +272,5 @@ class ResultReuse:
                 target_collection_id, [str(new) for _, new, _, _ in written], next_index=False
             )
         )
-        vector_store.upsert_points(target_collection_id, written, active, next_index=False)
+        documents = {new: document_id for _, new, _, _ in written} if document_id is not None else None
+        vector_store.upsert_points(target_collection_id, written, active, next_index=False, documents=documents)

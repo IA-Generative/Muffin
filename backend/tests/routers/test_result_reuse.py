@@ -51,6 +51,7 @@ def index(monkeypatch):
     state = {
         "vectors": {},
         "points": [],
+        "documents": [],
         "qa_points": [],
         "copied": [],
         "deleted_objects": [],
@@ -72,7 +73,10 @@ def index(monkeypatch):
     monkeypatch.setattr(
         vector_store,
         "upsert_points",
-        lambda collection_id, points, model, *, next_index: state["points"].append((collection_id, points, model)),
+        lambda collection_id, points, model, *, next_index, documents=None: (
+            state["points"].append((collection_id, points, model)),
+            state["documents"].append(documents),
+        ),
     )
     monkeypatch.setattr(
         vector_store,
@@ -82,7 +86,9 @@ def index(monkeypatch):
     monkeypatch.setattr(
         vector_store,
         "upsert_qa_embedding",
-        lambda collection_id, qa_id, embedding, text, model: state["qa_points"].append((qa_id, embedding, model)),
+        lambda collection_id, qa_id, embedding, text, model, document_id=None: state["qa_points"].append(
+            (qa_id, embedding, model)
+        ),
     )
     monkeypatch.setattr(vector_store, "delete_qa_embeddings", lambda *args: None)
     monkeypatch.setattr(vector_store, "delete_chunk_embeddings", lambda *args: None)
@@ -328,6 +334,8 @@ async def test_the_chunks_are_copied_with_new_ids_and_their_vectors_without_embe
         ("chunk", chunk.id, f"chunk {chunk.index}", [float(chunk.index), 0.5]) for chunk in copied
     ]
     assert index["embedded"] == []
+    # Each copied point is written with the copy's own document (#468).
+    assert index["documents"] == [{chunk.id: target for chunk in copied}]
 
 
 async def test_a_vector_made_with_another_model_is_made_again_from_its_text(client, index):

@@ -62,6 +62,17 @@ class IndexRebuildRepository:
         points.update({str(point_id): ("qa", text) for point_id, text in qa_pairs.all()})
         return points
 
+    async def documents_of(self, point_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, uuid.UUID]:
+        """The document each chunk or QA pair is from, by point id (a summary is its document's own id, a collection's
+        QA pair has none)."""
+        if not point_ids:
+            return {}
+        documents: dict[uuid.UUID, uuid.UUID] = {}
+        for column_id, column_document in ((Chunk.id, Chunk.document_id), (QaPair.id, QaPair.document_id)):
+            rows = await self.db.execute(select(column_id, column_document).where(column_id.in_(point_ids)))
+            documents.update({point_id: document_id for point_id, document_id in rows.all() if document_id})
+        return documents
+
     async def current_texts(self, point_ids: Sequence[uuid.UUID]) -> dict[str, str]:
         """The text each point has now, whatever its kind - to refuse a vector made from an older one."""
         if not point_ids:
