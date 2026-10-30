@@ -24,6 +24,9 @@ class CollectionSyncIn(BaseModel):
     group_external_ids: list[str] = Field(default_factory=list)
     # Among them, those that may also write (#454).
     write_group_external_ids: list[str] = Field(default_factory=list)
+    # What is wrong with the vectors the other system holds for it - another model or length than it is said to have
+    # (#453) - for the administrators' page (#466).
+    vector_problems: list[str] = Field(default_factory=list)
 
 
 class CollectionSyncOut(BaseModel):

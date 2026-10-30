@@ -312,3 +312,16 @@ async def test_a_copy_still_synchronised_is_listed(client):
     await _put(client)
 
     assert (await client.get("/api/internal/synced-collections/owui", headers=HEADERS)).json() == ["kb1"]
+
+
+async def test_when_a_copy_was_synchronised_and_what_is_wrong_with_its_vectors_are_kept(client):
+    before = datetime.now(UTC)
+    first = (await _put(client, vector_problems=["vectors made by another model"])).json()
+
+    async with async_session_factory() as session:
+        collection = await session.get(Collection, uuid.UUID(first["id"]))
+    assert collection.synced_at >= before and collection.sync_problems == ["vectors made by another model"]
+
+    await _put(client)
+    async with async_session_factory() as session:
+        assert (await session.get(Collection, uuid.UUID(first["id"]))).sync_problems is None

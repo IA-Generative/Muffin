@@ -1,6 +1,7 @@
 import functools
 import uuid
 from collections.abc import Callable, Iterable
+from datetime import UTC, datetime
 
 from celery import chord
 from celery.canvas import Signature
@@ -182,6 +183,7 @@ def sync_knowledge(knowledge_id: str) -> dict:
             "user_shares": user_shares,
             "group_external_ids": group_ids,
             "write_group_external_ids": write_group_ids,
+            "vector_problems": problems,
         },
     )
     if result["unknown_groups"]:
@@ -282,7 +284,14 @@ def _errors(results: list) -> list[dict]:
 def sync_owui() -> dict:
     """Root of a synchronisation Open WebUI -> Muffin (#453): lists the groups and starts a task for each."""
     run = {"id": str(uuid.uuid4())}
-    group_ids = [group.id for group in OwuiClient().groups()]
+    started_at = datetime.now(UTC).isoformat()
+    try:
+        group_ids = [group.id for group in OwuiClient().groups()]
+    except Exception as error:
+        # Open WebUI cannot be read (no key, wrong address, down): the administrators' page says so (#466).
+        backend_client.report_run(run["id"], "failed", started_at=started_at, error=str(error)[:500] or repr(error))
+        raise
+    backend_client.report_run(run["id"], "running", started_at=started_at)
     run["group_ids"] = group_ids
     logger.info("Synchronisation {} started: {} group(s)", run["id"], len(group_ids))
     _fan_out((sync_group.s(group_id) for group_id in group_ids), sync_knowledge_bases.s(run))
@@ -394,4 +403,5 @@ def finish_sync(file_results: list, run: dict) -> dict:
             "Synchronisation {}: knowledge base {} - {}", run_id, inconsistent["knowledge_id"], inconsistent["problems"]
         )
     logger.info("Synchronisation {} done: {}", run_id, account)
+    backend_client.report_run(run_id, "done", account=account)
     return account

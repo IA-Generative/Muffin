@@ -179,3 +179,11 @@ def test_vectors_that_are_not_one_unnamed_vector_are_reported(run, vectors):
     assert result["vector_problems"] == [
         "its vectors are not one unnamed vector, which is not how Open WebUI writes them"
     ]
+
+
+def test_what_is_wrong_with_the_vectors_goes_with_the_collection(run, vectors):
+    vectors.inspect.return_value = CollectionInfo(True, 5, frozenset({"another-model"}))
+
+    body, _ = run([], {"owner": _user("owner", "kc-owner")})
+
+    assert body["vector_problems"] and any("another-model" in problem for problem in body["vector_problems"])
