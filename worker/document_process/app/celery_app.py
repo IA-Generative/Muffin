@@ -37,6 +37,8 @@ _ENRICHMENT_TASKS = (
     "app.tasks.update_collection_tags",
     "app.tasks.rollup_collection_description",
     "app.tasks.generate_collection_qa",
+    "app.tasks.summarize_copied_document",
+    "app.tasks.describe_copied_collection",
 )
 
 celery_app.conf.update(

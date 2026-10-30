@@ -22,7 +22,10 @@ def _publish_description(collection_id: str, description: str) -> None:
     rollup, see rollup_collection_description - then indexes its embedding."""
     _shared.backend_client.update_collection_description(collection_id, description)
     logger.info(f"Description updated for collection {collection_id} ({len(description)} chars)")
+    _index_description(collection_id, description)
 
+
+def _index_description(collection_id: str, description: str) -> None:
     # Global embedding model (admin-configured, or the hub's
     # default), not the collection's own embedding_model - every
     # collection must land in the same embedding space for a
@@ -36,6 +39,53 @@ def _publish_description(collection_id: str, description: str) -> None:
         logger.exception(f"Failed to embed the new description for collection {collection_id}")
 
 
+def _maintain_description(document_id: str, collection_id: str, *, index_unchanged: bool = False) -> str | None:
+    """Brings the description of the collection up to date with the summary of this document, see
+    update_collection_description. Returns the new description, None when it stays as it was (or cannot be made).
+
+    `index_unchanged`: a description that stays is still put in the index of the descriptions if it is not there -
+    the one a collection copied from another system starts with was never written there (#457)."""
+    settings = _shared.backend_client.get_collection_settings(collection_id)
+    model = _shared._model_for(settings, "summary")
+    if model is None:
+        logger.warning(f"No model available to maintain the description for {collection_id}, skipping")
+        return None
+
+    instructions = settings["instructions"].get("summary", "")
+    metadata = _shared.backend_client.get_collection_metadata(collection_id)
+    if not metadata["description"]:
+        if not metadata["document_summaries"]:
+            return None
+        combined = "\n\n---\n\n".join(metadata["document_summaries"])
+        prompt = (
+            f"{instructions}\nWrite a short, factual description (2-4 sentences) of a document collection, "
+            "based on the summaries of the documents it contains. Respond with only the description."
+        ).strip()
+        new_description = _shared._chat(model, prompt, combined).strip()
+    else:
+        document = _shared.backend_client.get_document(document_id)
+        new_summary = document.get("summary") or ""
+        if not new_summary:
+            return None
+        prompt = (
+            f"{instructions}\nYou maintain a short description for a document collection. You are given "
+            "the current description and the summary of a document newly added to the collection. Decide "
+            "whether the description still accurately represents the collection. If it does, respond "
+            "with it unchanged. If not, respond with an updated description (2-4 sentences). Respond with "
+            "only the description text, nothing else."
+        ).strip()
+        user_content = f"Current description:\n{metadata['description']}\n\nNew document summary:\n{new_summary}"
+        new_description = _shared._chat(model, prompt, user_content).strip()
+
+    if new_description and new_description != metadata["description"]:
+        _publish_description(collection_id, new_description)
+        return new_description
+    logger.info(f"Description for collection {collection_id} left unchanged")
+    if index_unchanged and metadata["description"] and not metadata.get("description_indexed", True):
+        _index_description(collection_id, metadata["description"])
+    return None
+
+
 @celery_app.task(name="app.tasks.update_collection_description", bind=True)
 def update_collection_description(self, document_id: str, collection_id: str) -> None:
     """Keeps the collection's description in sync with what's actually in
@@ -45,40 +95,8 @@ def update_collection_description(self, document_id: str, collection_id: str) ->
     Always a full replace, never appended - same for update_collection_tags.
     Dispatches generate_collection_qa when the description actually changes."""
     try:
-        settings = _shared.backend_client.get_collection_settings(collection_id)
-        model = _shared._model_for(settings, "summary")
-        if model is None:
-            logger.warning(f"No model available to maintain the description for {collection_id}, skipping")
-            return
-
-        instructions = settings["instructions"].get("summary", "")
-        metadata = _shared.backend_client.get_collection_metadata(collection_id)
-        if not metadata["description"]:
-            if not metadata["document_summaries"]:
-                return
-            combined = "\n\n---\n\n".join(metadata["document_summaries"])
-            prompt = (
-                f"{instructions}\nWrite a short, factual description (2-4 sentences) of a document collection, "
-                "based on the summaries of the documents it contains. Respond with only the description."
-            ).strip()
-            new_description = _shared._chat(model, prompt, combined).strip()
-        else:
-            document = _shared.backend_client.get_document(document_id)
-            new_summary = document.get("summary") or ""
-            if not new_summary:
-                return
-            prompt = (
-                f"{instructions}\nYou maintain a short description for a document collection. You are given "
-                "the current description and the summary of a document newly added to the collection. Decide "
-                "whether the description still accurately represents the collection. If it does, respond "
-                "with it unchanged. If not, respond with an updated description (2-4 sentences). Respond with "
-                "only the description text, nothing else."
-            ).strip()
-            user_content = f"Current description:\n{metadata['description']}\n\nNew document summary:\n{new_summary}"
-            new_description = _shared._chat(model, prompt, user_content).strip()
-
-        if new_description and new_description != metadata["description"]:
-            _publish_description(collection_id, new_description)
+        new_description = _maintain_description(document_id, collection_id)
+        if new_description is not None:
             _shared._spawn(
                 generate_collection_qa,
                 [document_id, collection_id, new_description],
@@ -86,8 +104,6 @@ def update_collection_description(self, document_id: str, collection_id: str) ->
                 document_id,
                 self.request.id,
             )
-        else:
-            logger.info(f"Description for collection {collection_id} left unchanged")
     except Exception as error:
         _shared._fail(document_id, "update the collection description", error)
         raise
