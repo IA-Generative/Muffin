@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.38.0](https://github.com/IA-Generative/Muffin/compare/v0.37.0...v0.38.0) (2026-10-30)
+
+
+### Features
+
+* **frontend:** page d'administration de la synchronisation avec Open WebUI ([#466](https://github.com/IA-Generative/Muffin/issues/466)) ([46e04c3](https://github.com/IA-Generative/Muffin/commit/46e04c39701a883ee11a5395cd96cd82b37458a2))
+* **mcp:** serveur MCP avec les outils suggest_collections et search ([#467](https://github.com/IA-Generative/Muffin/issues/467)) ([1fb149f](https://github.com/IA-Generative/Muffin/commit/1fb149ff569e7ce6a774046a915fbe2b8d337dc3))
+* **mcp:** un lien vers Muffin pour chaque source et chaque collection ([#467](https://github.com/IA-Generative/Muffin/issues/467)) ([97ada78](https://github.com/IA-Generative/Muffin/commit/97ada78464909f7dab2e145e6cae209f2b0fdfe5))
+* **owui:** outil Open WebUI qui affiche les sources de Muffin dans son panneau ([#476](https://github.com/IA-Generative/Muffin/issues/476)) ([beed066](https://github.com/IA-Generative/Muffin/commit/beed0668edc5520930227f6e53c909aea9eb10b7))
+* **search:** chercher dans tous les points d'une collection sans cascade ([#467](https://github.com/IA-Generative/Muffin/issues/467)) ([44be360](https://github.com/IA-Generative/Muffin/commit/44be3600a9f20cc8813bdbb74f6a1e0e5d76af96))
+* **search:** identifiant du document dans le payload des points Qdrant ([#468](https://github.com/IA-Generative/Muffin/issues/468)) ([e50fa1e](https://github.com/IA-Generative/Muffin/commit/e50fa1e2edd5a933a47b88142b0072c84defd6fa))
+* **sync:** contenu des collections copiées en lecture seule ([#464](https://github.com/IA-Generative/Muffin/issues/464)) ([1af7aec](https://github.com/IA-Generative/Muffin/commit/1af7aec9a3cdf01c93cc82633dea9b267e6b73c0))
+* **sync:** garder le bilan des synchronisations avec Open WebUI ([#466](https://github.com/IA-Generative/Muffin/issues/466)) ([f6ec927](https://github.com/IA-Generative/Muffin/commit/f6ec9277783d79f76886eabba683c19d85a66fd1))
+* **sync:** reprendre une collection copiée en réindexant son index ([#462](https://github.com/IA-Generative/Muffin/issues/462), [#463](https://github.com/IA-Generative/Muffin/issues/463)) ([2aae1d2](https://github.com/IA-Generative/Muffin/commit/2aae1d22a1f2d712f200b7ffa3f63ed7690159be))
+
+
+### Dependencies
+
+* **backend:** ajouter la bibliothèque MCP ([#467](https://github.com/IA-Generative/Muffin/issues/467)) ([acc979a](https://github.com/IA-Generative/Muffin/commit/acc979ad908c439c04495274c3e6411efaaecec0))
+
 ## [0.38.0-rc.3](https://github.com/IA-Generative/Muffin/compare/v0.38.0-rc.2...v0.38.0-rc.3) (2026-10-30)
 
 

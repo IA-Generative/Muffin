@@ -1256,7 +1256,7 @@ wheels = [
 
 [[package]]
 name = "muffin-backend"
-version = "0.38.0-rc.3"
+version = "0.38.0"
 source = { editable = "." }
 dependencies = [
     { name = "alembic" },
