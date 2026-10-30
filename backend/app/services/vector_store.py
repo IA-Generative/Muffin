@@ -294,10 +294,19 @@ def search_external(name: str, query_embedding: list[float], limit: int) -> list
     The same search as the dense branch of the others - the query's embedding against the points' - on the field
     that system writes: one vector, no name (`using` left out), no BM25 and no `kind`, so no fusion, no QA and no
     summaries. The score is the same too, the cosine, which a cosine collection returns as its score: a result
-    competes with the other collections' on equal terms. The ids are those of the chunks copied into Postgres."""
+    competes with the other collections' on equal terms. The ids are those of the chunks copied into Postgres.
+
+    What that system stored is not Muffin's to guarantee: if it re-embedded with another model, its vectors do not
+    have the dimension of the query's and Qdrant refuses the search. That collection then contributes nothing and the
+    search goes on with the others, as when a model fails to embed the query (the synchronisation reports the
+    mismatch, #453)."""
     if not _exists(name):
         return []
-    result = _client.query_points(name, query=query_embedding, limit=limit)
+    try:
+        result = _client.query_points(name, query=query_embedding, limit=limit)
+    except Exception:
+        logger.exception(f"Failed to search the collection '{name}' of another system - it gives no result")
+        return []
     return [(uuid.UUID(str(point.id)), point.score) for point in result.points]
 
 

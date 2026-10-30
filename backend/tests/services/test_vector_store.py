@@ -434,3 +434,10 @@ def test_the_name_of_the_collection_of_a_knowledge_base_carries_the_prefix(monke
     monkeypatch.setattr(vector_store._settings, "OWUI_QDRANT_PREFIX", "owui")
 
     assert vector_store.external_collection_name("kb1") == "owui_kb1"
+
+
+def test_a_collection_of_open_webui_with_another_dimension_gives_nothing_instead_of_failing(qdrant, owui_collection):
+    """Open WebUI re-embedded with a model whose vectors are longer than the query's: the others still answer."""
+    _owui_point(qdrant, owui_collection, [1.0, 0.1, 0.0])
+
+    assert vector_store.search_external(owui_collection, [1.0, 0.0, 0.0, 0.0, 0.0], 5) == []
