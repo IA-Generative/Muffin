@@ -416,6 +416,7 @@ tabular:
   # A read-only key to the bucket, not the one of the other workers: this pod only reads the typed copies.
   - secretRef:
       name: "muffin-s3-readonly"
+      optional: true
   - secretRef:
       name: "muffin-redis"
   env:
@@ -949,6 +950,20 @@ extraObjects:
       type: kv-v2
       destination:
         name: muffin-s3
+        create: true
+  # A key that can only read the bucket, for the pod that reads the typed copies of tabular files (worker tabular).
+  muffin-s3-readonly:
+    apiVersion: secrets.hashicorp.com/v1beta1
+    kind: VaultStaticSecret
+    metadata:
+      name: muffin-s3-readonly
+    spec:
+      vaultAuthRef: vault-auth
+      mount: '{{ .Values.global.project }}'
+      path: '{{ .Values.global.vault.env }}/muffin/s3-readonly'
+      type: kv-v2
+      destination:
+        name: muffin-s3-readonly
         create: true
   muffin-openai:
     apiVersion: secrets.hashicorp.com/v1beta1
