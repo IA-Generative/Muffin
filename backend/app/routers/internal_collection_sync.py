@@ -37,6 +37,7 @@ async def sync_collection(
         created=result.created,
         shares_added=result.shares_added,
         shares_removed=result.shares_removed,
+        shares_updated=result.shares_updated,
         unknown_groups=result.unknown_groups,
     )
 
