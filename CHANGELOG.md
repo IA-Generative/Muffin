@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.38.0-rc.2](https://github.com/IA-Generative/Muffin/compare/v0.38.0-rc.1...v0.38.0-rc.2) (2026-10-30)
+
+
+### Features
+
+* **frontend:** page d'administration de la synchronisation avec Open WebUI ([#466](https://github.com/IA-Generative/Muffin/issues/466)) ([3145b20](https://github.com/IA-Generative/Muffin/commit/3145b20f31de0e08f69b6316468a4ecdbcb013f9))
+* **sync:** garder le bilan des synchronisations avec Open WebUI ([#466](https://github.com/IA-Generative/Muffin/issues/466)) ([6d0d73c](https://github.com/IA-Generative/Muffin/commit/6d0d73c952bf52f9a48ace5af2f4c1cc4736735f))
+
 ## [0.38.0-rc.1](https://github.com/IA-Generative/Muffin/compare/v0.38.0-rc...v0.38.0-rc.1) (2026-10-30)
 
 
