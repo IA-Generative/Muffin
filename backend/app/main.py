@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
 from app.config import KeycloakSettings
+from app.mcp_server import mcp_app, mcp_lifespan
 from app.routers.admin_cgu import router as admin_cgu_router
 from app.routers.admin_owui_sync import router as admin_owui_sync_router
 from app.routers.admin_prompts import router as admin_prompts_router
@@ -50,6 +51,7 @@ from app.routers.usage import router as usage_router
 _keycloak_settings = KeycloakSettings()
 
 app = FastAPI(
+    lifespan=mcp_lifespan,
     title="Muffin API",
     version=__version__,
     docs_url="/api/docs",
@@ -149,3 +151,6 @@ app.include_router(internal_tasks_router, prefix="/api")
 app.include_router(internal_llm_router, prefix="/api")
 app.include_router(internal_runs_router, prefix="/api")
 app.include_router(internal_prompts_router, prefix="/api")
+
+# The MCP server (#467), under /api/mcp, with its own bearer-token check.
+app.mount("/api/mcp", mcp_app)

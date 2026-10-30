@@ -114,6 +114,18 @@ passe par les endpoints internes du backend (`/internal/search`, `/internal/qa-s
 Le conteneur **qdrant** lui-même lit `QDRANT__SERVICE__API_KEY` (docker-compose : la valeur de `QDRANT_API_KEY`, par défaut
 `dev-only-qdrant-key-not-for-prod` ; Helm : le secret Vault `muffin-qdrant`).
 
+## Outils de recherche MCP (#467)
+
+Lues par le backend. Les valeurs par défaut valent quand un appel ne précise rien ; les plafonds, jamais dépassés.
+
+| Variable | Définition | Défaut | Utilisée par |
+|---|---|---|---|
+| `MCP_SEARCH_MODEL` | Modèle de chat qui découpe la question en sous-questions. Vide : le premier modèle de chat du hub | — | **backend** (`McpSearchService`) |
+| `MCP_SEARCH_MAX_SUB_QUERIES` / `MCP_SEARCH_MAX_SUB_QUERIES_CEILING` | Sous-questions au plus, par défaut et plafond | `4` / `8` | **backend** |
+| `MCP_SEARCH_MAX_COLLECTIONS` / `MCP_SEARCH_MAX_COLLECTIONS_CEILING` | Collections interrogées par sous-question, par défaut et plafond | `3` / `10` | **backend** |
+| `MCP_SEARCH_LIMIT` / `MCP_SEARCH_LIMIT_CEILING` | Sources renvoyées par sous-question, par défaut et plafond | `5` / `20` | **backend** |
+| `MCP_SUGGEST_LIMIT` / `MCP_SUGGEST_LIMIT_CEILING` | Collections proposées par `suggest_collections`, par défaut et plafond | `5` / `20` | **backend** |
+
 ## Recherche web (SearXNG)
 
 | Variable | Définition | Défaut | Utilisée par |
