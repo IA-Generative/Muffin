@@ -42,10 +42,15 @@ class FakeIndexes:
         index = self.next if next_index else self.active
         return {point_id: dict(point) for point_id, point in (index or {}).items()}
 
-    def upsert_points(self, collection_id, points, model, *, next_index):
+    def upsert_points(self, collection_id, points, model, *, next_index, documents=None):
         index = self._index(next_index)
         for kind, point_id, text, _embedding in points:
-            index[str(point_id)] = {"kind": kind, "text": text, "model": model}
+            index[str(point_id)] = {
+                "kind": kind,
+                "text": text,
+                "model": model,
+                "document": (documents or {}).get(point_id),
+            }
 
     def delete_points(self, collection_id, point_ids, *, next_index):
         index = self.next if next_index else self.active
@@ -400,6 +405,8 @@ async def test_the_new_index_is_swapped_in_once_complete_and_the_model_follows(c
 
     assert {point["model"] for point in indexes.active.values()} == {NEW_MODEL}
     assert len(indexes.active) == 4
+    # A chunk and a QA pair are written with their document (#468); a summary's is its own id, which the store knows.
+    assert {point["document"] for point in indexes.active.values() if point["kind"] != "summary"} == {ids["document"]}
     assert set(indexes.next) == {str(ids["chunk_1"])}  # the old one, kept for a rollback
     settings = await _settings(ids["collection"])
     assert (settings.index_embedding_model, settings.reindex_required) == (None, False)

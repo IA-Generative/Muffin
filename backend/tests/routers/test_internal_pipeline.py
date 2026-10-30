@@ -91,7 +91,9 @@ def vectors(monkeypatch):
     monkeypatch.setattr(
         vector_store,
         "upsert_qa_embedding",
-        lambda collection_id, qa_pair_id, embedding, text, model: calls["upserted"].append((qa_pair_id, text)),
+        lambda collection_id, qa_pair_id, embedding, text, model, document_id=None: calls["upserted"].append(
+            (qa_pair_id, text)
+        ),
     )
     monkeypatch.setattr(vector_store, "delete_qa_embeddings", lambda collection_id, ids: calls["deleted"].extend(ids))
     return calls

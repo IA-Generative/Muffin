@@ -66,7 +66,9 @@ class DocumentDerivedData:
                 self.db, collection_id, pair.question, pair.embedding, pair.embedding_model
             )
             if embedding is not None:
-                vector_store.upsert_qa_embedding(collection_id, created.id, embedding, pair.question, model)
+                vector_store.upsert_qa_embedding(
+                    collection_id, created.id, embedding, pair.question, model, document_id
+                )
 
     async def replace_entity_window(
         self,

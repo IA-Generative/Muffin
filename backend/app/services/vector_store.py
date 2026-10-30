@@ -14,6 +14,9 @@ from app.core.bm25 import Bm25Encoder
 # They share the collection's embedding model, only this payload field says which kind a point is, so
 # search()/search_qa()/search_summaries() below just filter on it.
 _KIND_FIELD = "kind"
+# Which document a point is from - the file it was cut out of, summarizes or is a question about (a collection's own
+# QA pairs have none). Open WebUI writes the same in `metadata.file_id`.
+_DOCUMENT_FIELD = "document_id"
 _KIND_CHUNK = "chunk"
 _KIND_QA = "qa"
 _KIND_SUMMARY = "summary"
@@ -95,7 +98,7 @@ def _create_collection(name: str, dimensions: int) -> None:
         if not _exists(name):  # a concurrent writer may have created it first
             raise
         return
-    for field in (_KIND_FIELD, "collection_id"):
+    for field in (_KIND_FIELD, "collection_id", _DOCUMENT_FIELD):
         _client.create_payload_index(name, field, models.PayloadSchemaType.KEYWORD)
 
 
@@ -133,9 +136,17 @@ def _sparse(text: str) -> models.SparseVector:
 
 
 def _point(
-    collection_id: uuid.UUID, point_id: uuid.UUID, embedding: list[float], kind: str, text: str, model: str | None
+    collection_id: uuid.UUID,
+    point_id: uuid.UUID,
+    embedding: list[float],
+    kind: str,
+    text: str,
+    model: str | None,
+    document_id: uuid.UUID | None = None,
 ) -> models.PointStruct:
     payload = {_KIND_FIELD: kind, "collection_id": str(collection_id), "text": text}
+    if document_id is not None:
+        payload[_DOCUMENT_FIELD] = str(document_id)
     # Which model made the vector: what a rebuild (#12) checks to redo a vector made with another one.
     if model:
         payload["model"] = model
@@ -149,10 +160,11 @@ def _upsert(
     kind: str,
     text: str = "",
     model: str | None = None,
+    document_id: uuid.UUID | None = None,
 ) -> None:
     name = _ensure_active(collection_id, len(embedding))
     # wait: what is read right after (a document that reuses these results, #300) must already be there.
-    _client.upsert(name, [_point(collection_id, point_id, embedding, kind, text, model)], wait=True)
+    _client.upsert(name, [_point(collection_id, point_id, embedding, kind, text, model, document_id)], wait=True)
 
 
 def upsert_chunk_embedding(
@@ -161,8 +173,9 @@ def upsert_chunk_embedding(
     embedding: list[float],
     text: str = "",
     model: str | None = None,
+    document_id: uuid.UUID | None = None,
 ) -> None:
-    _upsert(collection_id, chunk_id, embedding, _KIND_CHUNK, text, model)
+    _upsert(collection_id, chunk_id, embedding, _KIND_CHUNK, text, model, document_id)
 
 
 def upsert_qa_embedding(
@@ -171,8 +184,9 @@ def upsert_qa_embedding(
     embedding: list[float],
     text: str = "",
     model: str | None = None,
+    document_id: uuid.UUID | None = None,
 ) -> None:
-    _upsert(collection_id, qa_pair_id, embedding, _KIND_QA, text, model)
+    _upsert(collection_id, qa_pair_id, embedding, _KIND_QA, text, model, document_id)
 
 
 def upsert_summary_embedding(
@@ -182,7 +196,7 @@ def upsert_summary_embedding(
     text: str = "",
     model: str | None = None,
 ) -> None:
-    _upsert(collection_id, document_id, embedding, _KIND_SUMMARY, text, model)
+    _upsert(collection_id, document_id, embedding, _KIND_SUMMARY, text, model, document_id)
 
 
 # -- hybrid search ----------------------------------------------------------------------------------
@@ -455,15 +469,28 @@ def upsert_points(
     model: str,
     *,
     next_index: bool,
+    documents: dict[uuid.UUID, uuid.UUID] | None = None,
 ) -> None:
-    """(kind, id, text, embedding) points, all made with `model`, in one call."""
+    """(kind, id, text, embedding) points, all made with `model`, in one call. `documents`: the document of each
+    point, by point id - a summary is its own document's, a point not in it has none."""
     if not points:
         return
     dimensions = len(points[0][3])
     name = _ensure_next(collection_id, dimensions) if next_index else _ensure_active(collection_id, dimensions)
     _client.upsert(
         name,
-        [_point(collection_id, point_id, embedding, kind, text, model) for kind, point_id, text, embedding in points],
+        [
+            _point(
+                collection_id,
+                point_id,
+                embedding,
+                kind,
+                text,
+                model,
+                point_id if kind == _KIND_SUMMARY else (documents or {}).get(point_id),
+            )
+            for kind, point_id, text, embedding in points
+        ],
         wait=True,
     )
 

@@ -12,7 +12,9 @@ Sauvegarde et restauration : [qdrant-backup.md](qdrant-backup.md).
   **modificateur IDF** de Qdrant : le serveur calcule l'IDF depuis les statistiques de la collection, le client n'envoie que la
   fréquence saturée de chaque terme).
 - Payload : `kind` (`chunk`, `qa`, `summary`), `collection_id`, `text`, `model` (le modèle qui a fait le vecteur, ce que la
-  reconstruction compare). Index de payload sur `kind` et `collection_id`. L'identifiant du point est celui de la ligne Postgres.
+  reconstruction compare), et `document_id` (le document dont le point est tiré, qu'il résume ou sur lequel porte la question ; un résumé
+  porte son propre identifiant, une paire QA de collection n'en a pas, #468). Index de payload sur `kind`, `collection_id` et `document_id`
+  (créés avec la collection : un index déjà construit sans eux se refait par une réindexation). L'identifiant du point est celui de la ligne Postgres.
 - Qdrant **normalise** les vecteurs d'une collection cosinus à l'écriture : un vecteur relu (réutilisation, #300) a la même
   direction, pas la même norme - sans effet sur le cosinus.
 

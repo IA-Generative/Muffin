@@ -46,7 +46,9 @@ def search_index(monkeypatch):
     monkeypatch.setattr(
         vector_store,
         "upsert_chunk_embedding",
-        lambda collection_id, chunk_id, embedding, text, model: calls["chunks_upserted"].append(chunk_id),
+        lambda collection_id, chunk_id, embedding, text, model, document_id=None: calls["chunks_upserted"].append(
+            chunk_id
+        ),
     )
     monkeypatch.setattr(vector_store, "delete_chunk_embeddings", lambda c, ids: calls["chunks_deleted"].extend(ids))
     monkeypatch.setattr(vector_store, "delete_qa_embeddings", lambda c, ids: calls["qa_deleted"].extend(ids))

@@ -54,7 +54,7 @@ class QaPairService:
         # A golden pair is deliberately never embedded: nothing in the retriever may match it. A
         # reference pair is, so the assistant can answer from it before searching.
         if not body.golden:
-            await self._embed(collection_id, pair.id, body.question)
+            await self._embed(collection_id, pair.id, body.question, pair.document_id)
         return QaPairOut(
             id=pair.id,
             question=pair.question,
@@ -68,13 +68,15 @@ class QaPairService:
             ],
         )
 
-    async def _embed(self, collection_id: uuid.UUID, qa_pair_id: uuid.UUID, question: str) -> None:
+    async def _embed(
+        self, collection_id: uuid.UUID, qa_pair_id: uuid.UUID, question: str, document_id: uuid.UUID | None
+    ) -> None:
         """Best-effort, like the pipeline's own embedding of a generated pair: a pair that couldn't be
         embedded still exists and shows in the list, it just isn't matched by the assistant."""
         try:
             model = (await self.collections.get_embedding_models([collection_id]))[collection_id]
             vector_store.upsert_qa_embedding(
-                collection_id, qa_pair_id, await embed_text(model, question), question, model
+                collection_id, qa_pair_id, await embed_text(model, question), question, model, document_id
             )
         except Exception:
             logger.exception(f"Failed to embed the manual QA pair {qa_pair_id}")

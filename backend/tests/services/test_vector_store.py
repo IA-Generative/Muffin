@@ -494,3 +494,59 @@ def test_a_copied_collection_among_more_than_twenty_is_kept_by_the_pre_filter(qd
     finally:
         for collection_id in [*others, copied]:
             vector_store.delete_collection(collection_id)
+
+
+# -- the document of a point (#468) -----------------------------------------------------------------
+
+
+def _payload(qdrant, collection_id, point_id) -> dict:
+    return qdrant.retrieve(vector_store._alias(collection_id), [str(point_id)], with_payload=True)[0].payload
+
+
+def test_a_chunk_a_qa_pair_and_a_summary_carry_their_document(qdrant, collection):
+    document_id = uuid.uuid4()
+    chunk, qa = uuid.uuid4(), uuid.uuid4()
+    vector_store.upsert_chunk_embedding(collection, chunk, [1.0, 0.0, 0.0], "a chunk", "m", document_id)
+    vector_store.upsert_qa_embedding(collection, qa, [0.0, 1.0, 0.0], "a question", "m", document_id)
+    vector_store.upsert_summary_embedding(collection, document_id, [0.0, 0.0, 1.0], "a summary", "m")
+
+    assert _payload(qdrant, collection, chunk)["document_id"] == str(document_id)
+    assert _payload(qdrant, collection, qa)["document_id"] == str(document_id)
+    assert _payload(qdrant, collection, document_id)["document_id"] == str(document_id)
+
+
+def test_a_point_with_no_document_has_no_such_field(qdrant, collection):
+    """A collection's own QA pair is about no document."""
+    qa = uuid.uuid4()
+    vector_store.upsert_qa_embedding(collection, qa, [1.0, 0.0, 0.0], "a question", "m")
+
+    assert "document_id" not in _payload(qdrant, collection, qa)
+
+
+def test_points_written_together_carry_their_documents_and_a_summary_its_own(qdrant, collection):
+    document_id, other = uuid.uuid4(), uuid.uuid4()
+    chunk, orphan = uuid.uuid4(), uuid.uuid4()
+    vector_store.upsert_points(
+        collection,
+        [
+            ("chunk", chunk, "c", [1.0, 0.0, 0.0]),
+            ("chunk", orphan, "o", [0.0, 1.0, 0.0]),
+            ("summary", other, "s", [0.0, 0.0, 1.0]),
+        ],
+        "m",
+        next_index=False,
+        documents={chunk: document_id},
+    )
+
+    assert _payload(qdrant, collection, chunk)["document_id"] == str(document_id)
+    assert "document_id" not in _payload(qdrant, collection, orphan)
+    assert _payload(qdrant, collection, other)["document_id"] == str(other)
+
+
+def test_the_document_of_a_point_is_indexed_to_be_filtered_on(qdrant, collection, monkeypatch):
+    indexed = []
+    monkeypatch.setattr(qdrant, "create_payload_index", lambda name, field, schema: indexed.append(field))
+
+    vector_store.upsert_chunk_embedding(collection, uuid.uuid4(), [1.0, 0.0, 0.0], "t", "m", uuid.uuid4())
+
+    assert set(indexed) == {"kind", "collection_id", "document_id"}
