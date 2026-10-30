@@ -30,6 +30,37 @@ pour qu'elles puissent être reprises plus tard sans avoir à ré-auditer tout l
   `load_accessible_vdbs` (`worker/agent_execution/app/graph/nodes/load_accessible_vdbs.py`), pour
   que les collections partagées à un groupe soient effectivement cherchables par l'agent.
 
+## Lecture ou écriture (#454)
+
+Un partage (`CollectionShare.permission`) laisse **lire** (par défaut) ou aussi **écrire**. Toute personne partagée lit, l'écriture
+s'y ajoute : un administrateur de la plateforme ne l'obtient que sur ce qu'il voit déjà, et une collection publique ne laisse jamais
+écrire.
+
+- L'écriture vaut sur la collection et sur ses sous-collections, comme la lecture (`CollectionRepository.filter_editable_ids`).
+- Elle permet de modifier les **documents vivants** (`require_editable_collection`) : en ajouter, en remplacer, valider un brouillon. Les réglages,
+  le partage, la suppression et le reste des actions d'écriture restent au **propriétaire** (limite 2 ci-dessous).
+- `CollectionOut.can_edit` le dit au frontend (propriétaire, écriture par un partage, ou administrateur) ; `is_owner` garde son sens.
+- Le propriétaire choisit le niveau en partageant, et le change après coup par `PATCH /api/collections/{id}/shares/{share_id}`.
+- La synchronisation d'Open WebUI copie ce niveau : un partage existe pour qui Open WebUI laisse lire, et écrit aussi si Open WebUI le
+  permet à cette personne ou à ce groupe. Écriture seule, ou pour tout le monde, n'est pas copiée.
+
+## Les groupes de Muffin (#455)
+
+En plus des groupes du token Keycloak, on partage avec des **groupes faits dans Muffin** (`/api/groups`, écran « Mes groupes »).
+
+- Tout utilisateur en crée et en est propriétaire ; lui ou un administrateur le renomme, le supprime et gère ses membres. Un groupe
+  copié d'Open WebUI (`source = owui`) n'a pas de propriétaire et ne se modifie pas ici.
+- Un membre s'ajoute **par email, sans recherche** : c'est une invitation hashée (`GroupMember.status = pending`, même mécanisme que les
+  partages) qui devient un membre à la prochaine connexion (`_resolve_pending_shares`). Le propriétaire n'en voit que l'email masqué. Un
+  membre peut aussi s'ajouter par son sujet Keycloak, actif tout de suite.
+- Les groupes d'un utilisateur sont ceux de son token **plus** ceux dont il est membre ici : `get_current_user` les ajoute, donc un
+  partage vers un groupe de Muffin l'atteint, et l'agent aussi (`Run.user_groups`).
+- Partager avec un groupe de Muffin passe par `group_id` (le groupe doit être à l'appelant : propriétaire, membre ou administrateur) :
+  le partage est actif tout de suite, sous le nom du groupe. Retirer un membre ou supprimer le groupe retire l'accès ; supprimer le
+  groupe supprime aussi les partages qui y renvoyaient.
+- Un membre ne voit que le nombre de membres ; seuls le propriétaire et les administrateurs voient la liste, invitations comprises.
+  Un administrateur voit tous les groupes.
+
 ## Limites connues (non corrigées, par ordre de priorité suggéré)
 
 ### 1. Les endpoints de citation de l'agent restent strictement owner-only
@@ -57,6 +88,9 @@ citation dans l'UI (`SourceDocumentModal.vue` côté frontend, `GET /internal/us
 côté worker) - 404.
 
 ### 2. Les actions d'écriture ne sont pas gatées dans les autres onglets
+
+*Depuis #454, les documents vivants (en ajouter, en remplacer) sont gatés par `collection.canEdit` : une personne qui a l'écriture les voit. Tout
+ce qui suit reste propre au propriétaire, côté serveur comme côté interface.*
 
 **Fichiers concernés** (aucun ne vérifie `collection.isOwner`) :
 - `frontend/src/components/CollectionDocumentsTab.vue` : upload de fichier (input `type="file"`
@@ -99,6 +133,9 @@ collection (spam de la table `collection_shares`). Ce n'est plus un risque de fu
 `f"share:{user.user_id}"`.
 
 ### 4. Pas de sélecteur de groupe dans l'UI
+
+*Depuis #455, les groupes faits dans Muffin se choisissent dans une liste. Reste vrai pour un groupe Keycloak qui n'est pas dans le token de
+l'appelant : son chemin se tape.*
 
 **Fichier** : `frontend/src/components/CollectionAccessSettings.vue` (section "Partages")
 
