@@ -67,7 +67,8 @@ les écrit à sa façon, et Muffin les lit sur place (`vector_store.search_exter
 | Vecteurs | `dense` et `sparse` (BM25), nommés | un seul vecteur dense, sans nom |
 | Requête | deux branches fusionnées en RRF | la branche dense seule, sur le champ qu'Open WebUI écrit |
 | Score | cosinus requête / vecteur dense | le même : le score d'une collection cosinus |
-| QA et résumés | oui | non (rien à chercher : l'étape ne trouve rien et les chunks répondent) |
+| QA | oui | non (l'étape ne trouve rien et les chunks répondent) |
+| Résumés | oui | oui, dans un index de Muffin (voir plus bas) |
 
 Le principe est donc le même, un résultat se compare aux autres au cosinus et ils se mélangent dans une même réponse, mais il n'y a pas
 de branche lexicale : un code ou un nom propre que l'embedding ne rapproche pas de la question n'est pas retrouvé. La requête est
@@ -80,6 +81,30 @@ comme d'habitude. La synchronisation le signale (voir `docs/environment-variable
 
 Les chunks sont relus dans Postgres par l'identifiant de leur point, comme les autres : la synchronisation les y a écrits sous cet
 identifiant. Ils n'ont pas de numéro de page (l'extraction d'Open WebUI, Tika, n'en garde pas).
+
+### Résumés et description d'une collection copiée (#457)
+
+Muffin ne traite pas les fichiers copiés, mais leur donne ce que la cascade de recherche et le routage attendent. Après la copie d'un
+fichier nouveau, modifié (son `content_hash` change) ou encore sans résumé, la synchronisation envoie à la file d'enrichissement, avec la
+priorité la plus basse, une tâche qui :
+
+1. découpe le texte (la page unique du document) en pages **fictives** de `SYNC_SUMMARY_WORDS_PER_PAGE` mots (500 par défaut). Elles
+   n'existent que dans le résumeur : le document garde sa page unique, rien n'est écrit ni cité, et le résumé couvre tout le texte (pas
+   d'échantillonnage des longs documents) ;
+2. les résume comme un document de Muffin (map / reduce, `summary_pages_per_map`, modèle et instructions « summary » de la collection) ;
+3. enregistre le résumé et son point `summary` dans l'alias `chunks_<id>` de la collection, avec le modèle d'embedding de la collection
+   (celui d'Open WebUI). Les chunks restent lus dans Qdrant d'Open WebUI : seul cet index-là est à Muffin, et le palier 2 y trouve les
+   résumés ;
+4. envoie la mise à jour de la description de la collection, comme pour une collection de Muffin : synthétisée depuis les résumés si elle
+   est vide, sinon le modèle décide à chaque nouveau résumé si elle change. Son embedding, avec le modèle par défaut, va dans l'index
+   `collections` que le routage interroge au-delà de 20 collections. La description d'Open WebUI ne sert que de point de départ : la
+   synchronisation ne la réécrit plus, et la met dans l'index à la première passe si elle n'y est pas.
+
+Un fichier qui a un résumé et dont le contenu n'a pas changé n'en refait pas. Le résumé et le point d'un fichier supprimé sont retirés,
+comme le point de description d'une collection supprimée. Les QA, tags et entités des fichiers copiés n'existent pas.
+
+Muffin ne **réindexe** pas ces collections (`POST /api/collections/{id}/documents/reindex` répond 409) : leurs vecteurs sont ceux d'Open
+WebUI, et le modèle de la collection est celui qu'il utilise.
 
 ## Écriture, lecture, suppression
 

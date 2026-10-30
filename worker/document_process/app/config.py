@@ -133,6 +133,9 @@ class WorkerSettings(BaseSettings):
     # the queue never holds more than that of a document, and the documents take turns instead of one's
     # thousand windows making the next one wait.
     ENRICHMENT_WINDOW: int = 4
+    # A file copied from another system (#457) has its text on one page, and the summary reads by pages: it is cut,
+    # in memory only, into pages of this many words.
+    SYNC_SUMMARY_WORDS_PER_PAGE: int = 500
     URL_FETCH_TIMEOUT_SECONDS: int = 30 * 60
     # RustFS/S3: connecting, and waiting for the next bytes of a transfer.
     STORAGE_CONNECT_TIMEOUT_SECONDS: int = 10
