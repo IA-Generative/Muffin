@@ -37,8 +37,16 @@ def test_chunks_without_a_start_keep_the_order_they_came_in():
 
 
 @pytest.fixture
-def run(monkeypatch):
-    def _run(file: OwuiFile, chunks: list[OwuiChunk]) -> tuple[dict, dict]:
+def sent(monkeypatch):
+    """What the synchronisation sends to the other workers."""
+    fake = MagicMock()
+    monkeypatch.setattr(tasks.celery_app, "send_task", fake)
+    return fake
+
+
+@pytest.fixture
+def run(monkeypatch, sent):
+    def _run(file: OwuiFile, chunks: list[OwuiChunk], answer: dict | None = None) -> tuple[dict, dict]:
         owui = MagicMock()
         owui.file.return_value = file
         owui.user.return_value = OwuiUser(
@@ -48,7 +56,7 @@ def run(monkeypatch):
         vectors = MagicMock()
         vectors.chunks.return_value = chunks
         backend = MagicMock()
-        backend.sync_document.return_value = {"id": "x", "created": True}
+        backend.sync_document.return_value = answer or {"id": "x", "created": True}
         monkeypatch.setattr(tasks, "OwuiClient", lambda: owui)
         monkeypatch.setattr(tasks, "OwuiVectors", lambda: vectors)
         monkeypatch.setattr(tasks, "backend_client", backend)
@@ -82,3 +90,20 @@ def test_the_file_is_sent_where_it_is_with_its_text_and_chunks(run):
 def test_a_file_that_is_not_in_s3_cannot_be_read_where_it_is(run):
     with pytest.raises(ValueError, match="not in S3"):
         run(OwuiFile(id="f1", filename="a.pdf", path="/app/backend/data/uploads/a.pdf"), [])
+
+
+FILE = OwuiFile(id="f1", user_id="o1", filename="test.pdf", hash="abc", path="s3://owui-files/f1_test.pdf")
+
+
+def test_a_file_that_needs_a_summary_has_it_asked_with_the_lowest_priority(run, sent):
+    run(FILE, [OwuiChunk("a", "x")], {"id": "doc-1", "collection_id": "col-1", "summary_due": True})
+
+    sent.assert_called_once_with(
+        "app.tasks.summarize_copied_document", args=["doc-1", "col-1"], queue="document_enrichment", priority=9
+    )
+
+
+def test_a_file_that_has_its_summary_asks_for_nothing(run, sent):
+    run(FILE, [OwuiChunk("a", "x")], {"id": "doc-1", "collection_id": "col-1", "summary_due": False})
+
+    sent.assert_not_called()

@@ -27,6 +27,9 @@ class DocumentSyncIn(BaseModel):
 
 class DocumentSyncOut(BaseModel):
     id: uuid.UUID
+    collection_id: uuid.UUID
     created: bool
     chunks_written: int
     chunks_removed: int
+    # The file has no summary and needs one (new, changed, or never summarized): the synchronisation asks for it (#457).
+    summary_due: bool = False
