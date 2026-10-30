@@ -1,5 +1,43 @@
 # Changelog
 
+## [0.37.0](https://github.com/IA-Generative/Muffin/compare/v0.36.0...v0.37.0) (2026-10-30)
+
+
+### Features
+
+* **chart:** déployer le worker owui_sync et son CronJob de synchro ([#453](https://github.com/IA-Generative/Muffin/issues/453)) ([42a1847](https://github.com/IA-Generative/Muffin/commit/42a184714de92400587d5d2d0ffc2ea3fecc4d45))
+* **enrichment:** résumé des fichiers copiés et description de leur collection ([#457](https://github.com/IA-Generative/Muffin/issues/457)) ([6f400b7](https://github.com/IA-Generative/Muffin/commit/6f400b7afc275a2ef5f5b29c5fff7d8b375e1a0b))
+* **frontend:** écran des groupes, partage avec un groupe et droit d'écriture ([#455](https://github.com/IA-Generative/Muffin/issues/455)) ([5deedb3](https://github.com/IA-Generative/Muffin/commit/5deedb3fefc6557dac847c9e60059b0dbed7d193))
+* **groups:** créer et gérer des groupes dans Muffin, membres par email ou sujet ([#455](https://github.com/IA-Generative/Muffin/issues/455)) ([f8e4e01](https://github.com/IA-Generative/Muffin/commit/f8e4e01b9f4e9468435cc52161cdee1417e0504a))
+* **groups:** propriétaire d'un groupe et membres invités par email ([#455](https://github.com/IA-Generative/Muffin/issues/455)) ([be045f8](https://github.com/IA-Generative/Muffin/commit/be045f856a7b052a5e4fb1f672e5d2ad01236e9f))
+* **search:** chercher les collections copiées d'Open WebUI sur place, avec les autres ([#453](https://github.com/IA-Generative/Muffin/issues/453)) ([bf7977f](https://github.com/IA-Generative/Muffin/commit/bf7977fe1afc8d97706c825942e31ec583703a04))
+* **sharing:** partager une collection avec un groupe de Muffin ([#455](https://github.com/IA-Generative/Muffin/issues/455)) ([3396a4a](https://github.com/IA-Generative/Muffin/commit/3396a4ad383f8cfa6032033245238025d1d31f82))
+* **sharing:** un partage qui permet d'écrire, lu ou écrit au choix ([#454](https://github.com/IA-Generative/Muffin/issues/454)) ([69f3285](https://github.com/IA-Generative/Muffin/commit/69f3285e2140536eab43c9f91ba78372b826fcf6))
+* **sync:** client REST d'Open WebUI, pagination et reprises sur erreur transitoire ([#453](https://github.com/IA-Generative/Muffin/issues/453)) ([17f9aff](https://github.com/IA-Generative/Muffin/commit/17f9affe1112fa3017b70c295d82ebf596812d64))
+* **sync:** copier les droits d'écriture d'Open WebUI sur les partages ([#454](https://github.com/IA-Generative/Muffin/issues/454)) ([fb11229](https://github.com/IA-Generative/Muffin/commit/fb11229404d0f3328f44b450f47bf02093ed4c15))
+* **sync:** déclencher une synchro Open WebUI à la demande, réservé aux administrateurs ([#453](https://github.com/IA-Generative/Muffin/issues/453)) ([7756b34](https://github.com/IA-Generative/Muffin/commit/7756b34fb7d875053c9942b0cb68f54ccca2413d))
+* **sync:** exposer les collections copiées d'Open WebUI et leurs partages en interne ([#453](https://github.com/IA-Generative/Muffin/issues/453)) ([c30974a](https://github.com/IA-Generative/Muffin/commit/c30974a77a191be41ef57b53bfd2613474386cc8))
+* **sync:** exposer les fichiers copiés d'Open WebUI et leurs chunks en interne ([#453](https://github.com/IA-Generative/Muffin/issues/453)) ([b1b9f3a](https://github.com/IA-Generative/Muffin/commit/b1b9f3a686e5b26040e32449185783a2febbb122))
+* **sync:** garder la description d'une collection copiée et ne pas la réindexer ([#457](https://github.com/IA-Generative/Muffin/issues/457)) ([25e8cc6](https://github.com/IA-Generative/Muffin/commit/25e8cc6543ef320af16873350025b963c7698023))
+* **sync:** groupes effectifs d'un utilisateur et API interne des groupes copiés ([#453](https://github.com/IA-Generative/Muffin/issues/453)) ([b98061c](https://github.com/IA-Generative/Muffin/commit/b98061c46f6fca6ed9b2ef44abd96809de281e80))
+* **sync:** groupes, membres et origine des ressources copiées d'Open WebUI ([#453](https://github.com/IA-Generative/Muffin/issues/453)) ([f9bbb71](https://github.com/IA-Generative/Muffin/commit/f9bbb71424bde062edc527930501b4ccd6b18cd4))
+* **sync:** indiquer les fichiers copiés à résumer et retirer leurs résumés ([#457](https://github.com/IA-Generative/Muffin/issues/457)) ([b018a06](https://github.com/IA-Generative/Muffin/commit/b018a0601283f56fb06f17a8d3fe3d577bf36cb6))
+* **sync:** le stockage lit un objet d'un autre système et ne le supprime jamais ([#453](https://github.com/IA-Generative/Muffin/issues/453)) ([4e1b14b](https://github.com/IA-Generative/Muffin/commit/4e1b14b57bcdd0d24ab23cce8ab3ffdbc9ef083b))
+* **sync:** lister et supprimer les collections et fichiers copiés d'Open WebUI ([#453](https://github.com/IA-Generative/Muffin/issues/453)) ([36e9a3e](https://github.com/IA-Generative/Muffin/commit/36e9a3e3db9e3123331959e09830e464420f9e40))
+* **sync:** signaler un modèle ou une dimension d'embedding incohérents ([#453](https://github.com/IA-Generative/Muffin/issues/453)) ([3075dab](https://github.com/IA-Generative/Muffin/commit/3075dab7cf7d521b578a0fd5d655e826e4aa2254))
+* **sync:** squelette du worker owui_sync, sa file Celery et sa config ([#453](https://github.com/IA-Generative/Muffin/issues/453)) ([00ba78e](https://github.com/IA-Generative/Muffin/commit/00ba78e41b0c8fa2b44630dee598a4069436015c))
+* **sync:** synchro complète en phases de petites tâches, avec nettoyage final ([#453](https://github.com/IA-Generative/Muffin/issues/453)) ([2e452b6](https://github.com/IA-Generative/Muffin/commit/2e452b64d37f6a7f31e6e9bac284535324435b67))
+* **sync:** synchro périodique par un beat dédié, intervalle configurable ([#453](https://github.com/IA-Generative/Muffin/issues/453)) ([c4771a4](https://github.com/IA-Generative/Muffin/commit/c4771a4e4d1c34a34bd997bab4195d52ba733666))
+* **sync:** tâche de synchro d'un fichier Open WebUI, ses chunks lus dans son Qdrant ([#453](https://github.com/IA-Generative/Muffin/issues/453)) ([4fc23a2](https://github.com/IA-Generative/Muffin/commit/4fc23a212bd3cef64af889db3a2965b74bc7ce99))
+* **sync:** tâche de synchro d'un groupe Open WebUI et de ses membres ([#453](https://github.com/IA-Generative/Muffin/issues/453)) ([c00131e](https://github.com/IA-Generative/Muffin/commit/c00131ef695607c12438d8a6518dc878c0e9bdc6))
+* **sync:** tâche de synchro d'une knowledge base Open WebUI et de ses lecteurs ([#453](https://github.com/IA-Generative/Muffin/issues/453)) ([0ab0e23](https://github.com/IA-Generative/Muffin/commit/0ab0e23538fb4ac3fe61a21cc1c8f009b11cd675))
+
+
+### Bug Fixes
+
+* **search:** une collection d'Open WebUI incompatible ne fait plus échouer la recherche ([#453](https://github.com/IA-Generative/Muffin/issues/453)) ([451f06c](https://github.com/IA-Generative/Muffin/commit/451f06cae719d7c154670e0e2943d8d6761b7370))
+* **security:** refaire l'upgrade apk du frontend, brotli-libs CVE-2026-111497 ([5ba86e9](https://github.com/IA-Generative/Muffin/commit/5ba86e99a1c6cab3870b72d447f19a365634e877))
+
 ## [0.37.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.36.0...v0.37.0-rc) (2026-10-30)
 
 
