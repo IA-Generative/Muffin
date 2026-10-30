@@ -35,6 +35,7 @@ from app.routers.internal_edit_requests import router as internal_edit_requests_
 from app.routers.internal_evaluation import router as internal_evaluation_router
 from app.routers.internal_groups import router as internal_groups_router
 from app.routers.internal_llm import router as internal_llm_router
+from app.routers.internal_owui_sync import router as internal_owui_sync_router
 from app.routers.internal_pipeline import router as internal_pipeline_router
 from app.routers.internal_prompts import router as internal_prompts_router
 from app.routers.internal_runs import router as internal_runs_router
@@ -151,6 +152,7 @@ app.include_router(admin_reports_router, prefix="/api")
 app.include_router(internal_groups_router, prefix="/api")
 app.include_router(internal_collection_sync_router, prefix="/api")
 app.include_router(internal_document_sync_router, prefix="/api")
+app.include_router(internal_owui_sync_router, prefix="/api")
 app.include_router(reports_router, prefix="/api")
 app.include_router(quality_router, prefix="/api")
 app.include_router(usage_router, prefix="/api")
