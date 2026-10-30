@@ -22,7 +22,7 @@ Les collections qui ont le plus de chances de contenir la réponse. Aucun modèl
 descriptions des collections lisibles (l'index `collections`). Une collection sans description indexée n'apparaît pas.
 
 ```json
-{ "query": "…", "collections": [ { "id": "…", "name": "Congés", "path": ["RH", "Congés"], "description": "…", "score": 0.82 } ] }
+{ "query": "…", "collections": [ { "id": "…", "name": "Congés", "path": ["RH", "Congés"], "description": "…", "score": 0.82, "url": "https://…/collections/…" } ] }
 ```
 
 `path` ne contient que les ancêtres que l'appelant peut lire.
@@ -41,11 +41,13 @@ descriptions des collections lisibles (l'index `collections`). Une collection sa
   "sub_queries": [ { "text": "…",
     "collections": [ { "id": "…", "name": "…", "path": ["…"], "description": "…", "score": 0.8 } ],
     "sources": [ { "kind": "chunk|qa|summary", "text": "…", "score": 0.71, "document_id": "…", "document_name": "…",
-                   "page": 3, "collection_id": "…", "collection_name": "…" } ] } ] }
+                   "page": 3, "collection_id": "…", "collection_name": "…", "url": "https://…/collections/…/documents/…" } ] } ] }
 ```
 
 - `kind` : `chunk` (passage d'un document), `qa` (question et réponse), `summary` (résumé du document). `page` est la première page
   du passage quand elle est connue, sinon `null`.
+- `url` : où ouvrir le document (ou la collection, pour une question sans document, et pour les collections proposées) dans
+  l'interface de Muffin, construit avec `FRONTEND_URL`. Le même lien quel que soit le client (Muffin, Open WebUI…).
 - Avec `collection_ids`, `collections[].score` vaut `0` : aucune sélection n'a eu lieu.
 - Une collection de `collection_ids` que l'appelant ne peut pas lire (ou qui n'existe pas) fait **refuser** l'appel (erreur d'outil),
   sans rien chercher.
@@ -53,6 +55,26 @@ descriptions des collections lisibles (l'index `collections`). Une collection sa
   (voir `search.md`) : leurs sources sont des `chunk`.
 - Un appel coûte un appel au modèle de chat (le découpage, enregistré dans la consommation, `step = mcp_split`) et des embeddings
   (un par modèle d'embedding des collections interrogées, par sous-question).
+
+## Depuis Open WebUI (essayé sur la v0.12.5)
+
+Déclaré comme serveur d'outils de type `mcp` (administration → Outils, ou `POST /api/v1/configs/tool_servers`), avec l'adresse
+`http://backend:8000/api/mcp/` et une authentification « bearer ». Open WebUI liste alors les deux outils avec leurs paramètres
+(`muffin_suggest_collections`, `muffin_search`).
+
+Dans son chat, avec les outils activés pour la conversation, le modèle a **enchaîné de lui-même** `suggest_collections` puis `search`
+avec les collections proposées, et a répondu en citant le nom du document et son lien Muffin pour chaque fait.
+
+Ce qui reste vrai de ce côté :
+
+- Le résultat arrive au modèle comme du **texte** (le JSON), pas comme des sources d'Open WebUI : son panneau « Sources » reste
+  vide, et les appels d'outils s'affichent dans les blocs repliables du message. C'est au modèle de citer les sources, d'où le lien
+  `url` de chaque source.
+- Le jeton est un jeton Keycloak, **valable quelques minutes** : un jeton saisi une fois dans Open WebUI cesse de marcher. Un usage
+  durable demande qu'Open WebUI obtienne lui-même son jeton (OAuth) ou un compte de service ; notre serveur n'annonce pas encore de
+  métadonnées OAuth pour qu'il le découvre.
+- L'appel par l'API `POST /api/chat/completions` seule n'exécute pas les outils : il rend l'appel au client. Ils s'exécutent dans le
+  fil d'un chat, comme le fait l'interface.
 
 ## Réglages
 

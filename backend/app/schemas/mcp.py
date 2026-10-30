@@ -12,6 +12,7 @@ class SuggestedCollection(BaseModel):
     path: list[str] = Field(description="Names from the top of the tree down to the collection that you may read")
     description: str
     score: float = Field(description="How close the collection's description is to the question, higher is closer")
+    url: str = Field(description="Where to open the collection in Muffin")
 
 
 class SuggestedCollections(BaseModel):
@@ -32,6 +33,7 @@ class SearchSource(BaseModel):
     page: int | None = Field(description="The first page the passage is on, when it is known")
     collection_id: uuid.UUID
     collection_name: str
+    url: str = Field(description="Where to open the document in Muffin, or its collection when it has no document")
 
 
 class SubQueryResult(BaseModel):

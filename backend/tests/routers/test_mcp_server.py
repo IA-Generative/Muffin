@@ -136,7 +136,14 @@ async def test_suggest_collections_returns_structured_content_for_the_caller_alo
     assert result["structuredContent"] == {
         "query": "congés",
         "collections": [
-            {"id": str(mine_id), "name": "Congés", "path": ["Congés"], "description": "Poser des congés", "score": 0.8}
+            {
+                "id": str(mine_id),
+                "name": "Congés",
+                "path": ["Congés"],
+                "description": "Poser des congés",
+                "score": 0.8,
+                "url": f"http://localhost:5173/collections/{mine_id}",
+            }
         ],
     }
     assert json.loads(result["content"][0]["text"]) == result["structuredContent"]

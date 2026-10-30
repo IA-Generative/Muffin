@@ -17,6 +17,7 @@ Open WebUI répond sur http://localhost:3001. La version se change avec `OWUI_VE
 | S3 | le bucket de Muffin, `muffin-documents`, sur RustFS (`STORAGE_PROVIDER=s3`), sous le préfixe `open-webui/` (`S3_KEY_PREFIX`) ; Muffin écrit sous `documents/`. Le compte S3 de Muffin lit donc les fichiers d'Open WebUI sans réglage de plus |
 | Qdrant | mode classique : une collection `open-webui_<id de la knowledge base>` par knowledge base et une `open-webui_file-<id>` par fichier (`ENABLE_QDRANT_MULTITENANCY_MODE=false`) |
 | Extraction | Tika (`CONTENT_EXTRACTION_ENGINE=tika`) : un seul document par fichier, sans numéro de page |
+| Chat | le même hub (`OPENAI_API_BASE_URL`, `OPENAI_API_KEY`), pour essayer les outils MCP de Muffin (#467) depuis son chat |
 | Embeddings | le hub OpenAI-compatible de Muffin (`OPENAI_API_BASE_URL`, `OPENAI_API_KEY`), modèle `OWUI_EMBEDDING_MODEL` (par défaut `bge-multilingual-gemma2`) |
 
 `ENV=dev` expose le schéma de l'API d'Open WebUI (http://localhost:3001/openapi.json et `/docs`), sur lequel le client de
