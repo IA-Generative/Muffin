@@ -134,9 +134,22 @@ document_process:
   serviceAccount:
     enabled: true
     create: true
-  # KEDA ScaledObject on the Celery Redis queue replaces the chart-native HPA - the muffin
-  # chart has no KEDA support, so ScaledObjects + TriggerAuthentications are declared in
-  # `extraObjects` below. Scales on actual queue length instead of CPU.
+  # ScaledObject for document_process - the extraction pod (#291). One trigger per Redis list it
+  # reads, KEDA scaling on the busiest: document_extraction, the low-priority list Celery keeps
+  # next to it for a ZIP import's documents (`<queue>\x06\x16<priority>`, see BULK_PRIORITY in
+  # backend/app/core/tasks.py), and document_processing, the queue before #291 (to remove with it).
+  kedaAutoscaler:
+    enabled: true
+    minReplicaCount: 2
+    maxReplicaCount: 4
+    pollingInterval: 30
+    listLength: 5
+    queues:
+    - "document_extraction"
+    - "document_extraction\x06\x169"
+    - "document_processing"
+  # `kedaAutoscaler` above replaces the chart-native HPA: the pods scale on the length of the Redis lists
+  # of the queues they read, instead of on CPU.
   #
   # Probes disabled: the chart default uses `celery inspect ping` exec probes, but these
   # can cause false-positive restarts under load (the inspect call itself can timeout when
@@ -178,6 +191,21 @@ document_enrichment:
   serviceAccount:
     enabled: true
     create: true
+  # ScaledObject for document_enrichment (queue: document_enrichment) - each pod runs 16 tasks at
+  # once (threads), hence a longer list per pod before scaling out.
+  #
+  # The windows of a document (QA, entities) are sent with a lower priority (WINDOW_PRIORITY = 3 in
+  # worker/document_process/app/tasks/_shared.py), so that a big document does not hold up the chunking
+  # of the next ones: Redis keeps them in a list of their own, which has to be watched as well.
+  kedaAutoscaler:
+    enabled: true
+    minReplicaCount: 2
+    maxReplicaCount: 4
+    pollingInterval: 30
+    listLength: 32
+    queues:
+    - "document_enrichment"
+    - "document_enrichment\x06\x163"
   # Probes disabled - see document_process above for rationale.
   probes:
     startupProbe: null
@@ -230,6 +258,18 @@ ocr_layout:
   serviceAccount:
     enabled: true
     create: true
+  # ScaledObject for ocr_layout (queue: document_layout): to zero when nothing is asked of it (OCR_ENGINE=layout is
+  # opt-in). A page's task is short, but acks_late takes it off the list while it runs: KEDA would not see
+  # it, so the cooldown is longer than the task's soft limit (300 s) before the last pod is stopped.
+  kedaAutoscaler:
+    enabled: true
+    minReplicaCount: 0
+    maxReplicaCount: 3
+    pollingInterval: 30
+    cooldownPeriod: 600
+    listLength: 10
+    queues:
+    - "document_layout"
   # Probes disabled - see document_process above for rationale.
   probes:
     startupProbe: null
@@ -271,6 +311,18 @@ ocr:
   serviceAccount:
     enabled: true
     create: true
+  # ScaledObject for ocr (queue: document_ocr): to zero when nothing is asked of it (OCR_ENGINE=layout is
+  # opt-in). A page's task is short, but acks_late takes it off the list while it runs: KEDA would not see
+  # it, so the cooldown is longer than the task's soft limit (300 s) before the last pod is stopped.
+  kedaAutoscaler:
+    enabled: true
+    minReplicaCount: 0
+    maxReplicaCount: 3
+    pollingInterval: 30
+    cooldownPeriod: 600
+    listLength: 10
+    queues:
+    - "document_ocr"
   # Probes disabled - see document_process above for rationale.
   probes:
     startupProbe: null
@@ -311,6 +363,18 @@ ocr_table:
   serviceAccount:
     enabled: true
     create: true
+  # ScaledObject for ocr_table (queue: document_table): to zero when nothing is asked of it. Same reasoning as the
+  # other OCR pods: a page's task is short, but acks_late takes it off the list while it runs, so the cooldown is
+  # longer than the task's soft limit (300 s) before the last pod is stopped.
+  kedaAutoscaler:
+    enabled: true
+    minReplicaCount: 0
+    maxReplicaCount: 3
+    pollingInterval: 30
+    cooldownPeriod: 600
+    listLength: 10
+    queues:
+    - "document_table"
   # Probes disabled - see document_process above for rationale.
   probes:
     startupProbe: null
@@ -352,6 +416,18 @@ ocr_vision:
   serviceAccount:
     enabled: true
     create: true
+  # ScaledObject for ocr_vision (queue: document_vision): to zero when nothing is asked of it. Same reasoning as the
+  # other OCR pods: a page's task is short, but acks_late takes it off the list while it runs, so the cooldown is
+  # longer than the task's soft limit (300 s) before the last pod is stopped.
+  kedaAutoscaler:
+    enabled: true
+    minReplicaCount: 0
+    maxReplicaCount: 3
+    pollingInterval: 30
+    cooldownPeriod: 600
+    listLength: 10
+    queues:
+    - "document_vision"
   # Probes disabled - see document_process above for rationale.
   probes:
     startupProbe: null
@@ -397,6 +473,17 @@ tabular:
   serviceAccount:
     enabled: true
     create: true
+  # ScaledObject for tabular (queue: tabular_sql): to zero when nothing is asked of it. A query is short (30 s at
+  # most), but acks_late takes it off the list while it runs: the cooldown outlasts it before the last pod stops.
+  kedaAutoscaler:
+    enabled: true
+    minReplicaCount: 0
+    maxReplicaCount: 3
+    pollingInterval: 15
+    cooldownPeriod: 300
+    listLength: 5
+    queues:
+    - "tabular_sql"
   # Probes disabled - see document_process above for rationale.
   probes:
     startupProbe: null
@@ -439,6 +526,18 @@ index_rebuild:
   serviceAccount:
     enabled: true
     create: true
+  # ScaledObject for index_rebuild (queues: index_rebuild, document_import). Never to zero: a
+  # running rebuild or import has already left the list (acks_late), so KEDA would not see it and
+  # could stop the pod under it.
+  kedaAutoscaler:
+    enabled: true
+    minReplicaCount: 1
+    maxReplicaCount: 4
+    pollingInterval: 30
+    listLength: 2
+    queues:
+    - "index_rebuild"
+    - "document_import"
   # Probes disabled - see document_process above for rationale.
   probes:
     startupProbe: null
@@ -486,7 +585,15 @@ agent_execution:
   serviceAccount:
     enabled: true
     create: true
-  # KEDA ScaledObject on the Celery Redis queue - see document_process above.
+  # ScaledObject for agent_execution (queue: agent_execution)
+  kedaAutoscaler:
+    enabled: true
+    minReplicaCount: 2
+    maxReplicaCount: 4
+    pollingInterval: 30
+    listLength: 5
+    queues:
+    - "agent_execution"
   # Probes disabled - see document_process above for rationale.
   probes:
     startupProbe: null
@@ -516,7 +623,15 @@ worker_evaluation:
   serviceAccount:
     enabled: true
     create: true
-  # KEDA ScaledObject on the Celery Redis queue - see document_process above.
+  # ScaledObject for worker_evaluation (queue: evaluation)
+  kedaAutoscaler:
+    enabled: true
+    minReplicaCount: 2
+    maxReplicaCount: 4
+    pollingInterval: 30
+    listLength: 5
+    queues:
+    - "evaluation"
   # Probes disabled - see document_process above for rationale.
   probes:
     startupProbe: null
@@ -541,7 +656,15 @@ worker_document_edit:
   serviceAccount:
     enabled: true
     create: true
-  # KEDA ScaledObject on the Celery Redis queue - see document_process above.
+  # ScaledObject for worker_document_edit (queue: document_edit)
+  kedaAutoscaler:
+    enabled: true
+    minReplicaCount: 1
+    maxReplicaCount: 3
+    pollingInterval: 30
+    listLength: 3
+    queues:
+    - "document_edit"
   # Probes disabled - see document_process above for rationale.
   probes:
     startupProbe: null
@@ -573,7 +696,15 @@ worker_owui_sync:
   serviceAccount:
     enabled: true
     create: true
-  # KEDA ScaledObject on the Celery Redis queue - see document_process above.
+  # ScaledObject for worker_owui_sync (queue: owui_sync). Down to 0 while there is nothing to synchronise.
+  kedaAutoscaler:
+    enabled: true
+    minReplicaCount: 0
+    maxReplicaCount: 3
+    pollingInterval: 30
+    listLength: 5
+    queues:
+    - "owui_sync"
   # Probes disabled - see document_process above for rationale.
   probes:
     startupProbe: null
@@ -1129,22 +1260,14 @@ extraObjects:
             SEARXNG_VALKEY_URL:
               text: 'valkey://:{{ "{{" }} get .Secrets "SEARXNG_VALKEY_PASSWORD" {{ "}}" }}@muffin-redis:6379/0'
 
-  # --- KEDA ScaledObjects (Redis queue length autoscaling for Celery workers) ---
-  # The muffin chart has no native KEDA support, so ScaledObjects + TriggerAuthentications are
-  # declared here as extraObjects. Each worker has its own Celery queue (listName) and scales
-  # independently based on the number of pending messages in its Redis list.
-  # KEDA polls the Redis Service directly (not Sentinel-aware, same pattern as ocr). The
-  # address MUST be a FQDN (`muffin-redis.<namespace>.svc.cluster.local`), not the short
-  # name `muffin-redis`: KEDA runs in its own namespace (`keda-system`) and can't resolve
-  # short names from muffin's namespace. Same pattern as ocr's chart, which builds the
-  # address as `<fullname>-master.<Release.Namespace>:6379`.
-  # The TriggerAuthentication references `muffin-redis` (same Vault-managed secret as the
-  # app's envFrom) for the REDIS_PASSWORD - KEDA resolves the Secret by name across
-  # namespaces only if the Secret is in the same namespace as the ScaledObject, which is
-  # why the ScaledObjects are deployed in muffin's namespace (not keda-system).
-  #
-  # Per-env overrides (minReplicaCount, maxReplicaCount, pollingInterval, listLength) live
-  # in `values-<env>.yaml` under `extraObjects.<name>.spec`.
+  # --- KEDA (Redis queue length autoscaling for Celery workers) ---
+  # Each worker scales on the length of the Redis lists of the queues it reads: see `kedaAutoscaler` in its own
+  # block above, and in `values-<env>.yaml` for the per-env overrides (minReplicaCount, maxReplicaCount,
+  # pollingInterval, listLength). The chart renders a ScaledObject and a TriggerAuthentication from it
+  # (templates/keda.yaml). KEDA polls the Redis Service directly (not Sentinel-aware), by its FQDN
+  # (`muffin-redis.<namespace>.svc.cluster.local`): KEDA runs in its own namespace (`keda-system`) and can't
+  # resolve short names. The password comes from `redis.secretRef` (`muffin-redis`, Vault-managed), in the namespace
+  # of the ScaledObject: KEDA only resolves a Secret that is in it.
 
   # NetworkPolicy: allows the KEDA operator (namespace `keda-system`) to reach the Redis pods on
   # port 6379. Without it, a default-deny namespace policy (common on DSO/managed platforms) drops
@@ -1172,361 +1295,6 @@ extraObjects:
         ports:
         - protocol: TCP
           port: 6379
-
-  # TriggerAuthentication: shared by all the worker ScaledObjects.
-  muffin-keda-triggerauth:
-    apiVersion: keda.sh/v1alpha1
-    kind: TriggerAuthentication
-    metadata:
-      name: muffin-keda-triggerauth
-    spec:
-      secretTargetRef:
-      - parameter: "password"
-        name: "muffin-redis"
-        key: "REDIS_PASSWORD"
-
-  # ScaledObject for document_process - the extraction pod (#291). One trigger per Redis list it
-  # reads, KEDA scaling on the busiest: document_extraction, the low-priority list Celery keeps
-  # next to it for a ZIP import's documents (`<queue>\x06\x16<priority>`, see BULK_PRIORITY in
-  # backend/app/core/tasks.py), and document_processing, the queue before #291 (to remove with it).
-  muffin-keda-document-process:
-    apiVersion: keda.sh/v1alpha1
-    kind: ScaledObject
-    metadata:
-      name: muffin-document-process
-    spec:
-      scaleTargetRef:
-        name: muffin-document-process
-        kind: Deployment
-        apiVersion: apps/v1
-      minReplicaCount: 2
-      maxReplicaCount: 4
-      pollingInterval: 30
-      triggers:
-      - type: redis
-        metricType: AverageValue
-        metadata:
-          address: "muffin-redis.{{ .Release.Namespace }}.svc.cluster.local:6379"
-          listName: "document_extraction"
-          listLength: "5"
-        authenticationRef:
-          name: muffin-keda-triggerauth
-      - type: redis
-        metricType: AverageValue
-        metadata:
-          address: "muffin-redis.{{ .Release.Namespace }}.svc.cluster.local:6379"
-          listName: "document_extraction\x06\x169"
-          listLength: "5"
-        authenticationRef:
-          name: muffin-keda-triggerauth
-      - type: redis
-        metricType: AverageValue
-        metadata:
-          address: "muffin-redis.{{ .Release.Namespace }}.svc.cluster.local:6379"
-          listName: "document_processing"
-          listLength: "5"
-        authenticationRef:
-          name: muffin-keda-triggerauth
-
-  # ScaledObject for document_enrichment (queue: document_enrichment) - each pod runs 16 tasks at
-  # once (threads), hence a longer list per pod before scaling out.
-  muffin-keda-document-enrichment:
-    apiVersion: keda.sh/v1alpha1
-    kind: ScaledObject
-    metadata:
-      name: muffin-document-enrichment
-    spec:
-      scaleTargetRef:
-        name: muffin-document-enrichment
-        kind: Deployment
-        apiVersion: apps/v1
-      minReplicaCount: 2
-      maxReplicaCount: 4
-      pollingInterval: 30
-      triggers:
-      - type: redis
-        metricType: AverageValue
-        metadata:
-          address: "muffin-redis.{{ .Release.Namespace }}.svc.cluster.local:6379"
-          listName: "document_enrichment"
-          listLength: "32"
-        authenticationRef:
-          name: muffin-keda-triggerauth
-      # The windows of a document (QA, entities) are sent with a lower priority (WINDOW_PRIORITY = 3 in
-      # worker/document_process/app/tasks/_shared.py), so that a big document does not hold up the chunking
-      # of the next ones: Redis keeps them in a list of their own, which has to be watched as well.
-      - type: redis
-        metricType: AverageValue
-        metadata:
-          address: "muffin-redis.{{ .Release.Namespace }}.svc.cluster.local:6379"
-          listName: "document_enrichment\x06\x163"
-          listLength: "32"
-        authenticationRef:
-          name: muffin-keda-triggerauth
-
-  # ScaledObject for ocr_layout (queue: document_layout): to zero when nothing is asked of it (OCR_ENGINE=layout is
-  # opt-in). A page's task is short, but acks_late takes it off the list while it runs: KEDA would not see
-  # it, so the cooldown is longer than the task's soft limit (300 s) before the last pod is stopped.
-  muffin-keda-ocr-layout:
-    apiVersion: keda.sh/v1alpha1
-    kind: ScaledObject
-    metadata:
-      name: muffin-ocr-layout
-    spec:
-      scaleTargetRef:
-        name: muffin-ocr-layout
-        kind: Deployment
-        apiVersion: apps/v1
-      minReplicaCount: 0
-      maxReplicaCount: 3
-      pollingInterval: 30
-      cooldownPeriod: 600
-      triggers:
-      - type: redis
-        metricType: AverageValue
-        metadata:
-          address: "muffin-redis.{{ .Release.Namespace }}.svc.cluster.local:6379"
-          listName: "document_layout"
-          listLength: "10"
-        authenticationRef:
-          name: muffin-keda-triggerauth
-
-  # ScaledObject for ocr (queue: document_ocr): to zero when nothing is asked of it (OCR_ENGINE=layout is
-  # opt-in). A page's task is short, but acks_late takes it off the list while it runs: KEDA would not see
-  # it, so the cooldown is longer than the task's soft limit (300 s) before the last pod is stopped.
-  muffin-keda-ocr:
-    apiVersion: keda.sh/v1alpha1
-    kind: ScaledObject
-    metadata:
-      name: muffin-ocr
-    spec:
-      scaleTargetRef:
-        name: muffin-ocr
-        kind: Deployment
-        apiVersion: apps/v1
-      minReplicaCount: 0
-      maxReplicaCount: 3
-      pollingInterval: 30
-      cooldownPeriod: 600
-      triggers:
-      - type: redis
-        metricType: AverageValue
-        metadata:
-          address: "muffin-redis.{{ .Release.Namespace }}.svc.cluster.local:6379"
-          listName: "document_ocr"
-          listLength: "10"
-        authenticationRef:
-          name: muffin-keda-triggerauth
-
-  # ScaledObject for ocr_table (queue: document_table): to zero when nothing is asked of it. Same reasoning as the
-  # other OCR pods: a page's task is short, but acks_late takes it off the list while it runs, so the cooldown is
-  # longer than the task's soft limit (300 s) before the last pod is stopped.
-  muffin-keda-ocr-table:
-    apiVersion: keda.sh/v1alpha1
-    kind: ScaledObject
-    metadata:
-      name: muffin-ocr-table
-    spec:
-      scaleTargetRef:
-        name: muffin-ocr-table
-        kind: Deployment
-        apiVersion: apps/v1
-      minReplicaCount: 0
-      maxReplicaCount: 3
-      pollingInterval: 30
-      cooldownPeriod: 600
-      triggers:
-      - type: redis
-        metricType: AverageValue
-        metadata:
-          address: "muffin-redis.{{ .Release.Namespace }}.svc.cluster.local:6379"
-          listName: "document_table"
-          listLength: "10"
-        authenticationRef:
-          name: muffin-keda-triggerauth
-
-  # ScaledObject for ocr_vision (queue: document_vision): to zero when nothing is asked of it. Same reasoning as the
-  # other OCR pods: a page's task is short, but acks_late takes it off the list while it runs, so the cooldown is
-  # longer than the task's soft limit (300 s) before the last pod is stopped.
-  muffin-keda-ocr-vision:
-    apiVersion: keda.sh/v1alpha1
-    kind: ScaledObject
-    metadata:
-      name: muffin-ocr-vision
-    spec:
-      scaleTargetRef:
-        name: muffin-ocr-vision
-        kind: Deployment
-        apiVersion: apps/v1
-      minReplicaCount: 0
-      maxReplicaCount: 3
-      pollingInterval: 30
-      cooldownPeriod: 600
-      triggers:
-      - type: redis
-        metricType: AverageValue
-        metadata:
-          address: "muffin-redis.{{ .Release.Namespace }}.svc.cluster.local:6379"
-          listName: "document_vision"
-          listLength: "10"
-        authenticationRef:
-          name: muffin-keda-triggerauth
-
-  # ScaledObject for tabular (queue: tabular_sql): to zero when nothing is asked of it. A query is short (30 s at
-  # most), but acks_late takes it off the list while it runs: the cooldown outlasts it before the last pod stops.
-  muffin-keda-tabular:
-    apiVersion: keda.sh/v1alpha1
-    kind: ScaledObject
-    metadata:
-      name: muffin-tabular
-    spec:
-      scaleTargetRef:
-        name: muffin-tabular
-        kind: Deployment
-        apiVersion: apps/v1
-      minReplicaCount: 0
-      maxReplicaCount: 3
-      pollingInterval: 15
-      cooldownPeriod: 300
-      triggers:
-      - type: redis
-        metricType: AverageValue
-        metadata:
-          address: "muffin-redis.{{ .Release.Namespace }}.svc.cluster.local:6379"
-          listName: "tabular_sql"
-          listLength: "5"
-        authenticationRef:
-          name: muffin-keda-triggerauth
-
-  # ScaledObject for index_rebuild (queues: index_rebuild, document_import). Never to zero: a
-  # running rebuild or import has already left the list (acks_late), so KEDA would not see it and
-  # could stop the pod under it.
-  muffin-keda-index-rebuild:
-    apiVersion: keda.sh/v1alpha1
-    kind: ScaledObject
-    metadata:
-      name: muffin-index-rebuild
-    spec:
-      scaleTargetRef:
-        name: muffin-index-rebuild
-        kind: Deployment
-        apiVersion: apps/v1
-      minReplicaCount: 1
-      maxReplicaCount: 4
-      pollingInterval: 30
-      triggers:
-      - type: redis
-        metricType: AverageValue
-        metadata:
-          address: "muffin-redis.{{ .Release.Namespace }}.svc.cluster.local:6379"
-          listName: "index_rebuild"
-          listLength: "2"
-        authenticationRef:
-          name: muffin-keda-triggerauth
-      - type: redis
-        metricType: AverageValue
-        metadata:
-          address: "muffin-redis.{{ .Release.Namespace }}.svc.cluster.local:6379"
-          listName: "document_import"
-          listLength: "2"
-        authenticationRef:
-          name: muffin-keda-triggerauth
-
-  # ScaledObject for agent_execution (queue: agent_execution)
-  muffin-keda-agent-execution:
-    apiVersion: keda.sh/v1alpha1
-    kind: ScaledObject
-    metadata:
-      name: muffin-agent-execution
-    spec:
-      scaleTargetRef:
-        name: muffin-agent-execution
-        kind: Deployment
-        apiVersion: apps/v1
-      minReplicaCount: 2
-      maxReplicaCount: 4
-      pollingInterval: 30
-      triggers:
-      - type: redis
-        metricType: AverageValue
-        metadata:
-          address: "muffin-redis.{{ .Release.Namespace }}.svc.cluster.local:6379"
-          listName: "agent_execution"
-          listLength: "5"
-        authenticationRef:
-          name: muffin-keda-triggerauth
-
-  # ScaledObject for worker_evaluation (queue: evaluation)
-  muffin-keda-worker-evaluation:
-    apiVersion: keda.sh/v1alpha1
-    kind: ScaledObject
-    metadata:
-      name: muffin-worker-evaluation
-    spec:
-      scaleTargetRef:
-        name: muffin-worker-evaluation
-        kind: Deployment
-        apiVersion: apps/v1
-      minReplicaCount: 2
-      maxReplicaCount: 4
-      pollingInterval: 30
-      triggers:
-      - type: redis
-        metricType: AverageValue
-        metadata:
-          address: "muffin-redis.{{ .Release.Namespace }}.svc.cluster.local:6379"
-          listName: "evaluation"
-          listLength: "5"
-        authenticationRef:
-          name: muffin-keda-triggerauth
-
-  # ScaledObject for worker_document_edit (queue: document_edit)
-  muffin-keda-worker-document-edit:
-    apiVersion: keda.sh/v1alpha1
-    kind: ScaledObject
-    metadata:
-      name: muffin-worker-document-edit
-    spec:
-      scaleTargetRef:
-        name: muffin-worker-document-edit
-        kind: Deployment
-        apiVersion: apps/v1
-      minReplicaCount: 1
-      maxReplicaCount: 3
-      pollingInterval: 30
-      triggers:
-      - type: redis
-        metricType: AverageValue
-        metadata:
-          address: "muffin-redis.{{ .Release.Namespace }}.svc.cluster.local:6379"
-          listName: "document_edit"
-          listLength: "3"
-        authenticationRef:
-          name: muffin-keda-triggerauth
-
-  # ScaledObject for worker_owui_sync (queue: owui_sync). Down to 0 while there is nothing to synchronise.
-  muffin-keda-worker-owui-sync:
-    apiVersion: keda.sh/v1alpha1
-    kind: ScaledObject
-    metadata:
-      name: muffin-worker-owui-sync
-    spec:
-      scaleTargetRef:
-        name: muffin-worker-owui-sync
-        kind: Deployment
-        apiVersion: apps/v1
-      minReplicaCount: 0
-      maxReplicaCount: 3
-      pollingInterval: 30
-      triggers:
-      - type: redis
-        metricType: AverageValue
-        metadata:
-          address: "muffin-redis.{{ .Release.Namespace }}.svc.cluster.local:6379"
-          listName: "owui_sync"
-          listLength: "5"
-        authenticationRef:
-          name: muffin-keda-triggerauth
 
 postgres:
   enabled: false

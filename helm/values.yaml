@@ -2687,6 +2687,38 @@ document_process:
     # -- Average memory utilization percentage for the app.
     # @section -- Document_process
     targetMemoryUtilizationPercentage: 80
+  kedaAutoscaler:
+    # -- Scale the app with KEDA on the length of the Redis lists (Celery queues) it reads, instead of the HPA (`autoscaling`, to leave disabled). Needs KEDA in the cluster: renders a ScaledObject and a TriggerAuthentication.
+    # @section -- Document_process
+    enabled: false
+    # -- Minimum number of replicas (0 lets the app rest when its queues are empty).
+    # @section -- Document_process
+    minReplicaCount: 0
+    # -- Maximum number of replicas.
+    # @section -- Document_process
+    maxReplicaCount: 3
+    # -- Seconds between two checks of the lists.
+    # @section -- Document_process
+    pollingInterval: 30
+    # -- Seconds without work before the last replica is stopped (KEDA's own default, 300, when null).
+    # @section -- Document_process
+    cooldownPeriod: null
+    # -- Messages waiting per replica before KEDA adds one.
+    # @section -- Document_process
+    listLength: 5
+    # -- Redis lists to watch, KEDA scaling on the busiest. A Celery queue is a list of the same name, and the messages of a lower priority are in a list of their own (`<queue>\x06\x16<priority>`).
+    # @section -- Document_process
+    queues: []
+    redis:
+      # -- Address of the Redis KEDA polls, `host:port`. Empty: the Service of the redis sub-chart, in the release's namespace.
+      # @section -- Document_process
+      address: ""
+      # -- Secret that holds the Redis password, for the TriggerAuthentication (KEDA is not Sentinel-aware and needs it itself).
+      # @section -- Document_process
+      secretRef: "muffin-redis"
+      # -- Key of that password in the secret.
+      # @section -- Document_process
+      secretKey: "REDIS_PASSWORD"
   # -- Revision history limit for the app.
   # @section -- Document_process
   revisionHistoryLimit: 10
@@ -3536,6 +3568,38 @@ agent_execution:
     # -- Average memory utilization percentage for the app.
     # @section -- Agent_execution
     targetMemoryUtilizationPercentage: 80
+  kedaAutoscaler:
+    # -- Scale the app with KEDA on the length of the Redis lists (Celery queues) it reads, instead of the HPA (`autoscaling`, to leave disabled). Needs KEDA in the cluster: renders a ScaledObject and a TriggerAuthentication.
+    # @section -- Agent_execution
+    enabled: false
+    # -- Minimum number of replicas (0 lets the app rest when its queues are empty).
+    # @section -- Agent_execution
+    minReplicaCount: 0
+    # -- Maximum number of replicas.
+    # @section -- Agent_execution
+    maxReplicaCount: 3
+    # -- Seconds between two checks of the lists.
+    # @section -- Agent_execution
+    pollingInterval: 30
+    # -- Seconds without work before the last replica is stopped (KEDA's own default, 300, when null).
+    # @section -- Agent_execution
+    cooldownPeriod: null
+    # -- Messages waiting per replica before KEDA adds one.
+    # @section -- Agent_execution
+    listLength: 5
+    # -- Redis lists to watch, KEDA scaling on the busiest. A Celery queue is a list of the same name, and the messages of a lower priority are in a list of their own (`<queue>\x06\x16<priority>`).
+    # @section -- Agent_execution
+    queues: []
+    redis:
+      # -- Address of the Redis KEDA polls, `host:port`. Empty: the Service of the redis sub-chart, in the release's namespace.
+      # @section -- Agent_execution
+      address: ""
+      # -- Secret that holds the Redis password, for the TriggerAuthentication (KEDA is not Sentinel-aware and needs it itself).
+      # @section -- Agent_execution
+      secretRef: "muffin-redis"
+      # -- Key of that password in the secret.
+      # @section -- Agent_execution
+      secretKey: "REDIS_PASSWORD"
   # -- Revision history limit for the app.
   # @section -- Agent_execution
   revisionHistoryLimit: 10
@@ -4386,6 +4450,38 @@ worker_evaluation:
     # -- Average memory utilization percentage for the app.
     # @section -- Worker_evaluation
     targetMemoryUtilizationPercentage: 80
+  kedaAutoscaler:
+    # -- Scale the app with KEDA on the length of the Redis lists (Celery queues) it reads, instead of the HPA (`autoscaling`, to leave disabled). Needs KEDA in the cluster: renders a ScaledObject and a TriggerAuthentication.
+    # @section -- Worker_evaluation
+    enabled: false
+    # -- Minimum number of replicas (0 lets the app rest when its queues are empty).
+    # @section -- Worker_evaluation
+    minReplicaCount: 0
+    # -- Maximum number of replicas.
+    # @section -- Worker_evaluation
+    maxReplicaCount: 3
+    # -- Seconds between two checks of the lists.
+    # @section -- Worker_evaluation
+    pollingInterval: 30
+    # -- Seconds without work before the last replica is stopped (KEDA's own default, 300, when null).
+    # @section -- Worker_evaluation
+    cooldownPeriod: null
+    # -- Messages waiting per replica before KEDA adds one.
+    # @section -- Worker_evaluation
+    listLength: 5
+    # -- Redis lists to watch, KEDA scaling on the busiest. A Celery queue is a list of the same name, and the messages of a lower priority are in a list of their own (`<queue>\x06\x16<priority>`).
+    # @section -- Worker_evaluation
+    queues: []
+    redis:
+      # -- Address of the Redis KEDA polls, `host:port`. Empty: the Service of the redis sub-chart, in the release's namespace.
+      # @section -- Worker_evaluation
+      address: ""
+      # -- Secret that holds the Redis password, for the TriggerAuthentication (KEDA is not Sentinel-aware and needs it itself).
+      # @section -- Worker_evaluation
+      secretRef: "muffin-redis"
+      # -- Key of that password in the secret.
+      # @section -- Worker_evaluation
+      secretKey: "REDIS_PASSWORD"
   # -- Revision history limit for the app.
   # @section -- Worker_evaluation
   revisionHistoryLimit: 10
@@ -5236,6 +5332,38 @@ worker_document_edit:
     # -- Average memory utilization percentage for the app.
     # @section -- Worker_document_edit
     targetMemoryUtilizationPercentage: 80
+  kedaAutoscaler:
+    # -- Scale the app with KEDA on the length of the Redis lists (Celery queues) it reads, instead of the HPA (`autoscaling`, to leave disabled). Needs KEDA in the cluster: renders a ScaledObject and a TriggerAuthentication.
+    # @section -- Worker_document_edit
+    enabled: false
+    # -- Minimum number of replicas (0 lets the app rest when its queues are empty).
+    # @section -- Worker_document_edit
+    minReplicaCount: 0
+    # -- Maximum number of replicas.
+    # @section -- Worker_document_edit
+    maxReplicaCount: 3
+    # -- Seconds between two checks of the lists.
+    # @section -- Worker_document_edit
+    pollingInterval: 30
+    # -- Seconds without work before the last replica is stopped (KEDA's own default, 300, when null).
+    # @section -- Worker_document_edit
+    cooldownPeriod: null
+    # -- Messages waiting per replica before KEDA adds one.
+    # @section -- Worker_document_edit
+    listLength: 5
+    # -- Redis lists to watch, KEDA scaling on the busiest. A Celery queue is a list of the same name, and the messages of a lower priority are in a list of their own (`<queue>\x06\x16<priority>`).
+    # @section -- Worker_document_edit
+    queues: []
+    redis:
+      # -- Address of the Redis KEDA polls, `host:port`. Empty: the Service of the redis sub-chart, in the release's namespace.
+      # @section -- Worker_document_edit
+      address: ""
+      # -- Secret that holds the Redis password, for the TriggerAuthentication (KEDA is not Sentinel-aware and needs it itself).
+      # @section -- Worker_document_edit
+      secretRef: "muffin-redis"
+      # -- Key of that password in the secret.
+      # @section -- Worker_document_edit
+      secretKey: "REDIS_PASSWORD"
   # -- Revision history limit for the app.
   # @section -- Worker_document_edit
   revisionHistoryLimit: 10
@@ -6086,6 +6214,38 @@ worker_owui_sync:
     # -- Average memory utilization percentage for the app.
     # @section -- Worker_owui_sync
     targetMemoryUtilizationPercentage: 80
+  kedaAutoscaler:
+    # -- Scale the app with KEDA on the length of the Redis lists (Celery queues) it reads, instead of the HPA (`autoscaling`, to leave disabled). Needs KEDA in the cluster: renders a ScaledObject and a TriggerAuthentication.
+    # @section -- Worker_owui_sync
+    enabled: false
+    # -- Minimum number of replicas (0 lets the app rest when its queues are empty).
+    # @section -- Worker_owui_sync
+    minReplicaCount: 0
+    # -- Maximum number of replicas.
+    # @section -- Worker_owui_sync
+    maxReplicaCount: 3
+    # -- Seconds between two checks of the lists.
+    # @section -- Worker_owui_sync
+    pollingInterval: 30
+    # -- Seconds without work before the last replica is stopped (KEDA's own default, 300, when null).
+    # @section -- Worker_owui_sync
+    cooldownPeriod: null
+    # -- Messages waiting per replica before KEDA adds one.
+    # @section -- Worker_owui_sync
+    listLength: 5
+    # -- Redis lists to watch, KEDA scaling on the busiest. A Celery queue is a list of the same name, and the messages of a lower priority are in a list of their own (`<queue>\x06\x16<priority>`).
+    # @section -- Worker_owui_sync
+    queues: []
+    redis:
+      # -- Address of the Redis KEDA polls, `host:port`. Empty: the Service of the redis sub-chart, in the release's namespace.
+      # @section -- Worker_owui_sync
+      address: ""
+      # -- Secret that holds the Redis password, for the TriggerAuthentication (KEDA is not Sentinel-aware and needs it itself).
+      # @section -- Worker_owui_sync
+      secretRef: "muffin-redis"
+      # -- Key of that password in the secret.
+      # @section -- Worker_owui_sync
+      secretKey: "REDIS_PASSWORD"
   # -- Revision history limit for the app.
   # @section -- Worker_owui_sync
   revisionHistoryLimit: 10
@@ -6936,6 +7096,38 @@ document_enrichment:
     # -- Average memory utilization percentage for the app.
     # @section -- Document_enrichment
     targetMemoryUtilizationPercentage: 80
+  kedaAutoscaler:
+    # -- Scale the app with KEDA on the length of the Redis lists (Celery queues) it reads, instead of the HPA (`autoscaling`, to leave disabled). Needs KEDA in the cluster: renders a ScaledObject and a TriggerAuthentication.
+    # @section -- Document_enrichment
+    enabled: false
+    # -- Minimum number of replicas (0 lets the app rest when its queues are empty).
+    # @section -- Document_enrichment
+    minReplicaCount: 0
+    # -- Maximum number of replicas.
+    # @section -- Document_enrichment
+    maxReplicaCount: 3
+    # -- Seconds between two checks of the lists.
+    # @section -- Document_enrichment
+    pollingInterval: 30
+    # -- Seconds without work before the last replica is stopped (KEDA's own default, 300, when null).
+    # @section -- Document_enrichment
+    cooldownPeriod: null
+    # -- Messages waiting per replica before KEDA adds one.
+    # @section -- Document_enrichment
+    listLength: 5
+    # -- Redis lists to watch, KEDA scaling on the busiest. A Celery queue is a list of the same name, and the messages of a lower priority are in a list of their own (`<queue>\x06\x16<priority>`).
+    # @section -- Document_enrichment
+    queues: []
+    redis:
+      # -- Address of the Redis KEDA polls, `host:port`. Empty: the Service of the redis sub-chart, in the release's namespace.
+      # @section -- Document_enrichment
+      address: ""
+      # -- Secret that holds the Redis password, for the TriggerAuthentication (KEDA is not Sentinel-aware and needs it itself).
+      # @section -- Document_enrichment
+      secretRef: "muffin-redis"
+      # -- Key of that password in the secret.
+      # @section -- Document_enrichment
+      secretKey: "REDIS_PASSWORD"
   # -- Revision history limit for the app.
   # @section -- Document_enrichment
   revisionHistoryLimit: 10
@@ -7786,6 +7978,38 @@ index_rebuild:
     # -- Average memory utilization percentage for the app.
     # @section -- Index_rebuild
     targetMemoryUtilizationPercentage: 80
+  kedaAutoscaler:
+    # -- Scale the app with KEDA on the length of the Redis lists (Celery queues) it reads, instead of the HPA (`autoscaling`, to leave disabled). Needs KEDA in the cluster: renders a ScaledObject and a TriggerAuthentication.
+    # @section -- Index_rebuild
+    enabled: false
+    # -- Minimum number of replicas (0 lets the app rest when its queues are empty).
+    # @section -- Index_rebuild
+    minReplicaCount: 0
+    # -- Maximum number of replicas.
+    # @section -- Index_rebuild
+    maxReplicaCount: 3
+    # -- Seconds between two checks of the lists.
+    # @section -- Index_rebuild
+    pollingInterval: 30
+    # -- Seconds without work before the last replica is stopped (KEDA's own default, 300, when null).
+    # @section -- Index_rebuild
+    cooldownPeriod: null
+    # -- Messages waiting per replica before KEDA adds one.
+    # @section -- Index_rebuild
+    listLength: 5
+    # -- Redis lists to watch, KEDA scaling on the busiest. A Celery queue is a list of the same name, and the messages of a lower priority are in a list of their own (`<queue>\x06\x16<priority>`).
+    # @section -- Index_rebuild
+    queues: []
+    redis:
+      # -- Address of the Redis KEDA polls, `host:port`. Empty: the Service of the redis sub-chart, in the release's namespace.
+      # @section -- Index_rebuild
+      address: ""
+      # -- Secret that holds the Redis password, for the TriggerAuthentication (KEDA is not Sentinel-aware and needs it itself).
+      # @section -- Index_rebuild
+      secretRef: "muffin-redis"
+      # -- Key of that password in the secret.
+      # @section -- Index_rebuild
+      secretKey: "REDIS_PASSWORD"
   # -- Revision history limit for the app.
   # @section -- Index_rebuild
   revisionHistoryLimit: 10
@@ -8637,6 +8861,38 @@ ocr_layout:
     # -- Average memory utilization percentage for the app.
     # @section -- Ocr_layout
     targetMemoryUtilizationPercentage: 80
+  kedaAutoscaler:
+    # -- Scale the app with KEDA on the length of the Redis lists (Celery queues) it reads, instead of the HPA (`autoscaling`, to leave disabled). Needs KEDA in the cluster: renders a ScaledObject and a TriggerAuthentication.
+    # @section -- Ocr_layout
+    enabled: false
+    # -- Minimum number of replicas (0 lets the app rest when its queues are empty).
+    # @section -- Ocr_layout
+    minReplicaCount: 0
+    # -- Maximum number of replicas.
+    # @section -- Ocr_layout
+    maxReplicaCount: 3
+    # -- Seconds between two checks of the lists.
+    # @section -- Ocr_layout
+    pollingInterval: 30
+    # -- Seconds without work before the last replica is stopped (KEDA's own default, 300, when null).
+    # @section -- Ocr_layout
+    cooldownPeriod: null
+    # -- Messages waiting per replica before KEDA adds one.
+    # @section -- Ocr_layout
+    listLength: 5
+    # -- Redis lists to watch, KEDA scaling on the busiest. A Celery queue is a list of the same name, and the messages of a lower priority are in a list of their own (`<queue>\x06\x16<priority>`).
+    # @section -- Ocr_layout
+    queues: []
+    redis:
+      # -- Address of the Redis KEDA polls, `host:port`. Empty: the Service of the redis sub-chart, in the release's namespace.
+      # @section -- Ocr_layout
+      address: ""
+      # -- Secret that holds the Redis password, for the TriggerAuthentication (KEDA is not Sentinel-aware and needs it itself).
+      # @section -- Ocr_layout
+      secretRef: "muffin-redis"
+      # -- Key of that password in the secret.
+      # @section -- Ocr_layout
+      secretKey: "REDIS_PASSWORD"
   # -- Revision history limit for the app.
   # @section -- Ocr_layout
   revisionHistoryLimit: 10
@@ -9488,6 +9744,38 @@ ocr:
     # -- Average memory utilization percentage for the app.
     # @section -- Ocr
     targetMemoryUtilizationPercentage: 80
+  kedaAutoscaler:
+    # -- Scale the app with KEDA on the length of the Redis lists (Celery queues) it reads, instead of the HPA (`autoscaling`, to leave disabled). Needs KEDA in the cluster: renders a ScaledObject and a TriggerAuthentication.
+    # @section -- Ocr
+    enabled: false
+    # -- Minimum number of replicas (0 lets the app rest when its queues are empty).
+    # @section -- Ocr
+    minReplicaCount: 0
+    # -- Maximum number of replicas.
+    # @section -- Ocr
+    maxReplicaCount: 3
+    # -- Seconds between two checks of the lists.
+    # @section -- Ocr
+    pollingInterval: 30
+    # -- Seconds without work before the last replica is stopped (KEDA's own default, 300, when null).
+    # @section -- Ocr
+    cooldownPeriod: null
+    # -- Messages waiting per replica before KEDA adds one.
+    # @section -- Ocr
+    listLength: 5
+    # -- Redis lists to watch, KEDA scaling on the busiest. A Celery queue is a list of the same name, and the messages of a lower priority are in a list of their own (`<queue>\x06\x16<priority>`).
+    # @section -- Ocr
+    queues: []
+    redis:
+      # -- Address of the Redis KEDA polls, `host:port`. Empty: the Service of the redis sub-chart, in the release's namespace.
+      # @section -- Ocr
+      address: ""
+      # -- Secret that holds the Redis password, for the TriggerAuthentication (KEDA is not Sentinel-aware and needs it itself).
+      # @section -- Ocr
+      secretRef: "muffin-redis"
+      # -- Key of that password in the secret.
+      # @section -- Ocr
+      secretKey: "REDIS_PASSWORD"
   # -- Revision history limit for the app.
   # @section -- Ocr
   revisionHistoryLimit: 10
@@ -10339,6 +10627,38 @@ ocr_table:
     # -- Average memory utilization percentage for the app.
     # @section -- Ocr_table
     targetMemoryUtilizationPercentage: 80
+  kedaAutoscaler:
+    # -- Scale the app with KEDA on the length of the Redis lists (Celery queues) it reads, instead of the HPA (`autoscaling`, to leave disabled). Needs KEDA in the cluster: renders a ScaledObject and a TriggerAuthentication.
+    # @section -- Ocr_table
+    enabled: false
+    # -- Minimum number of replicas (0 lets the app rest when its queues are empty).
+    # @section -- Ocr_table
+    minReplicaCount: 0
+    # -- Maximum number of replicas.
+    # @section -- Ocr_table
+    maxReplicaCount: 3
+    # -- Seconds between two checks of the lists.
+    # @section -- Ocr_table
+    pollingInterval: 30
+    # -- Seconds without work before the last replica is stopped (KEDA's own default, 300, when null).
+    # @section -- Ocr_table
+    cooldownPeriod: null
+    # -- Messages waiting per replica before KEDA adds one.
+    # @section -- Ocr_table
+    listLength: 5
+    # -- Redis lists to watch, KEDA scaling on the busiest. A Celery queue is a list of the same name, and the messages of a lower priority are in a list of their own (`<queue>\x06\x16<priority>`).
+    # @section -- Ocr_table
+    queues: []
+    redis:
+      # -- Address of the Redis KEDA polls, `host:port`. Empty: the Service of the redis sub-chart, in the release's namespace.
+      # @section -- Ocr_table
+      address: ""
+      # -- Secret that holds the Redis password, for the TriggerAuthentication (KEDA is not Sentinel-aware and needs it itself).
+      # @section -- Ocr_table
+      secretRef: "muffin-redis"
+      # -- Key of that password in the secret.
+      # @section -- Ocr_table
+      secretKey: "REDIS_PASSWORD"
   # -- Revision history limit for the app.
   # @section -- Ocr_table
   revisionHistoryLimit: 10
@@ -11190,6 +11510,38 @@ ocr_vision:
     # -- Average memory utilization percentage for the app.
     # @section -- Ocr_vision
     targetMemoryUtilizationPercentage: 80
+  kedaAutoscaler:
+    # -- Scale the app with KEDA on the length of the Redis lists (Celery queues) it reads, instead of the HPA (`autoscaling`, to leave disabled). Needs KEDA in the cluster: renders a ScaledObject and a TriggerAuthentication.
+    # @section -- Ocr_vision
+    enabled: false
+    # -- Minimum number of replicas (0 lets the app rest when its queues are empty).
+    # @section -- Ocr_vision
+    minReplicaCount: 0
+    # -- Maximum number of replicas.
+    # @section -- Ocr_vision
+    maxReplicaCount: 3
+    # -- Seconds between two checks of the lists.
+    # @section -- Ocr_vision
+    pollingInterval: 30
+    # -- Seconds without work before the last replica is stopped (KEDA's own default, 300, when null).
+    # @section -- Ocr_vision
+    cooldownPeriod: null
+    # -- Messages waiting per replica before KEDA adds one.
+    # @section -- Ocr_vision
+    listLength: 5
+    # -- Redis lists to watch, KEDA scaling on the busiest. A Celery queue is a list of the same name, and the messages of a lower priority are in a list of their own (`<queue>\x06\x16<priority>`).
+    # @section -- Ocr_vision
+    queues: []
+    redis:
+      # -- Address of the Redis KEDA polls, `host:port`. Empty: the Service of the redis sub-chart, in the release's namespace.
+      # @section -- Ocr_vision
+      address: ""
+      # -- Secret that holds the Redis password, for the TriggerAuthentication (KEDA is not Sentinel-aware and needs it itself).
+      # @section -- Ocr_vision
+      secretRef: "muffin-redis"
+      # -- Key of that password in the secret.
+      # @section -- Ocr_vision
+      secretKey: "REDIS_PASSWORD"
   # -- Revision history limit for the app.
   # @section -- Ocr_vision
   revisionHistoryLimit: 10
@@ -12040,6 +12392,38 @@ tabular:
     # -- Average memory utilization percentage for the app.
     # @section -- Tabular
     targetMemoryUtilizationPercentage: 80
+  kedaAutoscaler:
+    # -- Scale the app with KEDA on the length of the Redis lists (Celery queues) it reads, instead of the HPA (`autoscaling`, to leave disabled). Needs KEDA in the cluster: renders a ScaledObject and a TriggerAuthentication.
+    # @section -- Tabular
+    enabled: false
+    # -- Minimum number of replicas (0 lets the app rest when its queues are empty).
+    # @section -- Tabular
+    minReplicaCount: 0
+    # -- Maximum number of replicas.
+    # @section -- Tabular
+    maxReplicaCount: 3
+    # -- Seconds between two checks of the lists.
+    # @section -- Tabular
+    pollingInterval: 30
+    # -- Seconds without work before the last replica is stopped (KEDA's own default, 300, when null).
+    # @section -- Tabular
+    cooldownPeriod: null
+    # -- Messages waiting per replica before KEDA adds one.
+    # @section -- Tabular
+    listLength: 5
+    # -- Redis lists to watch, KEDA scaling on the busiest. A Celery queue is a list of the same name, and the messages of a lower priority are in a list of their own (`<queue>\x06\x16<priority>`).
+    # @section -- Tabular
+    queues: []
+    redis:
+      # -- Address of the Redis KEDA polls, `host:port`. Empty: the Service of the redis sub-chart, in the release's namespace.
+      # @section -- Tabular
+      address: ""
+      # -- Secret that holds the Redis password, for the TriggerAuthentication (KEDA is not Sentinel-aware and needs it itself).
+      # @section -- Tabular
+      secretRef: "muffin-redis"
+      # -- Key of that password in the secret.
+      # @section -- Tabular
+      secretKey: "REDIS_PASSWORD"
   # -- Revision history limit for the app.
   # @section -- Tabular
   revisionHistoryLimit: 10

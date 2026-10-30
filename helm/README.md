@@ -158,6 +158,21 @@ Kubernetes: `>=1.25.0-0`
 | agent_execution.ingress.labels | object | `{}` | Additional ingress labels. |
 | agent_execution.ingress.tls | list | `[]` | Enable TLS configuration. |
 
+#### KedaAutoscaler
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| agent_execution.kedaAutoscaler.cooldownPeriod | string | `nil` | Seconds without work before the last replica is stopped (KEDA's own default, 300, when null). |
+| agent_execution.kedaAutoscaler.enabled | bool | `false` | Scale the app with KEDA on the length of the Redis lists (Celery queues) it reads, instead of the HPA (`autoscaling`, to leave disabled). Needs KEDA in the cluster: renders a ScaledObject and a TriggerAuthentication. |
+| agent_execution.kedaAutoscaler.listLength | int | `5` | Messages waiting per replica before KEDA adds one. |
+| agent_execution.kedaAutoscaler.maxReplicaCount | int | `3` | Maximum number of replicas. |
+| agent_execution.kedaAutoscaler.minReplicaCount | int | `0` | Minimum number of replicas (0 lets the app rest when its queues are empty). |
+| agent_execution.kedaAutoscaler.pollingInterval | int | `30` | Seconds between two checks of the lists. |
+| agent_execution.kedaAutoscaler.queues | list | `[]` | Redis lists to watch, KEDA scaling on the busiest. A Celery queue is a list of the same name, and the messages of a lower priority are in a list of their own (`<queue>\x06\x16<priority>`). |
+| agent_execution.kedaAutoscaler.redis.address | string | `""` | Address of the Redis KEDA polls, `host:port`. Empty: the Service of the redis sub-chart, in the release's namespace. |
+| agent_execution.kedaAutoscaler.redis.secretKey | string | `"REDIS_PASSWORD"` | Key of that password in the secret. |
+| agent_execution.kedaAutoscaler.redis.secretRef | string | `"muffin-redis"` | Secret that holds the Redis password, for the TriggerAuthentication (KEDA is not Sentinel-aware and needs it itself). |
+
 #### Metrics
 
 | Key | Type | Default | Description |
@@ -599,6 +614,21 @@ Kubernetes: `>=1.25.0-0`
 | document_enrichment.ingress.labels | object | `{}` | Additional ingress labels. |
 | document_enrichment.ingress.tls | list | `[]` | Enable TLS configuration. |
 
+#### KedaAutoscaler
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| document_enrichment.kedaAutoscaler.cooldownPeriod | string | `nil` | Seconds without work before the last replica is stopped (KEDA's own default, 300, when null). |
+| document_enrichment.kedaAutoscaler.enabled | bool | `false` | Scale the app with KEDA on the length of the Redis lists (Celery queues) it reads, instead of the HPA (`autoscaling`, to leave disabled). Needs KEDA in the cluster: renders a ScaledObject and a TriggerAuthentication. |
+| document_enrichment.kedaAutoscaler.listLength | int | `5` | Messages waiting per replica before KEDA adds one. |
+| document_enrichment.kedaAutoscaler.maxReplicaCount | int | `3` | Maximum number of replicas. |
+| document_enrichment.kedaAutoscaler.minReplicaCount | int | `0` | Minimum number of replicas (0 lets the app rest when its queues are empty). |
+| document_enrichment.kedaAutoscaler.pollingInterval | int | `30` | Seconds between two checks of the lists. |
+| document_enrichment.kedaAutoscaler.queues | list | `[]` | Redis lists to watch, KEDA scaling on the busiest. A Celery queue is a list of the same name, and the messages of a lower priority are in a list of their own (`<queue>\x06\x16<priority>`). |
+| document_enrichment.kedaAutoscaler.redis.address | string | `""` | Address of the Redis KEDA polls, `host:port`. Empty: the Service of the redis sub-chart, in the release's namespace. |
+| document_enrichment.kedaAutoscaler.redis.secretKey | string | `"REDIS_PASSWORD"` | Key of that password in the secret. |
+| document_enrichment.kedaAutoscaler.redis.secretRef | string | `"muffin-redis"` | Secret that holds the Redis password, for the TriggerAuthentication (KEDA is not Sentinel-aware and needs it itself). |
+
 #### Metrics
 
 | Key | Type | Default | Description |
@@ -817,6 +847,21 @@ Kubernetes: `>=1.25.0-0`
 | document_process.ingress.hosts[0].paths[0].pathType | string | `"Prefix"` | Path type of the host record. |
 | document_process.ingress.labels | object | `{}` | Additional ingress labels. |
 | document_process.ingress.tls | list | `[]` | Enable TLS configuration. |
+
+#### KedaAutoscaler
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| document_process.kedaAutoscaler.cooldownPeriod | string | `nil` | Seconds without work before the last replica is stopped (KEDA's own default, 300, when null). |
+| document_process.kedaAutoscaler.enabled | bool | `false` | Scale the app with KEDA on the length of the Redis lists (Celery queues) it reads, instead of the HPA (`autoscaling`, to leave disabled). Needs KEDA in the cluster: renders a ScaledObject and a TriggerAuthentication. |
+| document_process.kedaAutoscaler.listLength | int | `5` | Messages waiting per replica before KEDA adds one. |
+| document_process.kedaAutoscaler.maxReplicaCount | int | `3` | Maximum number of replicas. |
+| document_process.kedaAutoscaler.minReplicaCount | int | `0` | Minimum number of replicas (0 lets the app rest when its queues are empty). |
+| document_process.kedaAutoscaler.pollingInterval | int | `30` | Seconds between two checks of the lists. |
+| document_process.kedaAutoscaler.queues | list | `[]` | Redis lists to watch, KEDA scaling on the busiest. A Celery queue is a list of the same name, and the messages of a lower priority are in a list of their own (`<queue>\x06\x16<priority>`). |
+| document_process.kedaAutoscaler.redis.address | string | `""` | Address of the Redis KEDA polls, `host:port`. Empty: the Service of the redis sub-chart, in the release's namespace. |
+| document_process.kedaAutoscaler.redis.secretKey | string | `"REDIS_PASSWORD"` | Key of that password in the secret. |
+| document_process.kedaAutoscaler.redis.secretRef | string | `"muffin-redis"` | Secret that holds the Redis password, for the TriggerAuthentication (KEDA is not Sentinel-aware and needs it itself). |
 
 #### Metrics
 
@@ -1273,6 +1318,21 @@ Kubernetes: `>=1.25.0-0`
 | index_rebuild.ingress.labels | object | `{}` | Additional ingress labels. |
 | index_rebuild.ingress.tls | list | `[]` | Enable TLS configuration. |
 
+#### KedaAutoscaler
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| index_rebuild.kedaAutoscaler.cooldownPeriod | string | `nil` | Seconds without work before the last replica is stopped (KEDA's own default, 300, when null). |
+| index_rebuild.kedaAutoscaler.enabled | bool | `false` | Scale the app with KEDA on the length of the Redis lists (Celery queues) it reads, instead of the HPA (`autoscaling`, to leave disabled). Needs KEDA in the cluster: renders a ScaledObject and a TriggerAuthentication. |
+| index_rebuild.kedaAutoscaler.listLength | int | `5` | Messages waiting per replica before KEDA adds one. |
+| index_rebuild.kedaAutoscaler.maxReplicaCount | int | `3` | Maximum number of replicas. |
+| index_rebuild.kedaAutoscaler.minReplicaCount | int | `0` | Minimum number of replicas (0 lets the app rest when its queues are empty). |
+| index_rebuild.kedaAutoscaler.pollingInterval | int | `30` | Seconds between two checks of the lists. |
+| index_rebuild.kedaAutoscaler.queues | list | `[]` | Redis lists to watch, KEDA scaling on the busiest. A Celery queue is a list of the same name, and the messages of a lower priority are in a list of their own (`<queue>\x06\x16<priority>`). |
+| index_rebuild.kedaAutoscaler.redis.address | string | `""` | Address of the Redis KEDA polls, `host:port`. Empty: the Service of the redis sub-chart, in the release's namespace. |
+| index_rebuild.kedaAutoscaler.redis.secretKey | string | `"REDIS_PASSWORD"` | Key of that password in the secret. |
+| index_rebuild.kedaAutoscaler.redis.secretRef | string | `"muffin-redis"` | Secret that holds the Redis password, for the TriggerAuthentication (KEDA is not Sentinel-aware and needs it itself). |
+
 #### Metrics
 
 | Key | Type | Default | Description |
@@ -1491,6 +1551,21 @@ Kubernetes: `>=1.25.0-0`
 | ocr.ingress.hosts[0].paths[0].pathType | string | `"Prefix"` | Path type of the host record. |
 | ocr.ingress.labels | object | `{}` | Additional ingress labels. |
 | ocr.ingress.tls | list | `[]` | Enable TLS configuration. |
+
+#### KedaAutoscaler
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| ocr.kedaAutoscaler.cooldownPeriod | string | `nil` | Seconds without work before the last replica is stopped (KEDA's own default, 300, when null). |
+| ocr.kedaAutoscaler.enabled | bool | `false` | Scale the app with KEDA on the length of the Redis lists (Celery queues) it reads, instead of the HPA (`autoscaling`, to leave disabled). Needs KEDA in the cluster: renders a ScaledObject and a TriggerAuthentication. |
+| ocr.kedaAutoscaler.listLength | int | `5` | Messages waiting per replica before KEDA adds one. |
+| ocr.kedaAutoscaler.maxReplicaCount | int | `3` | Maximum number of replicas. |
+| ocr.kedaAutoscaler.minReplicaCount | int | `0` | Minimum number of replicas (0 lets the app rest when its queues are empty). |
+| ocr.kedaAutoscaler.pollingInterval | int | `30` | Seconds between two checks of the lists. |
+| ocr.kedaAutoscaler.queues | list | `[]` | Redis lists to watch, KEDA scaling on the busiest. A Celery queue is a list of the same name, and the messages of a lower priority are in a list of their own (`<queue>\x06\x16<priority>`). |
+| ocr.kedaAutoscaler.redis.address | string | `""` | Address of the Redis KEDA polls, `host:port`. Empty: the Service of the redis sub-chart, in the release's namespace. |
+| ocr.kedaAutoscaler.redis.secretKey | string | `"REDIS_PASSWORD"` | Key of that password in the secret. |
+| ocr.kedaAutoscaler.redis.secretRef | string | `"muffin-redis"` | Secret that holds the Redis password, for the TriggerAuthentication (KEDA is not Sentinel-aware and needs it itself). |
 
 #### Metrics
 
@@ -1711,6 +1786,21 @@ Kubernetes: `>=1.25.0-0`
 | ocr_layout.ingress.labels | object | `{}` | Additional ingress labels. |
 | ocr_layout.ingress.tls | list | `[]` | Enable TLS configuration. |
 
+#### KedaAutoscaler
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| ocr_layout.kedaAutoscaler.cooldownPeriod | string | `nil` | Seconds without work before the last replica is stopped (KEDA's own default, 300, when null). |
+| ocr_layout.kedaAutoscaler.enabled | bool | `false` | Scale the app with KEDA on the length of the Redis lists (Celery queues) it reads, instead of the HPA (`autoscaling`, to leave disabled). Needs KEDA in the cluster: renders a ScaledObject and a TriggerAuthentication. |
+| ocr_layout.kedaAutoscaler.listLength | int | `5` | Messages waiting per replica before KEDA adds one. |
+| ocr_layout.kedaAutoscaler.maxReplicaCount | int | `3` | Maximum number of replicas. |
+| ocr_layout.kedaAutoscaler.minReplicaCount | int | `0` | Minimum number of replicas (0 lets the app rest when its queues are empty). |
+| ocr_layout.kedaAutoscaler.pollingInterval | int | `30` | Seconds between two checks of the lists. |
+| ocr_layout.kedaAutoscaler.queues | list | `[]` | Redis lists to watch, KEDA scaling on the busiest. A Celery queue is a list of the same name, and the messages of a lower priority are in a list of their own (`<queue>\x06\x16<priority>`). |
+| ocr_layout.kedaAutoscaler.redis.address | string | `""` | Address of the Redis KEDA polls, `host:port`. Empty: the Service of the redis sub-chart, in the release's namespace. |
+| ocr_layout.kedaAutoscaler.redis.secretKey | string | `"REDIS_PASSWORD"` | Key of that password in the secret. |
+| ocr_layout.kedaAutoscaler.redis.secretRef | string | `"muffin-redis"` | Secret that holds the Redis password, for the TriggerAuthentication (KEDA is not Sentinel-aware and needs it itself). |
+
 #### Metrics
 
 | Key | Type | Default | Description |
@@ -1930,6 +2020,21 @@ Kubernetes: `>=1.25.0-0`
 | ocr_table.ingress.labels | object | `{}` | Additional ingress labels. |
 | ocr_table.ingress.tls | list | `[]` | Enable TLS configuration. |
 
+#### KedaAutoscaler
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| ocr_table.kedaAutoscaler.cooldownPeriod | string | `nil` | Seconds without work before the last replica is stopped (KEDA's own default, 300, when null). |
+| ocr_table.kedaAutoscaler.enabled | bool | `false` | Scale the app with KEDA on the length of the Redis lists (Celery queues) it reads, instead of the HPA (`autoscaling`, to leave disabled). Needs KEDA in the cluster: renders a ScaledObject and a TriggerAuthentication. |
+| ocr_table.kedaAutoscaler.listLength | int | `5` | Messages waiting per replica before KEDA adds one. |
+| ocr_table.kedaAutoscaler.maxReplicaCount | int | `3` | Maximum number of replicas. |
+| ocr_table.kedaAutoscaler.minReplicaCount | int | `0` | Minimum number of replicas (0 lets the app rest when its queues are empty). |
+| ocr_table.kedaAutoscaler.pollingInterval | int | `30` | Seconds between two checks of the lists. |
+| ocr_table.kedaAutoscaler.queues | list | `[]` | Redis lists to watch, KEDA scaling on the busiest. A Celery queue is a list of the same name, and the messages of a lower priority are in a list of their own (`<queue>\x06\x16<priority>`). |
+| ocr_table.kedaAutoscaler.redis.address | string | `""` | Address of the Redis KEDA polls, `host:port`. Empty: the Service of the redis sub-chart, in the release's namespace. |
+| ocr_table.kedaAutoscaler.redis.secretKey | string | `"REDIS_PASSWORD"` | Key of that password in the secret. |
+| ocr_table.kedaAutoscaler.redis.secretRef | string | `"muffin-redis"` | Secret that holds the Redis password, for the TriggerAuthentication (KEDA is not Sentinel-aware and needs it itself). |
+
 #### Metrics
 
 | Key | Type | Default | Description |
@@ -2148,6 +2253,21 @@ Kubernetes: `>=1.25.0-0`
 | ocr_vision.ingress.hosts[0].paths[0].pathType | string | `"Prefix"` | Path type of the host record. |
 | ocr_vision.ingress.labels | object | `{}` | Additional ingress labels. |
 | ocr_vision.ingress.tls | list | `[]` | Enable TLS configuration. |
+
+#### KedaAutoscaler
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| ocr_vision.kedaAutoscaler.cooldownPeriod | string | `nil` | Seconds without work before the last replica is stopped (KEDA's own default, 300, when null). |
+| ocr_vision.kedaAutoscaler.enabled | bool | `false` | Scale the app with KEDA on the length of the Redis lists (Celery queues) it reads, instead of the HPA (`autoscaling`, to leave disabled). Needs KEDA in the cluster: renders a ScaledObject and a TriggerAuthentication. |
+| ocr_vision.kedaAutoscaler.listLength | int | `5` | Messages waiting per replica before KEDA adds one. |
+| ocr_vision.kedaAutoscaler.maxReplicaCount | int | `3` | Maximum number of replicas. |
+| ocr_vision.kedaAutoscaler.minReplicaCount | int | `0` | Minimum number of replicas (0 lets the app rest when its queues are empty). |
+| ocr_vision.kedaAutoscaler.pollingInterval | int | `30` | Seconds between two checks of the lists. |
+| ocr_vision.kedaAutoscaler.queues | list | `[]` | Redis lists to watch, KEDA scaling on the busiest. A Celery queue is a list of the same name, and the messages of a lower priority are in a list of their own (`<queue>\x06\x16<priority>`). |
+| ocr_vision.kedaAutoscaler.redis.address | string | `""` | Address of the Redis KEDA polls, `host:port`. Empty: the Service of the redis sub-chart, in the release's namespace. |
+| ocr_vision.kedaAutoscaler.redis.secretKey | string | `"REDIS_PASSWORD"` | Key of that password in the secret. |
+| ocr_vision.kedaAutoscaler.redis.secretRef | string | `"muffin-redis"` | Secret that holds the Redis password, for the TriggerAuthentication (KEDA is not Sentinel-aware and needs it itself). |
 
 #### Metrics
 
@@ -2380,6 +2500,21 @@ Kubernetes: `>=1.25.0-0`
 | tabular.ingress.labels | object | `{}` | Additional ingress labels. |
 | tabular.ingress.tls | list | `[]` | Enable TLS configuration. |
 
+#### KedaAutoscaler
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| tabular.kedaAutoscaler.cooldownPeriod | string | `nil` | Seconds without work before the last replica is stopped (KEDA's own default, 300, when null). |
+| tabular.kedaAutoscaler.enabled | bool | `false` | Scale the app with KEDA on the length of the Redis lists (Celery queues) it reads, instead of the HPA (`autoscaling`, to leave disabled). Needs KEDA in the cluster: renders a ScaledObject and a TriggerAuthentication. |
+| tabular.kedaAutoscaler.listLength | int | `5` | Messages waiting per replica before KEDA adds one. |
+| tabular.kedaAutoscaler.maxReplicaCount | int | `3` | Maximum number of replicas. |
+| tabular.kedaAutoscaler.minReplicaCount | int | `0` | Minimum number of replicas (0 lets the app rest when its queues are empty). |
+| tabular.kedaAutoscaler.pollingInterval | int | `30` | Seconds between two checks of the lists. |
+| tabular.kedaAutoscaler.queues | list | `[]` | Redis lists to watch, KEDA scaling on the busiest. A Celery queue is a list of the same name, and the messages of a lower priority are in a list of their own (`<queue>\x06\x16<priority>`). |
+| tabular.kedaAutoscaler.redis.address | string | `""` | Address of the Redis KEDA polls, `host:port`. Empty: the Service of the redis sub-chart, in the release's namespace. |
+| tabular.kedaAutoscaler.redis.secretKey | string | `"REDIS_PASSWORD"` | Key of that password in the secret. |
+| tabular.kedaAutoscaler.redis.secretRef | string | `"muffin-redis"` | Secret that holds the Redis password, for the TriggerAuthentication (KEDA is not Sentinel-aware and needs it itself). |
+
 #### Metrics
 
 | Key | Type | Default | Description |
@@ -2598,6 +2733,21 @@ Kubernetes: `>=1.25.0-0`
 | worker_document_edit.ingress.hosts[0].paths[0].pathType | string | `"Prefix"` | Path type of the host record. |
 | worker_document_edit.ingress.labels | object | `{}` | Additional ingress labels. |
 | worker_document_edit.ingress.tls | list | `[]` | Enable TLS configuration. |
+
+#### KedaAutoscaler
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| worker_document_edit.kedaAutoscaler.cooldownPeriod | string | `nil` | Seconds without work before the last replica is stopped (KEDA's own default, 300, when null). |
+| worker_document_edit.kedaAutoscaler.enabled | bool | `false` | Scale the app with KEDA on the length of the Redis lists (Celery queues) it reads, instead of the HPA (`autoscaling`, to leave disabled). Needs KEDA in the cluster: renders a ScaledObject and a TriggerAuthentication. |
+| worker_document_edit.kedaAutoscaler.listLength | int | `5` | Messages waiting per replica before KEDA adds one. |
+| worker_document_edit.kedaAutoscaler.maxReplicaCount | int | `3` | Maximum number of replicas. |
+| worker_document_edit.kedaAutoscaler.minReplicaCount | int | `0` | Minimum number of replicas (0 lets the app rest when its queues are empty). |
+| worker_document_edit.kedaAutoscaler.pollingInterval | int | `30` | Seconds between two checks of the lists. |
+| worker_document_edit.kedaAutoscaler.queues | list | `[]` | Redis lists to watch, KEDA scaling on the busiest. A Celery queue is a list of the same name, and the messages of a lower priority are in a list of their own (`<queue>\x06\x16<priority>`). |
+| worker_document_edit.kedaAutoscaler.redis.address | string | `""` | Address of the Redis KEDA polls, `host:port`. Empty: the Service of the redis sub-chart, in the release's namespace. |
+| worker_document_edit.kedaAutoscaler.redis.secretKey | string | `"REDIS_PASSWORD"` | Key of that password in the secret. |
+| worker_document_edit.kedaAutoscaler.redis.secretRef | string | `"muffin-redis"` | Secret that holds the Redis password, for the TriggerAuthentication (KEDA is not Sentinel-aware and needs it itself). |
 
 #### Metrics
 
@@ -2818,6 +2968,21 @@ Kubernetes: `>=1.25.0-0`
 | worker_evaluation.ingress.labels | object | `{}` | Additional ingress labels. |
 | worker_evaluation.ingress.tls | list | `[]` | Enable TLS configuration. |
 
+#### KedaAutoscaler
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| worker_evaluation.kedaAutoscaler.cooldownPeriod | string | `nil` | Seconds without work before the last replica is stopped (KEDA's own default, 300, when null). |
+| worker_evaluation.kedaAutoscaler.enabled | bool | `false` | Scale the app with KEDA on the length of the Redis lists (Celery queues) it reads, instead of the HPA (`autoscaling`, to leave disabled). Needs KEDA in the cluster: renders a ScaledObject and a TriggerAuthentication. |
+| worker_evaluation.kedaAutoscaler.listLength | int | `5` | Messages waiting per replica before KEDA adds one. |
+| worker_evaluation.kedaAutoscaler.maxReplicaCount | int | `3` | Maximum number of replicas. |
+| worker_evaluation.kedaAutoscaler.minReplicaCount | int | `0` | Minimum number of replicas (0 lets the app rest when its queues are empty). |
+| worker_evaluation.kedaAutoscaler.pollingInterval | int | `30` | Seconds between two checks of the lists. |
+| worker_evaluation.kedaAutoscaler.queues | list | `[]` | Redis lists to watch, KEDA scaling on the busiest. A Celery queue is a list of the same name, and the messages of a lower priority are in a list of their own (`<queue>\x06\x16<priority>`). |
+| worker_evaluation.kedaAutoscaler.redis.address | string | `""` | Address of the Redis KEDA polls, `host:port`. Empty: the Service of the redis sub-chart, in the release's namespace. |
+| worker_evaluation.kedaAutoscaler.redis.secretKey | string | `"REDIS_PASSWORD"` | Key of that password in the secret. |
+| worker_evaluation.kedaAutoscaler.redis.secretRef | string | `"muffin-redis"` | Secret that holds the Redis password, for the TriggerAuthentication (KEDA is not Sentinel-aware and needs it itself). |
+
 #### Metrics
 
 | Key | Type | Default | Description |
@@ -3036,6 +3201,21 @@ Kubernetes: `>=1.25.0-0`
 | worker_owui_sync.ingress.hosts[0].paths[0].pathType | string | `"Prefix"` | Path type of the host record. |
 | worker_owui_sync.ingress.labels | object | `{}` | Additional ingress labels. |
 | worker_owui_sync.ingress.tls | list | `[]` | Enable TLS configuration. |
+
+#### KedaAutoscaler
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| worker_owui_sync.kedaAutoscaler.cooldownPeriod | string | `nil` | Seconds without work before the last replica is stopped (KEDA's own default, 300, when null). |
+| worker_owui_sync.kedaAutoscaler.enabled | bool | `false` | Scale the app with KEDA on the length of the Redis lists (Celery queues) it reads, instead of the HPA (`autoscaling`, to leave disabled). Needs KEDA in the cluster: renders a ScaledObject and a TriggerAuthentication. |
+| worker_owui_sync.kedaAutoscaler.listLength | int | `5` | Messages waiting per replica before KEDA adds one. |
+| worker_owui_sync.kedaAutoscaler.maxReplicaCount | int | `3` | Maximum number of replicas. |
+| worker_owui_sync.kedaAutoscaler.minReplicaCount | int | `0` | Minimum number of replicas (0 lets the app rest when its queues are empty). |
+| worker_owui_sync.kedaAutoscaler.pollingInterval | int | `30` | Seconds between two checks of the lists. |
+| worker_owui_sync.kedaAutoscaler.queues | list | `[]` | Redis lists to watch, KEDA scaling on the busiest. A Celery queue is a list of the same name, and the messages of a lower priority are in a list of their own (`<queue>\x06\x16<priority>`). |
+| worker_owui_sync.kedaAutoscaler.redis.address | string | `""` | Address of the Redis KEDA polls, `host:port`. Empty: the Service of the redis sub-chart, in the release's namespace. |
+| worker_owui_sync.kedaAutoscaler.redis.secretKey | string | `"REDIS_PASSWORD"` | Key of that password in the secret. |
+| worker_owui_sync.kedaAutoscaler.redis.secretRef | string | `"muffin-redis"` | Secret that holds the Redis password, for the TriggerAuthentication (KEDA is not Sentinel-aware and needs it itself). |
 
 #### Metrics
 
