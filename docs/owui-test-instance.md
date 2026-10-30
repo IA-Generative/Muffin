@@ -104,7 +104,24 @@ docker compose -f docker-compose.yaml -f docker-compose.owui.yaml exec worker-ow
 docker compose -f docker-compose.yaml -f docker-compose.owui.yaml logs -f worker-owui-sync   # le bilan : "Synchronisation ... done"
 ```
 
-Un administrateur de Muffin peut aussi la lancer par `POST /api/admin/owui-sync`.
+Un administrateur de Muffin peut aussi la lancer par `POST /api/admin/owui-sync`, ou depuis la page **Administration → Synchronisation
+Open WebUI** (#466).
+
+## La page d'administration
+
+Réservée aux administrateurs (`/admin/owui-sync`). Elle montre :
+
+- **la dernière synchronisation** : en cours, terminée, terminée avec des problèmes (objets en erreur, knowledge bases non listées ou
+  dont les vecteurs ne correspondent pas au modèle), en échec (Open WebUI illisible : clé refusée, adresse fausse, arrêté) ou
+  interrompue (aucune fin signalée au bout de 6 heures : un worker est mort avec elle), avec son bilan par type d'objet ;
+- **un bouton « Synchroniser maintenant »**, qui suit la synchronisation jusqu'à sa fin ;
+- **les collections copiées** : copiée, reprise en cours ou reprise par Muffin (#462), leurs nombres de documents et de résumés, leur
+  dernière synchronisation et ce que la synchronisation y a trouvé de faux dans les vecteurs.
+
+Le worker rapporte chaque synchronisation au backend (`PUT /api/internal/owui-sync/runs/{id}` : démarrée, terminée avec son bilan, ou en
+échec), qui garde les 30 dernières dans la table `owui_sync_runs` : le résultat de la tâche Celery expire au bout d'une semaine et
+n'est lisible nulle part ailleurs. Une page sans aucune synchronisation dit que le worker n'a encore rien lancé (clé `OWUI_API_KEY`
+absente, CronJob suspendu). `GET /api/admin/owui-sync` donne l'état, `GET /api/admin/owui-sync/collections` la liste.
 
 Une synchronisation enchaîne quatre phases, chacune éclatée en une tâche par objet : les groupes, puis les knowledge bases, puis
 leurs fichiers, puis une clôture qui supprime de Muffin ce qui a disparu d'Open WebUI. Une tâche en erreur est retentée trois fois,

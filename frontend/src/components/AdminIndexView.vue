@@ -37,6 +37,12 @@ const items: AdminItem[] = [
     description: 'Tokens et eau consommés par les appels aux modèles, pour tout le monde ou par user_id.',
     path: '/admin/usage',
   },
+  {
+    key: 'owui-sync',
+    label: 'Synchronisation Open WebUI',
+    description: 'Lancer la synchronisation, voir son dernier bilan et les collections copiées d\'Open WebUI.',
+    path: '/admin/owui-sync',
+  },
 ]
 </script>
 
