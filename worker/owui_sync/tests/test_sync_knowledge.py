@@ -4,6 +4,7 @@ import pytest
 
 from app import tasks
 from app.owui_client import OwuiAccessGrant, OwuiKnowledge, OwuiUser
+from app.owui_vectors import CollectionInfo
 
 
 def _user(user_id: str, sub: str | None) -> OwuiUser:
@@ -17,20 +18,36 @@ def _grant(principal_type: str, principal_id: str, permission: str = "read") -> 
 
 
 @pytest.fixture
-def run(monkeypatch):
+def vectors(monkeypatch):
+    """What Qdrant says of the knowledge base's collection: by default, vectors of the right model and length."""
+    fake = MagicMock()
+    fake.inspect.return_value = CollectionInfo(True, 3, frozenset({"bge-multilingual-gemma2"}))
+    monkeypatch.setattr(tasks, "OwuiVectors", lambda: fake)
+    return fake
+
+
+@pytest.fixture
+def backend(monkeypatch):
+    fake = MagicMock()
+    fake.sync_collection.return_value = {"id": "x", "created": True, "unknown_groups": []}
+    fake.embed.return_value = [0.0, 0.0, 0.0]  # a model whose vectors are 3 long
+    tasks._MODEL_DIMENSIONS.clear()
+    monkeypatch.setattr(tasks, "backend_client", fake)
+    return fake
+
+
+@pytest.fixture
+def run(monkeypatch, vectors, backend):
     """Runs the task for a knowledge base with these grants, and gives the body sent to the backend."""
 
-    def _run(grants: list[OwuiAccessGrant], users: dict[str, OwuiUser]) -> tuple[dict, dict]:
+    def _run(grants: list[OwuiAccessGrant], users: dict[str, OwuiUser], files: list[dict] | None = None):
         owui = MagicMock()
         owui.knowledge.return_value = OwuiKnowledge(
-            id="kb1", user_id="owner", name="Procédures", description=None, access_grants=grants
+            id="kb1", user_id="owner", name="Procédures", description=None, access_grants=grants, files=files or []
         )
         owui.user.side_effect = users.__getitem__
         owui.embedding_model.return_value = "bge-multilingual-gemma2"
-        backend = MagicMock()
-        backend.sync_collection.return_value = {"id": "x", "created": True, "unknown_groups": []}
         monkeypatch.setattr(tasks, "OwuiClient", lambda: owui)
-        monkeypatch.setattr(tasks, "backend_client", backend)
         result = tasks.sync_knowledge.run("kb1")
         source, external_id, body = backend.sync_collection.call_args.args
         assert (source, external_id) == ("owui", "kb1")
@@ -99,3 +116,66 @@ def test_muffin_is_never_more_generous_than_open_webui(run):
     assert (body["public"], body["user_shares"], body["group_external_ids"]) == (False, [], [])
     assert body["write_group_external_ids"] == []
     assert result["write_grants_ignored"] == 3
+
+
+def test_nothing_is_reported_when_the_vectors_are_of_the_model_open_webui_is_set_to(run):
+    _, result = run([], {"owner": _user("owner", "kc")})
+
+    assert result["vector_problems"] == []
+    assert result["knowledge_id"] == "kb1"
+
+
+def test_chunks_made_with_another_model_are_reported_and_the_copy_goes_on(run, vectors, backend):
+    vectors.inspect.return_value = CollectionInfo(True, 3, frozenset({"old-model", "bge-multilingual-gemma2"}))
+
+    _, result = run([], {"owner": _user("owner", "kc")})
+
+    assert result["vector_problems"] == [
+        "chunks made with old-model, while Open WebUI is set to bge-multilingual-gemma2"
+    ]
+    backend.sync_collection.assert_called_once()
+
+
+def test_vectors_of_another_length_than_the_model_gives_are_reported(run, vectors):
+    vectors.inspect.return_value = CollectionInfo(True, 1024, frozenset({"bge-multilingual-gemma2"}))
+
+    _, result = run([], {"owner": _user("owner", "kc")})
+
+    assert result["vector_problems"] == ["vectors of dimension 1024, while bge-multilingual-gemma2 gives 3"]
+
+
+def test_the_length_of_a_model_is_learnt_once(run, backend):
+    run([], {"owner": _user("owner", "kc")})
+    run([], {"owner": _user("owner", "kc")})
+
+    assert backend.embed.call_count == 1
+
+
+def test_a_probe_that_fails_does_not_stop_the_copy_nor_report_anything(run, vectors, backend):
+    vectors.inspect.return_value = CollectionInfo(True, 1024, frozenset({"bge-multilingual-gemma2"}))
+    backend.embed.side_effect = RuntimeError("hub down")
+
+    _, result = run([], {"owner": _user("owner", "kc")})
+
+    assert result["vector_problems"] == []
+    backend.sync_collection.assert_called_once()
+
+
+def test_a_collection_missing_from_qdrant_is_a_problem_only_if_the_knowledge_base_has_files(run, vectors):
+    vectors.inspect.return_value = CollectionInfo(False, None, frozenset())
+
+    _, empty = run([], {"owner": _user("owner", "kc")})
+    _, filled = run([], {"owner": _user("owner", "kc")}, files=[{"id": "f1"}])
+
+    assert empty["vector_problems"] == []
+    assert filled["vector_problems"] == ["its collection is not in Qdrant"]
+
+
+def test_vectors_that_are_not_one_unnamed_vector_are_reported(run, vectors):
+    vectors.inspect.return_value = CollectionInfo(True, None, frozenset({"bge-multilingual-gemma2"}))
+
+    _, result = run([], {"owner": _user("owner", "kc")})
+
+    assert result["vector_problems"] == [
+        "its vectors are not one unnamed vector, which is not how Open WebUI writes them"
+    ]

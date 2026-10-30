@@ -79,6 +79,9 @@ class OwuiKnowledge(_Model):
     name: str
     description: str | None = None
     access_grants: list[OwuiAccessGrant] = Field(default_factory=list)
+    # Only what one knowledge base's own route gives, enough to know it has any: Open WebUI sends null when there
+    # are none, or when the listing leaves them out.
+    files: list[dict[str, Any]] | None = None
     created_at: int | None = None
     updated_at: int | None = None
 
