@@ -12,6 +12,7 @@ from app.core.security.factory import RequestContext
 from app.core.tasks import PROCESS_DOCUMENT_TASK, enqueue_process_document
 from app.models.document import Document, DocumentKind
 from app.models.document_revision import DocumentRevision, RevisionOrigin
+from app.models.task import TaskStatus
 from app.repositories.collection_repository import CollectionRepository
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.document_revision_repository import DocumentRevisionRepository
@@ -393,14 +394,24 @@ class LivingDocumentService:
         await self._enqueue_processing(document, user)
 
     async def _enqueue_processing(self, document: Document, user: RequestContext) -> None:
-        celery_task_id = enqueue_process_document(str(document.id))
+        """Records the Task row before publishing, so the worker's first status report finds it.
+        If the broker refuses, the row is marked failed rather than left PENDING forever."""
+        task_id = str(uuid.uuid4())
         await self.tasks.create(
-            celery_task_id,
+            task_id,
             PROCESS_DOCUMENT_TASK,
             user.user_id,
             document_id=document.id,
             collection_id=document.collection_id,
         )
+        await self.db.commit()
+        try:
+            result_id = enqueue_process_document(str(document.id), task_id=task_id)
+        except Exception as exc:
+            await self.tasks.set_status(task_id, TaskStatus.FAILURE, str(exc))
+            await self.db.commit()
+            raise
+        await self.tasks.rename_celery_task_id(task_id, result_id)
         await self.db.commit()
 
     @staticmethod

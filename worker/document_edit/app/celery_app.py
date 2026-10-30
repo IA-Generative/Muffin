@@ -3,6 +3,7 @@ from celery import Celery
 from app import (  # noqa: F401 - loguru everywhere, each task's lines (#305) and its time, CPU and memory, to the backend
     execution_metrics,
     task_logging,
+    task_status,
 )
 from app.config import settings
 from app.task_revocation import RevocableTask

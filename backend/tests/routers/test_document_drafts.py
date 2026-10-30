@@ -1,6 +1,6 @@
 import uuid
 from datetime import UTC, datetime, timedelta
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -91,7 +91,7 @@ def io():
         patch(f"{LIVING}.storage.put_object", state.put),
         patch(f"{LIVING}.storage.delete_objects", state.delete),
         patch(f"{LIVING}.vector_store.delete_document_embeddings"),
-        patch(f"{LIVING}.enqueue_process_document", side_effect=lambda _id: str(uuid.uuid4())) as process,
+        patch(f"{LIVING}.enqueue_process_document", side_effect=lambda _id, **_: str(uuid.uuid4())) as process,
     ):
         state.process = process
         yield state
@@ -101,7 +101,7 @@ async def _living(client, filename="procedure.odt") -> tuple[str, str]:
     collection_id = (await client.post("/api/collections")).json()["id"]
     with (
         patch(f"{LIVING}.storage.put_object"),
-        patch(f"{LIVING}.enqueue_process_document", side_effect=lambda _id: str(uuid.uuid4())),
+        patch(f"{LIVING}.enqueue_process_document", side_effect=lambda _id, **_: str(uuid.uuid4())),
     ):
         created = await client.post(
             f"/api/collections/{collection_id}/documents/living", files={"file": (filename, b"v1", ODT)}
@@ -415,7 +415,7 @@ async def test_validating_promotes_the_draft_to_a_chat_revision_reindexes_and_cl
 
     assert response.status_code == 200
     assert response.json()["status"] == "pending"  # being reindexed
-    io.process.assert_called_once_with(document_id)
+    io.process.assert_called_once_with(document_id, task_id=ANY)
     async with async_session_factory() as session:
         revisions = (
             await session.scalars(
@@ -727,7 +727,7 @@ async def test_validating_a_picked_file_makes_it_an_upload_revision_under_its_ow
     response = await client.post(_url(collection_id, document_id, "/validate"))
 
     assert response.status_code == 200
-    io.process.assert_called_once_with(document_id)
+    io.process.assert_called_once_with(document_id, task_id=ANY)
     async with async_session_factory() as session:
         revisions = (
             await session.scalars(

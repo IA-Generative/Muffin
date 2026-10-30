@@ -1,5 +1,5 @@
 import uuid
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -558,7 +558,7 @@ async def test_trigger_evaluation_enqueues_and_returns_celery_task_id(client):
 
     assert response.status_code == 202
     assert response.json() == {"celery_task_id": "celery-eval-1"}
-    mock_enqueue.assert_called_once_with(collection_id, 8, False)
+    mock_enqueue.assert_called_once_with(collection_id, 8, False, task_id=ANY)
 
     # The Task row (progress/logs tracking) is created directly here, not by a worker round-trip
     # - see EvaluationService.trigger's docstring.
@@ -580,7 +580,7 @@ async def test_trigger_evaluation_defaults_k(client):
         response = await client.post(f"/api/collections/{collection_id}/evaluations", json={})
 
     assert response.status_code == 202
-    mock_enqueue.assert_called_once_with(collection_id, 5, False)
+    mock_enqueue.assert_called_once_with(collection_id, 5, False, task_id=ANY)
 
 
 async def test_trigger_evaluation_for_unknown_collection_returns_404(client):

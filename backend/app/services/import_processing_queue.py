@@ -11,6 +11,7 @@ from app.core.tasks import PROCESS_DOCUMENT_TASK, enqueue_process_document
 from app.models.collection_import import CollectionImport
 from app.models.document import Document, DocumentStatus
 from app.models.import_document import ImportDocument
+from app.models.task import TaskStatus
 from app.repositories.task_repository import TaskRepository
 
 _settings = DocumentSettings()
@@ -67,15 +68,26 @@ class ImportProcessingQueue:
         queued = 0
         try:
             for document_id, collection_id in released:
-                # Redis is called off the event loop.
-                celery_task_id = await asyncio.to_thread(enqueue_process_document, str(document_id), bulk=True)
+                # Recorded before publishing, so the worker's first status report finds it.
+                task_id = str(uuid.uuid4())
                 await self.tasks.create(
-                    celery_task_id,
+                    task_id,
                     PROCESS_DOCUMENT_TASK,
                     owner_id,
                     document_id=document_id,
                     collection_id=collection_id,
                 )
+                await self.db.commit()
+                try:
+                    # Redis is called off the event loop.
+                    result_id = await asyncio.to_thread(
+                        enqueue_process_document, str(document_id), bulk=True, task_id=task_id
+                    )
+                except Exception as exc:
+                    await self.tasks.set_status(task_id, TaskStatus.FAILURE, str(exc))
+                    await self.db.commit()
+                    raise
+                await self.tasks.rename_celery_task_id(task_id, result_id)
                 await self.db.commit()
                 queued += 1
         except Exception:

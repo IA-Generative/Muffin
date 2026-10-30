@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 
 from app.core.security import worker_auth
 from app.db import async_session_factory
@@ -191,3 +191,144 @@ async def test_update_task_logs_records_the_whole_output_as_one_line(client):
 async def test_update_task_logs_not_found(client):
     response = await client.patch("/api/internal/tasks/unknown/logs", headers=_headers(), json={"logs": "irrelevant"})
     assert response.status_code == 404
+
+
+async def _task(celery_task_id: str) -> Task:
+    async with async_session_factory() as session:
+        return (await session.execute(select(Task).where(Task.celery_task_id == celery_task_id))).scalar_one()
+
+
+async def _record_task(celery_task_id: str = "celery-status") -> None:
+    document_id = await _create_document()
+    async with async_session_factory() as session:
+        session.add(
+            Task(
+                celery_task_id=celery_task_id,
+                task_name="app.tasks.process_document",
+                owner_id="dev-user",
+                document_id=document_id,
+            )
+        )
+        await session.commit()
+
+
+async def test_update_task_status_records_the_start_and_the_end(client):
+    await _record_task()
+
+    started = await client.patch(
+        "/api/internal/tasks/celery-status/status", headers=_headers(), json={"status": "STARTED"}
+    )
+    assert started.status_code == 204
+    task = await _task("celery-status")
+    assert task.status == "STARTED"
+    assert task.started_at is not None
+    assert task.finished_at is None
+
+    finished = await client.patch(
+        "/api/internal/tasks/celery-status/status",
+        headers=_headers(),
+        json={"status": "FAILURE", "error": "it went wrong"},
+    )
+    assert finished.status_code == 204
+    task = await _task("celery-status")
+    assert task.status == "FAILURE"
+    assert task.finished_at is not None
+    assert task.error == "it went wrong"
+
+
+async def test_update_task_status_does_not_overwrite_a_revocation(client):
+    await _record_task()
+    async with async_session_factory() as session:
+        await session.execute(update(Task).where(Task.celery_task_id == "celery-status").values(status="REVOKED"))
+        await session.commit()
+
+    response = await client.patch(
+        "/api/internal/tasks/celery-status/status", headers=_headers(), json={"status": "SUCCESS"}
+    )
+
+    assert response.status_code == 204
+    assert (await _task("celery-status")).status == "REVOKED"
+
+
+async def test_update_task_status_for_a_task_with_no_row_is_a_no_op(client):
+    response = await client.patch(
+        "/api/internal/tasks/beat-scan/status", headers=_headers(), json={"status": "STARTED"}
+    )
+    assert response.status_code == 204
+
+
+async def test_reap_stuck_tasks_marks_only_the_ones_started_before_the_timeout(client):
+    await _record_task("celery-stuck")
+    await _record_task("celery-running")
+    old = datetime.now(UTC) - timedelta(hours=48)
+    async with async_session_factory() as session:
+        await session.execute(
+            update(Task).where(Task.celery_task_id == "celery-stuck").values(status="STARTED", started_at=old)
+        )
+        await session.execute(
+            update(Task)
+            .where(Task.celery_task_id == "celery-running")
+            .values(status="STARTED", started_at=datetime.now(UTC))
+        )
+        await session.commit()
+
+    response = await client.post("/api/internal/tasks/reap", headers=_headers())
+
+    assert response.json() == {"reaped": 1}
+    assert (await _task("celery-stuck")).status == "FAILURE"
+    assert (await _task("celery-running")).status == "STARTED"
+
+
+async def test_update_task_status_refreshes_the_start_on_a_retry(client):
+    await _record_task()
+    old = datetime.now(UTC) - timedelta(hours=48)
+    async with async_session_factory() as session:
+        await session.execute(
+            update(Task).where(Task.celery_task_id == "celery-status").values(status="STARTED", started_at=old)
+        )
+        await session.commit()
+
+    response = await client.patch(
+        "/api/internal/tasks/celery-status/status", headers=_headers(), json={"status": "STARTED"}
+    )
+
+    assert response.status_code == 204
+    assert (await _task("celery-status")).started_at > old
+
+
+async def test_update_task_status_clears_the_previous_attempts_end_and_error(client):
+    await _record_task()
+    async with async_session_factory() as session:
+        await session.execute(
+            update(Task)
+            .where(Task.celery_task_id == "celery-status")
+            .values(status="FAILURE", finished_at=datetime.now(UTC), error="previous attempt")
+        )
+        await session.commit()
+
+    response = await client.patch(
+        "/api/internal/tasks/celery-status/status", headers=_headers(), json={"status": "STARTED"}
+    )
+
+    assert response.status_code == 204
+    task = await _task("celery-status")
+    assert task.status == "STARTED"
+    assert task.finished_at is None
+    assert task.error is None
+
+
+async def test_reap_stuck_tasks_leaves_unbounded_tasks_alone(client):
+    await _record_task("celery-evaluation")
+    old = datetime.now(UTC) - timedelta(hours=48)
+    async with async_session_factory() as session:
+        await session.execute(
+            update(Task)
+            .where(Task.celery_task_id == "celery-evaluation")
+            .values(status="STARTED", started_at=old, task_name="app.tasks.run_evaluation")
+        )
+        await session.commit()
+
+    response = await client.post("/api/internal/tasks/reap", headers=_headers())
+
+    assert response.json() == {"reaped": 0}
+    assert (await _task("celery-evaluation")).status == "STARTED"

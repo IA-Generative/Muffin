@@ -1,11 +1,13 @@
 import uuid
 from collections.abc import Sequence
+from datetime import datetime
+from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.task import Task
+from app.models.task import TERMINAL_TASK_STATUSES, Task, TaskStatus
 
 
 class TaskRepository:
@@ -34,6 +36,66 @@ class TaskRepository:
         self.db.add(task)
         await self.db.flush()
         return task
+
+    async def set_status(self, celery_task_id: str, status: TaskStatus, error: str | None = None) -> None:
+        """Records what the worker reported (see app/routers/internal_tasks.py's status endpoint).
+        A task already REVOKED stays so: a worker that finishes after the user revoked it must not
+        overwrite the revocation."""
+        values: dict[str, Any] = {"status": status}
+        if status is TaskStatus.STARTED:
+            # Refresh on every start, including a retry/redelivery: the reaper compares started_at
+            # to its cutoff, and a task redelivered after a long outage must not be reaped while
+            # this new attempt is running. The previous attempt's end and error go with it: the
+            # row must not describe a running task and a finished failure at once.
+            values["started_at"] = func.now()
+            values["finished_at"] = None
+            values["error"] = None
+        elif status in TERMINAL_TASK_STATUSES:
+            values["finished_at"] = func.now()
+            values["error"] = error
+        where = [Task.celery_task_id == celery_task_id]
+        if status is not TaskStatus.REVOKED:
+            where.append(Task.status != TaskStatus.REVOKED)
+        await self.db.execute(update(Task).where(*where).values(**values))
+
+    async def rename_celery_task_id(self, old: str, new: str) -> None:
+        """Keeps the row in step with the id the enqueue helper returned. In production they are
+        the same - send_task is given the preallocated id - so this is a no-op; it only matters
+        when a caller (a test) substitutes an id of its own."""
+        if old == new:
+            return
+        await self.db.execute(update(Task).where(Task.celery_task_id == old).values(celery_task_id=new))
+
+    async def mark_revoked(self, celery_task_ids: Sequence[str]) -> None:
+        """The tasks the backend just revoked, so their status says so without waiting for a
+        worker that may never report (one still waiting in the queue, or whose pod is gone)."""
+        if not celery_task_ids:
+            return
+        await self.db.execute(
+            update(Task)
+            .where(Task.celery_task_id.in_(celery_task_ids))
+            .values(status=TaskStatus.REVOKED, finished_at=func.now())
+        )
+
+    async def reap_stuck(self, before: datetime, *, exclude_task_names: Sequence[str] = ()) -> int:
+        """Marks the tasks still STARTED since before `before` as failed: their worker died and
+        Celery will not report them (see the beat's reap_stuck_tasks). A task that is genuinely
+        long is left alone - the timeout is well past the workers' own limits. `exclude_task_names`
+        leaves out the tasks with no enforced runtime limit, whose age alone cannot tell a healthy
+        run from a lost one (see UNBOUNDED_TASK_NAMES)."""
+        where = [Task.status == TaskStatus.STARTED, Task.started_at < before]
+        if exclude_task_names:
+            where.append(Task.task_name.notin_(exclude_task_names))
+        result = await self.db.execute(
+            update(Task)
+            .where(*where)
+            .values(
+                status=TaskStatus.FAILURE,
+                finished_at=func.now(),
+                error="Task lost: no result after its timeout",
+            )
+        )
+        return result.rowcount or 0
 
     async def list_for_document(self, document_id: uuid.UUID) -> Sequence[Task]:
         result = await self.db.execute(select(Task).where(Task.document_id == document_id))

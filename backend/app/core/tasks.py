@@ -1,5 +1,4 @@
 from celery import Celery
-from celery.result import AsyncResult
 
 from app.config import RedisSettings
 
@@ -56,6 +55,11 @@ RUN_EVALUATION_TASK = "app.tasks.run_evaluation"
 # run_evaluation, so it doesn't warrant its own dedicated service/Dockerfile/queue.
 SCORE_DISCUSSION_TASK = "app.tasks.score_discussion"
 
+# Tasks with no enforced runtime limit: a healthy one can legitimately outlive the reaper's
+# cutoff, so age alone cannot tell it from a lost one. The reaper leaves them alone (see
+# TaskRepository.reap_stuck) - a dead one stays STARTED, but the user can still revoke it.
+UNBOUNDED_TASK_NAMES = frozenset({RUN_EVALUATION_TASK, SCORE_DISCUSSION_TASK})
+
 # And again for worker/document_edit (#167) - an edit job runs an LLM and a LibreOffice
 # conversion, so it gets its own queue rather than competing with the others.
 DOCUMENT_EDIT_QUEUE = "document_edit"
@@ -73,39 +77,46 @@ INSERT_IMAGES_TASK = "app.tasks.insert_images"
 RENDER_UPLOAD_TASK = "app.tasks.render_upload"
 
 
-def enqueue_process_document(document_id: str, *, bulk: bool = False) -> str:
+def enqueue_process_document(document_id: str, *, bulk: bool = False, task_id: str | None = None) -> str:
     """Returns the Celery task id, so the caller can record it (see
     app/models/task.py) for later status lookups and revocation. `bulk`: one of the many documents
-    of a ZIP import, processed after any other waiting."""
+    of a ZIP import, processed after any other waiting. `task_id`: preallocated by the caller when
+    it records the Task row before publishing, so the worker's first status report finds it."""
     options = {"priority": BULK_PRIORITY} if bulk else {}
     result = _celery_app.send_task(
-        PROCESS_DOCUMENT_TASK, args=[document_id], queue=DOCUMENT_EXTRACTION_QUEUE, **options
+        PROCESS_DOCUMENT_TASK, args=[document_id], queue=DOCUMENT_EXTRACTION_QUEUE, task_id=task_id, **options
     )
     return result.id
 
 
-def enqueue_refresh_url_document(document_id: str) -> str:
+def enqueue_refresh_url_document(document_id: str, task_id: str | None = None) -> str:
     """A URL document's page fetched now rather than at its next scheduled check. Returns the Celery
-    task id, as enqueue_process_document does."""
-    result = _celery_app.send_task(REFRESH_URL_DOCUMENT_TASK, args=[document_id], queue=DOCUMENT_EXTRACTION_QUEUE)
+    task id, as enqueue_process_document does. `task_id`: preallocated by the caller when it records
+    the Task row before publishing."""
+    result = _celery_app.send_task(
+        REFRESH_URL_DOCUMENT_TASK, args=[document_id], queue=DOCUMENT_EXTRACTION_QUEUE, task_id=task_id
+    )
     return result.id
 
 
-def enqueue_rollup_collection_description(collection_id: str, countdown: int) -> str:
+def enqueue_rollup_collection_description(collection_id: str, countdown: int, task_id: str | None = None) -> str:
     """Returns the Celery task id. `countdown` delays the run so that every change to the
-    sub-collections within that window is picked up by this single run."""
+    sub-collections within that window is picked up by this single run. `task_id`: preallocated by
+    the caller when it records the Task row before publishing."""
     result = _celery_app.send_task(
         ROLLUP_COLLECTION_DESCRIPTION_TASK,
         args=[collection_id],
         queue=DOCUMENT_ENRICHMENT_QUEUE,
         countdown=countdown,
+        task_id=task_id,
     )
     return result.id
 
 
-def enqueue_import_zip(import_id: str) -> str:
-    """Returns the Celery task id, recorded as a collection-scoped Task row."""
-    result = _celery_app.send_task(IMPORT_ZIP_TASK, args=[import_id], queue=DOCUMENT_IMPORT_QUEUE)
+def enqueue_import_zip(import_id: str, task_id: str | None = None) -> str:
+    """Returns the Celery task id, recorded as a collection-scoped Task row. `task_id`: preallocated
+    by the caller when it records the Task row before publishing."""
+    result = _celery_app.send_task(IMPORT_ZIP_TASK, args=[import_id], queue=DOCUMENT_IMPORT_QUEUE, task_id=task_id)
     return result.id
 
 
@@ -126,20 +137,22 @@ def enqueue_resume_agent(run_id: str, answer: str) -> str:
     return result.id
 
 
-def enqueue_run_evaluation(collection_id: str, k: int, validated_only: bool = False) -> str:
+def enqueue_run_evaluation(collection_id: str, k: int, validated_only: bool = False, task_id: str | None = None) -> str:
     """Returns the Celery task id, recorded as a collection-scoped Task row (see
     app/routers/internal_tasks.py) rather than on a pre-created EvaluationRun - the model has no
     in-progress state, the run row only ever exists once the worker posts a fully computed one.
+    `task_id`: preallocated by the caller when it records the Task row before publishing.
     """
     result = _celery_app.send_task(
         RUN_EVALUATION_TASK,
         args=[collection_id, k, validated_only],
         queue=EVALUATION_QUEUE,
+        task_id=task_id,
     )
     return result.id
 
 
-def enqueue_score_discussion(conversation_id: str, model: str | None = None) -> str:
+def enqueue_score_discussion(conversation_id: str, model: str | None = None, task_id: str | None = None) -> str:
     """Returns the Celery task id, recorded as a conversation-scoped Task row (see
     app/routers/internal_tasks.py) - same reasoning as enqueue_run_evaluation, the DiscussionScore
     row only ever exists once the worker posts a fully computed one.
@@ -147,9 +160,10 @@ def enqueue_score_discussion(conversation_id: str, model: str | None = None) -> 
     When `model` is None, the worker picks the hub's default chat model. When set, the worker
     uses that specific model - the (conversation, content_hash, model) unique index means
     re-scoring the same transcript with a different model creates a new score row instead of
-    being a no-op."""
+    being a no-op. `task_id`: preallocated by the caller when it records the Task row before
+    publishing."""
     args: list = [conversation_id] if model is None else [conversation_id, model]
-    result = _celery_app.send_task(SCORE_DISCUSSION_TASK, args=args, queue=EVALUATION_QUEUE)
+    result = _celery_app.send_task(SCORE_DISCUSSION_TASK, args=args, queue=EVALUATION_QUEUE, task_id=task_id)
     return result.id
 
 
@@ -183,19 +197,10 @@ def enqueue_render_upload(payload: dict, task_id: str | None = None) -> str:
     return result.id
 
 
-def enqueue_rebuild_index(rebuild_id: str) -> str:
-    result = _celery_app.send_task(REBUILD_INDEX_TASK, args=[rebuild_id], queue=INDEX_REBUILD_QUEUE)
+def enqueue_rebuild_index(rebuild_id: str, task_id: str | None = None) -> str:
+    result = _celery_app.send_task(REBUILD_INDEX_TASK, args=[rebuild_id], queue=INDEX_REBUILD_QUEUE, task_id=task_id)
     return result.id
 
-
-def get_task_status(celery_task_id: str) -> str:
-    return AsyncResult(celery_task_id, app=_celery_app).status
-
-
-# A task that is still to run or running: the only ones worth revoking. Celery reports PENDING for an
-# id it knows nothing about as well, which here is a task waiting in the queue - or one whose result
-# expired long ago, harmlessly revoked again.
-ACTIVE_TASK_STATES = frozenset({"PENDING", "RECEIVED", "STARTED", "RETRY"})
 
 # The flag a revoked task leaves in Redis, which every worker looks at when a task starts (see
 # app/task_revocation.py in each worker - the key must be the same). Celery's own revoke is a broadcast
@@ -203,10 +208,6 @@ ACTIVE_TASK_STATES = frozenset({"PENDING", "RECEIVED", "STARTED", "RETRY"})
 # runs all the same on a pod that starts afterwards (a deploy, a scale-up), and one whose worker died
 # runs again, revoked or not, when Redis hands it out again - after the visibility timeout, hours.
 REVOKED_KEY = "muffin:revoked:{task_id}"
-
-
-def active_task_ids(celery_task_ids: list[str]) -> list[str]:
-    return [task_id for task_id in celery_task_ids if get_task_status(task_id) in ACTIVE_TASK_STATES]
 
 
 def revoke_tasks(celery_task_ids: list[str]) -> None:

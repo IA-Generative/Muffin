@@ -10,6 +10,7 @@ from .redis import RedisSettings
 from .runs import RunSettings
 from .rustfs import RustFsSettings
 from .sharing import SharingSettings
+from .tasks import TaskSettings
 from .worker import WorkerSettings
 
 __all__ = [
@@ -26,5 +27,6 @@ __all__ = [
     "RustFsSettings",
     "SearchSettings",
     "SharingSettings",
+    "TaskSettings",
     "WorkerSettings",
 ]

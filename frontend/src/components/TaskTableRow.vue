@@ -24,6 +24,7 @@ const STATUS_LABELS: Record<string, string> = {
   SUCCESS: 'Terminée',
   FAILURE: 'Échouée',
   REVOKED: 'Révoquée',
+  UNKNOWN: 'Inconnu',
 }
 
 const TASK_NAME_LABELS: Record<string, string> = {

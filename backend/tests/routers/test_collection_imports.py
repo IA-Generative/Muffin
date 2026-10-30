@@ -36,11 +36,13 @@ def stored(monkeypatch) -> MagicMock:
     storage = MagicMock()
     storage.upload_fileobj.side_effect = lambda key, fileobj, content_type: setattr(storage, "uploaded", fileobj.read())
     monkeypatch.setattr(collection_import_service, "storage", storage)
-    monkeypatch.setattr(collection_import_service, "enqueue_import_zip", lambda import_id: f"celery-{import_id}")
+    monkeypatch.setattr(
+        collection_import_service, "enqueue_import_zip", lambda import_id, task_id=None: f"celery-{import_id}"
+    )
     storage.queued = []
     seen: set[str] = set()
 
-    def enqueue(doc_id, bulk=False):
+    def enqueue(doc_id, bulk=False, task_id=None):
         storage.queued.append(doc_id)
         # One id per call, like Celery's: a document processed again gets a task of its own.
         suffix = f"-{uuid.uuid4()}" if doc_id in seen else ""
@@ -675,7 +677,7 @@ async def test_the_sweep_releases_the_place_of_a_document_that_was_lost(client, 
 async def test_a_document_that_could_not_be_queued_waits_again(client, stored, _window, monkeypatch):
     body = (await _import(client)).json()
 
-    def broken(document_id, bulk=False):
+    def broken(document_id, bulk=False, task_id=None):
         raise ConnectionError("Redis is down")
 
     monkeypatch.setattr("app.services.import_processing_queue.enqueue_process_document", broken)
@@ -819,7 +821,7 @@ async def test_the_documents_of_an_import_in_error_are_relaunched_through_its_wi
 ):
     for target in ("vector_store", "storage"):
         monkeypatch.setattr(f"app.services.document_upload_service.{target}", MagicMock())
-    monkeypatch.setattr("app.services.document_upload_service.active_task_ids", lambda ids: [])
+    monkeypatch.setattr("app.services.document_upload_service.revoke_tasks", lambda ids: None)
     body = (await _import(client)).json()
     ids = await _add(client, body, 6)
     assert stored.queued == ids[:3]

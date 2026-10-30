@@ -32,7 +32,9 @@ def test_enqueue_rebuild_index_uses_its_own_queue_apart_from_ingestion():
         task_id = tasks.enqueue_rebuild_index("rebuild-1")
 
     assert task_id == "celery-id"
-    send_task.assert_called_once_with("app.tasks.rebuild_index", args=["rebuild-1"], queue="index_rebuild")
+    send_task.assert_called_once_with(
+        "app.tasks.rebuild_index", args=["rebuild-1"], queue="index_rebuild", task_id=None
+    )
     assert tasks.INDEX_REBUILD_QUEUE != tasks.DOCUMENT_EXTRACTION_QUEUE
 
 
@@ -43,8 +45,13 @@ def test_a_document_goes_to_the_extraction_queue_and_a_zip_import_s_with_the_low
         tasks.enqueue_process_document("doc-2", bulk=True)
 
     dropped, imported = send_task.call_args_list
-    assert dropped.kwargs == {"args": ["doc-1"], "queue": "document_extraction"}
-    assert imported.kwargs == {"args": ["doc-2"], "queue": "document_extraction", "priority": 9}
+    assert dropped.kwargs == {"args": ["doc-1"], "queue": "document_extraction", "task_id": None}
+    assert imported.kwargs == {
+        "args": ["doc-2"],
+        "queue": "document_extraction",
+        "priority": 9,
+        "task_id": None,
+    }
 
 
 def test_an_import_runs_on_its_own_queue_and_a_rollup_on_the_enrichment_one():

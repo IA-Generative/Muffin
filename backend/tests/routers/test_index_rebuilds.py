@@ -3,7 +3,7 @@ for Qdrant: what the tests check is what is asked of the two indexes and when.""
 
 import uuid
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -115,7 +115,7 @@ def enqueued():
     counter = iter(range(1, 100))
     with patch(
         "app.services.index_rebuild_service.enqueue_rebuild_index",
-        side_effect=lambda _id: f"task-{uuid.uuid4()}-{next(counter)}",
+        side_effect=lambda _id, **_: f"task-{uuid.uuid4()}-{next(counter)}",
     ) as mock:
         yield mock
 
@@ -228,7 +228,7 @@ async def test_starting_a_rebuild_queues_it_on_its_own_task(client, enqueued):
     assert rebuild["status"] == "building"
     assert rebuild["target_model"] == NEW_MODEL
     assert rebuild["previous_model"] == OLD_MODEL
-    enqueued.assert_called_once_with(rebuild["id"])
+    enqueued.assert_called_once_with(rebuild["id"], task_id=ANY)
 
 
 async def test_a_second_rebuild_is_refused_while_one_is_in_progress(client, enqueued):

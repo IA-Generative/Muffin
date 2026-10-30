@@ -1,5 +1,5 @@
 import uuid
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -235,7 +235,7 @@ async def test_trigger_discussion_score_enqueues_and_creates_task(client):
 
     assert response.status_code == 202
     assert response.json() == {"celery_task_id": "celery-score-1"}
-    mock_enqueue.assert_called_once_with(run["conversation_id"])
+    mock_enqueue.assert_called_once_with(run["conversation_id"], task_id=ANY)
 
     async with async_session_factory() as session:
         task = (await session.execute(select(Task).where(Task.celery_task_id == "celery-score-1"))).scalar_one()
@@ -293,7 +293,7 @@ async def test_upload_conversation_file_creates_temporary_collection(client):
     assert body["type"] == "file"
     assert body["status"] == "pending"
     mock_put.assert_called_once()
-    mock_enqueue.assert_called_once_with(body["id"])
+    mock_enqueue.assert_called_once_with(body["id"], bulk=False, task_id=ANY)
 
     async with async_session_factory() as session:
         collection = (

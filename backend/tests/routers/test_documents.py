@@ -1,5 +1,5 @@
 import uuid
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -63,7 +63,7 @@ async def test_create_file_document_uploads_and_queues_processing(client):
     [(key, data)] = stored.items()
     assert key.endswith("-report.pdf")
     assert data == b"%PDF-1.4 fake"
-    mock_enqueue.assert_called_once_with(body["id"])
+    mock_enqueue.assert_called_once_with(body["id"], bulk=False, task_id=ANY)
 
 
 async def test_create_url_document_queues_processing(client):
@@ -82,7 +82,7 @@ async def test_create_url_document_queues_processing(client):
     body = response.json()
     assert body["name"] == "https://example.com"
     assert body["type"] == "url"
-    mock_enqueue.assert_called_once_with(body["id"])
+    mock_enqueue.assert_called_once_with(body["id"], bulk=False, task_id=ANY)
 
 
 async def test_list_documents(client):
@@ -336,7 +336,7 @@ async def test_reprocess_resets_status_and_requeues(client):
             document = await session.get(Document, uuid.UUID(created["id"]))
             await DocumentUploadService(session).reprocess(document, "dev-user")
 
-    mock_enqueue.assert_called_once_with(created["id"])
+    mock_enqueue.assert_called_once_with(created["id"], bulk=False, task_id=ANY)
     mock_delete.assert_called_once_with(["old.png"])
 
     async with async_session_factory() as session:
@@ -486,10 +486,9 @@ def relaunch():
         patch("app.services.document_upload_service.enqueue_process_document", enqueued),
         patch("app.services.document_upload_service.vector_store", MagicMock()),
         patch("app.services.document_upload_service.storage", MagicMock()),
-        patch("app.services.document_upload_service.active_task_ids", return_value=[]) as active,
         patch("app.services.document_upload_service.revoke_tasks", revoked),
     ):
-        enqueued.revoked, enqueued.active = revoked, active
+        enqueued.revoked = revoked
         yield enqueued
 
 
@@ -518,7 +517,7 @@ async def test_a_document_in_error_is_relaunched_from_scratch(client, relaunch):
 
     assert response.status_code == 200
     assert response.json()["status"] == "pending" and response.json()["progress"] == 0
-    relaunch.assert_called_once_with(document_id)
+    relaunch.assert_called_once_with(document_id, bulk=False, task_id=ANY)
     async with async_session_factory() as session:
         task = await session.scalar(
             select(Task).where(
@@ -571,11 +570,13 @@ async def test_a_document_that_still_has_tasks_running_has_them_stopped_before_i
     collection_id = await _create_collection(client)
     document_id = await _add_url_document(client, collection_id)
     await _fail(document_id)
-    relaunch.active.return_value = ["running-task"]
+    async with async_session_factory() as session:
+        task = (await session.execute(select(Task).where(Task.document_id == uuid.UUID(document_id)))).scalars().first()
 
     await client.post(f"/api/collections/{collection_id}/documents/{document_id}/reprocess")
 
-    relaunch.revoked.assert_called_once_with(["running-task"])
+    # The task the upload recorded is still PENDING: it is stopped before the document is queued again.
+    relaunch.revoked.assert_called_once_with([task.celery_task_id])
 
 
 async def test_every_document_in_error_of_a_collection_and_its_sub_collections_is_relaunched(client, relaunch):
@@ -592,7 +593,7 @@ async def test_every_document_in_error_of_a_collection_and_its_sub_collections_i
     assert response.json() == {"reprocessed": 3}
     # One of many: processed after any other waiting.
     assert sorted(call.args[0] for call in relaunch.call_args_list) == sorted(failed)
-    assert all(call.kwargs == {"bulk": True} for call in relaunch.call_args_list)
+    assert all(call.kwargs["bulk"] is True for call in relaunch.call_args_list)
     assert [await _status(document_id) for document_id in failed] == [DocumentStatus.PENDING] * 3
     assert await _status(fine) == DocumentStatus.PENDING
 

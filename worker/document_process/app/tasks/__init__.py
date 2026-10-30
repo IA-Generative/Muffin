@@ -56,6 +56,7 @@ from app.tasks.process import (  # noqa: F401
     process_document,
 )
 from app.tasks.qa import generate_collection_qa, generate_qa_window  # noqa: F401
+from app.tasks.reaper import reap_stuck_tasks  # noqa: F401
 from app.tasks.rebuild import rebuild_index  # noqa: F401
 from app.tasks.refresh import refresh_url_document, scan_url_refresh  # noqa: F401
 from app.tasks.summarize import summarize_document, tag_document  # noqa: F401

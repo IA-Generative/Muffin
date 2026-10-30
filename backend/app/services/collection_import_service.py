@@ -13,6 +13,7 @@ from app.core.security.factory import RequestContext
 from app.core.tasks import IMPORT_ZIP_TASK, enqueue_import_zip
 from app.models.collection import Collection
 from app.models.collection_import import CollectionImport, CollectionImportStatus
+from app.models.task import TaskStatus
 from app.repositories.collection_hierarchy_repository import CollectionHierarchyRepository
 from app.repositories.collection_import_repository import CollectionImportRepository
 from app.repositories.collection_repository import CollectionRepository
@@ -139,8 +140,16 @@ class CollectionImportService:
         storage.upload_fileobj(collection_import.archive_key, archive, content_type="application/zip")
         await self.db.commit()
 
-        celery_task_id = enqueue_import_zip(str(collection_import.id))
-        await self.tasks.create(celery_task_id, IMPORT_ZIP_TASK, user.user_id, collection_id=root.id)
+        task_id = str(uuid.uuid4())
+        await self.tasks.create(task_id, IMPORT_ZIP_TASK, user.user_id, collection_id=root.id)
+        await self.db.commit()
+        try:
+            result_id = enqueue_import_zip(str(collection_import.id), task_id=task_id)
+        except Exception as exc:
+            await self.tasks.set_status(task_id, TaskStatus.FAILURE, str(exc))
+            await self.db.commit()
+            raise
+        await self.tasks.rename_celery_task_id(task_id, result_id)
         await self.db.commit()
         await self.db.refresh(collection_import, attribute_names=["created_at"])
         return await self._present(collection_import)

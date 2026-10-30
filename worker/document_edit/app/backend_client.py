@@ -45,6 +45,15 @@ class BackendClient:
         response = self._client.post("/api/internal/task-logs", json={"entries": lines}, timeout=5.0)
         response.raise_for_status()
 
+    def update_task_status(self, celery_task_id: str, status: str, error: str | None = None) -> None:
+        """A short timeout: the status is best-effort, a task never waits on it."""
+        response = self._client.patch(
+            f"/api/internal/tasks/{celery_task_id}/status",
+            json={"status": status, "error": error},
+            timeout=5.0,
+        )
+        response.raise_for_status()
+
     def add_execution_metric(self, metric: dict) -> None:
         """A short timeout: it is sent from a thread of its own and dropped if it fails, a task never waits on it."""
         response = self._client.post("/api/internal/execution-metrics", json=metric, timeout=5.0)
