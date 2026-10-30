@@ -1,6 +1,6 @@
 [project]
 name = "muffin-worker-ocr"
-version = "0.38.1-rc"
+version = "0.38.1"
 description = "Celery worker that reads the text of the regions of a scanned page (PP-OCRv5 mobile)"
 requires-python = ">=3.12"
 dependencies = [
