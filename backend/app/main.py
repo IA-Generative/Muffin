@@ -19,6 +19,7 @@ from app.routers.document_refresh import internal_router as internal_document_re
 from app.routers.document_refresh import router as document_refresh_router
 from app.routers.documents import router as documents_router
 from app.routers.filing import router as filing_router
+from app.routers.groups import router as groups_router
 from app.routers.health import router as health_router
 from app.routers.index_rebuilds import internal_router as internal_index_rebuilds_router
 from app.routers.index_rebuilds import router as index_rebuilds_router
@@ -109,6 +110,7 @@ app.include_router(auth_router, prefix="/api/auth")
 app.include_router(health_router, prefix="/api")
 app.include_router(models_router, prefix="/api")
 app.include_router(collections_router, prefix="/api")
+app.include_router(groups_router, prefix="/api")
 app.include_router(qa_pairs_router, prefix="/api")
 app.include_router(qa_suggestions_router, prefix="/api")
 app.include_router(collection_imports_router, prefix="/api")

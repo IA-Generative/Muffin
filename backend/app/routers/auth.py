@@ -17,6 +17,7 @@ from app.core.security.session import PendingAuth
 from app.core.sharing import SharingNotConfiguredError, hash_identifier, normalize_email, normalize_group
 from app.db import get_db
 from app.repositories.collection_repository import CollectionRepository
+from app.repositories.group_repository import GroupRepository
 from app.services.usage_service import UsageService
 
 router = APIRouter(tags=["Auth"])
@@ -61,15 +62,16 @@ def _clear_session_cookie(response: Response) -> None:
 
 async def _resolve_pending_shares(db: AsyncSession, identity: dict) -> None:
     """Promotes any PENDING collection share invited under this identity's email or groups to
-    ACTIVE - passive resolution, never a lookup the owner who created the invitation (or anyone
-    else) can trigger or observe. See app/core/sharing.py. Best-effort: a login must never fail
-    because of this, so any error here is logged and swallowed rather than surfaced to the caller."""
+    ACTIVE - and any invitation to a group made under their email to a member (#455) - passive
+    resolution, never a lookup the owner who created the invitation (or anyone else) can trigger or
+    observe. See app/core/sharing.py. Best-effort: a login must never fail because of this, so any
+    error here is logged and swallowed rather than surfaced to the caller."""
     try:
         repository = CollectionRepository(db)
         if identity.get("email"):
-            await repository.resolve_pending_user_shares(
-                hash_identifier(normalize_email(identity["email"])), identity["user_id"]
-            )
+            email_hash = hash_identifier(normalize_email(identity["email"]))
+            await repository.resolve_pending_user_shares(email_hash, identity["user_id"])
+            await GroupRepository(db).resolve_pending_members(email_hash, identity["user_id"])
         for group in identity.get("groups") or []:
             await repository.resolve_pending_group_shares(hash_identifier(normalize_group(group)), group)
         await db.commit()
