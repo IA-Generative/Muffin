@@ -26,10 +26,13 @@ class DocumentSyncIn(BaseModel):
 
 
 class DocumentSyncOut(BaseModel):
-    id: uuid.UUID
+    # None for a file that is not there yet in a collection Muffin took over (#462): nothing is created.
+    id: uuid.UUID | None
     collection_id: uuid.UUID
     created: bool
     chunks_written: int
     chunks_removed: int
+    # The collection is Muffin's now, or becoming (#462): nothing was written.
+    skipped: bool = False
     # The file has no summary and needs one (new, changed, or never summarized): the synchronisation asks for it (#457).
     summary_due: bool = False

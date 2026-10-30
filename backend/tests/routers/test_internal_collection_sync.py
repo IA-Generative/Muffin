@@ -1,6 +1,7 @@
 """The collections copied from Open WebUI (#453): what the worker writes, and who it is shared with."""
 
 import uuid
+from datetime import UTC, datetime
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -21,6 +22,7 @@ from app.models.collection import (
 )
 from app.models.document import Document
 from app.models.group import Group
+from app.models.index_rebuild import IndexRebuild, IndexRebuildStatus
 
 API_KEY = "test-worker-key"
 HEADERS = {"X-API-Key": API_KEY}
@@ -250,3 +252,63 @@ async def test_a_copy_never_asks_for_a_reindex(client):
             await session.scalars(select(CollectionSettings).where(CollectionSettings.collection_id == first["id"]))
         ).one()
     assert settings.reindex_required is False
+
+
+# -- a collection Muffin took over, or is taking over (#462) ----------------------------------------------
+
+
+async def _adopt(collection_id) -> None:
+    async with async_session_factory() as session:
+        (await session.get(Collection, uuid.UUID(collection_id))).adopted_at = datetime.now(UTC)
+        await session.commit()
+
+
+async def _rebuild(collection_id) -> None:
+    async with async_session_factory() as session:
+        session.add(
+            IndexRebuild(
+                collection_id=uuid.UUID(collection_id),
+                status=IndexRebuildStatus.BUILDING,
+                target_model="m",
+                previous_model="m",
+                requested_by="admin",
+                adopts=True,
+            )
+        )
+        await session.commit()
+
+
+@pytest.fixture(params=["adopted", "being taken over"])
+async def held(client, request):
+    """A copy that is Muffin's now, or whose index Muffin is rebuilding to make it so."""
+    collection_id = (await _put(client, user_shares=[{"subject_id": "sub-1", "email": "a@example.test"}])).json()["id"]
+    await (_adopt if request.param == "adopted" else _rebuild)(collection_id)
+    return collection_id
+
+
+async def test_the_synchronisation_leaves_a_collection_muffin_took_over_as_it_is(client, held):
+    response = await _put(client, name="Renommée", owner_id="someone-else", user_shares=[])
+
+    assert response.status_code == 200 and response.json()["skipped"] is True
+    async with async_session_factory() as session:
+        collection = await session.get(Collection, uuid.UUID(held))
+    assert (collection.name, collection.owner_id) == ("Procédures", "sub-owner")
+    assert await _shares(held) == {(ShareSubjectType.USER, "sub-1")}
+
+
+async def test_the_synchronisation_does_not_list_a_collection_muffin_took_over_for_deletion(client, held):
+    assert (await client.get("/api/internal/synced-collections/owui", headers=HEADERS)).json() == []
+
+
+async def test_a_collection_muffin_took_over_is_not_deleted_whatever_the_other_system_says(client, held):
+    response = await client.delete("/api/internal/synced-collections/owui/kb1", headers=HEADERS)
+
+    assert response.status_code == 409
+    async with async_session_factory() as session:
+        assert await session.get(Collection, uuid.UUID(held)) is not None
+
+
+async def test_a_copy_still_synchronised_is_listed(client):
+    await _put(client)
+
+    assert (await client.get("/api/internal/synced-collections/owui", headers=HEADERS)).json() == ["kb1"]

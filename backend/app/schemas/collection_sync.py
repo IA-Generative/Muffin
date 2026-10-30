@@ -35,3 +35,5 @@ class CollectionSyncOut(BaseModel):
     shares_updated: int = 0
     # Groups the collection is shared with that Muffin has no copy of (yet): no share is made for them.
     unknown_groups: list[str]
+    # Muffin took the collection over (#462): nothing was written.
+    skipped: bool = False

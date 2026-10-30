@@ -28,6 +28,15 @@ async def sync_document(
     except CollectionNotSyncedError as error:
         raise HTTPException(status.HTTP_409_CONFLICT, f"Collection {error} is not synchronised yet") from error
     await db.commit()
+    if result.skipped:
+        return DocumentSyncOut(
+            id=result.document.id if result.document else None,
+            collection_id=result.collection_id,
+            created=False,
+            chunks_written=0,
+            chunks_removed=0,
+            skipped=True,
+        )
     if result.summary_dropped:
         # Best-effort, like every cleanup of the index: the point is made again with the new summary.
         vector_store.delete_document_embeddings(result.document.collection_id, result.document.id, [])

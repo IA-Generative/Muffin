@@ -14,8 +14,8 @@ from app.schemas.index_rebuild import (
     RebuildVectorsIn,
 )
 from app.services.collection_service import CollectionNotFoundError
+from app.services.copied_collections import CopiedCollectionError
 from app.services.index_rebuild_service import (
-    CopiedCollectionError,
     IndexRebuildService,
     RebuildInProgressError,
     RebuildNotFoundError,
@@ -44,7 +44,8 @@ def _error(error: Exception) -> HTTPException:
         return HTTPException(status.HTTP_404_NOT_FOUND, "Index rebuild not found")
     if isinstance(error, CopiedCollectionError):
         return HTTPException(
-            status.HTTP_409_CONFLICT, "The vectors of a collection copied from another system are not rebuilt by Muffin"
+            status.HTTP_409_CONFLICT,
+            "A collection copied from another system is taken over by Muffin by an administrator's reindex",
         )
     if isinstance(error, RebuildInProgressError):
         return HTTPException(status.HTTP_409_CONFLICT, "An index rebuild is already in progress for this collection")
