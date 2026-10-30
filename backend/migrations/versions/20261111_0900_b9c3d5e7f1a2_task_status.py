@@ -5,7 +5,7 @@ longer knows from one still waiting in the queue. The workers now report it as t
 so it is stored here - with when it started, when it ended, and the error it failed on.
 
 Revision ID: b9c3d5e7f1a2
-Revises: d0f3a6b9c1e5
+Revises: d6f9a2b5c7e1
 Create Date: 2026-11-11 09:00:00.000000
 
 """
@@ -18,7 +18,7 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision: str = "b9c3d5e7f1a2"
-down_revision: str | Sequence[str] | None = "d0f3a6b9c1e5"
+down_revision: str | Sequence[str] | None = "d6f9a2b5c7e1"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
