@@ -523,6 +523,23 @@ class CollectionRepository:
         await self.db.flush()
         return share
 
+    async def create_active_group_share(
+        self, collection_id: uuid.UUID, group_id: uuid.UUID, group_name: str, permission: SharePermission
+    ) -> CollectionShare:
+        """A share with one of the groups made in Muffin (#455): the group is a known object, not an identifier
+        typed blind, so there is nothing to wait for and nothing to hash - and its name is what is shown."""
+        share = CollectionShare(
+            collection_id=collection_id,
+            subject_type=ShareSubjectType.GROUP,
+            status=ShareStatus.ACTIVE,
+            permission=permission,
+            subject_id=str(group_id),
+            display_hint=group_name,
+        )
+        self.db.add(share)
+        await self.db.flush()
+        return share
+
     async def list_shares(self, collection_ids: Sequence[uuid.UUID]) -> Sequence[CollectionShare]:
         """Several ids so a collection's shares can be listed with its ancestors' in one query
         (inherited shares, #216)."""
