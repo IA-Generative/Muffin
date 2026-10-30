@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Index, Integer, String, Text, text
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Index, Integer, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin, UUIDMixin
@@ -47,6 +47,9 @@ class IndexRebuild(UUIDMixin, TimestampMixin, Base):
     # Points (chunks, summaries, QA questions) the index must hold, and how many it already does.
     total_points: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     done_points: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # The rebuild of a copied collection's index (#462): its swap is what makes Muffin take the collection over, and
+    # rolling it back gives it back.
+    adopts: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     requested_by: Mapped[str] = mapped_column(String, nullable=False)
     swapped_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

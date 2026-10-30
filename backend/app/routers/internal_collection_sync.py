@@ -39,6 +39,7 @@ async def sync_collection(
         shares_removed=result.shares_removed,
         shares_updated=result.shares_updated,
         unknown_groups=result.unknown_groups,
+        skipped=result.skipped,
     )
 
 
@@ -57,6 +58,9 @@ async def delete_collection(
     collection = await repository.get(_copied_source(source), external_id)
     if collection is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No such collection")
+    if await repository.is_held(collection):
+        # Muffin took it over (#462): what it holds is its own now, whatever the other system says.
+        raise HTTPException(status.HTTP_409_CONFLICT, "Muffin took this collection over")
     collection_id = collection.id
     keys = await CollectionRepository(db).list_rustfs_keys([collection_id])
     await repository.delete(source, external_id)

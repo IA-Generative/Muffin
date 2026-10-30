@@ -297,11 +297,13 @@ class CollectionRepository:
         return dict(result.all())
 
     async def get_external_ids(self, collection_ids: list[uuid.UUID]) -> dict[uuid.UUID, tuple[str, str]]:
-        """(source, id in the other system) of the collections copied from another system (#453): what is
-        searched where it is, not in an index of Muffin's."""
+        """(source, id in the other system) of the collections copied from another system (#453) that Muffin has
+        not taken over (#462): what is searched where it is, not in an index of Muffin's."""
         result = await self.db.execute(
             select(Collection.id, Collection.source, Collection.external_id).where(
-                Collection.id.in_(collection_ids), Collection.external_id.is_not(None)
+                Collection.id.in_(collection_ids),
+                Collection.external_id.is_not(None),
+                Collection.adopted_at.is_(None),
             )
         )
         return {collection_id: (source, external_id) for collection_id, source, external_id in result.all()}

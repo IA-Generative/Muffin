@@ -550,3 +550,45 @@ def test_the_document_of_a_point_is_indexed_to_be_filtered_on(qdrant, collection
     vector_store.upsert_chunk_embedding(collection, uuid.uuid4(), [1.0, 0.0, 0.0], "t", "m", uuid.uuid4())
 
     assert set(indexed) == {"kind", "collection_id", "document_id"}
+
+
+def _owui_point_with_config(client, name, embedding, config, point_id=None):
+    from qdrant_client import models
+
+    point_id = point_id or uuid.uuid4()
+    metadata = {"file_id": "f", **({"embedding_config": config} if config is not None else {})}
+    client.upsert(
+        name,
+        [models.PointStruct(id=str(point_id), vector=embedding, payload={"text": "t", "metadata": metadata})],
+        wait=True,
+    )
+    return point_id
+
+
+def test_the_vectors_of_a_collection_of_open_webui_are_read_with_the_model_that_made_them(qdrant, owui_collection):
+    made_by_bge = _owui_point_with_config(
+        qdrant, owui_collection, [1.0, 0.0, 0.0], "{'engine': 'openai', 'model': 'bge-multilingual-gemma2'}"
+    )
+    unknown = _owui_point_with_config(qdrant, owui_collection, [0.0, 1.0, 0.0], None)
+    garbled = _owui_point_with_config(qdrant, owui_collection, [0.0, 0.0, 1.0], "not a dict (")
+
+    vectors = vector_store.read_external_vectors(owui_collection, [made_by_bge, unknown, garbled, uuid.uuid4()])
+
+    assert vectors == {
+        made_by_bge: ([1.0, 0.0, 0.0], "bge-multilingual-gemma2"),
+        unknown: ([0.0, 1.0, 0.0], None),
+        garbled: ([0.0, 0.0, 1.0], None),
+    }
+
+
+def test_reading_the_vectors_of_a_collection_that_is_not_there_gives_none(qdrant):
+    assert vector_store.read_external_vectors("open-webui_missing", [uuid.uuid4()]) == {}
+    assert vector_store.read_external_vectors("open-webui_missing", []) == {}
+
+
+def test_the_model_open_webui_writes_is_read_whether_it_is_text_or_already_a_dict():
+    assert vector_store._config_model({"metadata": {"embedding_config": "{'model': 'm'}"}}) == "m"
+    assert vector_store._config_model({"metadata": {"embedding_config": {"model": "m"}}}) == "m"
+    assert vector_store._config_model({"metadata": {}}) is None
+    assert vector_store._config_model(None) is None
+    assert vector_store._config_model({"metadata": {"embedding_config": "{'model': 3}"}}) is None

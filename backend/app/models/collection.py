@@ -64,6 +64,9 @@ class Collection(UUIDMixin, TimestampMixin, Base):
     # Made here, or copied from Open WebUI (#453) - then external_id is the id it has there.
     source: Mapped[str] = mapped_column(String(16), nullable=False, default="muffin", server_default="muffin")
     external_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    # When Muffin took the collection over (#462): from then on it is a collection like any other, whatever its origin.
+    # `source` and `external_id` stay, as the memory of where it came from.
+    adopted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     visibility: Mapped[CollectionVisibility] = mapped_column(
         Enum(CollectionVisibility, name="collection_visibility"),
         nullable=False,
@@ -120,6 +123,16 @@ class Collection(UUIDMixin, TimestampMixin, Base):
     conversation: Mapped["Conversation | None"] = relationship(  # noqa: F821
         back_populates="temporary_collection", foreign_keys=[conversation_id]
     )
+
+    @property
+    def is_copied(self) -> bool:
+        """A copy of a collection of another system that Muffin has not taken over (#462): its chunks are that system's,
+        in its own Qdrant, and the synchronisation keeps it what that system has."""
+        return self.source != "muffin" and self.adopted_at is None
+
+    @property
+    def is_adopted(self) -> bool:
+        return self.source != "muffin" and self.adopted_at is not None
 
     __table_args__ = (
         # One "holding" temporary collection per user (§122's standalone Filing-page upload,

@@ -1,6 +1,7 @@
 """The files copied from Open WebUI (#453): the row, its text on one page, and the chunks its vector store holds."""
 
 import uuid
+from datetime import UTC, datetime
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -13,6 +14,7 @@ from app.main import app
 from app.models.chunk import Chunk
 from app.models.collection import Collection
 from app.models.document import Document, DocumentPage, DocumentStatus
+from app.models.index_rebuild import IndexRebuild, IndexRebuildStatus
 from app.routers import internal_document_sync
 
 API_KEY = "test-worker-key"
@@ -204,3 +206,58 @@ async def test_the_summary_point_of_a_file_gone_is_removed(client, monkeypatch):
     await client.delete(f"/api/internal/synced-documents/owui/{FILE}", headers=HEADERS)
 
     assert [str(identifier) for identifier in dropped] == [document_id]
+
+
+# -- a collection Muffin took over, or is taking over (#462) ----------------------------------------------
+
+
+@pytest.fixture(params=["adopted", "being taken over"])
+async def held(client, request):
+    """A copy with one file, that Muffin has taken over or is rebuilding the index of to do so."""
+    document_id = (await _put(client)).json()["id"]
+    async with async_session_factory() as session:
+        collection_id = (await session.get(Document, document_id)).collection_id
+        if request.param == "adopted":
+            (await session.get(Collection, collection_id)).adopted_at = datetime.now(UTC)
+        else:
+            session.add(
+                IndexRebuild(
+                    collection_id=collection_id,
+                    status=IndexRebuildStatus.BUILDING,
+                    target_model="m",
+                    previous_model="m",
+                    requested_by="admin",
+                    adopts=True,
+                )
+            )
+        await session.commit()
+    return document_id
+
+
+async def test_the_synchronisation_leaves_the_files_of_a_collection_muffin_took_over_as_they_are(client, held):
+    response = await _put(client, name="renamed.pdf", text="Another text.", chunks=[_chunk(0, text="other")])
+
+    body = response.json()
+    assert (response.status_code, body["skipped"], body["created"], str(body["id"])) == (200, True, False, str(held))
+    async with async_session_factory() as session:
+        document = await session.get(Document, held)
+        pages = list(await session.scalars(select(DocumentPage).where(DocumentPage.document_id == held)))
+    assert document.name == "test.pdf" and [page.content for page in pages] == ["The whole text."]
+    assert await _chunks(held) == [(0, "chunk 0"), (1, "chunk 1")]
+
+
+async def test_a_new_file_is_not_created_in_a_collection_muffin_took_over(client, held):
+    body = (await _put(client, "kb1/file2")).json()
+
+    assert (body["skipped"], body["id"]) == (True, None)
+    assert (await client.get("/api/internal/synced-documents/owui", headers=HEADERS)).json() == []
+
+
+async def test_the_files_of_a_collection_muffin_took_over_are_not_listed_nor_deleted(client, held):
+    assert (await client.get("/api/internal/synced-documents/owui", headers=HEADERS)).json() == []
+
+    response = await client.delete(f"/api/internal/synced-documents/owui/{FILE}", headers=HEADERS)
+
+    assert response.status_code == 404
+    async with async_session_factory() as session:
+        assert await session.get(Document, held) is not None
