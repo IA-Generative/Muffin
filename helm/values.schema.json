@@ -163,6 +163,28 @@
             "targetMemoryUtilizationPercentage": { "type": ["integer", "null"] }
           }
         },
+        "kedaAutoscaler": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "minReplicaCount": { "type": "integer", "minimum": 0 },
+            "maxReplicaCount": { "type": "integer", "minimum": 1 },
+            "pollingInterval": { "type": "integer", "minimum": 1 },
+            "cooldownPeriod": { "type": ["integer", "null"], "minimum": 0 },
+            "listLength": { "type": "integer", "minimum": 1 },
+            "queues": { "type": "array", "items": { "type": "string" } },
+            "redis": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "address": { "type": "string" },
+                "secretRef": { "type": "string" },
+                "secretKey": { "type": "string" }
+              }
+            }
+          }
+        },
         "pdb": {
           "type": "object",
           "additionalProperties": true,
