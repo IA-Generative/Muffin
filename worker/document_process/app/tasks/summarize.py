@@ -21,14 +21,17 @@ def _ranges_text(segments: list[tuple[int, int]]) -> str:
     return ", ".join(f"{start}-{end}" if start != end else str(start) for start, end in segments)
 
 
-def _summarize(document_id: str, settings: dict, model: str) -> None:
+def _summarize(document_id: str, settings: dict, model: str, pages: list | None = None) -> None:
+    """`pages`: the pages to read when they are not the document's own - the in-memory pages of a file copied from
+    another system (#457), which are all read: a summary of them has no stretch to report."""
     instructions = settings["instructions"].get("summary", "")
-    pages = _shared._get_pages(document_id)
+    own_pages = pages is None
+    pages = _shared._get_pages(document_id) if pages is None else pages
     windows = _shared._windows(settings)
     pages_per_map = windows["summary_pages_per_map"]
     # A long document may be read only in part (#372): then each stretch read is summarized on its own - a batch never
     # straddles two distant parts - and the summary says it is partial.
-    segments = sampling.summary_segments(len(pages), windows)
+    segments = sampling.summary_segments(len(pages), windows) if own_pages else None
     stretches = (
         [pages]
         if segments is None
