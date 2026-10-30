@@ -475,9 +475,12 @@ class CollectionRepository:
         screenshots - collected before the cascade delete removes the rows
         that reference them. Several ids because deleting a collection deletes
         its whole sub-collection subtree with it (#213)."""
+        # Not the file of a document copied from another system (#453): it is in a bucket they share, and still theirs.
         storage_keys = await self.db.scalars(
             select(Document.storage_key).where(
-                Document.collection_id.in_(collection_ids), Document.storage_key.is_not(None)
+                Document.collection_id.in_(collection_ids),
+                Document.storage_key.is_not(None),
+                Document.external_id.is_(None),
             )
         )
         screenshot_keys = await self.db.scalars(

@@ -85,7 +85,7 @@ sparse. Le point a pour id l'id du chunk. Son payload :
 
 Pas de numéro de page avec Tika. `start_index` donne l'ordre des chunks et `embedding_config` le modèle d'embedding.
 
-**S3.** Les fichiers sont sous `open-webui/` dans le bucket : `open-webui/<id du fichier>_<nom>`, et Open WebUI en donne le chemin complet (`s3://muffin-documents/open-webui/...`) dans `path`, que Muffin garde comme `storage_key`.
+**S3.** Les fichiers sont sous `open-webui/` dans le bucket : `open-webui/<id du fichier>_<nom>`, et Open WebUI en donne le chemin complet (`s3://muffin-documents/open-webui/...`) dans `path` ; le bucket étant celui de Muffin, la synchronisation en retire `s3://muffin-documents/` et garde la clé telle quelle (`open-webui/<id>_<nom>`) comme `storage_key`. Sans préfixe côté Open WebUI, la clé est simplement `<id>_<nom>`.
 
 **Droits.** Open WebUI 0.12.5 n'utilise plus `access_control` mais `access_grants`, une liste d'objets
 `{principal_type: "user" | "group", principal_id, permission: "read" | "write"}` portée par la knowledge base. L'identifiant `*` désigne

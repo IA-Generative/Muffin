@@ -29,6 +29,9 @@ class WorkerSettings(BaseSettings):
     # S3 and Qdrant are the ones Open WebUI already uses: the worker reads the files and the vectors where
     # they are and copies neither.
     AWS_ENDPOINT_URL: str = "http://localhost:9000"
+    # Muffin's bucket, the one of the other workers (AWS_BUCKET). When Open WebUI keeps its files in that same bucket,
+    # a file is copied under the very key it has there; a file in another bucket keeps `s3://<bucket>/<key>`.
+    AWS_BUCKET: str = "muffin-documents"
     AWS_ACCESS_KEY_ID: str = "rustfsadmin"
     AWS_SECRET_ACCESS_KEY: str = "rustfsadmin"
     QDRANT_URL: str = "http://localhost:6333"

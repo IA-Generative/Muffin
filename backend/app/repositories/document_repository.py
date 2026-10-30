@@ -243,7 +243,8 @@ class DocumentRepository:
 
     async def list_rustfs_keys_for_document(self, document_id: uuid.UUID) -> list[str]:
         document = await self.get(document_id)
-        keys = [document.storage_key] if document and document.storage_key else []
+        # A document copied from another system (#453) has its file in a bucket they share: it is still theirs.
+        keys = [document.storage_key] if document and document.storage_key and document.external_id is None else []
         # A living document's past revisions each own a file (a restore re-uses an older one's
         # key, hence the dedupe) - all of them go away with the document.
         revision_keys = await self.db.scalars(
