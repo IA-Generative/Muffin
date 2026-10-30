@@ -206,11 +206,19 @@ def sync_knowledge(knowledge_id: str) -> dict:
 _TOKENS_PER_CHAR = 0.25
 
 
+def storage_key(path: str) -> str:
+    """The key Muffin reads a file of Open WebUI under. The bucket is shared: a file in it is read under the key Open
+    WebUI gave it, with nothing added (and nothing taken off a key that has no prefix). A file in another bucket stays
+    `s3://<bucket>/<key>`, which Muffin reads where it is."""
+    shared = f"s3://{settings.AWS_BUCKET}/"
+    return path.removeprefix(shared) if path.startswith(shared) else path
+
+
 @unit_task("app.tasks.sync_knowledge_file")
 def sync_knowledge_file(knowledge_id: str, file_id: str) -> dict:
     """Makes Muffin's copy of one file of an Open WebUI knowledge base what Open WebUI has (#453).
 
-    Nothing is copied but the rows: the file stays in Open WebUI's bucket (Muffin reads it there), the vectors in
+    Nothing is copied but the rows: the file stays where Open WebUI wrote it, in the bucket they share, the vectors in
     its Qdrant, and the chunks - text and id of their point - come from that Qdrant. The text is one page: Open
     WebUI's extraction (Tika) keeps no page boundary. The knowledge base must have been synchronised before."""
     owui = OwuiClient()
@@ -229,7 +237,7 @@ def sync_knowledge_file(knowledge_id: str, file_id: str) -> dict:
         {
             "collection_external_id": knowledge_id,
             "name": file.filename,
-            "storage_key": file.path,
+            "storage_key": storage_key(file.path),
             "content_hash": file.hash,
             "added_by_user_id": added_by.keycloak_sub if added_by else None,
             "added_by_display": added_by.name if added_by else None,

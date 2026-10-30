@@ -107,3 +107,17 @@ def test_a_file_that_has_its_summary_asks_for_nothing(run, sent):
     run(FILE, [OwuiChunk("a", "x")], {"id": "doc-1", "collection_id": "col-1", "summary_due": False})
 
     sent.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("path", "key"),
+    [
+        ("s3://muffin-documents/f1_test.pdf", "f1_test.pdf"),
+        ("s3://muffin-documents/open-webui/f1_test.pdf", "open-webui/f1_test.pdf"),
+        ("s3://owui-files/f1_test.pdf", "s3://owui-files/f1_test.pdf"),
+    ],
+)
+def test_a_file_in_the_shared_bucket_keeps_the_key_open_webui_gave_it(run, path, key):
+    body, _ = run(OwuiFile(id="f1", user_id="o1", filename="test.pdf", hash="abc", path=path), [OwuiChunk("a", "x")])
+
+    assert body["storage_key"] == key
