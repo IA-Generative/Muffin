@@ -17,6 +17,8 @@ const props = defineProps<{
   document: CollectionDocument
   // Whether the viewer may replace/restore a living document's file (collection owner only).
   editable?: boolean
+  // May replace a living document by a new version: a share that writes lets it (#454) without the rest of `editable`.
+  canEditLiving?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -383,7 +385,7 @@ onMounted(() => {
               v-else-if="activeTab === 'revisions'"
               :collection-id="collectionId"
               :document-id="document.id"
-              :editable="editable ?? false"
+              :editable="canEditLiving ?? editable ?? false"
               @changed="emit('changed')"
             />
 

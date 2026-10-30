@@ -20,7 +20,7 @@ defineProps<{
   conversationsHasMore: boolean
   loadingMoreConversations: boolean
   activeId: string
-  activeView: 'chat' | 'collections' | 'tasks' | 'quality' | 'usage' | 'admin' | 'filing'
+  activeView: 'chat' | 'collections' | 'groups' | 'tasks' | 'quality' | 'usage' | 'admin' | 'filing'
   user: User | null
 }>()
 
@@ -31,6 +31,7 @@ const emit = defineEmits<{
   rename: [id: string, title: string]
   delete: [id: string]
   openCollections: []
+  openGroups: []
   openTasks: []
   openQuality: []
   openUsage: []
@@ -117,6 +118,11 @@ function openSettings() {
 function openTasks() {
   showUserMenu.value = false
   emit('openTasks')
+}
+
+function openGroups() {
+  showUserMenu.value = false
+  emit('openGroups')
 }
 
 function openFiling() {
@@ -298,6 +304,16 @@ function initials(name: string) {
             <path stroke-linecap="round" stroke-linejoin="round" d="M9 11l3 3 8-8M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9" />
           </svg>
           Tâches
+        </button>
+        <button type="button" class="user-menu__item" role="menuitem" @click="openGroups">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M16 19v-1a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v1m18 0v-1a4 4 0 0 0-3-3.87M15 5.13a4 4 0 0 1 0 7.74M9.5 10a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"
+            />
+          </svg>
+          Mes groupes
         </button>
         <button type="button" class="user-menu__item" role="menuitem" @click="openFiling">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
