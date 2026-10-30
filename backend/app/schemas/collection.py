@@ -288,6 +288,11 @@ class CollectionOut(BaseModel):
     # May change it: its owner, anyone a share lets write on it or on an ancestor (#454), or an administrator.
     # What the UI offers for the living documents; settings, sharing and deletion stay with the owner.
     can_edit: bool
+    # Copied from another system (Open WebUI, #453), and not taken over by Muffin yet (#462): what is in it, its
+    # settings and its sharing are changed there, so the UI offers none of that. `adopted`: it came from there and
+    # is Muffin's now.
+    copied: bool = False
+    adopted: bool = False
 
     # Not wired yet - documents come first, then QA/entities/relations/chunks/evaluation.
     # Always empty for now so the response already matches the shape those phases need.
@@ -326,6 +331,7 @@ class CollectionOut(BaseModel):
         path = path or []
         if can_edit is None:
             can_edit = collection.owner_id == viewer_id
+        can_edit = can_edit and not collection.is_copied
         return cls(
             id=collection.id,
             name=collection.name,
@@ -357,6 +363,8 @@ class CollectionOut(BaseModel):
             visibility=collection.visibility,
             is_owner=collection.owner_id == viewer_id,
             can_edit=can_edit,
+            copied=collection.is_copied,
+            adopted=collection.is_adopted,
             chunking_settings=ChunkingSettings(
                 strategy=settings.chunking_strategy,
                 chunk_size=settings.chunk_size,

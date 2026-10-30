@@ -105,8 +105,33 @@ priorité la plus basse, une tâche qui :
 Un fichier qui a un résumé et dont le contenu n'a pas changé n'en refait pas. Le résumé et le point d'un fichier supprimé sont retirés,
 comme le point de description d'une collection supprimée. Les QA, tags et entités des fichiers copiés n'existent pas.
 
-Muffin ne **réindexe** pas ces collections (`POST /api/collections/{id}/documents/reindex` répond 409) : leurs vecteurs sont ceux d'Open
-WebUI, et le modèle de la collection est celui qu'il utilise.
+### Reprendre une copie dans Muffin (#462, #463, #464)
+
+Tant qu'elle est **copiée** (`source ≠ muffin` et `adopted_at` vide), une collection est lue, cherchée et discutée dans Muffin, et
+**changée dans Open WebUI** : téléverser, ajouter une URL, supprimer ou retraiter un document, régler la collection, la partager, la
+renommer, la déplacer ou la supprimer répondent `409` (aussi pour un administrateur), et `can_edit` est faux. L'API dit `copied` ou
+`adopted` (`CollectionOut`), et l'interface masque ces actions et explique pourquoi. La lecture, la liste des partages et la recherche
+restent possibles.
+
+**La reprendre** se fait par la réindexation, réservée à un administrateur (`POST /api/collections/{id}/documents/reindex`, qui reste
+`409` pour un autre) :
+
+1. La reconstruction écrit dans un index de Muffin (`chunks_<id>`, vecteurs nommés `dense` et `sparse`) à côté de la collection
+   d'Open WebUI, qu'elle ne touche pas. Les chunks gardent l'id de leur point d'Open WebUI.
+2. **Les vecteurs d'Open WebUI sont repris tels quels** quand le modèle qui les a faits (`metadata.embedding_config`) est celui de
+   l'index construit : seul le BM25 est calculé. Les chunks sont pris par paquets de 256 à chaque passage du worker, qui n'a à
+   embedder que ce qui n'a pas de vecteur utilisable : un autre modèle, un vecteur absent ou d'une autre longueur que les autres, les
+   résumés et les QA. Si l'index d'Open WebUI ne peut pas être lu, tout est calculé comme pour toute reconstruction.
+3. **Pendant la construction**, la collection est encore lue dans Open WebUI, et la synchronisation ne la touche plus (ni nom,
+   propriétaire, partages, modèle, fichiers ou chunks, ni suppression ni recréation), comme pour une collection reprise.
+4. **À l'échange de l'alias**, `adopted_at` est posé : la recherche passe sur l'index de Muffin (dense + BM25 fusionnés, donc des scores
+   qui ne sont plus ceux d'avant), la collection n'est plus « copiée » et se change comme une autre. `source` et `external_id`
+   restent, comme mémoire de l'origine.
+5. **Annuler le retour** (`rollback`) avant la validation rend la collection à Open WebUI : `adopted_at` est effacé, la synchronisation
+   la reprend. Après la validation (`finalize`), c'est fait.
+
+Une collection reprise n'est ni listée par la synchronisation (elle ne peut donc pas être supprimée parce qu'elle a disparu
+d'Open WebUI), ni supprimable par elle (`409`). Les fichiers restent là où Open WebUI les a écrits.
 
 ## Écriture, lecture, suppression
 

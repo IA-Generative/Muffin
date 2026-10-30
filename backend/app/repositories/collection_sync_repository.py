@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -14,7 +14,9 @@ from app.models.collection import (
     ShareSubjectType,
 )
 from app.models.group import Group, ResourceSource
+from app.models.index_rebuild import ACTIVE_REBUILD_STATUSES, IndexRebuild
 from app.repositories.collection_repository import CollectionRepository
+from app.repositories.index_rebuild_repository import IndexRebuildRepository
 from app.schemas.collection_sync import CollectionSyncIn
 
 
@@ -26,6 +28,16 @@ class CollectionSyncResult:
     shares_removed: int
     unknown_groups: list[str]
     shares_updated: int = 0
+    # Muffin took the collection over, or is doing it (#462): it is left as it is, not what the other system has.
+    skipped: bool = False
+
+
+def not_held():
+    """The collections the synchronisation still owns: not taken over (#462), and with no reconstruction of their own
+    index under way - the first step of taking one over, which the synchronisation must not undo."""
+    return Collection.adopted_at.is_(None) & ~exists().where(
+        IndexRebuild.collection_id == Collection.id, IndexRebuild.status.in_(ACTIVE_REBUILD_STATUSES)
+    )
 
 
 class CollectionSyncRepository:
@@ -44,6 +56,8 @@ class CollectionSyncRepository:
     async def sync(self, source: ResourceSource, external_id: str, data: CollectionSyncIn) -> CollectionSyncResult:
         collection = await self.get(source, external_id)
         created = collection is None
+        if collection is not None and await self.is_held(collection):
+            return CollectionSyncResult(collection, False, 0, 0, [], skipped=True)
         if collection is None:
             collection = await CollectionRepository(self.db).create(
                 owner_id=data.owner_id,
@@ -86,6 +100,12 @@ class CollectionSyncRepository:
         await self.db.flush()
         return CollectionSyncResult(collection, created, len(added), len(stale), unknown_groups, len(changed))
 
+    async def is_held(self, collection: Collection) -> bool:
+        return (
+            collection.adopted_at is not None
+            or await IndexRebuildRepository(self.db).get_active(collection.id) is not None
+        )
+
     async def _wanted_shares(
         self, source: ResourceSource, data: CollectionSyncIn
     ) -> tuple[dict[tuple[ShareSubjectType, str], tuple[str, SharePermission]], list[str]]:
@@ -110,7 +130,9 @@ class CollectionSyncRepository:
 
     async def external_ids(self, source: ResourceSource) -> list[str]:
         result = await self.db.scalars(
-            select(Collection.external_id).where(Collection.source == source, Collection.external_id.is_not(None))
+            select(Collection.external_id).where(
+                Collection.source == source, Collection.external_id.is_not(None), not_held()
+            )
         )
         return list(result)
 
@@ -118,7 +140,7 @@ class CollectionSyncRepository:
         """Drops the copy of a collection that is gone from the other system, and with it its files and chunks
         (cascade). Nothing of the other system is touched: the objects the files point to are not Muffin's."""
         collection = await self.get(source, external_id)
-        if collection is not None:
+        if collection is not None and not await self.is_held(collection):
             await self.db.delete(collection)
             await self.db.flush()
         return collection

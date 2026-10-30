@@ -146,3 +146,28 @@ async def test_search_points_orders_every_collection_together_and_keeps_the_best
         hits = await SearchService(session).search_points([one.id, two.id], "question", 2)
 
     assert [score for _, _, score in hits] == [0.9, 0.6]
+
+
+async def test_a_copy_muffin_took_over_is_searched_in_its_own_index_not_the_other_systems(embedding, monkeypatch):
+    from datetime import UTC, datetime
+
+    async with async_session_factory() as session:
+        adopted, _ = await _collection(session, "adopted", external_id="kb1")
+        adopted.adopted_at = datetime.now(UTC)
+        await session.commit()
+        monkeypatch.setattr(
+            vector_store, "search_external", lambda *args: pytest.fail("read the other system's Qdrant")
+        )
+        searched = {}
+
+        def search_any(collection_id, query, query_embedding, limit):
+            searched["collection"] = collection_id
+            return [(uuid.uuid4(), 0.5)]
+
+        monkeypatch.setattr(vector_store, "search_any", search_any)
+        monkeypatch.setattr(vector_store, "search", lambda cid, q, e, limit: [])
+
+        await SearchService(session).search_points([adopted.id], "question", 5)
+        await SearchService(session).search([adopted.id], "question", 5)
+
+    assert searched["collection"] == adopted.id

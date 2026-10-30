@@ -1,3 +1,4 @@
+import ast
 import uuid
 from collections.abc import Sequence
 
@@ -330,6 +331,39 @@ def search_external(name: str, query_embedding: list[float], limit: int) -> list
         logger.exception(f"Failed to search the collection '{name}' of another system - it gives no result")
         return []
     return [(uuid.UUID(str(point.id)), point.score) for point in result.points]
+
+
+def read_external_vectors(name: str, point_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, tuple[list[float], str | None]]:
+    """The vectors, and the model that made each, of points in a collection another system keeps in this Qdrant (Open
+    WebUI, #453): its one unnamed vector, and the model its `metadata.embedding_config` says. What a rebuild takes over
+    instead of computing the same vectors again (#463). A point that is not there is simply absent; one whose model is
+    not told has None."""
+    if not point_ids or not _exists(name):
+        return {}
+    vectors: dict[uuid.UUID, tuple[list[float], str | None]] = {}
+    for start in range(0, len(point_ids), _PAGE):
+        records = _client.retrieve(
+            name,
+            [str(point_id) for point_id in point_ids[start : start + _PAGE]],
+            with_payload=["metadata.embedding_config"],
+            with_vectors=True,
+        )
+        for record in records:
+            if isinstance(record.vector, list) and record.vector:
+                vectors[uuid.UUID(str(record.id))] = (list(record.vector), _config_model(record.payload))
+    return vectors
+
+
+def _config_model(payload: dict | None) -> str | None:
+    """The model in `embedding_config`, which Open WebUI writes as the text of a Python dict."""
+    config = ((payload or {}).get("metadata") or {}).get("embedding_config")
+    if isinstance(config, str):
+        try:
+            config = ast.literal_eval(config)
+        except (ValueError, SyntaxError):
+            return None
+    model = config.get("model") if isinstance(config, dict) else None
+    return model if isinstance(model, str) else None
 
 
 def explain_search(

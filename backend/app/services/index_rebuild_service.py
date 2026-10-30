@@ -1,6 +1,7 @@
 import uuid
 from datetime import UTC, datetime
 
+from loguru import logger
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,12 +14,16 @@ from app.repositories.index_rebuild_repository import IndexRebuildRepository
 from app.repositories.task_repository import TaskRepository
 from app.schemas.index_rebuild import IndexRebuildOut, RebuildPlanOut, RebuildPointIn, RebuildPointOut
 from app.services import vector_store
+from app.services.copied_collections import CopiedCollectionError
 
 from .collection_service import CollectionNotFoundError
 
 # Points handed to the worker per plan: enough to keep its embedding calls busy, few enough that a
 # plan stays quick to compute and a crash loses little.
 PLAN_LIMIT = 1000
+# How many chunks of a copied collection a plan takes the vectors of from the other system's index at once (#463): each
+# pass of the worker takes the next ones, so a plan never reads a whole collection.
+REUSE_BATCH = 256
 
 
 class RebuildInProgressError(Exception):
@@ -35,10 +40,6 @@ class RebuildStateError(Exception):
 
 def _working_model(rebuild: IndexRebuild) -> str:
     return rebuild.previous_model if rebuild.status == IndexRebuildStatus.ROLLED_BACK else rebuild.target_model
-
-
-class CopiedCollectionError(Exception):
-    """The collection is a copy of another system's (#453): its vectors are that system's, not Muffin's to rebuild."""
 
 
 class IndexRebuildService:
@@ -61,10 +62,11 @@ class IndexRebuildService:
     # -- the owner's side -------------------------------------------------------------------------
 
     async def start(self, collection_id: uuid.UUID, user: RequestContext) -> IndexRebuildOut:
-        collection = await self.collections.get(collection_id, user.user_id)
-        if collection is None:
-            raise CollectionNotFoundError(str(collection_id))
-        if collection.source != ResourceSource.MUFFIN:
+        """Rebuilds the collection's index with its model. For a copy of another system's collection (#462) it is also
+        how Muffin takes it over: its vectors are that system's until this one's swap, and only an administrator
+        starts it."""
+        collection = await self._manageable(collection_id, user)
+        if collection.is_copied and not user.is_admin:
             raise CopiedCollectionError(str(collection_id))
         if await self.rebuilds.get_active(collection_id) is not None:
             raise RebuildInProgressError(str(collection_id))
@@ -79,6 +81,7 @@ class IndexRebuildService:
             total_points=0,
             done_points=0,
             requested_by=user.user_id,
+            adopts=collection.is_copied,
         )
         try:
             await self.rebuilds.add(rebuild)
@@ -116,6 +119,10 @@ class IndexRebuildService:
             None if rebuild.previous_model == settings.embedding_model else rebuild.previous_model
         )
         settings.reindex_required = settings.embedding_model != rebuild.previous_model
+        if rebuild.adopts:
+            # The index it returns to is the copy's own, summaries only: the chunks are the other system's again.
+            (await self.collections.get_by_id(collection_id)).adopted_at = None
+            settings.reindex_required = False
         rebuild.status = IndexRebuildStatus.ROLLED_BACK
         rebuild.finished_at = datetime.now(UTC)
         await self.db.commit()
@@ -149,17 +156,63 @@ class IndexRebuildService:
             or point["model"] != model
             or point["kind"] != kind
         ]
+        remaining, to_embed = len(missing), missing
+        if rebuild.adopts and next_index:
+            to_embed, reused = await self._take_over_vectors(rebuild, model, missing)
+            remaining -= reused
         if rebuild.status != IndexRebuildStatus.ROLLED_BACK:
             rebuild.total_points = len(expected)
-            rebuild.done_points = len(expected) - len(missing)
+            rebuild.done_points = len(expected) - remaining
             await self.db.commit()
         return RebuildPlanOut(
             status=rebuild.status,
             collection_id=rebuild.collection_id,
             model=model,
-            points=missing[:PLAN_LIMIT],
-            remaining=len(missing),
+            points=to_embed[:PLAN_LIMIT],
+            remaining=remaining,
         )
+
+    async def _take_over_vectors(
+        self, rebuild: IndexRebuild, model: str, missing: list[RebuildPointOut]
+    ) -> tuple[list[RebuildPointOut], int]:
+        """For the rebuild of a copied collection (#462): the next chunks' vectors are the other system's, made by the
+        model this index is built with - they are written to the new index as they are instead of being computed
+        again (#463). Only the chunks have them; and only the next REUSE_BATCH, the ones after are left to the next
+        plan, so that the worker does not compute what a later pass will take.
+
+        Returns the points still to embed - the rest, plus the chunks that had no usable vector - and how many were
+        taken over. Any failure here is a plan with nothing taken over: the vectors are then computed as usual."""
+        collection = await self.collections.get_by_id(rebuild.collection_id)
+        chunks = [point for point in missing if point.kind == "chunk"]
+        batch = chunks[:REUSE_BATCH]
+        others = [point for point in missing if point.kind != "chunk"]
+        if collection is None or not collection.external_id or not batch:
+            return missing, 0
+        try:
+            found = vector_store.read_external_vectors(
+                vector_store.external_collection_name(collection.external_id), [point.id for point in batch]
+            )
+            usable = {point_id: vector for point_id, (vector, made_by) in found.items() if made_by == model}
+            # A vector of another length than the others' is not this model's: a model the other system changed.
+            lengths = sorted(
+                {len(vector) for vector in usable.values()}, key=lambda n: -sum(len(v) == n for v in usable.values())
+            )
+            usable = {point_id: vector for point_id, vector in usable.items() if lengths and len(vector) == lengths[0]}
+            texts = {point.id: point.text for point in batch}
+            documents = await self.rebuilds.documents_of(list(usable))
+            vector_store.upsert_points(
+                rebuild.collection_id,
+                [("chunk", point_id, texts[point_id], vector) for point_id, vector in usable.items()],
+                model,
+                next_index=True,
+                documents=documents,
+            )
+        except Exception:
+            logger.exception(f"Could not take over the vectors of collection {rebuild.collection_id}, computing them")
+            return missing, 0
+        left = [point for point in batch if point.id not in usable]
+        logger.info(f"Index rebuild {rebuild.id}: {len(usable)} vector(s) taken over, {len(left)} to compute")
+        return [*others, *left], len(usable)
 
     async def submit(self, rebuild_id: uuid.UUID, model: str, points: list[RebuildPointIn]) -> int:
         """Stores the vectors the worker made. One made from a text that has changed since the plan
@@ -199,7 +252,11 @@ class IndexRebuildService:
             pass
         else:
             vector_store.swap_with_next(rebuild.collection_id)
-        settings = (await self.collections.get_by_id(rebuild.collection_id)).settings
+        collection = await self.collections.get_by_id(rebuild.collection_id)
+        settings = collection.settings
+        if rebuild.adopts:
+            # From here the collection is searched in this index: Muffin has taken it over (#462).
+            collection.adopted_at = datetime.now(UTC)
         # The owner may have picked yet another model while this one was building: still required then.
         settings.index_embedding_model = (
             None if settings.embedding_model == rebuild.target_model else rebuild.target_model
@@ -241,11 +298,22 @@ class IndexRebuildService:
             await self.rebuilds.get_active(rebuild.collection_id) is None
         )
 
+    async def _manageable(self, collection_id: uuid.UUID, user: RequestContext):
+        """The collection's owner, or - for one that comes from another system (#462) - an administrator, whose
+        owner may be one who never signed in to Muffin."""
+        collection = await self.collections.get(collection_id, user.user_id)
+        if collection is None and user.is_admin:
+            candidate = await self.collections.get_by_id(collection_id)
+            if candidate is not None and candidate.source != ResourceSource.MUFFIN:
+                collection = candidate
+        if collection is None:
+            raise CollectionNotFoundError(str(collection_id))
+        return collection
+
     async def _owned(
         self, collection_id: uuid.UUID, user: RequestContext, rebuild_id: uuid.UUID, status: IndexRebuildStatus
     ) -> IndexRebuild:
-        if await self.collections.get(collection_id, user.user_id) is None:
-            raise CollectionNotFoundError(str(collection_id))
+        await self._manageable(collection_id, user)
         rebuild = await self.rebuilds.get(rebuild_id)
         if rebuild is None or rebuild.collection_id != collection_id:
             raise RebuildNotFoundError(str(rebuild_id))

@@ -10,6 +10,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, select
 
 from app.core.security import worker_auth
+from app.core.security.factory import RequestContext, get_current_user
 from app.db import async_session_factory
 from app.main import app
 from app.models.chunk import Chunk
@@ -18,6 +19,7 @@ from app.models.document import Document
 from app.models.index_rebuild import IndexRebuild, IndexRebuildStatus
 from app.models.qa import QaOrigin, QaPair
 from app.models.task import Task
+from app.services import index_rebuild_service
 
 API_KEY = "test-worker-key"
 OLD_MODEL = "text-embedding-3-small"
@@ -30,6 +32,19 @@ class FakeIndexes:
     def __init__(self) -> None:
         self.active: dict[str, dict] = {}
         self.next: dict[str, dict] | None = None
+        # The collections another system keeps in the same Qdrant (#463): name -> point id -> (vector, model).
+        self.external: dict[str, dict] = {}
+        self.external_error: Exception | None = None
+
+    def external_collection_name(self, external_id):
+        return f"open-webui_{external_id}"
+
+    def read_external_vectors(self, name, point_ids):
+        if self.external_error:
+            raise self.external_error
+        return {
+            point_id: self.external[name][point_id] for point_id in point_ids if point_id in self.external.get(name, {})
+        }
 
     def _index(self, next_index: bool) -> dict[str, dict]:
         if next_index:
@@ -44,12 +59,13 @@ class FakeIndexes:
 
     def upsert_points(self, collection_id, points, model, *, next_index, documents=None):
         index = self._index(next_index)
-        for kind, point_id, text, _embedding in points:
+        for kind, point_id, text, embedding in points:
             index[str(point_id)] = {
                 "kind": kind,
                 "text": text,
                 "model": model,
                 "document": (documents or {}).get(point_id),
+                "embedding": embedding,
             }
 
     def delete_points(self, collection_id, point_ids, *, next_index):
@@ -85,6 +101,8 @@ def indexes():
                 "next_index_exists",
                 "delete_next_index",
                 "swap_with_next",
+                "external_collection_name",
+                "read_external_vectors",
             )
         }
     )
@@ -238,20 +256,6 @@ async def test_starting_a_rebuild_on_an_unknown_collection_is_a_404(client):
     response = await client.post(f"/api/collections/{uuid.uuid4()}/documents/reindex")
 
     assert response.status_code == 404
-
-
-async def test_a_collection_copied_from_another_system_is_never_rebuilt(client, enqueued):
-    """Its vectors are that system's, in its Qdrant: Muffin has no index of its own to rebuild (#453)."""
-    ids = await _collection_with_content(client)
-    async with async_session_factory() as session:
-        collection = await session.get(Collection, ids["collection"])
-        collection.source, collection.external_id = "owui", "kb1"
-        await session.commit()
-
-    response = await client.post(f"/api/collections/{ids['collection']}/documents/reindex")
-
-    assert response.status_code == 409
-    enqueued.assert_not_called()
 
 
 async def test_a_collection_you_do_not_own_cannot_be_rebuilt(client):
@@ -604,3 +608,245 @@ async def test_a_collection_that_never_had_a_rebuild_has_none(client):
 
     assert response.status_code == 200
     assert response.json() is None
+
+
+# -- a copy of another system's collection (#462, #463) ---------------------------------------------
+
+
+async def _make_copy(ids, *, owner="dev-user") -> None:
+    async with async_session_factory() as session:
+        collection = await session.get(Collection, ids["collection"])
+        collection.source, collection.external_id, collection.owner_id = "owui", "kb1", owner
+        await session.commit()
+
+
+async def _collection_row(collection_id) -> Collection:
+    async with async_session_factory() as session:
+        return await session.get(Collection, collection_id)
+
+
+async def test_an_administrator_takes_a_copy_over_by_rebuilding_its_index(client, enqueued):
+    ids = await _collection_with_content(client)
+    await _make_copy(ids)
+
+    rebuild = await _start(client, ids["collection"])
+
+    enqueued.assert_called_once_with(rebuild["id"])
+    # Not Muffin's yet: it is searched where it is until the swap.
+    assert (await _collection_row(ids["collection"])).is_copied
+
+
+async def test_an_administrator_who_is_not_the_owner_can_do_it_too(client):
+    """The owner of a copy may be someone who never signed in to Muffin."""
+    ids = await _collection_with_content(client)
+    await _make_copy(ids, owner="owui:someone")
+
+    response = await client.post(f"/api/collections/{ids['collection']}/documents/reindex")
+
+    assert response.status_code == 202
+
+
+async def test_a_collection_of_muffin_stays_the_owners_alone(client):
+    ids = await _collection_with_content(client)
+    async with async_session_factory() as session:
+        (await session.get(Collection, ids["collection"])).owner_id = "someone-else"
+        await session.commit()
+
+    assert (await client.post(f"/api/collections/{ids['collection']}/documents/reindex")).status_code == 404
+
+
+async def test_someone_who_is_not_an_administrator_cannot_take_a_copy_over(client, enqueued):
+    ids = await _collection_with_content(client)
+    await _make_copy(ids)
+    app.dependency_overrides[get_current_user] = lambda: RequestContext(
+        user_id="dev-user", email="u@example.test", roles=[], is_admin=False
+    )
+    try:
+        response = await client.post(f"/api/collections/{ids['collection']}/documents/reindex")
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+    assert response.status_code == 409
+    enqueued.assert_not_called()
+
+
+async def test_the_swap_makes_muffin_take_the_copy_over_and_not_before(client, indexes):
+    ids = await _collection_with_content(client)
+    await _make_copy(ids)
+    rebuild = await _start(client, ids["collection"])
+    await _embed_everything(client, rebuild["id"])
+    assert (await _collection_row(ids["collection"])).adopted_at is None
+
+    assert await _swap(client, rebuild["id"]) is True
+
+    collection = await _collection_row(ids["collection"])
+    assert collection.adopted_at is not None and not collection.is_copied and collection.is_adopted
+    body = (await client.get(f"/api/collections/{ids['collection']}")).json()
+    assert (body["copied"], body["adopted"], body["can_edit"]) == (False, True, True)
+
+
+async def test_rolling_back_gives_the_copy_back_to_the_other_system(client):
+    ids = await _collection_with_content(client)
+    await _make_copy(ids)
+    rebuild = await _start(client, ids["collection"])
+    await _embed_everything(client, rebuild["id"])
+    await _swap(client, rebuild["id"])
+
+    response = await client.post(f"/api/collections/{ids['collection']}/index-rebuild/{rebuild['id']}/rollback")
+
+    assert response.status_code == 200, response.text
+    assert (await _collection_row(ids["collection"])).is_copied
+    assert (await _settings(ids["collection"])).reindex_required is False
+
+
+async def test_rolling_back_a_collection_of_muffin_leaves_nothing_adopted(client):
+    ids = await _collection_with_content(client)
+    await _choose_new_model(client, ids["collection"])
+    rebuild = await _start(client, ids["collection"])
+    await _embed_everything(client, rebuild["id"])
+    await _swap(client, rebuild["id"])
+
+    await client.post(f"/api/collections/{ids['collection']}/index-rebuild/{rebuild['id']}/rollback")
+
+    assert (await _collection_row(ids["collection"])).adopted_at is None
+
+
+async def test_a_rebuild_of_a_collection_of_muffin_adopts_nothing(client):
+    ids = await _collection_with_content(client)
+    await _choose_new_model(client, ids["collection"])
+    rebuild = await _start(client, ids["collection"])
+    await _embed_everything(client, rebuild["id"])
+    await _swap(client, rebuild["id"])
+
+    collection = await _collection_row(ids["collection"])
+    assert (collection.adopted_at, collection.is_copied, collection.is_adopted) == (None, False, False)
+
+
+def _other_systems_vectors(ids, indexes, *, models=None):
+    """What the other system's own index holds for the two chunks: [1, 2] and [3, 4], by the models given."""
+    first, second = models or (OLD_MODEL, OLD_MODEL)
+    indexes.external["open-webui_kb1"] = {
+        ids["chunk_1"]: ([1.0, 2.0], first),
+        ids["chunk_2"]: ([3.0, 4.0], second),
+    }
+
+
+async def test_the_vectors_of_the_other_system_are_taken_over_not_computed_again(client, indexes):
+    ids = await _collection_with_content(client)
+    await _make_copy(ids)
+    _other_systems_vectors(ids, indexes)
+    rebuild = await _start(client, ids["collection"])
+
+    plan = await _plan(client, rebuild["id"])
+
+    # The chunks are not asked of the worker: only the summary and the QA pair are.
+    assert {point["kind"] for point in plan["points"]} == {"summary", "qa"}
+    assert plan["remaining"] == 2
+    taken = {point_id: point for point_id, point in indexes.next.items() if point["kind"] == "chunk"}
+    assert {point_id: point["embedding"] for point_id, point in taken.items()} == {
+        str(ids["chunk_1"]): [1.0, 2.0],
+        str(ids["chunk_2"]): [3.0, 4.0],
+    }
+    assert {point["model"] for point in taken.values()} == {OLD_MODEL}
+    assert {point["document"] for point in taken.values()} == {ids["document"]}
+
+
+async def test_the_whole_rebuild_of_a_copy_computes_only_what_the_other_system_has_no_vector_for(client, indexes):
+    ids = await _collection_with_content(client)
+    await _make_copy(ids)
+    _other_systems_vectors(ids, indexes)
+    rebuild = await _start(client, ids["collection"])
+
+    computed = await _embed_everything(client, rebuild["id"])
+    assert await _swap(client, rebuild["id"]) is True
+
+    # Only the summary and the QA pair were embedded: the chunks came with the other system's vectors.
+    assert computed == {"stored": 2}
+    assert len(indexes.active) == 4
+    assert indexes.active[str(ids["chunk_1"])]["embedding"] == [1.0, 2.0]
+
+
+async def test_a_vector_made_by_another_model_is_computed_again(client, indexes):
+    ids = await _collection_with_content(client)
+    await _make_copy(ids)
+    _other_systems_vectors(ids, indexes, models=(OLD_MODEL, "another-model"))
+    rebuild = await _start(client, ids["collection"])
+
+    plan = await _plan(client, rebuild["id"])
+
+    assert {(point["kind"], point["id"]) for point in plan["points"]} == {
+        ("summary", str(ids["document"])),
+        ("qa", str(ids["qa"])),
+        ("chunk", str(ids["chunk_2"])),
+    }
+    assert list(indexes.next) == [str(ids["chunk_1"])]
+
+
+async def test_a_chunk_the_other_system_has_no_vector_for_is_computed(client, indexes):
+    ids = await _collection_with_content(client)
+    await _make_copy(ids)
+    indexes.external["open-webui_kb1"] = {ids["chunk_1"]: ([1.0, 2.0], OLD_MODEL)}
+    rebuild = await _start(client, ids["collection"])
+
+    plan = await _plan(client, rebuild["id"])
+
+    assert str(ids["chunk_2"]) in {point["id"] for point in plan["points"]}
+
+
+async def test_vectors_of_another_length_than_the_others_are_not_taken(client, indexes):
+    ids = await _collection_with_content(client)
+    await _make_copy(ids)
+    indexes.external["open-webui_kb1"] = {
+        ids["chunk_1"]: ([1.0, 2.0], OLD_MODEL),
+        ids["chunk_2"]: ([1.0, 2.0, 3.0], OLD_MODEL),
+    }
+    rebuild = await _start(client, ids["collection"])
+    # Two vectors, two lengths: the most common is kept, and a tie goes to the first.
+    plan = await _plan(client, rebuild["id"])
+
+    chunks_taken = [point_id for point_id, point in indexes.next.items() if point["kind"] == "chunk"]
+    assert len(chunks_taken) == 1
+    assert str(ids["chunk_2"] if chunks_taken[0] == str(ids["chunk_1"]) else ids["chunk_1"]) in {
+        point["id"] for point in plan["points"]
+    }
+
+
+async def test_the_chunks_are_taken_a_batch_at_a_time_and_the_worker_is_not_asked_for_the_rest(
+    client, indexes, monkeypatch
+):
+    monkeypatch.setattr(index_rebuild_service, "REUSE_BATCH", 1)
+    ids = await _collection_with_content(client)
+    await _make_copy(ids)
+    _other_systems_vectors(ids, indexes)
+    rebuild = await _start(client, ids["collection"])
+
+    first = await _plan(client, rebuild["id"])
+    second = await _plan(client, rebuild["id"])
+
+    assert {point["kind"] for point in first["points"]} == {"summary", "qa"}
+    assert first["remaining"] == 3
+    assert second["remaining"] == 2
+    assert len([1 for point in indexes.next.values() if point["kind"] == "chunk"]) == 2
+
+
+async def test_when_the_other_systems_index_cannot_be_read_everything_is_computed(client, indexes):
+    ids = await _collection_with_content(client)
+    await _make_copy(ids)
+    indexes.external_error = RuntimeError("qdrant down")
+    rebuild = await _start(client, ids["collection"])
+
+    plan = await _plan(client, rebuild["id"])
+
+    assert len(plan["points"]) == 4 and plan["remaining"] == 4
+    assert indexes.next is None or indexes.next == {}
+
+
+async def test_a_collection_of_muffin_never_reads_another_systems_index(client, indexes):
+    ids = await _collection_with_content(client)
+    indexes.external_error = AssertionError("read the other system's index")
+    await _choose_new_model(client, ids["collection"])
+    rebuild = await _start(client, ids["collection"])
+
+    plan = await _plan(client, rebuild["id"])
+
+    assert len(plan["points"]) == 4

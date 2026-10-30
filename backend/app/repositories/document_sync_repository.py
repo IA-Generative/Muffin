@@ -9,6 +9,7 @@ from app.models.chunk import Chunk
 from app.models.collection import Collection
 from app.models.document import Document, DocumentKind, DocumentPage, DocumentStatus, DocumentType
 from app.models.group import ResourceSource
+from app.repositories.collection_sync_repository import CollectionSyncRepository, not_held
 from app.schemas.document_sync import DocumentSyncIn
 
 
@@ -18,7 +19,7 @@ class CollectionNotSyncedError(Exception):
 
 @dataclass(frozen=True)
 class DocumentSyncResult:
-    document: Document
+    document: Document | None
     created: bool
     chunks_written: int
     chunks_removed: int
@@ -26,6 +27,9 @@ class DocumentSyncResult:
     summary_dropped: bool = False
     # There is a summary to make: the file is new or changed, or no summary was ever made for it.
     summary_due: bool = False
+    # The collection is Muffin's now, or becoming (#462): nothing was written.
+    skipped: bool = False
+    collection_id: uuid.UUID | None = None
 
 
 class DocumentSyncRepository:
@@ -43,6 +47,13 @@ class DocumentSyncRepository:
         )
         if collection_id is None:
             raise CollectionNotSyncedError(data.collection_external_id)
+
+        collection = await self.db.get(Collection, collection_id)
+        if await CollectionSyncRepository(self.db).is_held(collection):
+            held = await self.db.scalar(
+                select(Document).where(Document.source == source, Document.external_id == external_id)
+            )
+            return DocumentSyncResult(held, False, 0, 0, skipped=True, collection_id=collection_id)
 
         document = await self.db.scalar(
             select(Document).where(Document.source == source, Document.external_id == external_id)
@@ -126,7 +137,9 @@ class DocumentSyncRepository:
 
     async def external_ids(self, source: ResourceSource) -> list[str]:
         result = await self.db.scalars(
-            select(Document.external_id).where(Document.source == source, Document.external_id.is_not(None))
+            select(Document.external_id)
+            .join(Collection, Collection.id == Document.collection_id)
+            .where(Document.source == source, Document.external_id.is_not(None), not_held())
         )
         return list(result)
 
@@ -137,6 +150,9 @@ class DocumentSyncRepository:
             select(Document).where(Document.source == source, Document.external_id == external_id)
         )
         if document is None:
+            return None
+        if await CollectionSyncRepository(self.db).is_held(await self.db.get(Collection, document.collection_id)):
+            # The collection is Muffin's now (#462): the file is its own, whatever the other system says.
             return None
         ids = (document.collection_id, document.id)
         await self.db.delete(document)
