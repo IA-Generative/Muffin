@@ -49,6 +49,7 @@ from app.services.evaluation_service import (
     EvaluationRunNotFoundError,
     EvaluationService,
 )
+from app.services.group_service import GroupNotFoundError
 
 router = APIRouter(tags=["Collections"])
 
@@ -419,6 +420,8 @@ async def create_share(collection_id: uuid.UUID, create: ShareCreate, user: User
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
     except AlreadyInvitedError as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Already invited") from error
+    except GroupNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found") from error
     except SharingNotConfiguredError as error:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
