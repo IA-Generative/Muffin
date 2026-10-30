@@ -22,6 +22,10 @@ class DocumentSyncResult:
     created: bool
     chunks_written: int
     chunks_removed: int
+    # The file's text changed: the summary it had (and its point in the index) is no longer its summary.
+    summary_dropped: bool = False
+    # There is a summary to make: the file is new or changed, or no summary was ever made for it.
+    summary_due: bool = False
 
 
 class DocumentSyncRepository:
@@ -61,7 +65,16 @@ class DocumentSyncRepository:
             )
             self.db.add(document)
             await self.db.flush()
-        else:
+        summary_dropped = False
+        if not created:
+            # A file whose text changed has not the summary it had; one that did not keeps it.
+            summary_dropped = (
+                document.summary is not None
+                and data.content_hash is not None
+                and data.content_hash != document.content_hash
+            )
+            if summary_dropped:
+                document.summary, document.summary_pages = None, None
             document.collection_id = collection_id
             document.name, document.storage_key, document.content_hash = data.name, data.storage_key, data.content_hash
             document.added_by_user_id, document.added_by_display = data.added_by_user_id, data.added_by_display
@@ -69,7 +82,9 @@ class DocumentSyncRepository:
 
         await self._write_page(document.id, data.text)
         written, removed = await self._write_chunks(document.id, data)
-        return DocumentSyncResult(document, created, written, removed)
+        return DocumentSyncResult(
+            document, created, written, removed, summary_dropped, summary_due=document.summary is None
+        )
 
     async def _write_page(self, document_id: uuid.UUID, text: str) -> None:
         await self.db.execute(delete(DocumentPage).where(DocumentPage.document_id == document_id))
@@ -115,13 +130,15 @@ class DocumentSyncRepository:
         )
         return list(result)
 
-    async def delete(self, source: ResourceSource, external_id: str) -> bool:
-        """Drops the copy of a file that is gone from the other system, with its page and chunks (cascade)."""
+    async def delete(self, source: ResourceSource, external_id: str) -> tuple[uuid.UUID, uuid.UUID] | None:
+        """Drops the copy of a file that is gone from the other system, with its page and chunks (cascade). Returns
+        its collection's id and its own, None when there was no such copy."""
         document = await self.db.scalar(
             select(Document).where(Document.source == source, Document.external_id == external_id)
         )
         if document is None:
-            return False
+            return None
+        ids = (document.collection_id, document.id)
         await self.db.delete(document)
         await self.db.flush()
-        return True
+        return ids

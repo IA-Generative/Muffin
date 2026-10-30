@@ -86,6 +86,7 @@ async def get_collection_metadata(
         sub_collections=[
             SubCollectionDescriptionOut(name=name, description=description) for name, description in sub_collections
         ],
+        description_indexed=vector_store.has_collection_description(collection_id),
     )
 
 

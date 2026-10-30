@@ -441,3 +441,56 @@ def test_a_collection_of_open_webui_with_another_dimension_gives_nothing_instead
     _owui_point(qdrant, owui_collection, [1.0, 0.1, 0.0])
 
     assert vector_store.search_external(owui_collection, [1.0, 0.0, 0.0, 0.0, 0.0], 5) == []
+
+
+# -- the files and collections copied from another system (#457) ------------------------------------
+
+
+def test_the_summary_of_a_copied_file_is_found_by_the_summary_tier(collection):
+    """The only point of Muffin's index for a copied collection: chunks stay in the other system's Qdrant."""
+    document_id = uuid.uuid4()
+    vector_store.upsert_summary_embedding(collection, document_id, [1.0, 0.0, 0.0], "Procédure de congés", "bge")
+    vector_store.upsert_summary_embedding(collection, uuid.uuid4(), [0.0, 1.0, 0.0], "Budget annuel", "bge")
+
+    hits = vector_store.search_summaries(collection, "congés", [1.0, 0.0, 0.0], 5)
+
+    assert hits[0][0] == document_id
+
+
+def test_the_summary_point_of_a_copied_file_goes_with_the_file(collection):
+    document_id = uuid.uuid4()
+    vector_store.upsert_summary_embedding(collection, document_id, [1.0, 0.0, 0.0], "Procédure de congés", "bge")
+
+    vector_store.delete_document_embeddings(collection, document_id, [])
+
+    assert vector_store.search_summaries(collection, "congés", [1.0, 0.0, 0.0], 5) == []
+
+
+def test_a_collection_knows_whether_its_description_is_in_the_index(qdrant):
+    collection_id = uuid.uuid4()
+    assert vector_store.has_collection_description(collection_id) is False
+
+    vector_store.upsert_collection_description(collection_id, "Procédures", [], [1.0, 0.0, 0.0])
+    try:
+        assert vector_store.has_collection_description(collection_id) is True
+    finally:
+        vector_store.delete_collection(collection_id)
+    assert vector_store.has_collection_description(collection_id) is False
+
+
+def test_a_copied_collection_among_more_than_twenty_is_kept_by_the_pre_filter(qdrant):
+    """The routing reduces a large catalogue to the 20 descriptions closest to the question: a copied collection
+    whose description is in the index is one of them, which it cannot be without that point."""
+    others = [uuid.uuid4() for _ in range(25)]
+    copied = uuid.uuid4()
+    for index, other in enumerate(others):
+        vector_store.upsert_collection_description(other, f"Autre {index}", [], [0.0, 1.0, 0.1 * index])
+    vector_store.upsert_collection_description(copied, "Procédures de congés", [], [1.0, 0.0, 0.0])
+    try:
+        kept = vector_store.search_collections("congés", [1.0, 0.0, 0.0], [*others, copied], 20)
+
+        assert copied in [collection_id for collection_id, _ in kept]
+        assert len(kept) == 20
+    finally:
+        for collection_id in [*others, copied]:
+            vector_store.delete_collection(collection_id)

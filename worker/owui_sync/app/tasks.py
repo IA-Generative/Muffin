@@ -8,6 +8,7 @@ from loguru import logger
 
 from app.backend_client import backend_client
 from app.celery_app import celery_app
+from app.config import settings
 from app.owui_client import OwuiClient, OwuiKnowledge
 from app.owui_vectors import OwuiVectors
 
@@ -243,7 +244,21 @@ def sync_knowledge_file(knowledge_id: str, file_id: str) -> dict:
         },
     )
     logger.info("File {} synchronised: {}", file.filename, result)
+    if result.get("summary_due"):
+        _ask_summary(result["id"], result["collection_id"])
     return result
+
+
+def _ask_summary(document_id: str, collection_id: str) -> None:
+    """Sends the summary of a file, and with it the update of its collection's description (#457), to the pods that
+    enrich Muffin's documents, with the lowest priority. Not waited for: the synchronisation is done when the copy is,
+    and a file still without summary at the next one is asked for again."""
+    celery_app.send_task(
+        "app.tasks.summarize_copied_document",
+        args=[document_id, collection_id],
+        queue=settings.ENRICHMENT_QUEUE_NAME,
+        priority=settings.SUMMARY_PRIORITY,
+    )
 
 
 # -- the phases ------------------------------------------------------------------------------------------
