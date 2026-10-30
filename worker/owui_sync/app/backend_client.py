@@ -1,6 +1,7 @@
 import httpx
 
 from app.config import settings
+from app.usage_context import current_usage
 
 
 class BackendClient:
@@ -49,6 +50,14 @@ class BackendClient:
         response = self._client.delete(f"/api/internal/{kind}/{source}/{external_id}")
         if response.status_code != 404:
             response.raise_for_status()
+
+    def embed(self, model: str, text: str) -> list[float]:
+        """The embedding of a text, by the same hub and model Muffin embeds a question with."""
+        response = self._client.post(
+            "/api/internal/llm/embed", json={"model": model, "input": text, "usage": current_usage()}
+        )
+        response.raise_for_status()
+        return response.json()["embedding"]
 
     def add_task_logs(self, lines: list[dict]) -> None:
         """A short timeout: the lines are sent again with the next batch, a task never waits on them."""

@@ -393,6 +393,19 @@ Le compte S3 de Muffin doit pouvoir lire le bucket d'Open WebUI (le plus simple 
 préfixe `S3_KEY_PREFIX`) ; Muffin n'y écrit ni n'y supprime jamais rien. Les utilisateurs et groupes d'Open WebUI doivent se connecter par le
 Keycloak de Muffin : un membre se retrouve par son `sub` (`oauth.oidc.sub`), et celui qui n'en a pas est laissé de côté.
 
+### Cohérence des vecteurs
+
+À chaque synchronisation d'une knowledge base, le worker compare ce qu'Open WebUI a stocké à ce que Muffin utilisera pour chercher :
+
+- les modèles que disent les chunks (`metadata.embedding_config`, sur un échantillon de 100) et celui qu'Open WebUI a configuré;
+- la longueur du vecteur de sa collection Qdrant et celle que donne le modèle (apprise une fois par modèle, par un embedding d'un mot
+  par le hub de Muffin; si le hub ne répond pas, la longueur n'est pas vérifiée);
+- que la collection existe, pour une knowledge base qui a des fichiers.
+
+Un écart est un avertissement dans les logs, `vector_problems` dans le résultat de la tâche et `inconsistent` dans le bilan de la
+synchronisation (`finish_sync`) : il ne bloque pas la copie. La cause usuelle est un changement de modèle côté Open WebUI : il faut alors
+ré-embedder ses fichiers.
+
 ### Déploiement Helm
 
 Désactivé tant qu'aucun Open WebUI ne lui est donné : KEDA le garde à 0 pod quand sa queue est vide et le CronJob `owui-sync`, qui y met la

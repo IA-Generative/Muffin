@@ -74,6 +74,10 @@ de branche lexicale : un code ou un nom propre que l'embedding ne rapproche pas 
 vectorisée avec le modèle d'embedding d'Open WebUI, enregistré sur la collection par la synchronisation : c'est le même modèle des deux
 côtés, ou la recherche ne vaut rien.
 
+Si Open WebUI change de modèle d'embedding sans tout ré-embedder, ses vecteurs n'ont plus la longueur de ceux de la question : Qdrant
+refuse la recherche. Cette collection ne donne alors aucun résultat (l'erreur est journalisée) et les autres collections répondent
+comme d'habitude. La synchronisation le signale (voir `docs/environment-variables.md`, « Cohérence des vecteurs »).
+
 Les chunks sont relus dans Postgres par l'identifiant de leur point, comme les autres : la synchronisation les y a écrits sous cet
 identifiant. Ils n'ont pas de numéro de page (l'extraction d'Open WebUI, Tika, n'en garde pas).
 
