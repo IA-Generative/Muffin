@@ -4,6 +4,7 @@ from .energy import EnergySettings
 from .keycloak import KeycloakSettings
 from .llm import LlmSettings
 from .logging import LoggingSettings
+from .mcp import McpSettings
 from .qdrant import QdrantSettings, SearchSettings
 from .redis import RedisSettings
 from .runs import RunSettings
@@ -18,6 +19,7 @@ __all__ = [
     "KeycloakSettings",
     "LlmSettings",
     "LoggingSettings",
+    "McpSettings",
     "QdrantSettings",
     "RedisSettings",
     "RunSettings",
