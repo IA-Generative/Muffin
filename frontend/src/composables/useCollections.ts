@@ -39,6 +39,8 @@ interface CollectionOut {
   visibility: CollectionVisibility
   is_owner: boolean
   can_edit: boolean
+  copied?: boolean
+  adopted?: boolean
   parent_id: string | null
   path: CollectionPathItem[]
   children_count: number
@@ -120,6 +122,9 @@ function toCollection(raw: CollectionOut): Collection {
     visibility: raw.visibility,
     isOwner: raw.is_owner,
     canEdit: raw.can_edit,
+    copied: raw.copied ?? false,
+    adopted: raw.adopted ?? false,
+    canManage: raw.is_owner && !raw.copied,
     parentId: raw.parent_id,
     path: raw.path,
     childrenCount: raw.children_count,

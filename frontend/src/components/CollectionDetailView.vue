@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import '../assets/settings-form.css'
 import { useCollections } from '../composables/useCollections'
+import { useCurrentUser } from '../composables/useCurrentUser'
 import type { Collection } from '../types/collection'
 import CollectionChunksTab from './CollectionChunksTab.vue'
 import CollectionDocumentsTab from './CollectionDocumentsTab.vue'
@@ -29,7 +31,22 @@ const {
   deleteCollection,
   isCollectionReady,
   loadTabData,
+  indexRebuilds,
+  indexRebuildError,
+  refreshIndexRebuild,
+  reindexCollection,
 } = useCollections()
+const { user } = useCurrentUser()
+
+// A copy of another system's collection (#462, #464) is taken over by an administrator's reindex: its progress.
+const takeover = computed(() => (props.collection.copied ? (indexRebuilds.value[props.collection.id] ?? null) : null))
+watch(
+  () => [props.collection.id, props.collection.copied, user.value?.isAdmin] as const,
+  ([id, copied, isAdmin]) => {
+    if (copied && isAdmin) void refreshIndexRebuild(id)
+  },
+  { immediate: true },
+)
 
 const tagDraft = ref('')
 const isReady = computed(() => isCollectionReady(props.collection))
@@ -72,7 +89,7 @@ const ADVANCED_KEYS = new Set(ADVANCED_TABS.map((tab) => tab.key))
 // Paramètres (chunking, embedding, visibilité, partages) est owner-only côté backend - un
 // visiteur d'une collection publique/partagée ne le voit pas du tout, il n'y a rien qu'il
 // puisse y faire.
-const visiblePrimaryTabs = computed(() => PRIMARY_TABS.filter((tab) => tab.key !== 'settings' || props.collection.isOwner))
+const visiblePrimaryTabs = computed(() => PRIMARY_TABS.filter((tab) => tab.key !== 'settings' || props.collection.canManage))
 
 const showAdvancedMenu = ref(false)
 const advancedWrapper = ref<HTMLElement | null>(null)
@@ -92,10 +109,10 @@ function resolveInitialTab(): TabKey {
   const urlTab = route.params.tab as string | undefined
   if (urlTab && VALID_TABS.has(urlTab as TabKey)) {
     // A non-owner can never land on "settings" - it's not in their visible tabs.
-    if (urlTab === 'settings' && !props.collection.isOwner) return 'documents'
+    if (urlTab === 'settings' && !props.collection.canManage) return 'documents'
     return urlTab as TabKey
   }
-  return props.collection.isOwner ? 'settings' : 'documents'
+  return props.collection.canManage ? 'settings' : 'documents'
 }
 
 const activeTab = ref<TabKey>(resolveInitialTab())
@@ -108,7 +125,7 @@ watch(
   () => [props.collection.id, isReady.value],
   () => {
     if (!isReady.value) activeTab.value = 'settings'
-    else if (activeTab.value === 'settings' && !props.collection.isOwner) activeTab.value = 'documents'
+    else if (activeTab.value === 'settings' && !props.collection.canManage) activeTab.value = 'documents'
   },
   { immediate: true },
 )
@@ -141,7 +158,7 @@ watch(
   () => route.params.tab,
   (tab) => {
     if (typeof tab === 'string' && VALID_TABS.has(tab as TabKey)) {
-      if (tab === 'settings' && !props.collection.isOwner) return
+      if (tab === 'settings' && !props.collection.canManage) return
       if (tab !== activeTab.value) activeTab.value = tab as TabKey
     }
   },
@@ -223,9 +240,35 @@ function confirmDelete() {
         </template>
       </nav>
 
+      <div v-if="collection.copied" class="sf-callout sf-callout--warning" role="note">
+        <p>
+          Copie d'une collection d'Open WebUI : ses documents, ses réglages et ses partages se modifient là-bas. Vous
+          pouvez la lire, la chercher et discuter avec.
+        </p>
+        <template v-if="user?.isAdmin">
+          <p v-if="takeover?.status === 'building'">
+            Reprise dans Muffin en cours : {{ takeover.donePoints }} / {{ takeover.totalPoints }} éléments réindexés. Elle
+            reste lue dans Open WebUI jusqu'à la fin.
+          </p>
+          <template v-else>
+            <p v-if="takeover?.status === 'failed'">La dernière tentative a échoué : {{ takeover.error }}</p>
+            <p>
+              La réindexer la fait passer dans Muffin : elle est ensuite cherchée dans son propre index et se modifie ici,
+              Open WebUI ne la met plus à jour.
+            </p>
+            <div class="sf-actions">
+              <button type="button" class="fr-btn fr-btn--sm fr-btn--secondary" @click="reindexCollection(collection.id)">
+                Reprendre cette collection dans Muffin
+              </button>
+            </div>
+          </template>
+          <p v-if="indexRebuildError" class="sf-error" role="alert">{{ indexRebuildError }}</p>
+        </template>
+      </div>
+
       <div class="collection-detail__header">
         <input
-          v-if="collection.isOwner && isEditingMeta"
+          v-if="collection.canManage && isEditingMeta"
           class="collection-detail__name"
           :value="collection.name"
           aria-label="Nom de la collection"
@@ -244,7 +287,7 @@ function confirmDelete() {
           {{ visibilityLabel }}
         </span>
         <button
-          v-if="collection.isOwner && isReady"
+          v-if="collection.canManage && isReady"
           type="button"
           class="collection-detail__details-toggle"
           :class="{ 'collection-detail__details-toggle--active': isEditingMeta }"
@@ -286,7 +329,7 @@ function confirmDelete() {
           <span class="fr-sr-only">{{ showDetails ? 'Masquer les détails' : 'Afficher les détails' }}</span>
         </button>
         <button
-          v-if="collection.isOwner && isReady"
+          v-if="collection.canManage && isReady"
           type="button"
           class="collection-detail__details-toggle"
           title="Déplacer vers une autre collection"
@@ -302,7 +345,7 @@ function confirmDelete() {
           <span class="fr-sr-only">Déplacer</span>
         </button>
         <button
-          v-if="collection.isOwner"
+          v-if="collection.canManage"
           type="button"
           class="collection-detail__delete"
           @click="showDeleteModal = true"
@@ -326,7 +369,7 @@ function confirmDelete() {
             </button>
           </span>
           <textarea
-            v-if="collection.isOwner && isEditingMeta"
+            v-if="collection.canManage && isEditingMeta"
             class="collection-detail__description"
             :value="collection.description"
             placeholder="Décrivez cette collection…"
@@ -357,7 +400,7 @@ function confirmDelete() {
             <span v-for="tag in collection.tags" :key="tag" class="collection-detail__tag">
               {{ tag }}
               <button
-                v-if="collection.isOwner && isEditingMeta"
+                v-if="collection.canManage && isEditingMeta"
                 type="button"
                 :aria-label="`Retirer le tag ${tag}`"
                 @click="removeTag(tag)"
@@ -366,7 +409,7 @@ function confirmDelete() {
               </button>
             </span>
             <input
-              v-if="collection.isOwner && isEditingMeta"
+              v-if="collection.canManage && isEditingMeta"
               v-model="tagDraft"
               type="text"
               class="collection-detail__tag-input"
@@ -375,7 +418,7 @@ function confirmDelete() {
               @keydown.enter.prevent="addTag"
               @blur="addTag"
             />
-            <span v-if="!collection.tags.length && !(collection.isOwner && isEditingMeta)" class="collection-detail__description--empty">
+            <span v-if="!collection.tags.length && !(collection.canManage && isEditingMeta)" class="collection-detail__description--empty">
               Aucun tag.
             </span>
           </div>

@@ -26,7 +26,7 @@ const children = computed(() =>
         paramètres ; les partages et la visibilité de « {{ collection.name }} » s'y appliquent aussi.
       </p>
       <button
-        v-if="collection.isOwner"
+        v-if="collection.canManage"
         type="button"
         class="fr-btn fr-btn--sm subcollections-tab__create"
         @click="createCollection(undefined, undefined, collection.id)"
