@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.38.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.37.0...v0.38.0-rc) (2026-10-30)
+
+
+### Features
+
+* **search:** identifiant du document dans le payload des points Qdrant ([#468](https://github.com/IA-Generative/Muffin/issues/468)) ([58cbde1](https://github.com/IA-Generative/Muffin/commit/58cbde1a130e40aa60a6116f194391cb0bd80b33))
+
 ## [0.37.0](https://github.com/IA-Generative/Muffin/compare/v0.36.0...v0.37.0) (2026-10-30)
 
 
