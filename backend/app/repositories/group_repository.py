@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.group import Group, GroupMember, ResourceSource
+from app.models.group import Group, GroupMember, MemberStatus, ResourceSource
 
 
 @dataclass(frozen=True)
@@ -20,7 +20,11 @@ class GroupRepository:
 
     async def group_ids_of(self, user_id: str) -> list[str]:
         """The groups a user is a member of here, as what a share points to (a group's id)."""
-        result = await self.db.scalars(select(GroupMember.group_id).where(GroupMember.user_id == user_id))
+        result = await self.db.scalars(
+            select(GroupMember.group_id).where(
+                GroupMember.user_id == user_id, GroupMember.status == MemberStatus.ACTIVE
+            )
+        )
         return [str(group_id) for group_id in result]
 
     async def _get_external(self, source: ResourceSource, external_id: str) -> Group | None:
