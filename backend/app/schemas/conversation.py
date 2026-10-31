@@ -14,6 +14,18 @@ class ConversationOut(BaseModel):
     updated_at: datetime
 
 
+class ConversationSearchHit(BaseModel):
+    """A conversation found by the search of the sidebar (#509). `snippet` is the passage of the best message, the words
+    found between U+0002 and U+0003 (control characters, not markup); None when only the title matched."""
+
+    id: uuid.UUID
+    title: str | None
+    updated_at: datetime
+    title_matched: bool
+    message_id: uuid.UUID | None
+    snippet: str | None
+
+
 class ConversationUpdate(BaseModel):
     title: str
 

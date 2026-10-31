@@ -1,12 +1,32 @@
 import uuid
 from collections.abc import Sequence
+from dataclasses import dataclass
 
-from sqlalchemy import func, select
+from sqlalchemy import func, literal_column, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.conversation import Conversation
 from app.models.message import Message, MessageRole
 from app.models.run import Run
+
+# The text search configuration of the migration (#509): French, and blind to accents. The same expression as the index.
+_SEARCH_CONFIG = literal_column("'muffin_french'::regconfig")
+
+# Around the words found in a snippet: control characters, which a message cannot be expected to hold and which are no
+# markup - the page that shows the snippet splits on them and never builds HTML from the text.
+HIGHLIGHT_START = "\x02"
+HIGHLIGHT_END = "\x03"
+_HEADLINE_OPTIONS = f'StartSel="{HIGHLIGHT_START}", StopSel="{HIGHLIGHT_END}", MaxFragments=1, MaxWords=24, MinWords=8'
+
+
+@dataclass(frozen=True)
+class ConversationHit:
+    """A conversation the search found: in its title, or in its best message (`message_id` and `snippet`)."""
+
+    conversation: Conversation
+    in_title: bool
+    message_id: uuid.UUID | None
+    snippet: str | None
 
 
 class ConversationRepository:
@@ -40,6 +60,53 @@ class ConversationRepository:
             .offset(offset)
         )
         return result.scalars().all(), total or 0
+
+    async def search_by_owner(
+        self, user_id: str, query: str, *, limit: int, offset: int
+    ) -> tuple[list[ConversationHit], int]:
+        """The conversations of this user whose title or messages hold the words of `query` (web search syntax: quotes,
+        `-`, `or`), accents and case ignored, the best match first: a title match, then the better message. One hit per
+        conversation, with the snippet of its best message."""
+        tsquery = func.websearch_to_tsquery(_SEARCH_CONFIG, query)
+        vector = Message.content_tsv
+        rank = func.ts_rank(vector, tsquery)
+        best = (
+            select(Message.conversation_id, Message.id.label("message_id"), rank.label("rank"))
+            .join(Conversation, Conversation.id == Message.conversation_id)
+            .where(Conversation.user_id == user_id, vector.op("@@")(tsquery))
+            .distinct(Message.conversation_id)
+            .order_by(Message.conversation_id, rank.desc(), Message.created_at.desc())
+            .subquery("best")
+        )
+        in_title = func.to_tsvector(_SEARCH_CONFIG, func.coalesce(Conversation.title, "")).op("@@")(tsquery)
+        found = (
+            select(Conversation, in_title.label("in_title"), best.c.message_id, best.c.rank)
+            .outerjoin(best, best.c.conversation_id == Conversation.id)
+            .where(Conversation.user_id == user_id, or_(best.c.message_id.is_not(None), in_title))
+        )
+        total = await self.db.scalar(select(func.count()).select_from(found.subquery()))
+        rows = (
+            await self.db.execute(
+                found.order_by(in_title.desc(), func.coalesce(best.c.rank, 0).desc(), Conversation.updated_at.desc())
+                .limit(limit)
+                .offset(offset)
+            )
+        ).all()
+
+        message_ids = [row.message_id for row in rows if row.message_id is not None]
+        snippets: dict[uuid.UUID, str] = {}
+        if message_ids:
+            headlines = await self.db.execute(
+                select(Message.id, func.ts_headline(_SEARCH_CONFIG, Message.content, tsquery, _HEADLINE_OPTIONS)).where(
+                    Message.id.in_(message_ids)
+                )
+            )
+            snippets = {message_id: snippet for message_id, snippet in headlines.all()}
+        hits = [
+            ConversationHit(row.Conversation, bool(row.in_title), row.message_id, snippets.get(row.message_id))
+            for row in rows
+        ]
+        return hits, total or 0
 
     async def list_messages(
         self, conversation_id: uuid.UUID
