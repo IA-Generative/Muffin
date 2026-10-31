@@ -1,3 +1,4 @@
+from app.models.api_key import ApiKey
 from app.models.app_settings import AppSettings
 from app.models.base import Base
 from app.models.cgu import CguAcceptance, CguVersion
@@ -63,6 +64,7 @@ from app.models.task_log_entry import TaskLogEntry
 from app.models.token_usage import TokenUsage, TokenUsageKind, UserProfile
 
 __all__ = [
+    "ApiKey",
     "AppSettings",
     "Base",
     "CguAcceptance",
