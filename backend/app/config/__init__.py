@@ -1,3 +1,4 @@
+from .api_keys import ApiKeySettings
 from .database import DatabaseSettings
 from .documents import DocumentSettings
 from .energy import EnergySettings
@@ -13,6 +14,7 @@ from .sharing import SharingSettings
 from .worker import WorkerSettings
 
 __all__ = [
+    "ApiKeySettings",
     "DatabaseSettings",
     "DocumentSettings",
     "EnergySettings",
