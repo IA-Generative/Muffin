@@ -20,6 +20,21 @@ l'origine de l'application. L'en-tête `X-Content-Type-Options: nosniff` est ajo
 
 ## Parcourir les pages
 
+La fiche d'un document, avec « Télécharger le fichier », « Ouvrir à la page N » et « Aller à la page » :
+
+![La fiche d'un document](images/document-file-fiche.png)
+
+La visionneuse d'une source citée sur la page citée : le passage surligné dans le texte, les zones encadrées sur la page, et de quoi
+parcourir tout le document ou télécharger le fichier :
+
+![Une source citée](images/document-file-source-citee.png)
+
+Une page non citée, atteinte avec « Page suivante » (sans surlignage ni cadre) :
+
+![Parcours des pages](images/document-file-source-parcours.png)
+
+(Captures faites avec une API simulée : le contenu est un exemple.)
+
 - **La fiche d'un document** montre déjà une capture par page, avec « Précédent / Suivant ». S'y ajoutent « Aller à la page » et les deux
   boutons ci-dessus.
 - **La visionneuse d'une source citée** (clic sur une source dans le chat, une question-réponse, une entité) ne montrait que les pages
