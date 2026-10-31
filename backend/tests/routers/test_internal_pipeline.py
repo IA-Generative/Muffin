@@ -360,6 +360,21 @@ async def test_get_collection_metadata_not_found(client):
     assert response.status_code == 404
 
 
+async def test_list_collection_documents(client):
+    collection_id, document_id = await _create_collection_and_document()
+
+    response = await client.get(f"/api/internal/collections/{collection_id}/documents", headers=_headers())
+
+    assert response.status_code == 200
+    assert [document["id"] for document in response.json()] == [str(document_id)]
+    assert response.json()[0]["name"]
+
+
+async def test_list_collection_documents_not_found(client):
+    response = await client.get(f"/api/internal/collections/{uuid.uuid4()}/documents", headers=_headers())
+    assert response.status_code == 404
+
+
 async def test_update_collection_description(client):
     collection_id, _ = await _create_collection_and_document()
 
