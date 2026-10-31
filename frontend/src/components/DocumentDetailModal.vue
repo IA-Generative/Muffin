@@ -248,6 +248,7 @@ onMounted(() => {
                 min="1"
                 :max="pageTotal"
                 inputmode="numeric"
+                placeholder="n°"
                 class="fr-input document-modal__goto-input"
                 @keydown.enter.prevent="goToTyped"
               />
@@ -604,7 +605,11 @@ onMounted(() => {
 
 .document-modal__screenshot {
   display: block;
-  width: 100%;
+  /* The page, the buttons and the field to go to a page must all fit without scrolling the panel. */
+  max-height: 50vh;
+  width: auto;
+  max-width: 100%;
+  margin: 0 auto;
   border-radius: 0.375rem;
   border: 1px solid var(--border-default-grey);
 }
