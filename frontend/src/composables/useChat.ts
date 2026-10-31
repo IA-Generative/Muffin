@@ -19,6 +19,7 @@ import type {
 } from '../types/chat'
 import { answerHasNoSource } from '../utils/answerSources'
 import { formatAnswers, toRequestAnswers } from '../utils/questionAnswers'
+import { type AnswerDelta, applyDelta, isEndingStatus } from '../utils/runStream'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
 
@@ -1089,12 +1090,128 @@ function applyRunUpdate(conversationId: string, messageId: string, run: RunOut):
   return terminal
 }
 
-// Polls a run until it reaches a terminal status, updating the
-// placeholder assistant message in place each time - same setInterval-based polling convention
-// as useCollections.ts's pollDocumentsWhileProcessing.
+// Follows a run until it ends, updating the placeholder assistant message in place: live when the stream of the run
+// can be read (#510), by polling the run when it cannot.
 function trackRun(conversationId: string, messageId: string, run: RunOut) {
   if (applyRunUpdate(conversationId, messageId, run)) return
+  if (followRun(conversationId, messageId, run)) return
+  pollRun(conversationId, messageId, run)
+}
 
+// --- The live stream of a run (#510) ---
+
+// The steps and the words of the answer come as the agent produces them, over Server-Sent Events: no request per
+// look, and the answer writes itself word by word instead of in half-second steps. The run itself (GET /runs/{id})
+// stays the source of truth: the stream only shows, and the final answer is read from the run once it is over. Any
+// trouble with the stream - a proxy that cuts it, a pod that is gone, a browser without EventSource - hands the run
+// to the polling below, so the chat never depends on the stream.
+const activeStreams = new Map<string, EventSource>()
+// A line comes at least this often (a ping when nothing else): a stream silent for longer than this is dead.
+const STREAM_SILENCE_MS = 45_000
+const STREAM_MAX_ERRORS = 3
+
+function streamDisabled(): boolean {
+  return typeof EventSource === 'undefined' || import.meta.env.VITE_DISABLE_RUN_STREAM === 'true'
+}
+
+function followRun(conversationId: string, messageId: string, run: RunOut): boolean {
+  if (streamDisabled()) return false
+  let source: EventSource
+  try {
+    source = new EventSource(`${API_BASE_URL}/api/runs/${run.id}/stream`, { withCredentials: true })
+  } catch {
+    return false
+  }
+  activeStreams.set(messageId, source)
+
+  let current = run
+  let text = ''
+  const seenSteps = new Set<string>()
+  let watchdog: ReturnType<typeof setTimeout> | undefined
+  // Connection errors in a row, with nothing received in between.
+  let errors = 0
+
+  const stop = () => {
+    clearTimeout(watchdog)
+    source.close()
+    if (activeStreams.get(messageId) === source) activeStreams.delete(messageId)
+  }
+  // The stream failed: the polling takes over from where the run is.
+  const giveUp = () => {
+    stop()
+    pollRun(conversationId, messageId, current)
+  }
+  const alive = () => {
+    errors = 0
+    clearTimeout(watchdog)
+    watchdog = setTimeout(giveUp, STREAM_SILENCE_MS)
+  }
+  const show = () => {
+    replaceMessage(
+      conversationId,
+      messageId,
+      assistantMessageFor(messageId, { ...current, status: 'running', partial_answer: text || current.partial_answer }),
+    )
+  }
+  const finish = async () => {
+    stop()
+    try {
+      const final = await fetchRun(run.id)
+      if (applyRunUpdate(conversationId, messageId, final)) {
+        forgetLiveSteps(messageId)
+        return
+      }
+      current = final
+      pollRun(conversationId, messageId, final)
+    } catch {
+      pollRun(conversationId, messageId, current)
+    }
+  }
+  const data = (event: Event) => JSON.parse((event as MessageEvent<string>).data)
+
+  source.addEventListener('step', (event) => {
+    alive()
+    const item: RunEventOut = data(event)
+    if (seenSteps.has(item.id)) return
+    seenSteps.add(item.id)
+    liveStepsByMessageId.value[messageId] = applyEvents(liveStepsByMessageId.value[messageId] ?? [], [
+      { id: item.id, type: item.type, taskId: item.task_id, data: item.data, createdAt: item.created_at },
+    ])
+    lastEventByMessageId.set(messageId, item.id)
+    show()
+  })
+  source.addEventListener('delta', (event) => {
+    alive()
+    const piece: AnswerDelta = data(event)
+    text = applyDelta(text, piece)
+    show()
+  })
+  source.addEventListener('status', (event) => {
+    alive()
+    const next: { status: string; current_node?: string | null; current_activity?: string | null } = data(event)
+    if (isEndingStatus(next.status)) {
+      void finish()
+      return
+    }
+    current = { ...current, status: next.status, current_node: next.current_node ?? null, current_activity: next.current_activity ?? null }
+    show()
+  })
+  source.addEventListener('ping', alive)
+  source.addEventListener('unavailable', giveUp)
+  // A cut connection is retried by the browser on its own, from the last event received. A stream the server refused
+  // (not signed in, run not found, too many streams open) is closed for good, and one that keeps failing to connect is
+  // not worth more tries: the polling does the same job.
+  source.onerror = () => {
+    errors += 1
+    if (source.readyState === EventSource.CLOSED || errors >= STREAM_MAX_ERRORS) giveUp()
+  }
+  alive()
+  return true
+}
+
+// Polls a run until it reaches a terminal status - the way a run is followed when its stream cannot be: same
+// setInterval-based polling convention as useCollections.ts's pollDocumentsWhileProcessing.
+function pollRun(conversationId: string, messageId: string, run: RunOut) {
   void refreshLiveSteps(run.id, messageId)
   const interval = setInterval(async () => {
     try {
@@ -1119,6 +1236,20 @@ function trackRun(conversationId: string, messageId: string, run: RunOut) {
     }
   }, 700)
   activePolls.set(messageId, interval)
+}
+
+// Stops following the run of a message, however it is followed.
+function stopTracking(messageId: string) {
+  const interval = activePolls.get(messageId)
+  if (interval) {
+    clearInterval(interval)
+    activePolls.delete(messageId)
+  }
+  const stream = activeStreams.get(messageId)
+  if (stream) {
+    stream.close()
+    activeStreams.delete(messageId)
+  }
 }
 
 async function runQuery(
@@ -1242,11 +1373,7 @@ function regenerateMessage(id: string) {
     .find((message) => message.role === 'user')
   if (!lastUserMessage) return
 
-  const interval = activePolls.get(id)
-  if (interval) {
-    clearInterval(interval)
-    activePolls.delete(id)
-  }
+  stopTracking(id)
   list[index] = { id, role: 'assistant', content: 'Recherche en cours', pending: true }
   // Regenerating never re-enables web search on its own - it's not tracked per message, and
   // silently turning it back on for a rerun the user didn't explicitly opt into would violate
@@ -1285,7 +1412,7 @@ async function showExecutionDetails(id: string) {
     executionEventsByMessageId.value[id] = []
     return
   }
-  if (executionEventsByMessageId.value[id] && !activePolls.has(id)) return
+  if (executionEventsByMessageId.value[id] && !activePolls.has(id) && !activeStreams.has(id)) return
   try {
     const items = await fetchRunEvents(runId)
     executionEventsByMessageId.value[id] = items.map((item) => ({
