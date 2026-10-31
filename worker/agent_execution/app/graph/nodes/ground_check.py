@@ -8,6 +8,7 @@ from app.graph.services.events import emit
 from app.graph.services.llm import json_chat
 from app.graph.services.prompts import get_prompt
 from app.graph.state import AgentState, GroundingResult
+from app.usage_context import set_usage
 
 _SYSTEM_PROMPT = (
     "Check whether every important factual claim in the answer is supported by the given evidence "
@@ -91,6 +92,8 @@ def ground_check(state: AgentState) -> GroundingResult | None:
     if not answer or not excerpts or model is None:
         return None
 
+    # Made after the graph, so no node named the step: the call is the check's, not the answer's.
+    set_usage(run_id=run_id, step="ground_check")
     emit(run_id, "grounding_validation_started")
     valid_ids = {e["id"] for e in excerpts}
     # A citation whose passage the excerpt does not have: found without a model, whatever the check says.

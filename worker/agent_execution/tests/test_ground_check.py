@@ -84,3 +84,11 @@ def test_nothing_to_check_makes_no_model_call(monkeypatch):
     assert run(monkeypatch, model, answer="") is None
     assert run(monkeypatch, model, chat_model=None) is None
     assert model.calls == []
+
+
+def test_the_call_is_recorded_as_the_checks_not_the_answers(monkeypatch):
+    from app.usage_context import current_usage
+
+    run(monkeypatch, Model({"valid": True, "unsupported_claims": []}))
+
+    assert current_usage()["step"] == "ground_check"
