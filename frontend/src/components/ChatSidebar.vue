@@ -40,6 +40,7 @@ const emit = defineEmits<{
   openUsage: []
   openAdmin: []
   openSettings: []
+  openApiKeys: []
   openFiling: []
   login: []
   logout: []
@@ -144,6 +145,11 @@ function toggleMenu(id: string) {
 function openSettings() {
   showUserMenu.value = false
   emit('openSettings')
+}
+
+function openApiKeys() {
+  showUserMenu.value = false
+  emit('openApiKeys')
 }
 
 function openTasks() {
@@ -376,6 +382,16 @@ function initials(name: string) {
             />
           </svg>
           Paramètres
+        </button>
+        <button type="button" class="user-menu__item" role="menuitem" @click="openApiKeys">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M15.75 5.25a3 3 0 0 1 3 3m3 0a6 6 0 0 1-7.03 5.91c-.5-.1-1.07.03-1.43.39L9.75 16.5H7.5v2.25H5.25V21H2.25v-2.82c0-.4.16-.78.44-1.06l5.7-5.7c.36-.36.49-.93.39-1.43A6 6 0 1 1 21.75 8.25Z"
+            />
+          </svg>
+          Clés d'API
         </button>
         <button type="button" class="user-menu__item" role="menuitem" @click="openTasks">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
