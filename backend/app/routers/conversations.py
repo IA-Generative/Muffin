@@ -1,13 +1,13 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security.factory import RequestContext, get_current_user
 from app.db import get_db
 from app.routers.documents import file_too_large
-from app.schemas.conversation import ConversationOut, ConversationUpdate, MessageOut
+from app.schemas.conversation import ConversationOut, ConversationSearchHit, ConversationUpdate, MessageOut
 from app.schemas.discussion_feedback import (
     DiscussionFeedbackCreate,
     DiscussionFeedbackOut,
@@ -68,6 +68,23 @@ async def list_conversations(
     pagination: Annotated[PaginationParams, Depends()],
 ) -> Page[ConversationOut]:
     return await service.list_conversations(user, pagination)
+
+
+@router.get(
+    "/conversations/search",
+    summary="Search the user's own conversations - titles and messages, accents and case ignored (#509)",
+    response_model=Page[ConversationSearchHit],
+)
+async def search_conversations(
+    user: UserDep,
+    service: ConversationServiceDep,
+    pagination: Annotated[PaginationParams, Depends()],
+    q: Annotated[str, Query(min_length=2, max_length=200)],
+) -> Page[ConversationSearchHit]:
+    query = q.strip()
+    if len(query) < 2:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Query too short")
+    return await service.search_conversations(user, query, pagination)
 
 
 @router.get(

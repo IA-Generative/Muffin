@@ -13,7 +13,7 @@ from app.repositories.discussion_feedback_repository import DiscussionFeedbackRe
 from app.repositories.discussion_score_repository import DiscussionScoreRepository
 from app.repositories.feedback_repository import FeedbackRepository
 from app.repositories.task_repository import TaskRepository
-from app.schemas.conversation import ConversationOut, MessageOut
+from app.schemas.conversation import ConversationOut, ConversationSearchHit, MessageOut
 from app.schemas.discussion_feedback import DiscussionFeedbackOut
 from app.schemas.discussion_score import DiscussionScoreOut
 from app.schemas.pagination import Page, PaginationParams
@@ -38,6 +38,25 @@ class ConversationService:
             user.user_id, limit=pagination.limit, offset=pagination.offset
         )
         out = [ConversationOut(id=c.id, title=c.title, updated_at=c.updated_at) for c in items]
+        return pagination.to_page(out, total)
+
+    async def search_conversations(
+        self, user: RequestContext, query: str, pagination: PaginationParams
+    ) -> Page[ConversationSearchHit]:
+        hits, total = await self.conversations.search_by_owner(
+            user.user_id, query, limit=pagination.limit, offset=pagination.offset
+        )
+        out = [
+            ConversationSearchHit(
+                id=hit.conversation.id,
+                title=hit.conversation.title,
+                updated_at=hit.conversation.updated_at,
+                title_matched=hit.in_title,
+                message_id=hit.message_id,
+                snippet=hit.snippet,
+            )
+            for hit in hits
+        ]
         return pagination.to_page(out, total)
 
     async def get_conversation(self, conversation_id: uuid.UUID, user: RequestContext) -> ConversationOut:
