@@ -80,6 +80,7 @@ class FakeBackend:
         self.llm_calls: list[list[dict[str, str]]] = []
         # What the streamed answer published while it was being written, and a failure to simulate.
         self.partial_answers: list[str] = []
+        self.answer_deltas: list[tuple[str, bool]] = []
         self.stream_error: Exception | None = None
         # Delegating an edit of a living document (#171): what the backend says the user may edit,
         # the states the draft goes through (the first answers create_edit_request, each later one a
@@ -271,6 +272,9 @@ class FakeBackend:
 
     async def set_partial_answer(self, run_id: str, text: str) -> None:
         self.partial_answers.append(text)
+
+    async def publish_answer_delta(self, run_id: str, text: str, replace: bool = False) -> None:
+        self.answer_deltas.append((text, replace))
 
 
 class FakeSearxng:

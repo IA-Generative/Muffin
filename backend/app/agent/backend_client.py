@@ -317,6 +317,14 @@ class BackendClient:
             if line.strip():
                 yield json.loads(line)
 
+    async def publish_answer_delta(self, run_id: str, text: str, replace: bool = False) -> None:
+        """Hands the chat what the model just wrote, for it to show at once (#510): the live stream of the run, which
+        this pod writes to directly - nothing to go through, it is the very process that serves the chat's request when
+        there is only one, and Redis is what carries it to the others. Best effort, like the partial answer."""
+        from app.services import run_stream
+
+        await run_stream.publish(run_id, run_stream.DELTA, {"text": text, "replace": replace})
+
     async def set_partial_answer(self, run_id: str, text: str) -> None:
         """Publishes the part of the answer written so far, for the chat to show while it is still being
         written. Best effort: a missed update only means the text shows up a little later."""
