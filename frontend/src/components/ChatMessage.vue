@@ -230,6 +230,21 @@ onBeforeUnmount(() => {
             <span class="chat-message__dots" aria-hidden="true"><span>.</span><span>.</span><span>.</span></span>
             <span class="chat-message__elapsed">{{ elapsedLabel }}</span>
           </div>
+          <!-- Each step of the run, as it happens: what it decided, where it searched, what it found. -->
+          <ol v-if="message.steps?.length" class="chat-message__steps" aria-label="Étapes de la recherche" aria-live="polite">
+            <li
+              v-for="step in message.steps"
+              :key="step.key"
+              class="chat-message__step"
+              :class="`chat-message__step--${step.state}`"
+            >
+              <span class="chat-message__step-icon" aria-hidden="true">{{
+                step.state === 'done' ? '✓' : step.state === 'failed' ? '✕' : ''
+              }}</span>
+              <span class="chat-message__step-label">{{ step.label }}</span>
+              <span v-if="step.detail" class="chat-message__step-detail">{{ step.detail }}</span>
+            </li>
+          </ol>
           <!-- eslint-disable-next-line vue/no-v-html -->
           <div v-if="message.streaming" class="chat-message__markdown" v-html="renderedContent" />
           <p v-else class="chat-message__text">{{ renderedContent }}</p>
@@ -507,6 +522,73 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 0.5rem;
   margin-bottom: 0.25rem;
+}
+
+.chat-message__steps {
+  list-style: none;
+  margin: 0.25rem 0 0.75rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.8125rem;
+}
+
+.chat-message__step {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0 0.5rem;
+  line-height: 1.4;
+}
+
+.chat-message__step-icon {
+  width: 1rem;
+  flex-shrink: 0;
+  text-align: center;
+  color: var(--text-default-success);
+}
+
+/* The step going on: a small spinner where the check will be. */
+.chat-message__step--running .chat-message__step-icon {
+  display: inline-block;
+  height: 0.75rem;
+  width: 0.75rem;
+  margin: 0 0.125rem;
+  align-self: center;
+  border: 2px solid var(--border-default-grey);
+  border-top-color: var(--text-action-high-blue-france);
+  border-radius: 50%;
+  animation: chat-message-step-spin 0.8s linear infinite;
+}
+
+.chat-message__step--failed .chat-message__step-icon,
+.chat-message__step--failed .chat-message__step-label {
+  color: var(--text-default-error);
+}
+
+.chat-message__step--done .chat-message__step-label {
+  color: var(--text-mention-grey);
+}
+
+.chat-message__step--running .chat-message__step-label {
+  color: var(--text-default-grey);
+}
+
+.chat-message__step-detail {
+  color: var(--text-disabled-grey);
+}
+
+@keyframes chat-message-step-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-message__step--running .chat-message__step-icon {
+    animation: none;
+  }
 }
 
 .chat-message__elapsed {
