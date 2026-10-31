@@ -1,3 +1,4 @@
+import type { LiveStep } from '../utils/runSteps'
 export interface Source {
   title: string
   // The backend Source row this citation was materialized into (see the backend's
@@ -100,6 +101,8 @@ export interface ChatMessage {
   // True while a pending message shows the answer as it is being written (content is then markdown, the
   // answer so far) rather than a step label.
   streaming?: boolean
+  // The steps of the run behind a pending message, as they happen (its events, read as lines).
+  steps?: LiveStep[]
   // True when this message is an error (run failed, network error, etc.) - ChatMessage.vue
   // renders it with a distinct error style (icon + color) instead of a normal assistant bubble.
   // The technical error from the backend (run.error) is never shown to the user - only a clean
