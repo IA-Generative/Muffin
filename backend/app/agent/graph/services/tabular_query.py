@@ -139,18 +139,20 @@ def _failure_text(failure: dict[str, Any]) -> str:
     return f"Erreur : {failure['message']}" + (f"\nTables utilisables :\n{tables}" if tables else "")
 
 
-def _create_chart(run_id: str, call: QueryCall, chart: Any, catalog: Catalog) -> tuple[dict[str, Any] | None, str]:
+async def _create_chart(
+    run_id: str, call: QueryCall, chart: Any, catalog: Catalog
+) -> tuple[dict[str, Any] | None, str]:
     """Draws the chart of a query's result: (the chart stored by the backend, or None) and what to tell the model."""
     if not isinstance(chart, dict):
         return None, 'Erreur : "chart" doit décrire le graphique (type, x, y, title).'
     request = {**catalog.request(call.sql, catalog.resolve(call.refs)), "spec": chart}
-    answer = render_remote_chart(request)
+    answer = await render_remote_chart(request)
     if answer["status"] == "failed":
         columns = ", ".join(f"{c['name']} ({c['type']})" for c in answer.get("columns", []))
         return None, f"Erreur : {answer['message']}" + (f"\nColonnes du résultat : {columns}" if columns else "")
     title = chart.get("title") if isinstance(chart.get("title"), str) else "Graphique"
     try:
-        stored = backend_client.create_chart(
+        stored = await backend_client.create_chart(
             run_id,
             {
                 "spec": chart,
@@ -170,7 +172,7 @@ def _create_chart(run_id: str, call: QueryCall, chart: Any, catalog: Catalog) ->
     return stored, (f"Graphique dessiné. Il sera mis dans la réponse ; ne le redessine pas : {stored['markdown']}")
 
 
-def run_query_loop(question: str, catalog: Catalog, model: str, run_id: str | None = None) -> LoopOutcome:
+async def run_query_loop(question: str, catalog: Catalog, model: str, run_id: str | None = None) -> LoopOutcome:
     """The model's tool loop over the catalog. Never raises for what the SQL does or for a worker that does not answer
     (`stopped` says it); a revoked task still raises, to stop wherever it is. With a `run_id`, the model may also draw
     charts of its results (#434)."""
@@ -189,7 +191,7 @@ def run_query_loop(question: str, catalog: Catalog, model: str, run_id: str | No
     max_turns = 2 * settings.TABULAR_MAX_STEPS + settings.TABULAR_MAX_CHARTS
     while turns < max_turns:
         turns += 1
-        raw = backend_client.llm_chat(model, messages)
+        raw = await backend_client.llm_chat(model, messages)
         action = _parse_action(raw)
         messages.append({"role": "assistant", "content": raw})
         if action is None or action.get("action") not in ("query_data", "finish", "create_chart"):
@@ -221,7 +223,7 @@ def run_query_loop(question: str, catalog: Catalog, model: str, run_id: str | No
                 feedback = f"Erreur : {settings.TABULAR_MAX_CHARTS} graphiques au plus."
             else:
                 try:
-                    stored, feedback = _create_chart(run_id, wanted, action.get("chart"), catalog)
+                    stored, feedback = await _create_chart(run_id, wanted, action.get("chart"), catalog)
                 except SqlWorkerUnavailable as error:
                     outcome.stopped = str(error)
                     break
@@ -258,7 +260,7 @@ def run_query_loop(question: str, catalog: Catalog, model: str, run_id: str | No
             if file.ref not in outcome.used_refs:
                 outcome.used_refs.append(file.ref)
         try:
-            answer = run_remote_query(catalog.request(sql, files))
+            answer = await run_remote_query(catalog.request(sql, files))
         except SqlWorkerUnavailable as error:
             call.error = str(error)
             outcome.stopped = str(error)

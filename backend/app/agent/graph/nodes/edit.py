@@ -4,6 +4,7 @@ creates the draft, takes the document's lock and sends the job to the editing ag
 agent is done. Whether the user may edit the document is the backend's call (from the run's own identity). Nothing is
 written to the collection: the user validates the proposal from the chat card. No model is called here."""
 
+import asyncio
 import time
 from typing import Any, NotRequired, TypedDict
 
@@ -28,7 +29,7 @@ class EditState(TypedDict):
 
 
 # Module attribute (not closed over) so tests run the wait loop without really sleeping.
-_sleep = time.sleep
+_sleep = asyncio.sleep
 
 
 def _summary_lines(summary: str) -> list[str]:
@@ -58,32 +59,32 @@ def _answer(name: str, draft: dict[str, Any] | None, timed_out: bool) -> str:
     )
 
 
-def edit_resolve(state: EditState) -> dict[str, Any]:
+async def edit_resolve(state: EditState) -> dict[str, Any]:
     """What the plan chose, or what to tell the user when it could not choose (several documents fit)."""
     target = state["edit_target"] or {}
     if "clarification" in target:
         return {"answer": target["clarification"], "citations": [], "edit_proposal": None}
-    if is_cancelled(state["run_id"]):
+    if await is_cancelled(state["run_id"]):
         return {"cancelled": True}
     return {}
 
 
-def edit_request(state: EditState) -> dict[str, Any]:
+async def edit_request(state: EditState) -> dict[str, Any]:
     run_id, target = state["run_id"], state["edit_target"]
     name, document_id = target["document_name"], target["document_id"]
-    set_activity(run_id, "edit_request", f"Asking the editing agent to change « {name} »")
-    emit(run_id, "edit_delegated", {"document_id": document_id, "instruction": target["instruction"]})
+    await set_activity(run_id, "edit_request", f"Asking the editing agent to change « {name} »")
+    await emit(run_id, "edit_delegated", {"document_id": document_id, "instruction": target["instruction"]})
     try:
-        draft = backend_client.create_edit_request(run_id, document_id, target["instruction"])
+        draft = await backend_client.create_edit_request(run_id, document_id, target["instruction"])
     except EditRequestRefused as refusal:
-        emit(run_id, "edit_refused", {"code": refusal.code, "message": refusal.message})
+        await emit(run_id, "edit_refused", {"code": refusal.code, "message": refusal.message})
         # A proposal already waiting on this document is worth showing: that is where the user should go next.
         proposal = _proposal(target) if refusal.code == "draft_exists" else None
         return {"answer": refusal.message, "citations": [], "edit_proposal": proposal}
     return {"draft": draft}
 
 
-def edit_wait(state: EditState) -> dict[str, Any]:
+async def edit_wait(state: EditState) -> dict[str, Any]:
     run_id, target = state["run_id"], state["edit_target"]
     draft = state["draft"]
     deadline = time.monotonic() + settings.EDIT_WAIT_SECONDS
@@ -92,21 +93,21 @@ def edit_wait(state: EditState) -> dict[str, Any]:
         if time.monotonic() >= deadline:
             timed_out = True
             break
-        _sleep(settings.EDIT_POLL_SECONDS)
-        if is_cancelled(run_id):
+        await _sleep(settings.EDIT_POLL_SECONDS)
+        if await is_cancelled(run_id):
             return {"cancelled": True}
         try:
-            draft = backend_client.get_edit_request(run_id, target["document_id"])
+            draft = await backend_client.get_edit_request(run_id, target["document_id"])
         except EditRequestRefused as refusal:
             # The draft is gone (refused from the UI, or it lapsed) while this run waited for it.
-            emit(run_id, "edit_refused", {"code": refusal.code, "message": refusal.message})
+            await emit(run_id, "edit_refused", {"code": refusal.code, "message": refusal.message})
             return {"answer": refusal.message, "citations": [], "edit_proposal": None}
     return {"draft": draft, "timed_out": timed_out}
 
 
-def edit_report(state: EditState) -> dict[str, Any]:
+async def edit_report(state: EditState) -> dict[str, Any]:
     target, draft, timed_out = state["edit_target"], state["draft"], state.get("timed_out", False)
-    emit(state["run_id"], "edit_delegation_finished", {"status": draft["status"], "timed_out": timed_out})
+    await emit(state["run_id"], "edit_delegation_finished", {"status": draft["status"], "timed_out": timed_out})
     return {
         "answer": _answer(target["document_name"], draft, timed_out),
         "citations": [],

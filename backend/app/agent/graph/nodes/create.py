@@ -55,17 +55,17 @@ def _bounded(markdown: str) -> str:
     return cut[: cut.rfind("\n\n")].rstrip() if "\n\n" in cut else cut
 
 
-def create_resolve(state: CreateState) -> dict[str, Any]:
+async def create_resolve(state: CreateState) -> dict[str, Any]:
     """What the plan chose, or what to tell the user when it could not (which collection? only Markdown is possible)."""
     target = state["create_target"] or {}
     if "clarification" in target:
         return {"answer": target["clarification"], "citations": [], "edit_proposal": None}
-    if is_cancelled(state["run_id"]):
+    if await is_cancelled(state["run_id"]):
         return {"cancelled": True}
     return {}
 
 
-def create_write(state: CreateState) -> dict[str, Any]:
+async def create_write(state: CreateState) -> dict[str, Any]:
     """Writes the document the user asked for and proposes it - it is not created here.
 
     The text is written from the request and the conversation, without searching the collections.
@@ -75,8 +75,8 @@ def create_write(state: CreateState) -> dict[str, Any]:
     run_id = state["run_id"]
     target = state["create_target"]
 
-    set_activity(run_id, "create_write", f"Writing a document for « {target['collection_name']} »")
-    emit(run_id, "create_delegated", {"collection_id": target["collection_id"]})
+    await set_activity(run_id, "create_write", f"Writing a document for « {target['collection_name']} »")
+    await emit(run_id, "create_delegated", {"collection_id": target["collection_id"]})
     history_text = "\n".join(f"{m['role']}: {m['content']}" for m in state["messages"][:-1])
     user_content = f"Document to write: {target['instruction']}"
     if target.get("title"):
@@ -85,14 +85,14 @@ def create_write(state: CreateState) -> dict[str, Any]:
         user_content += f"\n\nConversation so far:\n{history_text}"
     markdown = ""
     try:
-        raw = backend_client.llm_chat(
+        raw = await backend_client.llm_chat(
             state["chat_model"],
             [{"role": "system", "content": _WRITER_PROMPT}, {"role": "user", "content": user_content}],
             max_tokens=settings.CREATE_MAX_TOKENS,
         )
         markdown = _bounded(strip_code_fence(raw))
     except Exception:
-        emit(run_id, "create_failed", {})
+        await emit(run_id, "create_failed", {})
     if not markdown.strip():
         return {
             "answer": (
@@ -111,7 +111,7 @@ def create_write(state: CreateState) -> dict[str, Any]:
         "name": name,
         "content": markdown,
     }
-    emit(run_id, "create_proposed", {"collection_id": target["collection_id"], "name": name})
+    await emit(run_id, "create_proposed", {"collection_id": target["collection_id"], "name": name})
     return {
         "answer": (
             f"J'ai rédigé le document « {name} » pour la collection « {target['collection_name']} ». "

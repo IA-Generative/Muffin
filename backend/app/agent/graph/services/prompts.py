@@ -11,7 +11,7 @@ _CACHE_TTL_SECONDS = 60
 _cache: dict[str, tuple[float, str, str]] = {}  # name -> (fetched_at, content, prompt_version_id)
 
 
-def get_prompt(name: str, fallback: str) -> tuple[str, str | None]:
+async def get_prompt(name: str, fallback: str) -> tuple[str, str | None]:
     """Returns (content, prompt_version_id) for the currently active version of prompt `name`.
     Falls back to `fallback` (the node's own hardcoded default) with prompt_version_id=None on
     any failure - a prompt-versioning outage must never take down a run, same reasoning as
@@ -20,7 +20,7 @@ def get_prompt(name: str, fallback: str) -> tuple[str, str | None]:
     if cached is not None and time.monotonic() - cached[0] < _CACHE_TTL_SECONDS:
         return cached[1], cached[2]
 
-    prompt = backend_client.get_active_prompt(name)
+    prompt = await backend_client.get_active_prompt(name)
     if prompt is None:
         logger.warning(f"No active prompt version for '{name}', using hardcoded fallback")
         return fallback, None

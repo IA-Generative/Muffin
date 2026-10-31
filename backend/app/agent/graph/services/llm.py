@@ -17,12 +17,12 @@ def strip_code_fence(text: str) -> str:
     return "\n".join(lines).strip()
 
 
-def json_chat(model: str, system_prompt: str, user_content: str, *, fallback: Any) -> Any:
+async def json_chat(model: str, system_prompt: str, user_content: str, *, fallback: Any) -> Any:
     """Chat call whose response is expected to be a single JSON value. Never lets a malformed
     or refused LLM response take the graph down - callers get `fallback` and log instead, since
     a routing/planning node choosing a safe default beats crashing the run."""
     try:
-        raw = backend_client.llm_chat(
+        raw = await backend_client.llm_chat(
             model, [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_content}]
         )
         return json.loads(strip_code_fence(raw))
