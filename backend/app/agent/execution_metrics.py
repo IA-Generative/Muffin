@@ -1,20 +1,17 @@
-"""What the steps of a run cost the machine, recorded when each ends: how long it took, the CPU time it used and
-the memory
-the process held (shown in "Ma consommation" with an estimated energy).
+"""What the steps of a run cost, recorded when each ends: how long it took, and the memory the process held (shown in
+"Ma consommation" with an estimated energy).
 
-The agent runs in a thread of the backend, so the CPU time is the thread's own and the memory the process's.
-Recording never
-fails a run and never makes it wait: a thread sends what the steps report (see graph/services/node_metrics.py) and
-what could
-not be sent is dropped."""
+The agent runs on the backend's event loop, which many runs and requests share: the CPU time of a step cannot be told
+from the others' any more, so only its wall time is reported (the CPU is 0 - what a run spends waiting for a model or a
+search is not CPU). Recording never fails a run and never makes it wait: each metric is sent by a task of its own, and
+what could not be sent is dropped."""
 
+import asyncio
 import contextlib
 import os
-import queue
 import resource
-import threading
 import time
-from collections.abc import Iterator
+from collections.abc import AsyncIterator
 from typing import Any
 
 from loguru import logger
@@ -22,9 +19,10 @@ from loguru import logger
 from app.agent.backend_client import backend_client
 from app.agent.usage_context import current_usage
 
-FLUSH_TIMEOUT_SECONDS = 5.0
-MAX_QUEUED = 1000
+# Metrics being sent at once, at most: a backend that does not answer must not pile tasks up.
+MAX_IN_FLIGHT = 200
 _PAGE_BYTES = os.sysconf("SC_PAGE_SIZE")
+_pending: set[asyncio.Task] = set()
 
 
 def _rss_bytes() -> int:
@@ -36,65 +34,47 @@ def _rss_bytes() -> int:
         return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024
 
 
-class _Sender:
-    """The metrics waiting to be sent, and the thread sending them."""
-
-    def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self._queue: queue.Queue[dict[str, Any]] = queue.Queue(MAX_QUEUED)
-        self._thread: threading.Thread | None = None
-
-    def put(self, metric: dict[str, Any]) -> None:
-        with self._lock:
-            if self._thread is None:
-                self._thread = threading.Thread(target=self._run, name="execution-sender", daemon=True)
-                self._thread.start()
-        try:
-            self._queue.put_nowait(metric)
-        except queue.Full:
-            logger.warning("Too many execution metrics waiting to be sent, one dropped")
-
-    def flush(self) -> None:
-        """Waits, up to FLUSH_TIMEOUT_SECONDS, for what was reported to be sent."""
-        deadline = time.monotonic() + FLUSH_TIMEOUT_SECONDS
-        while self._queue.unfinished_tasks and time.monotonic() < deadline:
-            time.sleep(0.02)
-
-    def _run(self) -> None:
-        while True:
-            metric = self._queue.get()
-            try:
-                backend_client.add_execution_metric(metric)
-            except Exception as error:
-                logger.warning(f"Could not send an execution metric: {error}")
-            finally:
-                self._queue.task_done()
+async def _send(metric: dict[str, Any]) -> None:
+    try:
+        await backend_client.add_execution_metric(metric)
+    except Exception as error:
+        logger.warning(f"Could not send an execution metric: {error}")
 
 
-_sender = _Sender()
-
-
-def report(kind: str, step: str, duration_seconds: float, cpu_seconds: float, peak_rss_bytes: int | None) -> None:
-    """Queues one metric, attributed to whatever the current run's LLM calls are (usage_context)."""
+def report(kind: str, step: str, duration_seconds: float, peak_rss_bytes: int | None = None) -> None:
+    """Sends one metric in the background, attributed to whatever the current run's LLM calls are (usage_context)."""
+    if len(_pending) >= MAX_IN_FLIGHT:
+        logger.warning("Too many execution metrics waiting to be sent, one dropped")
+        return
     usage = current_usage() or {}
-    _sender.put(
-        {
-            "kind": kind,
-            "step": step,
-            "duration_seconds": max(duration_seconds, 0.0),
-            "cpu_seconds": max(cpu_seconds, 0.0),
-            "peak_rss_bytes": peak_rss_bytes,
-            **{key: usage[key] for key in ("user_id", "run_id", "document_id", "collection_id") if key in usage},
-        }
-    )
+    metric = {
+        "kind": kind,
+        "step": step,
+        "duration_seconds": max(duration_seconds, 0.0),
+        "cpu_seconds": 0.0,
+        "peak_rss_bytes": peak_rss_bytes,
+        **{key: usage[key] for key in ("user_id", "run_id", "document_id", "collection_id") if key in usage},
+    }
+    try:
+        task = asyncio.get_running_loop().create_task(_send(metric))
+    except RuntimeError:  # no loop: nothing to send it on
+        return
+    _pending.add(task)
+    task.add_done_callback(_pending.discard)
 
 
-@contextlib.contextmanager
-def measured_run(step: str = "run_agent") -> Iterator[None]:
-    """The run as a whole, reported like a task: its time, its thread's CPU and the process's memory at its end."""
-    wall, cpu = time.monotonic(), time.thread_time()
+async def flush(timeout: float = 5.0) -> None:
+    """Waits, up to `timeout`, for what was reported to be sent."""
+    if _pending:
+        await asyncio.wait(set(_pending), timeout=timeout)
+
+
+@contextlib.asynccontextmanager
+async def measured_run(step: str = "run_agent") -> AsyncIterator[None]:
+    """The run as a whole, reported like a task: its time and the process's memory at its end."""
+    wall = time.monotonic()
     try:
         yield
     finally:
-        report("task", step, time.monotonic() - wall, time.thread_time() - cpu, _rss_bytes())
-        _sender.flush()
+        report("task", step, time.monotonic() - wall, _rss_bytes())
+        await flush()

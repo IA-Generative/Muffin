@@ -1,6 +1,7 @@
+import asyncio
+import inspect
 import uuid
-from concurrent.futures import ThreadPoolExecutor
-from contextvars import copy_context
+from collections.abc import Awaitable
 from functools import partial
 from typing import Any
 
@@ -154,16 +155,16 @@ def _pages_text(ranges: list[list[int]]) -> str:
     return ", ".join(f"{start}-{end}" if start != end else str(start) for start, end in ranges)
 
 
-def _best_effort(call: Any, default: Any) -> Any:
+async def _best_effort(call: Awaitable[Any], default: Any) -> Any:
     """The QA and the summaries only add to what the chunks give: failing to read them never fails the search."""
     try:
-        return call()
+        return await call
     except Exception:
         logger.exception("A search tier failed, going on without it")
         return default
 
 
-def _run_search(
+async def _run_search(
     task: dict[str, Any],
     _user_id: str,
     accessible_vdbs: list[dict[str, Any]],
@@ -181,27 +182,14 @@ def _run_search(
     base_updates = {"selected_vdbs": vdb_ids, "search_queries": [task["query"]], "unexplored_vdb_ids": []}
     query = task["query"]
 
-    # Each call in a copy of the context of the run (who it is for, their token): a pool's threads do not inherit it.
-    with ThreadPoolExecutor(max_workers=3) as pool:
-        qa_future = pool.submit(
-            copy_context().run,
-            _best_effort,
-            lambda: backend_client.search_qa(vdb_ids, query, limit=_QA_CANDIDATES, include_descendants=True),
-            [],
-        )
-        summary_future = pool.submit(
-            copy_context().run,
-            _best_effort,
-            lambda: backend_client.search_summaries(
-                vdb_ids, query, limit=_SUMMARY_MATCH_LIMIT, include_descendants=True
-            ),
-            [],
-        )
-        chunk_future = pool.submit(
-            copy_context().run,
-            lambda: backend_client.search(vdb_ids, query, settings.SEARCH_RESULTS_PER_QUERY, include_descendants=True),
-        )
-        qa_hits, summary_hits, results = qa_future.result(), summary_future.result(), chunk_future.result()
+    # The three calls run together; each task copies the context of the run (who it is for, their token).
+    qa_hits, summary_hits, results = await asyncio.gather(
+        _best_effort(backend_client.search_qa(vdb_ids, query, limit=_QA_CANDIDATES, include_descendants=True), []),
+        _best_effort(
+            backend_client.search_summaries(vdb_ids, query, limit=_SUMMARY_MATCH_LIMIT, include_descendants=True), []
+        ),
+        backend_client.search(vdb_ids, query, settings.SEARCH_RESULTS_PER_QUERY, include_descendants=True),
+    )
 
     evidence: list[Evidence] = []
     if qa_hits and qa_hits[0]["score"] >= _QA_MATCH_THRESHOLD:
@@ -230,7 +218,7 @@ def _run_collection_summary(
     return {"selected_vdbs": [str(v["id"]) for v in selected_vdbs]}, evidence
 
 
-def _run_list_documents(
+async def _run_list_documents(
     task: dict[str, Any],
     user_id: str,
     accessible_vdbs: list[dict[str, Any]],
@@ -241,7 +229,7 @@ def _run_list_documents(
     selected_vdbs = scope_vdbs(scope_ids, accessible_vdbs)
     evidence: list[Evidence] = []
     for vdb in selected_vdbs:
-        documents = backend_client.list_collection_documents(user_id, str(vdb["id"]))
+        documents = await backend_client.list_collection_documents(user_id, str(vdb["id"]))
         for document in documents:
             partial = (
                 f" [partial summary: pages {_pages_text(document['summary_pages'])} only]"
@@ -285,7 +273,7 @@ def _run_list_documents(
     return {"selected_vdbs": [str(v["id"]) for v in selected_vdbs]}, evidence
 
 
-def _run_page_content(
+async def _run_page_content(
     task: dict[str, Any],
     user_id: str,
     accessible_vdbs: list[dict[str, Any]],
@@ -300,12 +288,12 @@ def _run_page_content(
     # Only one page is ever fetched per task - resolve against the first matching collection's
     # documents, same permission-scoped candidate list list_documents itself uses.
     vdb = selected_vdbs[0]
-    candidates = backend_client.list_collection_documents(user_id, str(vdb["id"]))
-    document_id, page_number = resolve_document_page(task["query"], candidates, model)
+    candidates = await backend_client.list_collection_documents(user_id, str(vdb["id"]))
+    document_id, page_number = await resolve_document_page(task["query"], candidates, model)
     if document_id is None or page_number is None:
         return {"selected_vdbs": [str(vdb["id"])]}, []
 
-    page = backend_client.get_document_page(user_id, document_id, page_number)
+    page = await backend_client.get_document_page(user_id, document_id, page_number)
     document_name = next((c["name"] for c in candidates if str(c["id"]) == document_id), document_id)
     evidence = [
         Evidence(
@@ -327,7 +315,7 @@ def _run_page_content(
     return {"selected_vdbs": [str(vdb["id"])]}, evidence
 
 
-def _run_web_search(
+async def _run_web_search(
     task: dict[str, Any],
     _user_id: str,
     _accessible_vdbs: list[dict[str, Any]],
@@ -345,7 +333,7 @@ def _run_web_search(
     # The query sent out is always this task's own query - decomposed from the user's original
     # question by decompose_query, never document excerpts/evidence content (§ security: this
     # is what keeps private document content from ever leaking into a web search request).
-    results = searxng_client.search(task["query"], settings.WEB_SEARCH_RESULTS_PER_QUERY)
+    results = await searxng_client.search(task["query"], settings.WEB_SEARCH_RESULTS_PER_QUERY)
     evidence = [_web_result_evidence(task["id"], task["query"], result) for result in results]
     return {"results": [{"url": r["url"]} for r in results]}, evidence
 
@@ -386,7 +374,7 @@ def _run_time(
     return {"selected_vdbs": [], "results": []}, evidence
 
 
-def _run_tabular_query(
+async def _run_tabular_query(
     task: dict[str, Any],
     user_id: str,
     accessible_vdbs: list[dict[str, Any]],
@@ -418,14 +406,14 @@ def _run_tabular_query(
 
     listings = []
     for vdb in selected_vdbs:
-        documents = backend_client.list_tabular_documents(user_id, str(vdb["id"]))
+        documents = await backend_client.list_tabular_documents(user_id, str(vdb["id"]))
         if documents:
             listings.append((vdb, documents))
     catalog = Catalog.build(listings, settings.TABULAR_MAX_FILES)
     if not catalog.files and not catalog.pending:
         return updates, []
 
-    outcome = run_query_loop(task["query"], catalog, model, run_id) if catalog.files else LoopOutcome()
+    outcome = (await run_query_loop(task["query"], catalog, model, run_id)) if catalog.files else LoopOutcome()
     if not outcome.succeeded:
         if outcome.stopped and outcome.calls:
             raise RuntimeError(f"Analyse des données impossible : {outcome.stopped}")
@@ -491,7 +479,7 @@ _RUNNERS = {
 }
 
 
-def research_task(state: ResearchTaskInput) -> dict[str, Any]:
+async def research_task(state: ResearchTaskInput) -> dict[str, Any]:
     """Central research node (§11) - one call handles exactly one ResearchTask and knows nothing
     about the others. It orchestrates VDB routing + search/meta-lookups as plain service calls
     (§35: these are not themselves LangGraph nodes, only research_task is). `task["tool"]` picks
@@ -503,25 +491,25 @@ def research_task(state: ResearchTaskInput) -> dict[str, Any]:
     run_id, task, user_id = state["run_id"], state["task"], state["user_id"]
     task_id = task["id"]
 
-    if is_cancelled(run_id):
+    if await is_cancelled(run_id):
         return {
             "research_tasks": [{**task, "status": "failed", "error": "cancelled"}],
             "failed_task_ids": [task_id],
         }
 
-    set_activity(run_id, "research_task", task["query"])
-    emit(
+    await set_activity(run_id, "research_task", task["query"])
+    await emit(
         run_id,
         "task_started",
         {"query": task["query"], "tool": task["tool"]},
         task_id=task_id,
     )
     try:
-        emit(run_id, "vdb_routing_started", task_id=task_id)
+        await emit(run_id, "vdb_routing_started", task_id=task_id)
         runner = _RUNNERS.get(task["tool"], _run_search)
         if task["tool"] == "tabular_query":
             runner = partial(_run_tabular_query, run_id=run_id)
-        updates, evidence = runner(
+        outcome = runner(
             task,
             user_id,
             state["accessible_vdbs"],
@@ -529,6 +517,8 @@ def research_task(state: ResearchTaskInput) -> dict[str, Any]:
             state["scope_ids"],
             state["web_search_enabled"],
         )
+        # Some runners wait on something (the backend, a search), the others only compute.
+        updates, evidence = await outcome if inspect.isawaitable(outcome) else outcome
         # Stamped centrally here (not in each runner) so every evidence-producing branch tags
         # itself the same way, once - lets a citation say which tool produced it (§ sources
         # panel: a "search" citation links to a real page/chunk, a meta-tool one is just
@@ -536,15 +526,23 @@ def research_task(state: ResearchTaskInput) -> dict[str, Any]:
         evidence = [{**e, "metadata": {**e["metadata"], "tool": task["tool"]}} for e in evidence]
         # Run-level, not part of the task itself - see AgentState.unexplored_vdb_ids.
         unexplored_vdb_ids = updates.pop("unexplored_vdb_ids", [])
-        emit(
+        await emit(
             run_id,
             "vdb_routing_completed",
-            {"selected_ids": updates.get("selected_vdbs", [])},
+            {
+                "selected_ids": updates.get("selected_vdbs", []),
+                # What the chat shows while the run goes on: where it searched, by name.
+                "selected": [
+                    vdb["name"]
+                    for vdb in state["accessible_vdbs"]
+                    if str(vdb["id"]) in updates.get("selected_vdbs", [])
+                ],
+            },
             task_id=task_id,
         )
 
         completed = {**task, "status": "completed", **updates}
-        emit(run_id, "task_completed", {"evidence_count": len(evidence)}, task_id=task_id)
+        await emit(run_id, "task_completed", {"evidence_count": len(evidence)}, task_id=task_id)
         return {
             "research_tasks": [completed],
             "completed_task_ids": [task_id],
@@ -555,7 +553,7 @@ def research_task(state: ResearchTaskInput) -> dict[str, Any]:
         # One branch failing must not take the whole run down (§29) - evaluate_coverage decides
         # afterwards whether the surviving tasks are enough to answer with.
         logger.exception(f"Research task {task_id} failed (run {run_id})")
-        emit(run_id, "task_failed", {"error": str(error)}, task_id=task_id)
+        await emit(run_id, "task_failed", {"error": str(error)}, task_id=task_id)
         return {
             "research_tasks": [{**task, "status": "failed", "error": str(error)}],
             "failed_task_ids": [task_id],

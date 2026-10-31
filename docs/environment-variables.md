@@ -336,7 +336,7 @@ requête pathologique ne puisse pas faire tourner indéfiniment le fan-out. L'ag
 
 | Variable | Définition | Défaut | Utilisée par |
 |---|---|---|---|
-| `MAX_CONCURRENT_RUNS` | Runs qu'un pod du backend exécute en même temps (un thread chacun, plus ceux de leurs recherches en parallèle) ; les autres attendent, en file | `8` | **backend** (`app/agent/config.py`, `app/agent/runner.py`) |
+| `MAX_CONCURRENT_RUNS` | Runs qu'un pod du backend exécute en même temps (une tâche asyncio chacune) ; les autres attendent, en file | `8` | **backend** (`app/agent/config.py`, `app/agent/runner.py`) |
 | `MAX_PARALLEL_TASKS` | Nombre max de requêtes du plan exécutées en parallèle (fan-out `Send`) | `4` | idem (`graph/routing/conditions.py`) |
 | `MAX_TOTAL_TASKS` | Plafond cumulé de tâches sur toute la durée d'un run | `12` | idem |
 | `GATE_MIN_EVIDENCE` | Passages d'une recherche de contenu qui suffisent pour écrire une réponse (le `gate`, sans modèle) ; en dessous, la recherche est élargie à toutes les collections une fois | `1` | idem (`graph/nodes/gate.py`) |

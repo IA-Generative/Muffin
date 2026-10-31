@@ -45,7 +45,7 @@ _SYSTEM_PROMPT = (
 _PARTIAL_PUBLISH_INTERVAL_SECONDS = 0.4
 
 
-def _write_answer(run_id: str, model: str, messages: list[dict[str, str]]) -> dict[str, Any]:
+async def _write_answer(run_id: str, model: str, messages: list[dict[str, str]]) -> dict[str, Any]:
     """Has the model write the answer, publishing the text written so far (at most every
     _PARTIAL_PUBLISH_INTERVAL_SECONDS) so the chat shows it while it is still coming. Same result as
     llm_chat_with_usage. A stream that fails before anything was written falls back to the plain call,
@@ -54,34 +54,34 @@ def _write_answer(run_id: str, model: str, messages: list[dict[str, str]]) -> di
     prompt_tokens = completion_tokens = None
     last_published = 0.0
     try:
-        backend_client.set_partial_answer(run_id, "")
-        for item in backend_client.llm_chat_stream(model, messages):
+        await backend_client.set_partial_answer(run_id, "")
+        async for item in backend_client.llm_chat_stream(model, messages):
             if item.get("done"):
                 prompt_tokens, completion_tokens = item.get("prompt_tokens"), item.get("completion_tokens")
                 continue
             text += item.get("delta", "")
             now = time.monotonic()
             if now - last_published >= _PARTIAL_PUBLISH_INTERVAL_SECONDS:
-                backend_client.set_partial_answer(run_id, partial_answer(text))
+                await backend_client.set_partial_answer(run_id, partial_answer(text))
                 last_published = now
     except Exception:
         if text:
             raise
         logger.exception("Streaming the answer failed, asking for it in one piece instead")
-        return backend_client.llm_chat_with_usage(model, messages)
+        return await backend_client.llm_chat_with_usage(model, messages)
     return {"content": text, "prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens}
 
 
-def generate_answer(state: AgentState) -> dict[str, Any]:
+async def generate_answer(state: AgentState) -> dict[str, Any]:
     """Final answer generation (§22). Grounding in the given evidence is enforced structurally,
     not just requested: no excerpts means no citations means an explicit "couldn't find" answer,
     never a call to the model asked to answer anyway."""
     run_id = state["run_id"]
-    if is_cancelled(run_id):
+    if await is_cancelled(run_id):
         return {"cancelled": True}
 
-    set_activity(run_id, "generate_answer", "Generating the answer")
-    emit(run_id, "answer_generation_started")
+    await set_activity(run_id, "generate_answer", "Generating the answer")
+    await emit(run_id, "answer_generation_started")
     context = state["answer_context"]
     model = state["chat_model"]
 
@@ -110,7 +110,7 @@ def generate_answer(state: AgentState) -> dict[str, Any]:
             "citations": [],
         }
 
-    system_prompt, prompt_version_id = get_prompt("generate_answer", fallback=_SYSTEM_PROMPT)
+    system_prompt, prompt_version_id = await get_prompt("generate_answer", fallback=_SYSTEM_PROMPT)
     # Appended here, not in the prompt (administrable, see get_prompt): an overridden prompt keeps the rule (#402).
     system_prompt += CITATION_RULE + OUTPUT_FORMAT
     evidence_block = "\n\n".join(
@@ -146,7 +146,7 @@ def generate_answer(state: AgentState) -> dict[str, Any]:
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_content},
     ]
-    result = _write_answer(run_id, model, messages)
+    result = await _write_answer(run_id, model, messages)
     prompt_tokens = result.get("prompt_tokens")
     completion_tokens = result.get("completion_tokens")
     valid_ids = {e["id"] for e in context["excerpts"]}
@@ -189,7 +189,7 @@ def generate_answer(state: AgentState) -> dict[str, Any]:
         }
         for e in context["excerpts"]
     ]
-    emit(run_id, "answer_generation_completed", {"citation_count": len(citations)})
+    await emit(run_id, "answer_generation_completed", {"citation_count": len(citations)})
     return {
         "answer": answer,
         "citations": citations,

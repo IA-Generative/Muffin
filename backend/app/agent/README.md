@@ -6,24 +6,28 @@ source (grounding).
 
 ## Où il tourne
 
-**Dans le backend**, pas dans un worker. Un run est une tâche de fond de la boucle d'événements du backend (`runner.py`) qui confie
-son graphe - des nœuds synchrones - à un thread, pour ne jamais bloquer la boucle qui sert les utilisateurs. Il survit à la requête
-qui l'a créé ; l'interface suit le run et ses événements comme avant.
+**Dans le backend**, pas dans un worker. Un run est une tâche de fond de la boucle d'événements du backend (`runner.py`), comme
+une requête : le graphe est **natif `async`** - chaque nœud est une coroutine, qui attend un modèle, une recherche ou une route du
+backend sans retenir de thread. Il survit à la requête qui l'a créé ; l'interface suit le run et ses événements comme avant.
 
 - **Le jeton de l'utilisateur** (`user_token.py`) : le `POST /api/runs` le prend à la requête (jeton porteur, ou jeton d'accès de la
   session) et le garde **en mémoire pour la durée du run**, dans une variable de contexte - jamais dans l'état du graphe (que le
-  checkpointer écrit dans Redis), ni dans un événement, un log ou la base. Un outil qui doit appeler un service au nom de
-  l'utilisateur le demande avec `current_user_token()` ; les branches parallèles de la recherche le voient aussi. Il n'est pas
-  renouvelé : un run dure de quelques secondes à quelques minutes.
-- **Les appels au backend** (`backend_client.py`, `runtime.py`) passent par ses propres routes `/api/internal/*`, **en mémoire** (transport
-  ASGI), avec la clé `WORKER_API_KEY` du backend : la logique de chaque route reste où elle est, rien n'est recopié. C'est une étape :
-  des appels directs aux services remplaceront ces routes au fil du temps. La réponse en streaming ne passe pas par une réponse HTTP
-  (elle n'arrive qu'entière en mémoire) : elle lit le générateur de la route.
+  checkpointer écrit dans Redis), ni dans un événement, un log ou la base. Une tâche asyncio part d'une copie du contexte où elle
+  est créée : le run, ses nœuds et les `asyncio.gather` de la recherche voient le même jeton, et un run démarré après n'hérite pas
+  de celui d'un autre. Un outil qui doit appeler un service au nom de l'utilisateur le demande avec `current_user_token()`. Il
+  n'est pas renouvelé : un run dure de quelques secondes à quelques minutes.
+- **Les appels au backend** (`backend_client.py`) passent par ses propres routes `/api/internal/*`, **en mémoire** (transport
+  ASGI), avec la clé `WORKER_API_KEY` du backend : la logique de chaque route reste où elle est, rien n'est recopié. C'est une
+  étape : des appels directs aux services remplaceront ces routes au fil du temps. La réponse en streaming ne passe pas par une
+  réponse HTTP (elle n'arrive qu'entière en mémoire) : elle lit le générateur de la route, morceau par morceau.
 - **Ce que ça coûte** : un run ne survit pas au redémarrage du pod qui l'exécute. Un run qui n'avance plus depuis 10 minutes est marqué
   « échoué » (au démarrage d'un pod et toutes les 5 minutes), pour que l'utilisateur soit prévenu. Le nombre de runs qu'un pod exécute
   en même temps est borné (`MAX_CONCURRENT_RUNS`) : les autres attendent leur tour.
-- **L'annulation** (`cancellation.py`) : `cancel_requested` sur le run, que chaque nœud regarde à son début, quel que soit le pod ; le pod
-  qui exécute le run est aussi prévenu directement, pour que l'attente du worker SQL s'arrête à son prochain regard.
+- **L'annulation** (`cancellation.py`) : le run est annulé **là où il attend** (la tâche est annulée) ; `cancel_requested` sur le run,
+  que chaque nœud regarde à son début, couvre le cas d'un autre pod ; l'attente du worker SQL s'arrête aussi à son prochain regard.
+- **Ce qui reste bloquant** : le client Celery (envoi et suivi des requêtes du worker SQL) est synchrone ; ses appels partent dans un
+  thread (`asyncio.to_thread`) pour ne jamais retenir la boucle. Le CPU d'un nœud n'est plus mesuré (la boucle est partagée) : seule
+  sa durée est enregistrée.
 
 Ne parle jamais directement à Postgres/Qdrant : toute lecture/écriture passe par les routes internes. Exceptions : SearXNG
 (`searxng_client.py`), appelé directement par l'outil `web_search` - aucune donnée utilisateur n'y est stockée, ce n'est qu'un
@@ -137,7 +141,6 @@ backend/app/agent/
                    tool_guide.py, authoring.py, evidence.py, document_resolver.py, events.py
   runner.py        les runs : tâches de fond, bornées, annulables, runs orphelins échoués
   service.py       charge le run, construit l'état initial, lance le graphe, enregistre le résultat
-  runtime.py       le pont entre les threads des runs et la boucle du backend
   backend_client.py client des routes /api/internal/* du backend (en mémoire)
   user_token.py    le jeton de l'utilisateur, en mémoire, le temps du run
   cancellation.py  annulation d'un run

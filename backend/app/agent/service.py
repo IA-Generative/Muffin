@@ -1,7 +1,7 @@
-import threading
+import asyncio
 from typing import Any
 
-from langgraph.checkpoint.redis import RedisSaver
+from langgraph.checkpoint.redis.aio import AsyncRedisSaver
 from loguru import logger
 
 from app.agent.ask_user import question_rounds
@@ -11,25 +11,26 @@ from app.agent.graph import AgentState, build_graph
 from app.agent.graph.nodes.ground_check import ground_check
 
 _graph = None
-_graph_lock = threading.Lock()
+_graph_lock: asyncio.Lock | None = None
 
 
-def _get_graph():
+async def _get_graph():
     """The graph, built when the first run needs it (not when the backend imports this module: connecting to Redis then
     would hold up, or break, every start of the backend).
 
     Redis-backed checkpointer, not the graph's default InMemorySaver (§32): a run that waited for an answer before
-    #344 is
-    resumed by whichever backend pod receives the request, which is almost never the one that paused it - only a
-    checkpointer outside any single process's memory survives that. Requires RediSearch (redis-stack-server, not plain
-    redis). Without it the graph falls back to the in-process default: fine for tests and local dev, but such a run
-    cannot be resumed on another process."""
-    global _graph
-    with _graph_lock:
+    #344 is resumed by whichever backend pod receives the request, which is almost never the one that paused it - only
+    a checkpointer outside any single process's memory survives that. Requires RediSearch (redis-stack-server, not
+    plain redis). Without it the graph falls back to the in-process default: fine for tests and local dev, but such a
+    run cannot be resumed on another process."""
+    global _graph, _graph_lock
+    if _graph_lock is None:
+        _graph_lock = asyncio.Lock()
+    async with _graph_lock:
         if _graph is None:
             try:
-                checkpointer = RedisSaver(redis_url=settings.REDIS_URL)
-                checkpointer.setup()
+                checkpointer = AsyncRedisSaver(redis_url=settings.REDIS_URL)
+                await checkpointer.asetup()
             except Exception:
                 logger.exception("Failed to set up the Redis checkpointer - falling back to an in-memory one")
                 checkpointer = None
@@ -49,16 +50,16 @@ def _config(run_id: str) -> dict[str, Any]:
     return {"configurable": {"thread_id": run_id}}
 
 
-def _generate_conversation_title(conversation_id: str, query: str, answer: str) -> None:
+async def _generate_conversation_title(conversation_id: str, query: str, answer: str) -> None:
     """Best-effort (§ never let a side effect flip an already-completed run to failed): the
     backend's own title_generated flag makes this idempotent, so it's safe to just attempt it
     after every completed run rather than the worker tracking "is this the first one" itself.
     """
     try:
-        model = backend_client.get_default_chat_model()
+        model = await backend_client.get_default_chat_model()
         if model is None:
             return
-        title = backend_client.llm_chat(
+        title = await backend_client.llm_chat(
             model,
             [
                 {"role": "system", "content": _TITLE_SYSTEM_PROMPT},
@@ -67,7 +68,7 @@ def _generate_conversation_title(conversation_id: str, query: str, answer: str) 
         )
         title = title.strip().strip('"').strip("'")[:80]
         if title:
-            backend_client.update_conversation_title(conversation_id, title)
+            await backend_client.update_conversation_title(conversation_id, title)
     except Exception:
         logger.exception(f"Failed to generate a title for conversation {conversation_id}")
 
@@ -79,8 +80,8 @@ class AgentService:
     logic; this stays dumb on purpose so Celery/A2A callers never need to
     know anything about LangGraph."""
 
-    def run(self, run_id: str) -> None:
-        run = backend_client.get_run(run_id)
+    async def run(self, run_id: str) -> None:
+        run = await backend_client.get_run(run_id)
 
         if run["status"] in ("completed", "cancelled"):
             # Idempotency (§8): a redelivered Celery message must not redo
@@ -98,7 +99,7 @@ class AgentService:
             # This message answers the questions the assistant asked last (#344): the event the clients
             # of the run's event stream already know from when the run waited for the answer.
             if raw_history and raw_history[-1].get("asked"):
-                backend_client.add_run_event(run_id, "clarification_received", {"answer": run["query"]})
+                await backend_client.add_run_event(run_id, "clarification_received", {"answer": run["query"]})
             initial_state: AgentState = {
                 "run_id": run_id,
                 "user_id": run["user_id"],
@@ -110,7 +111,7 @@ class AgentService:
                 # Fetched once here rather than by every node that needs it (see AgentState.chat_model) -
                 # backend_client.get_default_chat_model() is already Redis-cached backend-side, so this
                 # is the only worker<->backend round trip for it in the entire run.
-                "chat_model": backend_client.get_default_chat_model(),
+                "chat_model": (await backend_client.get_default_chat_model()),
                 # Collections explicitly attached via the chat composer's "+" picker - see
                 # AgentState.pinned_vdb_ids.
                 "pinned_vdb_ids": [str(vdb_id) for vdb_id in (run.get("pinned_collection_ids") or [])],
@@ -150,16 +151,16 @@ class AgentService:
                 "execution_status": "queued",
                 "cancelled": False,
             }
-            final_state = _get_graph().invoke(initial_state, config=_config(run_id))
+            final_state = await (await _get_graph()).ainvoke(initial_state, config=_config(run_id))
             self._finalize(run_id, final_state)
         except Exception as error:
             logger.exception(f"Run {run_id} failed")
-            backend_client.set_run_error(run_id, str(error))
-            backend_client.update_run_status(run_id, "failed")
-            backend_client.add_run_event(run_id, "run_failed", {"error": str(error)})
+            await backend_client.set_run_error(run_id, str(error))
+            await backend_client.update_run_status(run_id, "failed")
+            await backend_client.add_run_event(run_id, "run_failed", {"error": str(error)})
             raise
 
-    def resume(self, run_id: str, answer: str) -> None:
+    async def resume(self, run_id: str, answer: str) -> None:
         """Entry point for continuing a run paused on request_clarification's interrupt() (§31),
         called by the runner (POST /api/runs/{id}/resume).
 
@@ -169,32 +170,32 @@ class AgentService:
         from langgraph.types import Command
 
         try:
-            final_state = _get_graph().invoke(Command(resume=answer), config=_config(run_id))
+            final_state = await (await _get_graph()).ainvoke(Command(resume=answer), config=_config(run_id))
             self._finalize(run_id, final_state)
         except Exception as error:
             logger.exception(f"Run {run_id} failed to resume")
-            backend_client.set_run_error(run_id, str(error))
-            backend_client.update_run_status(run_id, "failed")
-            backend_client.add_run_event(run_id, "run_failed", {"error": str(error)})
+            await backend_client.set_run_error(run_id, str(error))
+            await backend_client.update_run_status(run_id, "failed")
+            await backend_client.add_run_event(run_id, "run_failed", {"error": str(error)})
             raise
 
-    def _finalize(self, run_id: str, final_state: dict[str, Any]) -> None:
+    async def _finalize(self, run_id: str, final_state: dict[str, Any]) -> None:
         if final_state.get("__interrupt__"):
             interrupt_payload = final_state["__interrupt__"][0].value
-            backend_client.update_run_status(run_id, "waiting_for_user")
+            await backend_client.update_run_status(run_id, "waiting_for_user")
             # Persisted on the Run row itself, not just the event log - RunOut exposes it so the
             # frontend can show the question without also having to fetch /events.
-            backend_client.update_run_state(run_id, pending_human_action=interrupt_payload)
-            backend_client.add_run_event(run_id, "run_waiting_for_user", {"interrupt": interrupt_payload})
+            await backend_client.update_run_state(run_id, pending_human_action=interrupt_payload)
+            await backend_client.add_run_event(run_id, "run_waiting_for_user", {"interrupt": interrupt_payload})
             return
 
         if final_state.get("cancelled"):
-            backend_client.update_run_status(run_id, "cancelled")
-            backend_client.add_run_event(run_id, "run_cancelled")
+            await backend_client.update_run_status(run_id, "cancelled")
+            await backend_client.add_run_event(run_id, "run_cancelled")
             return
 
         grounding_result = final_state.get("grounding_result")
-        backend_client.set_run_result(
+        await backend_client.set_run_result(
             run_id,
             final_state["answer"] or "",
             final_state["citations"],
@@ -207,35 +208,35 @@ class AgentService:
             unexplored_collection_ids=_unexplored(final_state),
             questions=final_state.get("questions"),
         )
-        backend_client.update_run_status(run_id, "completed")
-        backend_client.add_run_event(run_id, "run_completed", {"citation_count": len(final_state["citations"])})
+        await backend_client.update_run_status(run_id, "completed")
+        await backend_client.add_run_event(run_id, "run_completed", {"citation_count": len(final_state["citations"])})
         # Dedupe: replan_research can contribute the same prompt version id more than once
         # (one per replan pass) - the join table stores which versions this run used, not how
         # many times each one fired.
         prompt_usages = final_state.get("prompt_usages") or []
         if prompt_usages:
-            backend_client.add_prompt_usages(run_id, list(dict.fromkeys(prompt_usages)))
+            await backend_client.add_prompt_usages(run_id, list(dict.fromkeys(prompt_usages)))
         # A question is no basis for a title, nor for a check: the conversation is titled once it has an answer.
         if final_state.get("questions"):
             return
-        _check_grounding(run_id, final_state)
-        _generate_conversation_title(
+        await _check_grounding(run_id, final_state)
+        await _generate_conversation_title(
             final_state["conversation_id"],
             final_state["original_query"],
             final_state["answer"] or "",
         )
 
 
-def _check_grounding(run_id: str, final_state: dict[str, Any]) -> None:
+async def _check_grounding(run_id: str, final_state: dict[str, Any]) -> None:
     """The check of the answer's claims, made once the run is completed - the user is not waiting for it - and only
     for an answer that was hard to write (several sources, a comparison). Best-effort, like the title: its verdict is
     recorded on the run, and it never turns a completed run into a failed one."""
     if not final_state.get("needs_grounding") or final_state.get("edit_proposal"):
         return
     try:
-        result = ground_check(final_state)
+        result = await ground_check(final_state)
         if result is not None:
-            backend_client.set_run_grounding(run_id, result["valid"], result["unsupported_claims"])
+            await backend_client.set_run_grounding(run_id, result["valid"], result["unsupported_claims"])
     except Exception:
         logger.exception(f"Failed to check the grounding of run {run_id}")
 

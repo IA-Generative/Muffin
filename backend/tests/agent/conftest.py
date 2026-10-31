@@ -1,5 +1,5 @@
 import uuid
-from collections.abc import Callable, Iterator
+from collections.abc import AsyncIterator, Callable
 from typing import Any
 
 import pytest
@@ -21,11 +21,15 @@ import app.agent.graph.services.vdb_router as vdb_router_module
 from app.agent.graph.graph import build_graph
 
 
+async def _drop(_metric) -> None:
+    return None
+
+
 @pytest.fixture(autouse=True)
 def _no_execution_metrics_sent(monkeypatch) -> None:
     """The steps of the graphs the tests run report what they cost, to a thread that sends them in the
     background: nothing of it may reach a backend, nor linger in that thread's queue for a later test."""
-    monkeypatch.setattr(execution_metrics_module.backend_client, "add_execution_metric", lambda _metric: None)
+    monkeypatch.setattr(execution_metrics_module.backend_client, "add_execution_metric", _drop)
 
 
 class FakeBackend:
@@ -91,30 +95,30 @@ class FakeBackend:
         self.edit_refusal: Exception | None = None
         self.edit_gone: Exception | None = None
 
-    def list_editable_documents(self, run_id: str) -> list[dict[str, Any]]:
+    async def list_editable_documents(self, run_id: str) -> list[dict[str, Any]]:
         self.editable_calls.append(run_id)
         return self.editable_documents
 
-    def list_editable_collections(self, run_id: str) -> list[dict[str, Any]]:
+    async def list_editable_collections(self, run_id: str) -> list[dict[str, Any]]:
         self.editable_collections_calls.append(run_id)
         return self.editable_collections
 
-    def create_edit_request(self, run_id: str, document_id: str, prompt: str) -> dict[str, Any]:
+    async def create_edit_request(self, run_id: str, document_id: str, prompt: str) -> dict[str, Any]:
         self.edit_creates.append((run_id, document_id, prompt))
         if self.edit_refusal is not None:
             raise self.edit_refusal
         return self.edit_states[0]
 
-    def get_edit_request(self, run_id: str, document_id: str) -> dict[str, Any]:
+    async def get_edit_request(self, run_id: str, document_id: str) -> dict[str, Any]:
         self.edit_polls += 1
         if self.edit_gone is not None:
             raise self.edit_gone
         return self.edit_states[min(self.edit_polls, len(self.edit_states) - 1)]
 
-    def get_run(self, run_id: str) -> dict[str, Any]:
+    async def get_run(self, run_id: str) -> dict[str, Any]:
         return {"cancel_requested": self.cancel_requested}
 
-    def add_run_event(
+    async def add_run_event(
         self,
         run_id: str,
         type_: str,
@@ -124,7 +128,7 @@ class FakeBackend:
         self.events.append((type_, task_id))
         self.event_data.append((type_, data))
 
-    def update_run_status(
+    async def update_run_status(
         self,
         run_id: str,
         status: str,
@@ -134,10 +138,10 @@ class FakeBackend:
         if current_node is not None and current_activity is not None:
             self.activities.append((current_node, current_activity))
 
-    def update_run_state(self, *args: Any, **kwargs: Any) -> None:
+    async def update_run_state(self, *args: Any, **kwargs: Any) -> None:
         pass
 
-    def set_run_result(
+    async def set_run_result(
         self,
         run_id: str,
         answer: str,
@@ -158,31 +162,31 @@ class FakeBackend:
             }
         )
 
-    def set_run_error(self, *args: Any, **kwargs: Any) -> None:
+    async def set_run_error(self, *args: Any, **kwargs: Any) -> None:
         pass
 
-    def set_run_grounding(self, run_id: str, grounding_valid: bool, unsupported_claims: list[str]) -> None:
+    async def set_run_grounding(self, run_id: str, grounding_valid: bool, unsupported_claims: list[str]) -> None:
         self.groundings.append((run_id, grounding_valid, unsupported_claims))
 
-    def list_accessible_collections(self, user_id: str, groups: list[str] | None = None) -> list[dict[str, Any]]:
+    async def list_accessible_collections(self, user_id: str, groups: list[str] | None = None) -> list[dict[str, Any]]:
         self.accessible_collections_groups_requested.append(groups or [])
         return self.accessible_vdbs
 
-    def search_qa(
+    async def search_qa(
         self, collection_ids: list[str], query: str, limit: int, include_descendants: bool = False
     ) -> list[dict[str, Any]]:
         return self.qa_hits
 
-    def search_summaries(
+    async def search_summaries(
         self, collection_ids: list[str], query: str, limit: int, include_descendants: bool = False
     ) -> list[dict[str, Any]]:
         return self.summary_hits
 
-    def search_collections(self, collection_ids: list[str], query: str, limit: int) -> list[dict[str, Any]]:
+    async def search_collections(self, collection_ids: list[str], query: str, limit: int) -> list[dict[str, Any]]:
         self.collection_search_calls.append(collection_ids)
         return self.collection_search_hits
 
-    def search(
+    async def search(
         self, collection_ids: list[str], query: str, limit: int, include_descendants: bool = False
     ) -> list[dict[str, Any]]:
         self.searched_collection_ids.append(collection_ids)
@@ -200,11 +204,11 @@ class FakeBackend:
             for collection_id in collection_ids
         ]
 
-    def llm_chat(self, model: str, messages: list[dict[str, str]], max_tokens: int | None = None) -> str:
+    async def llm_chat(self, model: str, messages: list[dict[str, str]], max_tokens: int | None = None) -> str:
         self.llm_calls.append(messages)
         return self.llm_router(messages[0]["content"])
 
-    def llm_chat_with_usage(
+    async def llm_chat_with_usage(
         self, model: str, messages: list[dict[str, str]], max_tokens: int | None = None
     ) -> dict[str, Any]:
         """Same contract as the real backend_client: returns content + token usage.
@@ -218,13 +222,13 @@ class FakeBackend:
             "completion_tokens": 50,
         }
 
-    def get_default_chat_model(self) -> str | None:
+    async def get_default_chat_model(self) -> str | None:
         return "test-model"
 
-    def list_collection_documents(self, user_id: str, collection_id: str) -> list[dict[str, Any]]:
+    async def list_collection_documents(self, user_id: str, collection_id: str) -> list[dict[str, Any]]:
         return self.documents_by_collection.get(collection_id, [])
 
-    def create_chart(self, run_id: str, body: dict[str, Any]) -> dict[str, Any]:
+    async def create_chart(self, run_id: str, body: dict[str, Any]) -> dict[str, Any]:
         self.charts.append((run_id, body))
         url = f"/api/conversations/conv-1/charts/chart-{len(self.charts)}.png"
         return {
@@ -234,27 +238,27 @@ class FakeBackend:
             "markdown": f"![{body['title']}]({url})",
         }
 
-    def list_tabular_documents(self, user_id: str, collection_id: str) -> list[dict[str, Any]]:
+    async def list_tabular_documents(self, user_id: str, collection_id: str) -> list[dict[str, Any]]:
         return self.tabular_documents_by_collection.get(collection_id, [])
 
-    def get_document_page(self, user_id: str, document_id: str, page_number: int) -> dict[str, Any]:
+    async def get_document_page(self, user_id: str, document_id: str, page_number: int) -> dict[str, Any]:
         return self.pages[(document_id, page_number)]
 
-    def update_conversation_title(self, conversation_id: str, title: str) -> None:
+    async def update_conversation_title(self, conversation_id: str, title: str) -> None:
         self.conversation_titles[conversation_id] = title
 
-    def get_active_prompt(self, name: str) -> dict[str, Any] | None:
+    async def get_active_prompt(self, name: str) -> dict[str, Any] | None:
         """Empty by default - get_prompt() then falls back to each node's own hardcoded
         constant, same system prompt text existing tests already assert on via llm_router.
         Tests exercising prompt versioning itself seed `fake.active_prompts[name]`."""
         return self.active_prompts.get(name)
 
-    def add_prompt_usages(self, run_id: str, prompt_version_ids: list[str]) -> None:
+    async def add_prompt_usages(self, run_id: str, prompt_version_ids: list[str]) -> None:
         self.recorded_prompt_usages.extend(prompt_version_ids)
 
-    def llm_chat_stream(
+    async def llm_chat_stream(
         self, model: str, messages: list[dict[str, str]], max_tokens: int | None = None
-    ) -> Iterator[dict[str, Any]]:
+    ) -> AsyncIterator[dict[str, Any]]:
         """Same contract as the real backend_client: the router's content in two deltas, then the usage."""
         if self.stream_error is not None:
             raise self.stream_error
@@ -265,7 +269,7 @@ class FakeBackend:
         yield {"delta": content[half:]}
         yield {"done": True, "prompt_tokens": 100, "completion_tokens": 50}
 
-    def set_partial_answer(self, run_id: str, text: str) -> None:
+    async def set_partial_answer(self, run_id: str, text: str) -> None:
         self.partial_answers.append(text)
 
 
@@ -276,7 +280,7 @@ class FakeSearxng:
         self.results = results if results is not None else []
         self.queries: list[str] = []
 
-    def search(self, query: str, limit: int) -> list[dict[str, Any]]:
+    async def search(self, query: str, limit: int) -> list[dict[str, Any]]:
         self.queries.append(query)
         return self.results[:limit]
 
@@ -296,6 +300,10 @@ _PATCHED_MODULES = (
     vdb_router_module,
     tabular_query_module,
 )
+
+
+async def _no_sleep(_seconds: float) -> None:
+    return None
 
 
 @pytest.fixture
@@ -321,7 +329,7 @@ def make_run():
         fake.searxng = FakeSearxng(web_results)
         research_task_module.searxng_client = fake.searxng
         # The wait for the editing agent polls the backend on a timer - tests don't really sleep.
-        edit_module._sleep = lambda _seconds: None
+        edit_module._sleep = _no_sleep
         graph = build_graph()
         return graph, fake
 
