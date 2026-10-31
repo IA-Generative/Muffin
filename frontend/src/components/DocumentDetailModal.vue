@@ -8,6 +8,7 @@ import TabularProfileTab from './TabularProfileTab.vue'
 import TaskLogViewer from './TaskLogViewer.vue'
 import UrlRefreshSettings from './UrlRefreshSettings.vue'
 import type { TabularProfile } from '../types/tabular'
+import { documentFileUrl, opensAtPage, pageWithin } from '../utils/documentFile'
 import { formatPages } from '../utils/longDocuments'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
@@ -58,6 +59,20 @@ const pages = ref<DocumentPage[]>([])
 const pageNumber = ref(1)
 const pageTotal = ref(0)
 const pagesLoading = ref(false)
+const pageInput = ref('')
+
+// The file the document was made from: a web page has none.
+const hasFile = computed(() => props.document.type === 'file')
+const downloadUrl = computed(() => documentFileUrl(API_BASE_URL, props.collectionId, props.document.id))
+const openUrl = computed(() =>
+  documentFileUrl(API_BASE_URL, props.collectionId, props.document.id, { inline: true, page: pageNumber.value }),
+)
+
+function goToTyped() {
+  const target = pageWithin(pageInput.value, pageTotal.value)
+  if (target !== undefined) pageNumber.value = target
+  pageInput.value = ''
+}
 const pagesError = ref(false)
 
 // The profile of a tabular file (#431); null for any other document, which then has no data tab.
@@ -188,6 +203,18 @@ onMounted(() => {
     <div class="document-modal" role="dialog" aria-modal="true" aria-labelledby="document-modal-title">
       <header class="document-modal__header">
         <h2 id="document-modal-title" class="document-modal__title">{{ document.name }}</h2>
+        <div v-if="hasFile" class="document-modal__file-actions">
+          <a class="fr-btn fr-btn--tertiary fr-btn--sm" :href="downloadUrl" download>Télécharger le fichier</a>
+          <a
+            v-if="opensAtPage(document.name) && pageTotal > 0"
+            class="fr-btn fr-btn--tertiary fr-btn--sm"
+            :href="openUrl"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Ouvrir à la page {{ pageNumber }}
+          </a>
+        </div>
         <button type="button" class="document-modal__close" aria-label="Fermer" @click="emit('close')">✕</button>
       </header>
 
@@ -213,6 +240,18 @@ onMounted(() => {
               <span>Page {{ pageNumber }} / {{ pageTotal }}</span>
               <button type="button" :disabled="pageNumber === pageTotal" @click="pageNumber++">Suivant</button>
             </div>
+            <label v-if="pageTotal > 1" class="document-modal__goto">
+              Aller à la page
+              <input
+                v-model="pageInput"
+                type="number"
+                min="1"
+                :max="pageTotal"
+                inputmode="numeric"
+                class="fr-input document-modal__goto-input"
+                @keydown.enter.prevent="goToTyped"
+              />
+            </label>
           </template>
         </aside>
 
@@ -574,6 +613,28 @@ onMounted(() => {
   font-size: 0.875rem;
   line-height: 1.6;
   white-space: pre-wrap;
+}
+
+.document-modal__file-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-left: auto;
+  margin-right: 0.5rem;
+}
+
+.document-modal__goto {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  font-size: 0.875rem;
+}
+
+.document-modal__goto-input {
+  width: 5rem;
+  padding: 0.25rem 0.5rem;
 }
 
 .document-modal__pagination {
