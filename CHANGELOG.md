@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.39.0](https://github.com/IA-Generative/Muffin/compare/v0.38.1...v0.39.0) (2026-10-30)
+
+
+### Features
+
+* **chart:** autoscaler KEDA par composant avec le bloc kedaAutoscaler ([db91605](https://github.com/IA-Generative/Muffin/commit/db916054ea663690ba6ad9f7ab3c342a86974351))
+
+
+### Bug Fixes
+
+* **chart:** déclarer le secret muffin-s3-readonly depuis Vault ([0491ee6](https://github.com/IA-Generative/Muffin/commit/0491ee62c554391312a7f64877fed267e4b90f2c))
+
 ## [0.38.1](https://github.com/IA-Generative/Muffin/compare/v0.38.0...v0.38.1) (2026-10-30)
 
 
