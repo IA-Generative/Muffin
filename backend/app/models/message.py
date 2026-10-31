@@ -2,8 +2,8 @@ import enum
 import uuid
 from typing import Any
 
-from sqlalchemy import Enum, ForeignKey, Integer, Text
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import Computed, Enum, ForeignKey, Index, Integer, Text
+from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDMixin
@@ -16,12 +16,18 @@ class MessageRole(enum.StrEnum):
 
 class Message(UUIDMixin, TimestampMixin, Base):
     __tablename__ = "messages"
+    __table_args__ = (Index("ix_messages_content_tsv", "content_tsv", postgresql_using="gin"),)
 
     conversation_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False, index=True
     )
     role: Mapped[MessageRole] = mapped_column(Enum(MessageRole, name="message_role"), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    # The words of `content` for the search of the conversations (#509), kept by the database itself and only ever
+    # read by that search: deferred, so that no other query carries it.
+    content_tsv: Mapped[str | None] = mapped_column(
+        TSVECTOR, Computed("to_tsvector('muffin_french'::regconfig, content)", persisted=True), deferred=True
+    )
     # Only ever set for an ASSISTANT message (the run that produced it) - SET NULL rather than
     # CASCADE so a run being cleaned up later never silently deletes chat history with it. Lets
     # the frontend re-fetch that run's citations/event trace ("execution detail") for a message
