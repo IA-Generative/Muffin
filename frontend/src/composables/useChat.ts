@@ -1,3 +1,4 @@
+import { applyEvents, type LiveStep } from '../utils/runSteps'
 import { computed, ref } from 'vue'
 import { router } from '../router'
 import { useCollectionImports } from './useCollectionImports'
@@ -349,8 +350,9 @@ function eventLabel(type: string): string {
   return EVENT_LABELS[type] ?? type.replaceAll('_', ' ')
 }
 
-async function fetchRunEvents(runId: string): Promise<RunEventOut[]> {
-  const response = await fetch(`${API_BASE_URL}/api/runs/${runId}/events`, { credentials: 'include' })
+async function fetchRunEvents(runId: string, since?: string): Promise<RunEventOut[]> {
+  const query = since ? `?since=${encodeURIComponent(since)}` : ''
+  const response = await fetch(`${API_BASE_URL}/api/runs/${runId}/events${query}`, { credentials: 'include' })
   if (!response.ok) throw new Error(`${response.status} ${await response.text()}`)
   return response.json()
 }
@@ -980,6 +982,31 @@ function withoutCitationMarkers(text: string): string {
   return text.replace(/\s?\[[^\]\s]+\]/g, '').replace(/\s?\[[^\]\s]*$/, '')
 }
 
+// The steps of the runs going on, by the message they will answer: what the pending message shows, line by line, while
+// the run goes (the execution panel lists the same events once it is over).
+const liveStepsByMessageId = ref<Record<string, LiveStep[]>>({})
+const lastEventByMessageId = new Map<string, string>()
+
+// Reads what the run did since the last look. Best-effort: a missed look only means the steps show up a little later.
+async function refreshLiveSteps(runId: string, messageId: string) {
+  try {
+    const items = await fetchRunEvents(runId, lastEventByMessageId.get(messageId))
+    if (!items.length) return
+    lastEventByMessageId.set(messageId, items[items.length - 1].id)
+    liveStepsByMessageId.value[messageId] = applyEvents(
+      liveStepsByMessageId.value[messageId] ?? [],
+      items.map((item) => ({ id: item.id, type: item.type, taskId: item.task_id, data: item.data, createdAt: item.created_at })),
+    )
+  } catch {
+    // The next look tries again.
+  }
+}
+
+function forgetLiveSteps(messageId: string) {
+  delete liveStepsByMessageId.value[messageId]
+  lastEventByMessageId.delete(messageId)
+}
+
 function assistantMessageFor(id: string, run: RunOut): ChatMessage {
   // A run that was already waiting for an answer when questions stopped holding a run up (#344): it
   // can no longer be resumed, the question is shown and a new message goes on from there.
@@ -994,8 +1021,9 @@ function assistantMessageFor(id: string, run: RunOut): ChatMessage {
   if (!TERMINAL_STATUSES.has(run.status)) {
     // The answer is being written: show what exists so far instead of the step label.
     const partial = withoutCitationMarkers(run.partial_answer ?? '')
-    if (partial) return { id, role: 'assistant', content: partial, runId: run.id, pending: true, streaming: true }
-    return { id, role: 'assistant', content: activityLabel(run), runId: run.id, pending: true }
+    const steps = liveStepsByMessageId.value[id]
+    if (partial) return { id, role: 'assistant', content: partial, runId: run.id, pending: true, streaming: true, steps }
+    return { id, role: 'assistant', content: activityLabel(run), runId: run.id, pending: true, steps }
   }
   if (run.status === 'completed') {
     const [content, sources] = formatAnswerWithCitations(
@@ -1063,16 +1091,21 @@ function applyRunUpdate(conversationId: string, messageId: string, run: RunOut):
 function trackRun(conversationId: string, messageId: string, run: RunOut) {
   if (applyRunUpdate(conversationId, messageId, run)) return
 
+  void refreshLiveSteps(run.id, messageId)
   const interval = setInterval(async () => {
     try {
+      // The steps first, so that the message built from the run carries them.
+      await refreshLiveSteps(run.id, messageId)
       const current = await fetchRun(run.id)
       if (applyRunUpdate(conversationId, messageId, current)) {
         clearInterval(interval)
         activePolls.delete(messageId)
+        forgetLiveSteps(messageId)
       }
     } catch {
       clearInterval(interval)
       activePolls.delete(messageId)
+      forgetLiveSteps(messageId)
       replaceMessage(conversationId, messageId, {
         id: messageId,
         role: 'assistant',
