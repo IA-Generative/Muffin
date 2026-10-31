@@ -538,3 +538,38 @@ async def test_search_collections_no_llm_hub_configured_returns_empty(client):
 
     assert response.status_code == 200
     assert response.json() == []
+
+
+async def _undescribed_setup():
+    async with async_session_factory() as session:
+        from app.models.collection import Collection as CollectionModel
+        from app.models.document import Document as DocumentModel
+
+        rows = {}
+        for key, description, source, with_file in (
+            ("bare", "", "muffin", True),
+            ("blank", "  ", "muffin", True),
+            ("empty", "", "muffin", False),
+            ("described", "Décrite", "muffin", True),
+            ("copy", "", "owui", True),
+        ):
+            collection = CollectionModel(owner_id="u", name=key, description=description, source=source)
+            if source != "muffin":
+                collection.external_id = key
+            session.add(collection)
+            await session.flush()
+            rows[key] = str(collection.id)
+            if with_file:
+                session.add(DocumentModel(collection_id=collection.id, name="a.pdf", type="file", storage_key="k"))
+        await session.commit()
+    return rows
+
+
+async def test_muffins_collections_with_files_and_no_description_are_listed_for_the_job(client):
+    rows = await _undescribed_setup()
+
+    response = await client.get("/api/internal/collections/undescribed", headers=_headers())
+
+    # Not the one without a file, the described one, nor the copy of another system's.
+    assert response.status_code == 200
+    assert sorted(response.json()) == sorted([rows["bare"], rows["blank"]])

@@ -35,6 +35,15 @@ PIPELINE_UPDATED_BY = "pipeline"
 
 
 @router.get(
+    "/collections/undescribed",
+    summary="Muffin's collections that have files and no description yet, for the job that asks for theirs to be "
+    "written (#457)",
+)
+async def list_undescribed_collections(db: Annotated[AsyncSession, Depends(get_db)]) -> list[uuid.UUID]:
+    return await CollectionRepository(db).list_undescribed_ids()
+
+
+@router.get(
     "/collections/{collection_id}/settings",
     summary="Fetch a collection's pipeline settings for the worker to run chunking/summary/QA/extraction/tagging",
     response_model=CollectionSettingsInternalOut,
