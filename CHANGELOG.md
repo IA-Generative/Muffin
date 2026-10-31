@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.40.1](https://github.com/IA-Generative/Muffin/compare/v0.40.0...v0.40.1) (2026-10-31)
+
+
+### Bug Fixes
+
+* **agent:** attendre l'enregistrement du résultat d'un run ([280fa5f](https://github.com/IA-Generative/Muffin/commit/280fa5fd6e2f5573d271bd3eb126c8d259014772))
+
 ## [0.40.0](https://github.com/IA-Generative/Muffin/compare/v0.39.0...v0.40.0) (2026-10-31)
 
 
