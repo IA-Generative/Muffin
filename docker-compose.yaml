@@ -59,6 +59,9 @@ services:
       # a real deployment and POST /api/collections/{id}/shares responds 503 instead of hashing
       # without one.
       SHARE_INVITE_PEPPER: ${SHARE_INVITE_PEPPER:-dev-only-pepper-not-for-prod}
+      # Secrets the personal API keys are hashed with (#521), "version=secret" separated by commas, the first one hashing the
+      # new keys. Unset in a real deployment and POST /api/api-keys responds 503.
+      API_KEY_PEPPERS: ${API_KEY_PEPPERS:-v1=dev-only-api-key-pepper-not-for-prod}
       # Without these, RustFsSettings falls back to its localhost:9000
       # default, which inside this container resolves to nothing - file
       # uploads fail silently before a Document row is even created.

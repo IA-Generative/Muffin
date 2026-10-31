@@ -6,7 +6,9 @@ réponse**. Rien ne passe par l'agent, le worker ou Celery.
 
 ## Authentification
 
-Un jeton d'accès **Keycloak** en `Authorization: Bearer …`, le même realm et les mêmes utilisateurs que l'API REST. Les collections
+Un jeton d'accès **Keycloak** en `Authorization: Bearer …`, le même realm et les mêmes utilisateurs que l'API REST, **ou une clé
+d'API personnelle** (`Authorization: Bearer sk-muffin-…`, portée `search`, voir `api-keys.md`) : elle n'expire pas en quelques
+minutes, ce qui règle le problème du jeton saisi à la main dans un outil. Les collections
 lisibles sont celles que l'utilisateur voit dans le chat : les siennes, celles partagées avec lui ou avec ses groupes (jeton et
 groupes de Muffin), les publiques. Le cookie de session du navigateur n'est **pas** accepté : un navigateur l'envoie tout seul à
 n'importe quelle page. Sans jeton valide : `401` avec `WWW-Authenticate: Bearer`.
