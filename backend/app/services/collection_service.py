@@ -15,6 +15,7 @@ from app.core.sharing import (
     normalize_email,
     normalize_group,
 )
+from app.core.tasks import DESCRIBE_COLLECTION_TASK, enqueue_describe_collection
 from app.models.collection import Collection, CollectionVisibility, ShareSubjectType
 from app.repositories.chunk_repository import ChunkRepository
 from app.repositories.collection_hierarchy_repository import CollectionHierarchyRepository
@@ -23,6 +24,7 @@ from app.repositories.entity_repository import EntityRepository
 from app.repositories.feedback_repository import FeedbackRepository
 from app.repositories.qa_pair_repository import QaPairRepository
 from app.repositories.run_repository import RunRepository
+from app.repositories.task_repository import TaskRepository
 from app.schemas.collection import (
     ChunkOut,
     CollectionOut,
@@ -194,6 +196,17 @@ class CollectionService:
         # crashes with MissingGreenlet instead of lazy-loading like sync ORM would.
         await self.db.refresh(collection, attribute_names=["updated_at"])
         return await self._present(collection, user)
+
+    async def generate_description(self, collection_id: uuid.UUID, user: RequestContext) -> str:
+        """Asks for the collection's description to be written from a sample of its files (#457). Returns the Celery
+        task id, recorded as a collection-scoped Task row."""
+        await self._get_writable(collection_id, user)
+        celery_task_id = enqueue_describe_collection(str(collection_id))
+        await TaskRepository(self.db).create(
+            celery_task_id, DESCRIBE_COLLECTION_TASK, user.user_id, collection_id=collection_id
+        )
+        await self.db.commit()
+        return celery_task_id
 
     async def update_settings(
         self,

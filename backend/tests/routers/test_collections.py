@@ -705,10 +705,10 @@ async def _copy(collection_id: str) -> None:
         await session.commit()
 
 
-async def test_an_administrator_asks_for_the_description_of_a_copied_collection(client):
+async def test_the_owner_asks_for_the_description_of_a_collection(client):
     collection_id = (await client.post("/api/collections")).json()["id"]
-    await _copy(collection_id)
-    with patch("app.routers.collections.enqueue_describe_copied_collection", return_value="celery-desc-1") as enqueue:
+
+    with patch("app.services.collection_service.enqueue_describe_collection", return_value="celery-desc-1") as enqueue:
         response = await client.post(f"/api/collections/{collection_id}/description/generate")
 
     assert response.status_code == 202
@@ -717,27 +717,28 @@ async def test_an_administrator_asks_for_the_description_of_a_copied_collection(
     async with async_session_factory() as session:
         task = (await session.execute(select(Task).where(Task.celery_task_id == "celery-desc-1"))).scalar_one()
     assert task.collection_id == uuid.UUID(collection_id)
-    assert task.task_name == "app.tasks.describe_copied_collection"
+    assert task.task_name == "app.tasks.describe_collection"
 
 
-async def test_only_an_administrator_asks_for_a_description(client):
+async def test_only_the_owner_asks_for_a_description(client):
     collection_id = (await client.post("/api/collections")).json()["id"]
-    await _copy(collection_id)
-    app.dependency_overrides[get_current_user] = _as_user("dev-user", "dev@example.com")
+    app.dependency_overrides[get_current_user] = _as_user("someone-else", "else@example.com")
 
     try:
-        with patch("app.routers.collections.enqueue_describe_copied_collection") as enqueue:
+        with patch("app.services.collection_service.enqueue_describe_collection") as enqueue:
             response = await client.post(f"/api/collections/{collection_id}/description/generate")
     finally:
         del app.dependency_overrides[get_current_user]
 
-    assert response.status_code == 403
+    assert response.status_code == 404
     enqueue.assert_not_called()
 
 
-async def test_the_description_of_a_collection_of_muffin_is_not_asked_for(client):
+async def test_the_description_of_a_copied_collection_is_not_asked_for_here(client):
     collection_id = (await client.post("/api/collections")).json()["id"]
-    with patch("app.routers.collections.enqueue_describe_copied_collection") as enqueue:
+    await _copy(collection_id)
+
+    with patch("app.services.collection_service.enqueue_describe_collection") as enqueue:
         response = await client.post(f"/api/collections/{collection_id}/description/generate")
 
     assert response.status_code == 409
