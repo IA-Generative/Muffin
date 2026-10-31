@@ -16,6 +16,13 @@ class InternalDocumentOut(BaseModel):
     content_hash: str | None = None
 
 
+class CollectionDocumentOut(BaseModel):
+    """A document of a collection, by name: what a task that samples the collection picks from."""
+
+    id: uuid.UUID
+    name: str
+
+
 class DocumentStatusUpdate(BaseModel):
     status: str
     progress: int | None = None

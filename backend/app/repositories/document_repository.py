@@ -191,6 +191,14 @@ class DocumentRepository:
         )
         return result.all()
 
+    async def list_refs_by_collection(self, collection_id: uuid.UUID) -> Sequence[tuple[uuid.UUID, str]]:
+        result = await self.db.execute(
+            select(Document.id, Document.name)
+            .where(Document.collection_id == collection_id)
+            .order_by(Document.created_at)
+        )
+        return [(row.id, row.name) for row in result]
+
     async def create_file(
         self,
         collection_id: uuid.UUID,
