@@ -18,6 +18,7 @@ from app.core.sharing import SharingNotConfiguredError, hash_identifier, normali
 from app.db import get_db
 from app.repositories.collection_repository import CollectionRepository
 from app.repositories.group_repository import GroupRepository
+from app.services.api_key_service import ApiKeyService
 from app.services.usage_service import UsageService
 
 router = APIRouter(tags=["Auth"])
@@ -138,6 +139,8 @@ async def callback(code: str, state: str, db: Annotated[AsyncSession, Depends(ge
     # Every browser login is the one moment a pending collection-share invitation (by email or by
     # one of this identity's groups) can be resolved to ACTIVE - see app/core/sharing.py.
     await _resolve_pending_shares(db, identity)
+    # What the personal API keys of this user know of them - their email and groups in Keycloak - is what they are now.
+    await ApiKeyService(db).refresh_owner(identity["user_id"], identity.get("email"), list(identity.get("groups", [])))
 
     session_id = _session_store.create_session(identity, token_response)
     response = RedirectResponse(
