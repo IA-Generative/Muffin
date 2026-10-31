@@ -11,7 +11,7 @@ from app.agent.graph.state import AgentState, CoverageResult, ResearchTask
 _CONTENT_TOOLS = frozenset({"search", "web_search"})
 
 
-def gate(state: AgentState) -> dict[str, Any]:
+async def gate(state: AgentState) -> dict[str, Any]:
     """Whether what the research found is enough to write an answer - decided in code, from what was found, with no
     model (it replaces the model that judged the coverage and the one that judged whether the summaries sufficed).
 
@@ -19,11 +19,11 @@ def gate(state: AgentState) -> dict[str, Any]:
     task above `GATE_MIN_SCORE`. Not enough is not a dead end: the answer says plainly what could not be established,
     and the search is first widened to every collection once if the plan had narrowed it."""
     run_id = state["run_id"]
-    if is_cancelled(run_id):
+    if await is_cancelled(run_id):
         return {"cancelled": True}
 
-    set_activity(run_id, "gate", "Checking whether the results are enough")
-    emit(run_id, "coverage_evaluation_started")
+    await set_activity(run_id, "gate", "Checking whether the results are enough")
+    await emit(run_id, "coverage_evaluation_started")
     completed = set(state["completed_task_ids"])
     content_tasks = {t["id"] for t in state["research_tasks"] if t["id"] in completed and t["tool"] in _CONTENT_TOOLS}
     if not content_tasks:
@@ -42,16 +42,16 @@ def gate(state: AgentState) -> dict[str, Any]:
                 missing_information=["no sufficiently relevant passage was found"],
                 reasoning=f"{len(good)} passage(s).",
             )
-    emit(run_id, "coverage_evaluation_completed", dict(coverage))
+    await emit(run_id, "coverage_evaluation_completed", dict(coverage))
     return {"coverage_result": coverage}
 
 
-def widen_search(state: AgentState) -> dict[str, Any]:
+async def widen_search(state: AgentState) -> dict[str, Any]:
     """The plan had narrowed the search to some collections and they held too little: the content searches are made
     again in every accessible collection, once. A new task for each, so the first ones stay what they were."""
     run_id = state["run_id"]
-    set_activity(run_id, "widen_search", "Searching all your knowledge bases")
-    emit(run_id, "search_widened", {"from": state["scope_ids"]})
+    await set_activity(run_id, "widen_search", "Searching all your knowledge bases")
+    await emit(run_id, "search_widened", {"from": state["scope_ids"]})
     searches = [t for t in state["research_tasks"] if t["tool"] in _CONTENT_TOOLS]
     wider = [
         ResearchTask(

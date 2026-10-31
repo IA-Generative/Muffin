@@ -120,25 +120,25 @@ réponses."""
 _FALLBACK_ANSWER = "Je ne peux pas répondre à cette question sur l'utilisation de Muffin pour le moment."
 
 
-def answer_help(state: AgentState) -> dict[str, Any]:
+async def answer_help(state: AgentState) -> dict[str, Any]:
     """Answers a question about how to use the application itself (#251) - "comment je partage une
     collection ?" - from a user guide, instead of letting it fall through to a search of the user's
     documents, which can only come back empty or answer something else. Short-circuits to the end like
     answer_identity: nothing is searched, so there are no citations to check."""
     run_id = state["run_id"]
-    if is_cancelled(run_id):
+    if await is_cancelled(run_id):
         return {"cancelled": True}
 
-    set_activity(run_id, "answer_help", "Looking up how to do that")
-    emit(run_id, "help_answer_started")
+    await set_activity(run_id, "answer_help", "Looking up how to do that")
+    await emit(run_id, "help_answer_started")
 
     model = state["chat_model"]
     if model is None:
         answer = _FALLBACK_ANSWER
         prompt_version_id = None
     else:
-        system_prompt, prompt_version_id = get_prompt("app_help", fallback=_SYSTEM_PROMPT)
-        result = backend_client.llm_chat_with_usage(
+        system_prompt, prompt_version_id = await get_prompt("app_help", fallback=_SYSTEM_PROMPT)
+        result = await backend_client.llm_chat_with_usage(
             model,
             [
                 {"role": "system", "content": system_prompt},
@@ -147,7 +147,7 @@ def answer_help(state: AgentState) -> dict[str, Any]:
         )
         answer = result["content"]
 
-    emit(run_id, "help_answer_completed")
+    await emit(run_id, "help_answer_completed")
     return {
         "answer": answer,
         "citations": [],

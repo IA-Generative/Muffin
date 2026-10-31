@@ -28,14 +28,14 @@ def _router(intent: str = "help", *, ambiguous: bool = False):
 VDBS = [{"id": "col-1", "name": "Procédures RH", "description": "", "tags": [], "document_count": 2}]
 
 
-def _run(make_run, query, **kwargs):
+async def _run(make_run, query, **kwargs):
     graph, fake = make_run(VDBS, _router(**kwargs))
     state = initial_state(query)
-    return graph.invoke(state, config=_config(state)), fake
+    return (await graph.ainvoke(state, config=_config(state))), fake
 
 
-def test_a_question_about_using_the_application_is_answered_from_the_guide_without_searching(make_run):
-    result, fake = _run(make_run, "Comment je partage une collection ?")
+async def test_a_question_about_using_the_application_is_answered_from_the_guide_without_searching(make_run):
+    result, fake = await _run(make_run, "Comment je partage une collection ?")
 
     assert result["answer"] == GUIDE_ANSWER
     assert result["citations"] == []
@@ -45,8 +45,8 @@ def test_a_question_about_using_the_application_is_answered_from_the_guide_witho
     assert [call[0]["content"].split(",")[0] for call in fake.llm_calls][-1].startswith("You are the help of Muffin")
 
 
-def test_the_model_gets_the_guide_and_the_standalone_question(make_run):
-    _, fake = _run(make_run, "Comment je partage une collection ?")
+async def test_the_model_gets_the_guide_and_the_standalone_question(make_run):
+    _, fake = await _run(make_run, "Comment je partage une collection ?")
 
     system, user = next(c for c in fake.llm_calls if "help of Muffin" in c[0]["content"])
     assert "USER GUIDE" in system["content"]
@@ -54,38 +54,38 @@ def test_the_model_gets_the_guide_and_the_standalone_question(make_run):
     assert user["content"] == "Question: Comment je partage une collection ?"
 
 
-def test_a_help_question_is_never_held_back_by_a_clarification(make_run):
-    result, fake = _run(make_run, "Comment je partage une collection ?", ambiguous=True)
+async def test_a_help_question_is_never_held_back_by_a_clarification(make_run):
+    result, fake = await _run(make_run, "Comment je partage une collection ?", ambiguous=True)
 
     assert result["answer"] == GUIDE_ANSWER
     assert "Plusieurs" not in result["answer"]
 
 
-def test_the_guide_version_is_recorded_when_it_comes_from_the_backend(make_run):
+async def test_the_guide_version_is_recorded_when_it_comes_from_the_backend(make_run):
     graph, fake = make_run(VDBS, _router())
     fake.active_prompts["app_help"] = {"id": "ver-help-1", "content": "You are the help of Muffin. Custom guide."}
     state = initial_state("Où importer un ZIP ?")
 
-    result = graph.invoke(state, config=_config(state))
+    result = await graph.ainvoke(state, config=_config(state))
 
     assert "ver-help-1" in result["prompt_usages"]
     system, _ = next(c for c in fake.llm_calls if "help of Muffin" in c[0]["content"])
     assert system["content"] == "You are the help of Muffin. Custom guide."
 
 
-def test_a_question_about_documents_is_still_a_search(make_run):
-    result, fake = _run(make_run, "Quelle est la procédure d'arrivée ?", intent="lookup")
+async def test_a_question_about_documents_is_still_a_search(make_run):
+    result, fake = await _run(make_run, "Quelle est la procédure d'arrivée ?", intent="lookup")
 
     assert result["answer"] == "Réponse de recherche."
     assert not any("help of Muffin" in call[0]["content"] for call in fake.llm_calls)
 
 
-def test_without_a_chat_model_the_help_says_it_cannot_answer(make_run):
+async def test_without_a_chat_model_the_help_says_it_cannot_answer(make_run):
     graph, fake = make_run(VDBS, _router())
     state = {**initial_state("Comment je partage une collection ?"), "query_analysis": {"intent": "help"}}
     state["chat_model"] = None
 
-    out = answer_help.answer_help(state)
+    out = await answer_help.answer_help(state)
 
     assert "ne peux pas répondre" in out["answer"] and out["citations"] == []
     assert fake.llm_calls == []

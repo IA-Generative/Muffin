@@ -32,29 +32,29 @@ class Model:
         self.admin_prompt = admin_prompt
         self.partials: list[str] = []
 
-    def get_run(self, run_id):
+    async def get_run(self, run_id):
         return {"cancel_requested": False}
 
-    def update_run_status(self, *args, **kwargs):
+    async def update_run_status(self, *args, **kwargs):
         pass
 
-    def add_run_event(self, *args, **kwargs):
+    async def add_run_event(self, *args, **kwargs):
         pass
 
-    def set_partial_answer(self, run_id, text):
+    async def set_partial_answer(self, run_id, text):
         self.partials.append(text)
 
-    def get_active_prompt(self, name):
+    async def get_active_prompt(self, name):
         return {"id": "v1", "content": self.admin_prompt} if self.admin_prompt else None
 
-    def llm_chat_stream(self, model, messages, max_tokens=None):
+    async def llm_chat_stream(self, model, messages, max_tokens=None):
         self.calls.append(messages)
         reply = self.replies.pop(0)
         yield {"delta": reply[: len(reply) // 2]}
         yield {"delta": reply[len(reply) // 2 :]}
         yield {"done": True, "prompt_tokens": 10, "completion_tokens": 5}
 
-    def llm_chat_with_usage(self, model, messages, max_tokens=None):
+    async def llm_chat_with_usage(self, model, messages, max_tokens=None):
         self.calls.append(messages)
         return {"content": self.replies.pop(0), "prompt_tokens": 10, "completion_tokens": 5}
 
@@ -78,7 +78,7 @@ def excerpt(id_: str, **extra) -> dict[str, Any]:
     }
 
 
-def run(monkeypatch, model: Model, excerpts: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+async def run(monkeypatch, model: Model, excerpts: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     for module in (generate_answer_module, events_module, prompts_module):
         monkeypatch.setattr(module, "backend_client", model)
     monkeypatch.setattr(prompts_module, "_cache", {})
@@ -95,7 +95,7 @@ def run(monkeypatch, model: Model, excerpts: list[dict[str, Any]] | None = None)
             "missing_information": [],
         },
     }
-    return generate_answer_module.generate_answer(state)
+    return await generate_answer_module.generate_answer(state)
 
 
 # --- the markers ---
@@ -119,55 +119,55 @@ def test_an_invented_id_is_dropped_from_its_bracket_and_an_empty_bracket_goes_wi
 # --- the answer ---
 
 
-def test_an_answer_that_cites_its_excerpts_is_kept_and_only_the_cited_ones_are_marked(monkeypatch):
+async def test_an_answer_that_cites_its_excerpts_is_kept_and_only_the_cited_ones_are_marked(monkeypatch):
     model = Model([f"Vingt-cinq jours [{FIRST}]."])
 
-    result = run(monkeypatch, model)
+    result = await run(monkeypatch, model)
 
     assert result["answer"] == f"Vingt-cinq jours [{FIRST}]." and len(model.calls) == 1
     assert {c["evidence_id"]: c["cited"] for c in result["citations"]} == {FIRST: True, SECOND: False}
 
 
-def test_an_answer_with_no_marker_is_kept_and_not_asked_for_again(monkeypatch):
+async def test_an_answer_with_no_marker_is_kept_and_not_asked_for_again(monkeypatch):
     model = Model(["Vingt-cinq jours."])
 
-    result = run(monkeypatch, model)
+    result = await run(monkeypatch, model)
 
     # One call: a second one would cost as much as the first, and the interface says the answer has no source.
     assert result["answer"] == "Vingt-cinq jours." and len(model.calls) == 1
     assert {c["evidence_id"]: c["cited"] for c in result["citations"]} == {FIRST: False, SECOND: False}
 
 
-def test_an_invented_marker_does_not_count_as_a_citation(monkeypatch):
+async def test_an_invented_marker_does_not_count_as_a_citation(monkeypatch):
     model = Model([f"Vingt-cinq jours [{UNKNOWN}]."])
 
-    result = run(monkeypatch, model)
+    result = await run(monkeypatch, model)
 
     assert UNKNOWN not in result["answer"] and len(model.calls) == 1
     assert not any(c["cited"] for c in result["citations"])
 
 
-def test_the_citation_rule_is_kept_when_the_administrable_prompt_is_overridden(monkeypatch):
+async def test_the_citation_rule_is_kept_when_the_administrable_prompt_is_overridden(monkeypatch):
     model = Model([f"Oui [{FIRST}]"], admin_prompt="Réponds en vers.")
 
-    run(monkeypatch, model)
+    await run(monkeypatch, model)
 
     system = model.calls[0][0]["content"]
     assert system.startswith("Réponds en vers.") and system.endswith(CITATION_RULE + OUTPUT_FORMAT)
 
 
-def test_an_excerpt_with_no_source_name_is_given_to_the_model_by_its_tool(monkeypatch):
+async def test_an_excerpt_with_no_source_name_is_given_to_the_model_by_its_tool(monkeypatch):
     model = Model([f"Il est tard [{FIRST}]"])
 
-    run(monkeypatch, model, [excerpt(FIRST, source=None, tool="time")])
+    await run(monkeypatch, model, [excerpt(FIRST, source=None, tool="time")])
 
     assert f"[{FIRST}] (source: time)" in model.calls[0][1]["content"]
 
 
-def test_no_evidence_means_no_call_to_the_model_and_an_explicit_answer(monkeypatch):
+async def test_no_evidence_means_no_call_to_the_model_and_an_explicit_answer(monkeypatch):
     model = Model([])
 
-    result = run(monkeypatch, model, [])
+    result = await run(monkeypatch, model, [])
 
     assert model.calls == [] and result["citations"] == []
     assert "couldn't find any relevant information" in result["answer"]
@@ -266,10 +266,10 @@ def test_the_better_of_two_passages_for_an_id_is_kept():
     assert resolve_passages(sources, excerpts)[FIRST] is not None
 
 
-def test_a_citation_carries_the_passage_of_the_excerpt_and_where_it_is(monkeypatch):
+async def test_a_citation_carries_the_passage_of_the_excerpt_and_where_it_is(monkeypatch):
     model = Model([structured(f"Vingt-cinq jours [{FIRST}].", (FIRST, "VINGT-CINQ JOURS DE CONGÉ ANNUEL"))])
 
-    result = run(monkeypatch, model, [excerpt(FIRST, content=CONTENT), excerpt(SECOND)])
+    result = await run(monkeypatch, model, [excerpt(FIRST, content=CONTENT), excerpt(SECOND)])
 
     first, second = result["citations"]
     assert first["cited"] and first["quote"] == "vingt-cinq jours de congé annuel"
@@ -277,38 +277,38 @@ def test_a_citation_carries_the_passage_of_the_excerpt_and_where_it_is(monkeypat
     assert not second["cited"] and second["quote"] is None and second["quote_start"] is None
 
 
-def test_a_citation_whose_passage_is_not_in_the_excerpt_is_kept_without_passage(monkeypatch):
+async def test_a_citation_whose_passage_is_not_in_the_excerpt_is_kept_without_passage(monkeypatch):
     model = Model([structured(f"Trente jours [{FIRST}].", (FIRST, "les agents ont droit à trente jours"))])
 
-    result = run(monkeypatch, model, [excerpt(FIRST, content=CONTENT)])
+    result = await run(monkeypatch, model, [excerpt(FIRST, content=CONTENT)])
 
     [citation] = result["citations"]
     assert citation["cited"] is True and citation["quote"] is None and citation["quote_end"] is None
     assert len(model.calls) == 1  # a cited excerpt with a wrong passage is not an answer without a source
 
 
-def test_the_sources_listed_are_citations_even_without_a_marker_in_the_text(monkeypatch):
+async def test_the_sources_listed_are_citations_even_without_a_marker_in_the_text(monkeypatch):
     model = Model([structured("Vingt-cinq jours.", (SECOND, "Contenu de 7e1d"))])
 
-    result = run(monkeypatch, model)
+    result = await run(monkeypatch, model)
 
     assert {c["evidence_id"]: c["cited"] for c in result["citations"]} == {FIRST: False, SECOND: True}
     assert len(model.calls) == 1
 
 
-def test_a_source_that_is_no_excerpt_is_ignored(monkeypatch):
+async def test_a_source_that_is_no_excerpt_is_ignored(monkeypatch):
     model = Model([structured("Vingt-cinq jours.", (UNKNOWN, "un passage"))])
 
-    result = run(monkeypatch, model)
+    result = await run(monkeypatch, model)
 
     assert len(model.calls) == 1 and result["answer"] == "Vingt-cinq jours."
     assert not any(c["cited"] for c in result["citations"])
 
 
-def test_the_chat_is_shown_the_answer_as_it_is_written_not_the_json(monkeypatch):
+async def test_the_chat_is_shown_the_answer_as_it_is_written_not_the_json(monkeypatch):
     model = Model([structured(f"Vingt-cinq jours [{FIRST}].", (FIRST, "Contenu de 0b9f"))])
 
-    run(monkeypatch, model)
+    await run(monkeypatch, model)
 
     assert model.partials[0] == ""
     assert all("{" not in partial and "sources" not in partial for partial in model.partials)

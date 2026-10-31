@@ -6,14 +6,14 @@ from app.agent.graph.state import AgentState
 _MAX_EVIDENCE_FOR_ANSWER = 20
 
 
-def build_answer_context(state: AgentState) -> dict[str, Any]:
+async def build_answer_context(state: AgentState) -> dict[str, Any]:
     """Prepares only what generate_answer needs (§21) - the highest-relevance excerpts, ordered
     and capped, never the entire evidence pool dumped verbatim into the prompt."""
     run_id = state["run_id"]
-    if is_cancelled(run_id):
+    if await is_cancelled(run_id):
         return {"cancelled": True}
 
-    set_activity(run_id, "build_answer_context", "Preparing the answer")
+    await set_activity(run_id, "build_answer_context", "Preparing the answer")
     ordered = sorted(
         state["deduped_evidence"],
         key=lambda e: e["relevance_score"] or 0.0,
@@ -61,5 +61,5 @@ def build_answer_context(state: AgentState) -> dict[str, Any]:
         "coverage_insufficient": (coverage["status"] == "insufficient" if coverage else False),
         "missing_information": coverage["missing_information"] if coverage else [],
     }
-    emit(run_id, "answer_context_built", {"evidence_count": len(selected)})
+    await emit(run_id, "answer_context_built", {"evidence_count": len(selected)})
     return {"answer_context": context}

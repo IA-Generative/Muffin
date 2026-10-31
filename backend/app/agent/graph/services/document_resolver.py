@@ -9,7 +9,7 @@ _SYSTEM_PROMPT = (
 )
 
 
-def resolve_document_page(
+async def resolve_document_page(
     query: str, candidates: list[dict[str, Any]], model: str | None
 ) -> tuple[str | None, int | None]:
     """Picks a document id + page number out of a fixed candidate list, never an id the LLM
@@ -19,7 +19,7 @@ def resolve_document_page(
         return None, None
 
     catalogue = [{"id": str(c["id"]), "name": c["name"]} for c in candidates]
-    raw = json_chat(model, _SYSTEM_PROMPT, f"Request: {query}\n\nCandidate documents: {catalogue}", fallback=None)
+    raw = await json_chat(model, _SYSTEM_PROMPT, f"Request: {query}\n\nCandidate documents: {catalogue}", fallback=None)
     if not isinstance(raw, dict):
         return None, None
 
