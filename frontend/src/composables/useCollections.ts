@@ -461,6 +461,60 @@ function updateDescription(id: string, description: string) {
   patchCollection(id, { description })
 }
 
+// Collections whose description an administrator has asked to be written from a sample of their files (#457).
+const describingCollectionIds = ref<Set<string>>(new Set())
+const describeError = ref<string | null>(null)
+
+function isDescribing(collectionId: string): boolean {
+  return describingCollectionIds.value.has(collectionId)
+}
+
+function setDescribing(collectionId: string, describing: boolean) {
+  const next = new Set(describingCollectionIds.value)
+  if (describing) next.add(collectionId)
+  else next.delete(collectionId)
+  describingCollectionIds.value = next
+}
+
+// The worker runs asynchronously: poll the collection until its description is written, and give up after 5 min
+// (a description the model finds already right does not change - the button comes back, nothing to show).
+async function generateDescription(collectionId: string) {
+  if (isDescribing(collectionId)) return
+  describeError.value = null
+  setDescribing(collectionId, true)
+  const before = collections.value.find((item) => item.id === collectionId)?.descriptionMeta?.updatedAt
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/collections/${collectionId}/description/generate`, {
+      method: 'POST',
+      credentials: 'include',
+    })
+    if (!response.ok) {
+      describeError.value = `Échec du lancement de la description (${response.status}).`
+      setDescribing(collectionId, false)
+      return
+    }
+  } catch {
+    describeError.value = 'Échec du lancement de la description : le serveur est inaccessible.'
+    setDescribing(collectionId, false)
+    return
+  }
+  for (let attempt = 0; attempt < 150; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 2000))
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/collections/${collectionId}`, { credentials: 'include' })
+      if (!response.ok) continue
+      const updated = toCollection(await response.json())
+      if (updated.descriptionMeta?.updatedAt !== before) {
+        replaceCollection(collectionId, updated)
+        break
+      }
+    } catch {
+      // The next attempt tries again.
+    }
+  }
+  setDescribing(collectionId, false)
+}
+
 function updateTags(id: string, tags: string[]) {
   patchCollection(id, { tags })
 }
@@ -1450,6 +1504,9 @@ export function useCollections() {
     createCollection,
     updateName,
     updateDescription,
+    generateDescription,
+    isDescribing,
+    describeError,
     updateTags,
     deleteCollection,
     moveCollection,
