@@ -245,3 +245,12 @@ def test_the_closing_reports_the_account(monkeypatch, reports):
     account = tasks.finish_sync.run([], run)
 
     backend.report_run.assert_called_once_with("run-1", "done", account=account)
+
+
+def test_a_synchronisation_never_asks_for_a_description(backend, monkeypatch):
+    sent = MagicMock()
+    monkeypatch.setattr(tasks.celery_app, "send_task", sent)
+
+    tasks.finish_sync.run([{"id": "d1", "collection_id": "col-1", "changed": True}], _run(description_ids=["col-1"]))
+
+    sent.assert_not_called()

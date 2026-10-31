@@ -222,7 +222,7 @@ async def _permissions(collection_id) -> dict:
 
 
 async def test_the_description_is_the_other_systems_only_at_the_start(client):
-    """Muffin keeps it up to date from the summaries (#457): a later synchronisation must not write it back."""
+    """Muffin keeps it up to date from a sample of the files (#457): a later synchronisation must not write it back."""
     first = (await _put(client, name="Procédures", description="Celle d'Open WebUI")).json()
     async with async_session_factory() as session:
         collection = await session.get(Collection, first["id"])
