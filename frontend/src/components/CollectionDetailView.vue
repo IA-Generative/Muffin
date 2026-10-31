@@ -27,6 +27,9 @@ const {
   openCollection,
   updateName,
   updateDescription,
+  generateDescription,
+  isDescribing,
+  describeError,
   updateTags,
   deleteCollection,
   isCollectionReady,
@@ -381,6 +384,18 @@ function confirmDelete() {
             {{ collection.description }}
           </p>
           <p v-else class="collection-detail__description collection-detail__description--empty">Aucune description.</p>
+          <template v-if="collection.copied && user?.isAdmin">
+            <button
+              type="button"
+              class="collection-detail__describe"
+              :disabled="isDescribing(collection.id)"
+              title="Écrit la description d'après quelques fichiers tirés au hasard dans la collection"
+              @click="generateDescription(collection.id)"
+            >
+              {{ isDescribing(collection.id) ? 'Génération en cours…' : 'Générer la description' }}
+            </button>
+            <p v-if="describeError" class="collection-detail__describe-error" role="alert">{{ describeError }}</p>
+          </template>
         </div>
 
         <div class="collection-detail__meta-card-section">
@@ -592,6 +607,29 @@ function confirmDelete() {
   color: var(--text-default-error);
   cursor: pointer;
   font-size: 0.8125rem;
+}
+
+.collection-detail__describe {
+  align-self: flex-start;
+  margin-top: 0.5rem;
+  border: 1px solid var(--border-default-grey);
+  border-radius: 0.375rem;
+  padding: 0.375rem 0.75rem;
+  background: var(--background-default-grey);
+  color: var(--text-action-high-blue-france);
+  cursor: pointer;
+  font-size: 0.8125rem;
+}
+
+.collection-detail__describe:disabled {
+  cursor: progress;
+  color: var(--text-mention-grey);
+}
+
+.collection-detail__describe-error {
+  margin: 0.25rem 0 0;
+  font-size: 0.8125rem;
+  color: var(--text-default-error);
 }
 
 .collection-detail__name--readonly {
