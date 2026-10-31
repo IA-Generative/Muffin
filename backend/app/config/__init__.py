@@ -10,6 +10,7 @@ from .qdrant import QdrantSettings, SearchSettings
 from .redis import RedisSettings
 from .runs import RunSettings
 from .rustfs import RustFsSettings
+from .secrets import SecretsSettings
 from .sharing import SharingSettings
 from .worker import WorkerSettings
 
@@ -27,6 +28,7 @@ __all__ = [
     "RunSettings",
     "RustFsSettings",
     "SearchSettings",
+    "SecretsSettings",
     "SharingSettings",
     "WorkerSettings",
 ]
