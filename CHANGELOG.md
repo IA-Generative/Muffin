@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.40.0](https://github.com/IA-Generative/Muffin/compare/v0.39.0...v0.40.0) (2026-10-31)
+
+
+### Features
+
+* **agent:** agent into backend ([#499](https://github.com/IA-Generative/Muffin/issues/499)) ([28098a8](https://github.com/IA-Generative/Muffin/commit/28098a881ad7b40290accbe63ab3def5ea808173))
+
 ## [0.40.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.39.0...v0.40.0-rc) (2026-10-31)
 
 
