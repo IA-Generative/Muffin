@@ -13,6 +13,7 @@ from app.routers.admin_owui_sync import router as admin_owui_sync_router
 from app.routers.admin_prompts import router as admin_prompts_router
 from app.routers.admin_reports import router as admin_reports_router
 from app.routers.admin_settings import router as admin_settings_router
+from app.routers.api_keys import router as api_keys_router
 from app.routers.auth import router as auth_router
 from app.routers.cgu import router as cgu_router
 from app.routers.collection_imports import internal_router as internal_collection_imports_router
@@ -140,6 +141,7 @@ app.add_middleware(
 )
 
 app.include_router(auth_router, prefix="/api/auth")
+app.include_router(api_keys_router, prefix="/api")
 app.include_router(health_router, prefix="/api")
 app.include_router(models_router, prefix="/api")
 app.include_router(collections_router, prefix="/api")
