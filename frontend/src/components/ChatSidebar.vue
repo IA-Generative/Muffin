@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useAppVersion } from '../composables/useAppVersion'
+import { type ConversationSearchHit, useConversationSearch } from '../composables/useConversationSearch'
 import { useOnboarding } from '../composables/useOnboarding'
 import type { Conversation } from '../types/chat'
 import type { User } from '../types/user'
+import { MIN_QUERY_LENGTH, snippetParts } from '../utils/conversationSearch'
 import ConversationMenu from './ConversationMenu.vue'
 import CguViewerModal from './CguViewerModal.vue'
 import ReleaseNotesModal from './ReleaseNotesModal.vue'
@@ -26,6 +28,7 @@ defineProps<{
 
 const emit = defineEmits<{
   select: [id: string]
+  selectMessage: [id: string, messageId: string]
   loadMore: []
   new: []
   rename: [id: string, title: string]
@@ -48,8 +51,36 @@ const emit = defineEmits<{
 function onScrollList(event: Event) {
   const el = event.target as HTMLElement
   if (el.scrollHeight - el.scrollTop - el.clientHeight < el.clientHeight) {
-    emit('loadMore')
+    if (search.active.value) search.loadMore()
+    else emit('loadMore')
   }
+}
+
+// The search of the conversations (#509): while a query is typed, its hits take the place of the history.
+const search = useConversationSearch()
+const searchInput = ref<HTMLInputElement | null>(null)
+
+const searchStatus = computed(() => {
+  if (search.failed.value) return 'La recherche a échoué. Réessayez.'
+  if (search.loading.value && !search.hits.value.length) return 'Recherche…'
+  const total = search.total.value
+  if (total === 0) return 'Aucun résultat'
+  return total === 1 ? '1 résultat' : `${total} résultats`
+})
+
+function openHit(hit: ConversationSearchHit) {
+  if (hit.message_id) emit('selectMessage', hit.id, hit.message_id)
+  else emit('select', hit.id)
+}
+
+function onShortcut(event: KeyboardEvent) {
+  if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'k') return
+  event.preventDefault()
+  collapsed.value = false
+  void nextTick(() => {
+    searchInput.value?.focus()
+    searchInput.value?.select()
+  })
 }
 
 const showUserMenu = ref(false)
@@ -185,8 +216,14 @@ function handleOutsideClick(event: MouseEvent) {
   }
 }
 
-onMounted(() => document.addEventListener('click', handleOutsideClick))
-onBeforeUnmount(() => document.removeEventListener('click', handleOutsideClick))
+onMounted(() => {
+  document.addEventListener('click', handleOutsideClick)
+  document.addEventListener('keydown', onShortcut)
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('click', handleOutsideClick)
+  document.removeEventListener('keydown', onShortcut)
+})
 
 function initials(name: string) {
   return name
@@ -243,7 +280,47 @@ function initials(name: string) {
       </button>
     </nav>
 
+    <form v-if="!collapsed" class="chat-sidebar__search" role="search" @submit.prevent>
+      <label class="chat-sidebar__search-label" for="conversation-search">Rechercher dans les conversations</label>
+      <input
+        id="conversation-search"
+        ref="searchInput"
+        v-model="search.query.value"
+        type="search"
+        class="chat-sidebar__search-input"
+        placeholder="Rechercher (Ctrl+K)"
+        autocomplete="off"
+        :aria-describedby="search.active.value ? 'conversation-search-status' : undefined"
+        @keydown.escape="search.clear()"
+      />
+      <button v-if="search.query.value" type="button" class="chat-sidebar__search-clear" aria-label="Effacer la recherche" @click="search.clear()">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <path stroke-linecap="round" d="M6 6l12 12M18 6L6 18" />
+        </svg>
+      </button>
+    </form>
+
     <div v-if="!collapsed" class="chat-sidebar__scroll" @scroll="onScrollList">
+      <template v-if="search.active.value">
+        <h2 id="conversation-search-status" class="chat-sidebar__section-title" role="status" aria-live="polite">
+          {{ searchStatus }}
+        </h2>
+        <nav class="chat-sidebar__list" aria-label="Résultats de la recherche">
+          <button v-for="hit in search.hits.value" :key="hit.id" type="button" class="chat-sidebar__hit" @click="openHit(hit)">
+            <span class="chat-sidebar__hit-title">{{ hit.title || 'Sans titre' }}</span>
+            <span v-if="hit.snippet" class="chat-sidebar__hit-snippet">
+              <template v-for="(part, index) in snippetParts(hit.snippet)" :key="index">
+                <mark v-if="part.match">{{ part.text }}</mark>
+                <template v-else>{{ part.text }}</template>
+              </template>
+            </span>
+          </button>
+        </nav>
+      </template>
+      <template v-else>
+      <p v-if="search.query.value.trim().length > 0 && search.query.value.trim().length < MIN_QUERY_LENGTH" class="chat-sidebar__hint">
+        Saisissez au moins {{ MIN_QUERY_LENGTH }} caractères.
+      </p>
       <h2 class="chat-sidebar__section-title">Récents</h2>
       <nav class="chat-sidebar__list" aria-label="Historique des conversations">
         <div
@@ -286,6 +363,7 @@ function initials(name: string) {
         </div>
       </nav>
       <p v-if="loadingMoreConversations" class="chat-sidebar__loading-more">Chargement…</p>
+      </template>
     </div>
 
     <div v-if="user" ref="userWrapper" class="chat-sidebar__user-wrapper">
@@ -518,6 +596,99 @@ function initials(name: string) {
   flex: 1;
   overflow-y: auto;
   margin-top: 0.75rem;
+}
+
+.chat-sidebar__search {
+  position: relative;
+  margin: 0.5rem 0.5rem 0.75rem;
+}
+
+/* Hidden from the eye, read by a screen reader. */
+.chat-sidebar__search-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.chat-sidebar__search-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.5rem 2rem 0.5rem 0.75rem;
+  border: 1px solid var(--border-default-grey);
+  border-radius: 0.5rem;
+  background: var(--background-default-grey);
+  color: var(--text-default-grey);
+  font-family: inherit;
+  font-size: 0.875rem;
+}
+
+.chat-sidebar__search-input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.chat-sidebar__search-clear {
+  position: absolute;
+  top: 50%;
+  right: 0.375rem;
+  transform: translateY(-50%);
+  display: flex;
+  padding: 0.25rem;
+  border: none;
+  background: transparent;
+  color: var(--text-mention-grey);
+  cursor: pointer;
+}
+
+.chat-sidebar__hint {
+  margin: 0 0.75rem 0.5rem;
+  font-size: 0.75rem;
+  color: var(--text-mention-grey);
+}
+
+.chat-sidebar__hit {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border: none;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: var(--text-default-grey);
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+}
+
+.chat-sidebar__hit:hover {
+  background: var(--background-alt-grey);
+}
+
+.chat-sidebar__hit-title {
+  overflow: hidden;
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-sidebar__hit-snippet {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: 0.75rem;
+  color: var(--text-mention-grey);
+}
+
+.chat-sidebar__hit-snippet mark {
+  padding: 0 0.125rem;
+  border-radius: 0.125rem;
+  background: var(--background-contrast-info);
+  color: var(--text-default-info);
 }
 
 .chat-sidebar__section-title {
