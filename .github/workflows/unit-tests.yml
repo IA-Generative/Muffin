@@ -52,6 +52,14 @@ jobs:
           --health-interval 5s
           --health-timeout 3s
           --health-retries 10
+      # A Vault in development mode for the tests of the secret store (#521).
+      vault:
+        image: hashicorp/vault:1.18
+        env:
+          VAULT_DEV_ROOT_TOKEN_ID: test-root-token
+          VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+        ports:
+          - 8200:8200
       # No health check: the image has neither curl nor wget - the step below waits for it instead.
       qdrant:
         image: qdrant/qdrant:v1.20.0
@@ -60,6 +68,10 @@ jobs:
     env:
       # The vector store tests also run against this server (they fail, rather than skip, if it is down).
       QDRANT_TEST_URL: http://localhost:6333
+      # The tests of the secret store (#521) run against this Vault, which they turn Transit on in (they fail, rather than
+      # skip, if it is down).
+      VAULT_TEST_ADDR: http://localhost:8200
+      VAULT_TEST_TOKEN: test-root-token
       DATABASE_URL: postgresql+asyncpg://muffin:muffin@localhost:5432/muffin
       REDIS_URL: redis://localhost:6379/0
     steps:
@@ -79,6 +91,9 @@ jobs:
 
       - name: Wait for Qdrant
         run: curl --retry 30 --retry-delay 1 --retry-connrefused -fsS http://localhost:6333/readyz
+
+      - name: Wait for Vault
+        run: curl --retry 30 --retry-delay 1 --retry-connrefused -fsS http://localhost:8200/v1/sys/health
 
       - name: Apply database migrations
         working-directory: backend
