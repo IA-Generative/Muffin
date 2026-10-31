@@ -31,6 +31,7 @@ class Model:
         self.replies, self.calls = list(replies), []
         self.admin_prompt = admin_prompt
         self.partials: list[str] = []
+        self.deltas: list[tuple[str, bool]] = []
 
     async def get_run(self, run_id):
         return {"cancel_requested": False}
@@ -43,6 +44,9 @@ class Model:
 
     async def set_partial_answer(self, run_id, text):
         self.partials.append(text)
+
+    async def publish_answer_delta(self, run_id, text, replace=False):
+        self.deltas.append((text, replace))
 
     async def get_active_prompt(self, name):
         return {"id": "v1", "content": self.admin_prompt} if self.admin_prompt else None
@@ -313,3 +317,50 @@ async def test_the_chat_is_shown_the_answer_as_it_is_written_not_the_json(monkey
     assert model.partials[0] == ""
     assert all("{" not in partial and "sources" not in partial for partial in model.partials)
     assert any(p.startswith("Vingt") for p in model.partials)
+
+
+# --- the answer, as it is handed to the chat while it is written (#510) ---
+
+
+async def test_the_chat_is_handed_the_text_of_the_answer_not_the_json_the_model_writes(monkeypatch):
+    model = Model(['{"answer": "Vingt-cinq jours [' + FIRST + ']."}'])
+
+    await run(monkeypatch, model)
+
+    handed = "".join(text for text, _replace in model.deltas)
+    assert handed == f"Vingt-cinq jours [{FIRST}]."
+    assert all(replace is False for _text, replace in model.deltas)
+
+
+async def test_a_text_that_turns_out_not_to_continue_what_was_sent_replaces_it(monkeypatch):
+    sent = []
+
+    class Backend:
+        async def publish_answer_delta(self, run_id, text, replace=False):
+            sent.append((text, replace))
+
+    monkeypatch.setattr(generate_answer_module, "backend_client", Backend())
+
+    shown = await generate_answer_module._publish_delta("run-1", "```", "")
+    assert shown == "```"
+    # The fence is now known to be one: what looked like the start of the answer is not.
+    shown = await generate_answer_module._publish_delta("run-1", '```json\n{"answer": "Bonjour', shown)
+
+    assert shown == "Bonjour"
+    assert sent == [("```", False), ("Bonjour", True)]
+
+
+async def test_nothing_is_handed_to_the_chat_when_the_text_has_not_changed(monkeypatch):
+    sent = []
+
+    class Backend:
+        async def publish_answer_delta(self, run_id, text, replace=False):
+            sent.append((text, replace))
+
+    monkeypatch.setattr(generate_answer_module, "backend_client", Backend())
+
+    shown = await generate_answer_module._publish_delta("run-1", '{"answer": "Bon', "")
+    assert shown == "Bon"
+    shown = await generate_answer_module._publish_delta("run-1", '{"answer": "Bon', shown)
+
+    assert sent == [("Bon", False)]

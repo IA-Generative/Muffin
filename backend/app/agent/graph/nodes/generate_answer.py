@@ -43,6 +43,25 @@ _SYSTEM_PROMPT = (
 
 
 _PARTIAL_PUBLISH_INTERVAL_SECONDS = 0.4
+# What the model wrote is handed to the chat in pieces at most this far apart: close enough to read as it is written,
+# and far enough that a long answer is some hundreds of entries rather than one per token.
+_DELTA_PUBLISH_INTERVAL_SECONDS = 0.05
+
+
+async def _publish_delta(run_id: str, raw: str, shown: str) -> str:
+    """Hands the chat what the model has written since the last time, and returns the answer as the chat has it now.
+
+    The model writes JSON, of which the chat shows the "answer" field: what is sent is the new end of that text. When
+    the text so far is no longer a continuation of what was sent (what looked like the start of the answer turned out
+    not to be), the chat is sent the whole of it to put in place of its own."""
+    now = partial_answer(raw)
+    if now == shown:
+        return shown
+    if now.startswith(shown):
+        await backend_client.publish_answer_delta(run_id, now[len(shown) :], replace=False)
+    else:
+        await backend_client.publish_answer_delta(run_id, now, replace=True)
+    return now
 
 
 async def _write_answer(run_id: str, model: str, messages: list[dict[str, str]]) -> dict[str, Any]:
@@ -52,7 +71,8 @@ async def _write_answer(run_id: str, model: str, messages: list[dict[str, str]])
     so streaming can never be the reason an answer is lost."""
     text = ""
     prompt_tokens = completion_tokens = None
-    last_published = 0.0
+    last_published = last_delta = 0.0
+    shown = ""  # the answer as the chat has it so far
     try:
         await backend_client.set_partial_answer(run_id, "")
         async for item in backend_client.llm_chat_stream(model, messages):
@@ -61,9 +81,13 @@ async def _write_answer(run_id: str, model: str, messages: list[dict[str, str]])
                 continue
             text += item.get("delta", "")
             now = time.monotonic()
+            if now - last_delta >= _DELTA_PUBLISH_INTERVAL_SECONDS:
+                shown = await _publish_delta(run_id, text, shown)
+                last_delta = now
             if now - last_published >= _PARTIAL_PUBLISH_INTERVAL_SECONDS:
                 await backend_client.set_partial_answer(run_id, partial_answer(text))
                 last_published = now
+        await _publish_delta(run_id, text, shown)
     except Exception:
         if text:
             raise

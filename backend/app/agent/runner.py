@@ -28,6 +28,7 @@ from app.agent.usage_context import start_run
 from app.agent.user_token import set_user_token
 from app.db import async_session_factory
 from app.models.run import Run, RunStatus
+from app.services import run_stream
 
 # A run that has been running or waiting for this long without a node ending is dead: every node reports its progress.
 STALE_AFTER = timedelta(minutes=10)
@@ -124,6 +125,7 @@ class AgentRunner:
                     .values(status=RunStatus.FAILED, error=error)
                 )
                 await db.commit()
+            await run_stream.publish(run_id, run_stream.STATUS, {"status": "failed"})
         except Exception:
             logger.exception(f"Could not mark run {run_id} failed")
 
