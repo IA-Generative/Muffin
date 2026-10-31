@@ -16,10 +16,13 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from app.core.api_keys import PREFIX
 from app.core.security.factory import AllowAllAccess, RequestContext, TokenVerifier
 from app.db import async_session_factory
+from app.models.api_key import SCOPE_SEARCH
 from app.repositories.group_repository import GroupRepository
 from app.schemas.mcp import SearchResult, SuggestedCollections
+from app.services.api_key_service import ApiKeyRateLimitedError, ApiKeyService, InvalidApiKeyError
 from app.services.mcp_search_service import McpSearchService
 
 # Who is calling, set by the middleware below for the tools to read: a tool takes only what the client sends.
@@ -72,8 +75,9 @@ async def search(
 
 
 class CallerMiddleware:
-    """Knows the caller from their Keycloak bearer token - not the session cookie, which a browser sends on its own
-    to any page - and refuses the request otherwise. The caller's Muffin groups are added to their token's."""
+    """Knows the caller from their bearer token - a Keycloak access token, or a personal API key for `search` (#521),
+    which does not expire in minutes - not the session cookie, which a browser sends on its own to any page - and
+    refuses the request otherwise. The caller's Muffin groups are added to their token's."""
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
@@ -83,6 +87,10 @@ class CallerMiddleware:
             await self.app(scope, receive, send)
             return
         request = Request(scope)
+        authorization = request.headers.get("Authorization", "")
+        if authorization.startswith(f"Bearer {PREFIX}"):
+            await self._call_with_api_key(authorization.removeprefix("Bearer "), scope, receive, send)
+            return
         open_access = isinstance(TokenVerifier, AllowAllAccess)
         try:
             if not open_access and not request.headers.get("Authorization", "").startswith("Bearer "):
@@ -98,6 +106,27 @@ class CallerMiddleware:
             context.groups = list(
                 dict.fromkeys([*context.groups, *await GroupRepository(db).group_ids_of(context.user_id)])
             )
+        token = _caller.set(context)
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            _caller.reset(token)
+
+    async def _call_with_api_key(self, key: str, scope: Scope, receive: Receive, send: Send) -> None:
+        try:
+            async with async_session_factory() as db:
+                context = await ApiKeyService(db).authenticate(key, SCOPE_SEARCH)
+        except ApiKeyRateLimitedError:
+            response = JSONResponse({"error": "Too many requests"}, status_code=429, headers={"Retry-After": "60"})
+            await response(scope, receive, send)
+            return
+        except InvalidApiKeyError:
+            response = JSONResponse(
+                {"error": "Not authenticated"}, status_code=401, headers={"WWW-Authenticate": "Bearer"}
+            )
+            await response(scope, receive, send)
+            return
+        # The groups of the key's owner in Muffin are already in it (ApiKeyService.authenticate).
         token = _caller.set(context)
         try:
             await self.app(scope, receive, send)
