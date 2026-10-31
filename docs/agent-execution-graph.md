@@ -1,6 +1,9 @@
 # Le graphe de l'agent d'exécution
 
-Le graphe LangGraph de `worker/agent_execution` (`app/graph/graph.py`), tel que le compile `build_graph()`.
+Le graphe LangGraph de `worker/agent_execution` (`app/graph/graph.py`), tel que le compile `build_graph()`. Il remplace l'ancien
+graphe à quatre ou cinq appels de modèle en série ([audit et proposition](agent-execution-graph-proposal.md)) : **un appel décide
+de tout (`plan`), la recherche est du code, un appel écrit la réponse.**
+
 Les nœuds orange appellent un LLM. Les flèches en pointillés sont des arêtes conditionnelles (`app/graph/routing/conditions.py`).
 Chaque nœud peut aussi aller à `cancelled` quand l'annulation est demandée : l'arête n'est pas dessinée, pour rester lisible.
 
@@ -10,144 +13,92 @@ Le même dessin en Mermaid, que GitHub affiche directement :
 
 ```mermaid
 flowchart TD
-    load_context[load_context]
-    load_accessible_vdbs[load_accessible_vdbs]
-    detect_edit[detect_edit]
-    detect_create[detect_create]
-    delegate_create[delegate_create]
-    delegate_edit[delegate_edit]
-    analyze_query[analyze_query]
-    answer_identity[answer_identity]
+    prepare[prepare]
+    plan[plan]
     answer_help[answer_help]
-    request_clarification[request_clarification]
-    decompose_query[decompose_query]
-    build_research_plan[build_research_plan]
-    route_collections[route_collections]
     research_task[research_task]
     merge_evidence[merge_evidence]
-    evaluate_coverage[evaluate_coverage]
-    clarify_coverage[clarify_coverage]
+    gate[gate]
+    widen_search[widen_search]
     build_answer_context[build_answer_context]
     generate_answer[generate_answer]
-    validate_grounding[validate_grounding]
-    targeted_research[targeted_research]
-    rewrite_citations[rewrite_citations]
+    subgraph edit_sub [edit]
+        edit__edit_resolve[edit_resolve]
+        edit__edit_request[edit_request]
+        edit__edit_wait[edit_wait]
+        edit__edit_report[edit_report]
+    end
+    subgraph create_sub [create]
+        create__create_resolve[create_resolve]
+        create__create_write[create_write]
+    end
     __start__(( début ))
     __end__(( fin ))
-    __start__ --> load_context
-    analyze_query -.-> answer_help
-    analyze_query -.-> answer_identity
-    analyze_query -.-> decompose_query
-    analyze_query -.-> request_clarification
+    __start__ --> prepare
     answer_help -.-> __end__
-    answer_identity -.-> __end__
     build_answer_context -.-> generate_answer
-    build_research_plan -.-> route_collections
-    clarify_coverage -.-> __end__
-    decompose_query -.-> build_research_plan
-    delegate_create -.-> __end__
-    delegate_edit -.-> __end__
-    detect_create -.-> analyze_query
-    detect_create -.-> delegate_create
-    detect_edit -.-> delegate_edit
-    detect_edit -.-> detect_create
-    evaluate_coverage -.-> build_answer_context
-    evaluate_coverage -.-> clarify_coverage
+    gate -.-> build_answer_context
+    gate -.-> widen_search
     generate_answer -.-> __end__
-    generate_answer -.-> validate_grounding
-    load_accessible_vdbs -.-> detect_edit
-    load_context -.-> load_accessible_vdbs
-    merge_evidence -.-> evaluate_coverage
-    merge_evidence -.-> research_task
-    request_clarification -.-> __end__
-    request_clarification -.-> decompose_query
+    merge_evidence -.-> gate
+    plan -.-> __end__
+    plan -.-> answer_help
+    plan -.-> create__create_resolve
+    plan -.-> edit__edit_resolve
+    plan -.-> gate
+    plan -.-> research_task
+    prepare -.-> plan
     research_task --> merge_evidence
-    rewrite_citations -.-> generate_answer
-    route_collections -.-> __end__
-    route_collections -.-> merge_evidence
-    route_collections -.-> research_task
-    targeted_research -.-> merge_evidence
-    validate_grounding -.-> __end__
-    validate_grounding -.-> rewrite_citations
-    validate_grounding -.-> targeted_research
+    widen_search -.-> build_answer_context
+    widen_search -.-> research_task
+    edit__edit_request -.-> __end__
+    edit__edit_request -.-> edit__edit_wait
+    edit__edit_resolve -.-> __end__
+    edit__edit_resolve -.-> edit__edit_request
+    edit__edit_wait -.-> __end__
+    edit__edit_wait -.-> edit__edit_report
+    edit__edit_report --> __end__
+    create__create_resolve -.-> __end__
+    create__create_resolve -.-> create__create_write
+    create__create_write --> __end__
     classDef llm fill:#fde7c8,stroke:#c77700
-    class analyze_query,answer_help,answer_identity,clarify_coverage,decompose_query,delegate_create,detect_create,detect_edit,evaluate_coverage,generate_answer,research_task,validate_grounding llm
+    class answer_help,create__create_write,generate_answer,plan llm
 ```
-
-## Lire le dessin
-
-- **Détection d'une édition ou d'une création** (`detect_edit`, `detect_create`) : un filtre par mots-clés passe d'abord, le LLM n'est appelé que si la demande y ressemble.
-- **`analyze_query`** : toujours un appel LLM. Selon l'intention, la question part vers l'identité, l'aide, une demande de précision ou la recherche.
-- **`decompose_query`** : le LLM n'est appelé que pour une question qui n'est pas simple. Sinon, une tâche de recherche unique est créée sans appel.
-- **`route_collections`** : une sonde de recherche (sans LLM) dit si la question tombe clairement dans une collection. Sinon, la run se termine sur une question à l'utilisateur.
-- **`research_task`** : une branche par tâche, en parallèle (`MAX_PARALLEL_TASKS`). Chaque branche enchaîne le choix des collections (LLM), la recherche QA, les résumés (LLM de suffisance), puis les chunks.
-- **`merge_evidence`** revient sur `research_task` tant que des tâches dépendantes sont prêtes, puis passe à `evaluate_coverage` (LLM).
-- **`generate_answer`** écrit la réponse en streaming. `validate_grounding` (LLM) ne passe que pour une réponse de synthèse ou de comparaison, ou multi-sources. Un échec peut relancer une recherche ciblée (`targeted_research`, une fois) ou une réécriture des citations (`rewrite_citations`, une fois).
 
 ## Détail de chaque nœud
 
-Relevé dans le code (`app/graph/nodes`, `app/graph/routing/conditions.py`), **pas mesuré**. « HTTP » compte les appels au
-backend : `GET /runs/{id}` pour l'annulation (`is_cancelled`), `PATCH` du statut (`set_activity`) et `emit` (un `POST`
-d'événement chacun). Les arêtes conditionnelles `after_*` refont un `GET` d'annulation ; `route_or_cancel` n'en fait pas.
-`get_prompt` ajoute un `GET` quand le prompt n'est pas en cache (60 s) ou qu'aucune version active n'existe.
+Relevé dans le code. « HTTP » compte les appels au backend (`GET` d'annulation au début du nœud, `PATCH` du statut, un `POST` par
+événement). Les arêtes ne refont plus de `GET` d'annulation : le nœud qui a vu la demande positionne `cancelled`.
 
-| Nœud | Vient de → va vers | Ce qu'il fait exactement | Appels LLM | Autre chose utilisée | HTTP ≈ |
-|---|---|---|---|---|---|
-| `load_context` | début → `load_accessible_vdbs` | Marque la run comme démarrée. | 0 | – | 2 |
-| `load_accessible_vdbs` | `load_context` → `detect_edit` | Charge les collections accessibles à l'utilisateur (barrière de sécurité : rien ne dépasse cette liste). | 0 | Backend : liste des collections | 5 |
-| `detect_edit` | `load_accessible_vdbs` → `delegate_edit` / `detect_create` | Un filtre par mots-clés (`_EDIT_VERBS`) décide si le message ressemble à une modification de document. Si oui, le LLM choisit le document parmi ceux que l'utilisateur peut modifier. | 0, ou 1 si un mot-clé correspond | Backend : liste des documents modifiables (si mot-clé) | 2 (≈6 si mot-clé) |
-| `detect_create` | `detect_edit` → `delegate_create` / `analyze_query` | Idem avec `_CREATE_VERBS` : le LLM dit si c'est une création de document Markdown, et dans quelle collection. | 0, ou 1 si un mot-clé correspond | Backend : liste des collections modifiables (si mot-clé) | 2 (≈6 si mot-clé) |
-| `delegate_edit` | `detect_edit` → fin | Demande au backend de lancer l'agent d'édition, puis attend son verdict (sondage toutes les 2 s, 300 s au plus). N'édite rien lui-même. | 0 | Backend : création de la demande ; worker `document_edit` ; sondage | ≈4 + 2 par sondage |
-| `delegate_create` | `detect_create` → fin | Écrit le document Markdown (jusqu'à 4000 tokens) et le propose à valider. | 1 | Backend : création du brouillon | ≈7 |
-| `analyze_query` | `detect_create` → `answer_help` / `answer_identity` / `request_clarification` / `decompose_query` | Comprend la demande avec tout l'historique : intention, complexité, ambiguïté, question autonome (`standalone_query`). | **1, toujours** | `get_prompt` | 5-6 |
-| `answer_identity` | `analyze_query` → fin | Répond « qui es-tu » avec la liste des capacités. | 1 | `get_prompt` | 4-5 |
-| `answer_help` | `analyze_query` → fin | Répond « comment faire dans Muffin » à partir d'un guide intégré. | 1 | `get_prompt` | 4-5 |
-| `request_clarification` | `analyze_query` → `decompose_query` / fin | Termine la run sur les questions du modèle (déjà produites par `analyze_query`). Sans question possible (run programmatique, déjà 2 tours), continue en posant des hypothèses. | 0 | – | 3 |
-| `decompose_query` | `analyze_query` ou `request_clarification` → `build_research_plan` | Découpe en tâches de recherche (un graphe de dépendances). Question simple et pas « meta » : une seule tâche `search`, sans appel. | 0 si simple, sinon 1 | `get_prompt` | 4-5 |
-| `build_research_plan` | `decompose_query` → `route_collections` | Sépare les tâches prêtes de celles qui attendent une dépendance. Écrit le plan dans la run. | 0 | Backend : écriture du plan | 4 |
-| `route_collections` | `build_research_plan` → `research_task` (une branche par tâche prête) / `merge_evidence` / fin | Sonde de confiance : une recherche sur toutes les collections dit si la question tombe clairement dans l'une d'elles. Sinon, la run se termine sur une question à l'utilisateur. Sauté avec moins de 2 collections, collections épinglées, ou aucune tâche `search`. | 0 | Backend : pré-filtre vectoriel (si beaucoup de collections) et sonde de recherche (embedding + Qdrant) | 2 si sauté, ≈6 sinon (2 `GET` d'annulation) |
-| `research_task` | `route_collections` ou `merge_evidence` → `merge_evidence` | Une tâche, jusqu'à 4 en parallèle. Selon son outil, voir le tableau suivant. | voir ci-dessous | voir ci-dessous | ≈6 + recherches |
-| `merge_evidence` | `research_task` ou `targeted_research` → `research_task` (tâches débloquées) / `evaluate_coverage` | Dédoublonne les preuves. Relance `research_task` tant que des tâches dépendantes sont prêtes. | 0 | – | 4 |
-| `evaluate_coverage` | `merge_evidence` → `build_answer_context` / `clarify_coverage` | Les preuves suffisent-elles ? Sans appel pour une recherche « meta » (liste, comptage), ni quand aucune preuve n'a été trouvée (insuffisant d'office). | 0 ou 1 | `get_prompt` | 5 |
-| `clarify_coverage` | `evaluate_coverage` → fin | Preuves insuffisantes : termine la run sur des questions proposant des interprétations. | 1 | `get_prompt` | 4 |
-| `build_answer_context` | `evaluate_coverage` → `generate_answer` | Garde les 20 meilleurs extraits, triés par score. Aucun calcul lourd. | 0 | – | 3 |
-| `generate_answer` | `build_answer_context` ou `rewrite_citations` → fin / `validate_grounding` | Écrit la réponse avec citations, en streaming (texte partiel publié toutes les x secondes). Si aucune citation, redemande une fois. Terminal si simple ou « meta ». | **1** (2 si aucune citation) | `get_prompt` ; backend : flux LLM + mises à jour du texte partiel | ≈7 + mises à jour |
-| `validate_grounding` | `generate_answer` → fin / `targeted_research` / `rewrite_citations` | Vérifie chaque affirmation contre les extraits : non soutenues, mal citées, sans citation. | 1 | `get_prompt` | 5 |
-| `targeted_research` | `validate_grounding` → `merge_evidence` | Recherche ciblée sur les affirmations non soutenues (3 au plus, une fois par run). | 1 par affirmation (jusqu'à 3) | Backend : recherche par affirmation | ≈4 + 2 par affirmation |
-| `rewrite_citations` | `validate_grounding` → `generate_answer` | Prépare la réécriture de la réponse avec ses citations corrigées (une fois). Aucun calcul. | 0 (mais déclenche un nouvel appel de `generate_answer`, puis la fin sans re-validation) | – | 3 |
+| Nœud | Vient de → va vers | Ce qu'il fait exactement | Appels LLM | Autre chose utilisée |
+|---|---|---|---|---|
+| `prepare` | début → `plan` | Charge les collections accessibles (la barrière de permission). Si le message contient un verbe de modification ou de création, charge ce que l'utilisateur peut modifier / où il peut créer. Au-delà de 20 collections, le catalogue du plan est réduit par le pré-filtre vectoriel. | 0 | Backend : collections, documents modifiables, collections de création ; Qdrant : pré-filtre |
+| `plan` | `prepare` → fin / `answer_help` / `edit` / `create` / `research_task` | **L'appel n°1.** Lit le message, les 6 derniers tours et le catalogue ; rend un JSON : `mode` (`direct`, `clarify`, `help`, `edit`, `create`, `search`) et, pour `search`, la question autonome, 1 à 4 requêtes avec leur outil, les collections et la complexité. `direct` et `clarify` portent la réponse : le run s'arrête là. Valide tout contre les listes du backend. | **1** | `get_prompt` |
+| `answer_help` | `plan` → fin | Répond à « comment faire dans Muffin » avec le guide intégré. | 1 | `get_prompt` |
+| `edit` (sous-graphe) | `plan` → fin | `edit_resolve` valide le document choisi ou explique pourquoi pas ; `edit_request` demande à l'agent d'édition ; `edit_wait` suit le brouillon toutes les 2 s (300 s au plus) ; `edit_report` résume la proposition. N'écrit rien dans la collection. | 0 | Backend, worker `document_edit` |
+| `create` (sous-graphe) | `plan` → fin | `create_resolve` valide la collection choisie ; `create_write` écrit le Markdown (jusqu'à 4000 tokens) et le propose. Le document n'existe qu'une fois validé par l'utilisateur. | 1 (`create_write`) | Backend |
+| `research_task` | `plan` / `widen_search` → `merge_evidence` | Une branche par requête du plan, jusqu'à 4 en parallèle. Pour `search` : la question déjà répondue (QA), les résumés des documents et les passages sont interrogés **en même temps**, dans les collections choisies et leurs sous-collections. Autres outils : `list_collections`, `collection_summary`, `list_documents`, `page_content`, `tabular_query`, `web_search` (si activée), `time`. | 0 (hors `page_content` : 1, et `tabular_query` : un par tour de la boucle SQL) | Backend (3 recherches parallèles), Qdrant, SearXNG, worker SQL |
+| `merge_evidence` | `research_task` → `gate` | Dédoublonne les preuves. | 0 | – |
+| `gate` | `merge_evidence` → `build_answer_context` / `widen_search` | Décide **en code** si les preuves suffisent : une recherche de contenu doit donner au moins `GATE_MIN_EVIDENCE` passage(s) au-dessus de `GATE_MIN_SCORE`. Une consultation de la base (liste, comptage, page) suffit toujours. | 0 | – |
+| `widen_search` | `gate` → `research_task` | Le plan avait restreint les collections et elles ont donné trop peu : refait les recherches de contenu dans toutes les collections accessibles, une fois. | 0 | – |
+| `build_answer_context` | `gate` / `widen_search` → `generate_answer` | Garde les 20 meilleurs extraits, triés par score. | 0 | – |
+| `generate_answer` | `build_answer_context` → fin | **L'appel n°2**, en streaming. Réponse avec citations ; les ids inventés sont retirés en code, et une réponse sans citation est gardée telle quelle (le chat l'indique). Sans extrait, répond « rien trouvé » sans appeler le modèle. | **1** | `get_prompt`, flux LLM du backend |
+| `ground_check` | après la fin du graphe | **L'appel n°3, optionnel.** Lancé par `AgentService` une fois le run `completed`, pour une réponse difficile seulement (plusieurs requêtes ou complexité forte). Vérifie les affirmations contre les extraits ; le verdict est enregistré sur le run. L'utilisateur ne l'attend pas. | 0 ou 1 | Backend : `PATCH /internal/runs/{id}/grounding` |
 
-### Ce que fait `research_task`, outil par outil
+## Appels LLM par chemin
 
-Chaque tâche commence par `select_relevant_vdbs` (choix des collections), sauf `list_collections`, `web_search` et `time`. Ce choix coûte **0 appel s'il y a une seule collection accessible, sinon 1 appel LLM**, avec un pré-filtre vectoriel (backend) quand il y en a beaucoup. Il refait ce que la sonde de `route_collections` sait déjà.
+| Chemin | Appels |
+|---|---|
+| Salutation, identité, ou tout ce qui n'a pas besoin des documents | 1 (`plan`) |
+| Demande à préciser | 1 (`plan`) |
+| Aide sur l'application | 2 (`plan`, `answer_help`) |
+| Question simple | 2 (`plan`, `generate_answer`) |
+| Question complexe | 2, puis 1 après coup (`ground_check`) |
+| Modification d'un document | 1 (`plan`) |
+| Création d'un document | 2 (`plan`, `create_write`) |
+| Hors graphe, après `completed` | titre de la conversation : +1 |
 
-| Outil | Ce qu'il fait | Appels LLM | Autre chose utilisée |
-|---|---|---|---|
-| `search` (défaut) | Cascade en trois étages, en série. 1) QA : une question déjà répondue (score ≥ seuil) arrête tout. 2) Résumés : les 5 meilleurs résumés suffisent-ils ? 3) Chunks : recherche hybride. | choix des collections (0-1) + suffisance des résumés (0-1, seulement si des résumés existent) | Backend : `search_qa`, `search_summaries`, `search` (chacune embedde la requête de son côté, donc jusqu'à 3 embeddings) |
-| `list_collections` | Liste les collections accessibles et leur nombre. | 0 | Aucun appel |
-| `collection_summary` | Décrit les collections choisies. | 0-1 (choix) | – |
-| `list_documents` | Liste les documents des collections choisies avec leur résumé. | 0-1 (choix) | Backend : un `GET` par collection |
-| `page_content` | Lit une page d'un document. | 0-1 (choix) + 1 (quel document et quelle page) | Backend : liste des documents, lecture de la page |
-| `tabular_query` | Interroge des fichiers CSV/XLSX en SQL, avec correction des requêtes en cas d'erreur. | 0-1 (choix) + 1 par tour de la boucle (jusqu'à 2×8 + 6 = 22) | Backend : catalogue ; worker SQL `tabular` (file `tabular_sql`, sondage toutes les 0,3 s) ; graphiques |
-| `web_search` | Recherche web, seulement si l'utilisateur l'a activée. | 0 | SearXNG |
-| `time` | Date et heure précises, périodes relatives. Calcul pur. | 0 | Aucun appel |
-
-### Nombre d'appels LLM par chemin
-
-| Chemin | Appels, dans l'ordre | Total |
-|---|---|---|
-| Identité ou aide | `analyze_query`, puis la réponse | 2 |
-| Question simple, 1 collection | `analyze_query`, suffisance des résumés (si résumés), `evaluate_coverage`, `generate_answer` | 3 à 4 |
-| Question simple, plusieurs collections | idem, plus le choix des collections | 4 à 5 |
-| Question complexe, N tâches | `analyze_query`, `decompose_query`, N × (choix + suffisance), `evaluate_coverage`, `generate_answer`, `validate_grounding` | 5 + 2N |
-| Idem avec grounding en échec | plus jusqu'à 3 choix, `generate_answer` de nouveau, éventuellement `validate_grounding` de nouveau | + 5 environ |
-| Preuves insuffisantes | `analyze_query`, …, `evaluate_coverage`, `clarify_coverage` | 3 à 6 |
-| Hors graphe | titre de la conversation, après `completed` : 1 appel, qui n'attend pas l'utilisateur mais occupe le worker | +1 |
-
-### Ce qui coûte hors LLM
-
-- Chaque nœud fait de 2 à 6 appels HTTP au backend pour l'annulation, le statut et les événements. Une run simple en cumule plusieurs dizaines, tous en synchrone.
-- `RedisSaver` écrit l'état complet (preuves comprises) après chaque nœud.
-- `get_prompt` n'est mis en cache que si une version active existe. Sans version active, chaque appel refait un `GET` (c'est le cas dans les tests : « No active prompt version »).
+Hors boucle SQL de `tabular_query`, qui garde son propre budget de tours.
 
 ## Régénérer
 
