@@ -6,10 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security.factory import RequestContext, get_current_user
 from app.core.sharing import SharingNotConfiguredError
-from app.core.tasks import DESCRIBE_COPIED_COLLECTION_TASK, enqueue_describe_copied_collection
 from app.db import get_db
-from app.repositories.collection_repository import CollectionRepository
-from app.repositories.task_repository import TaskRepository
 from app.schemas.collection import (
     ChunkOut,
     CollectionCreate,
@@ -269,28 +266,14 @@ async def get_feedback_stats(collection_id: uuid.UUID, user: UserDep, service: S
 
 @router.post(
     "/collections/{collection_id}/description/generate",
-    summary="Write the collection's description from a random sample of its files (an administrator, on a collection "
-    "copied from another system - #457)",
+    summary="Write the collection's description from a random sample of its files (runs asynchronously - #457)",
     status_code=status.HTTP_202_ACCEPTED,
 )
-async def generate_description(
-    collection_id: uuid.UUID, user: UserDep, db: Annotated[AsyncSession, Depends(get_db)]
-) -> dict[str, str]:
-    if not user.is_admin:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only an administrator can do this")
-    collection = await CollectionRepository(db).get_accessible(collection_id, user.user_id, user.groups)
-    if collection is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found")
-    if not collection.is_copied:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Muffin keeps the description of its own collections up to date from their documents",
-        )
-    celery_task_id = enqueue_describe_copied_collection(str(collection_id))
-    await TaskRepository(db).create(
-        celery_task_id, DESCRIBE_COPIED_COLLECTION_TASK, user.user_id, collection_id=collection_id
-    )
-    await db.commit()
+async def generate_description(collection_id: uuid.UUID, user: UserDep, service: ServiceDep) -> dict[str, str]:
+    try:
+        celery_task_id = await service.generate_description(collection_id, user)
+    except CollectionNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
     return {"celery_task_id": celery_task_id}
 
 
