@@ -169,6 +169,10 @@ désactivée par défaut en amont et doit être explicitement activée côté se
 | `IMPORT_PROCESSING_WINDOW` | Nombre de documents d'un même import ZIP en cours d'extraction à la fois (#335) : les autres attendent, hors de la file, et la fin d'une extraction libère le suivant. Une archive de 2000 fichiers ne remplit donc plus la file | `4` | **backend** (`app/config/documents.py`, `app/services/document_upload_service.py`) |
 | `IMPORT_SLOT_TIMEOUT_SECONDS` | Au bout de ce délai, un document libéré mais jamais extrait (tâche perdue) ne retient plus sa place dans la fenêtre de son import | `14400` | **backend** (`app/config/documents.py`, `app/services/document_upload_service.py`) |
 | `PINNED_DESCENDANTS_LIMIT` | Nombre max de sous-collections ajoutées quand l'utilisateur épingle une collection dans le chat (les plus proches d'abord) ; au-delà, l'agent propose d'aller plus loin depuis la collection épinglée la plus proche | `30` | **backend** (`app/config/runs.py`, `app/services/run_service.py`) |
+| `RUN_STREAM_TTL_SECONDS` | Durée, en secondes, pendant laquelle le flux en direct d'un run (`GET /api/runs/{id}/stream`, #510) reste lisible après sa dernière écriture : un chat rechargé en plein run y retrouve ses étapes et le début de la réponse ; passé ce délai, il lit le run lui-même | `900` | **backend** (`app/config/runs.py`, `app/services/run_stream.py`) |
+| `RUN_STREAM_MAXLEN` | Nombre maximal d'entrées gardées par flux de run (étapes, morceaux de réponse, statuts) ; les plus anciennes sont écartées au-delà | `20000` | **backend** (`app/config/runs.py`, `app/services/run_stream.py`) |
+| `RUN_STREAMS_PER_USER` | Nombre de flux en direct qu'un utilisateur peut tenir ouverts en même temps, **par pod** ; au-delà, `429` et le chat suit le run par interrogation | `8` | **backend** (`app/config/runs.py`, `app/routers/runs.py`) |
+| `RUN_STREAM_PING_SECONDS` | Intervalle, en secondes, des messages `ping` d'un flux au repos : ils empêchent un proxy de couper un flux silencieux, et le serveur en profite pour vérifier l'état réel du run en base | `15` | **backend** (`app/config/runs.py`, `app/routers/runs.py`) |
 
 ## Backend ↔ workers (URLs)
 
@@ -436,6 +440,7 @@ Le beat embarqué (`OWUI_SYNC_INTERVAL_MINUTES`) n'est pas déployé par Helm : 
 | Variable | Définition | Défaut | Utilisée par |
 |---|---|---|---|
 | `VITE_API_BASE_URL` | URL de base de l'API backend appelée depuis le navigateur | `http://localhost:8000` (fallback en dur dans chaque composable si la variable est absente) | **frontend** — tous les composables faisant du `fetch` (`useChat.ts`, `useCollections.ts`, `useTasks.ts`, `useCurrentUser.ts`, `useModels.ts`, `useEmbeddingModels.ts`, `useAdminSettings.ts`) et les modals qui chargent des ressources (`SourceDocumentModal.vue`, `DocumentDetailModal.vue`) |
+| `VITE_DISABLE_RUN_STREAM` | `true` pour que le chat suive les runs par interrogation au lieu du flux en direct (#510) : utile derrière un proxy qui ne laisse pas passer `text/event-stream` | absente (flux actif) | **frontend** — `useChat.ts` (lue au build) |
 
 Contrairement aux services Python, cette variable est injectée à la **build** (convention Vite :
 préfixe `VITE_`), pas lue au runtime — un changement nécessite de rebuild l'image `frontend`.
