@@ -15,6 +15,7 @@ EXTRACTION = [
     "app.tasks.scan_url_refresh",
     "app.tasks.purge_task_logs",
     "app.tasks.release_import_queue",
+    "app.tasks.scan_undescribed_collections",
 ]
 ENRICHMENT = [
     "app.tasks.chunk_document",

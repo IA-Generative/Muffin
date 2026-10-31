@@ -173,6 +173,13 @@ class WorkerSettings(BaseSettings):
     # harmless: the backend hands each due document to one scan only.
     URL_REFRESH_SCAN_MINUTES: str = "0,30"
 
+    # The job that looks for collections with no description and asks for one (#457): every
+    # this many minutes (0: none). A collection asked for is not asked for again before DESCRIBE_RETRY_HOURS, so one
+    # with nothing to read, or that the model cannot describe, does not cost a call at every pass. Several replicas
+    # each running their own beat is harmless for the same reason.
+    DESCRIBE_SCAN_MINUTES: int = 60
+    DESCRIBE_RETRY_HOURS: int = 24
+
     # Logging (#305): stdout - JSON for kubectl/Loki, or readable - from LOG_LEVEL up. The lines a task
     # logs from TASK_LOG_LEVEL up are also sent to the backend, to be followed in Muffin as it runs.
     LOG_FORMAT: Literal["console", "json"] = "console"

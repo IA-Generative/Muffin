@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from app import task_logging, tasks
+from app.celery_app import celery_app
 from app.config import settings
 from app.tasks import describe
 
@@ -133,3 +134,50 @@ def test_a_collection_without_text_is_left_alone(sample):
 
     sample.llm_chat.assert_not_called()
     sample.update_collection_description.assert_not_called()
+
+
+@pytest.fixture
+def claims(monkeypatch):
+    """The collections already asked for in the retry window."""
+    asked = set()
+    monkeypatch.setattr(describe, "_claim_description", lambda collection_id: asked.add(collection_id) or True)
+    monkeypatch.setattr(describe.describe_collection, "apply_async", MagicMock())
+    return asked
+
+
+def test_the_scan_asks_for_the_description_of_each_collection_without_one(backend, claims):
+    backend.list_undescribed_collections.return_value = ["col-1", "col-2"]
+
+    assert describe.scan_undescribed_collections() == 2
+
+    calls = describe.describe_collection.apply_async.call_args_list
+    assert [call.kwargs["args"] for call in calls] == [["col-1"], ["col-2"]]
+    assert all(call.kwargs["priority"] == 9 for call in calls)
+
+
+def test_the_scan_does_not_ask_again_within_the_retry_window(backend, monkeypatch):
+    backend.list_undescribed_collections.return_value = ["col-1", "col-2"]
+    monkeypatch.setattr(describe, "_claim_description", lambda collection_id: collection_id == "col-2")
+    monkeypatch.setattr(describe.describe_collection, "apply_async", MagicMock())
+
+    assert describe.scan_undescribed_collections() == 1
+
+    assert describe.describe_collection.apply_async.call_args.kwargs["args"] == ["col-2"]
+
+
+def test_a_collection_is_claimed_once_per_retry_window(monkeypatch):
+    client = MagicMock()
+    client.set.side_effect = [True, None]
+    monkeypatch.setattr(describe.redis.Redis, "from_url", lambda url: client)
+    monkeypatch.setattr(settings, "DESCRIBE_RETRY_HOURS", 2)
+
+    assert describe._claim_description("col-1") is True
+    assert describe._claim_description("col-1") is False
+    assert client.set.call_args.kwargs == {"nx": True, "ex": 7200}
+
+
+def test_the_job_is_scheduled_unless_switched_off():
+    schedule = celery_app.conf.beat_schedule["scan-undescribed-collections"]
+
+    assert schedule["task"] == "app.tasks.scan_undescribed_collections"
+    assert schedule["schedule"] == settings.DESCRIBE_SCAN_MINUTES * 60
