@@ -4,6 +4,8 @@ Une clé d'API permet à un script ou à un outil (un client MCP, Open WebUI, un
 session ouverte** et sans jeton Keycloak qui expire en quelques minutes. Chaque utilisateur gère les siennes : menu utilisateur →
 **Clés d'API**.
 
+![La fenêtre des clés d'API, juste après la création d'une clé](images/api-keys-created.png)
+
 Aujourd'hui, une clé sert à appeler le **serveur MCP** (`/api/mcp/`, portée `search`). La portée `chat` est réservée à l'API
 compatible OpenAI (#513).
 
