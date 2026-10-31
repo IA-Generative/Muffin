@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { fetchChunkHighlights, fetchSourceRects, rectStyle, type PageRect } from '../composables/usePageHighlights'
+import { documentFileUrl, hasFile, opensAtPage, pageWithin } from '../utils/documentFile'
 import { highlightPassage, highlightRange, highlightRanges, type PassageMatch } from '../utils/highlightPassage'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
@@ -51,7 +52,21 @@ const index = ref(0)
 const pageError = ref(false)
 const loading = ref(true)
 
-const current = computed(() => cited.value[index.value])
+// A page the reader went to that is not one of the cited ones (they move through the whole document, not only the
+// pages the passage is on): shown plainly, with no frame and no highlight.
+const browsed = ref<CitedPage | null>(null)
+// How many pages the document has - known once a page has been read.
+const total = ref<number>()
+const pageInput = ref('')
+
+const current = computed(() => browsed.value ?? cited.value[index.value])
+const shownNumber = computed(() => current.value?.page.page_number ?? props.pageNumber ?? 1)
+
+const fileAvailable = computed(() => hasFile(props.documentName))
+const downloadUrl = computed(() => documentFileUrl(API_BASE_URL, props.collectionId, props.documentId))
+const openUrl = computed(() =>
+  documentFileUrl(API_BASE_URL, props.collectionId, props.documentId, { inline: true, page: shownNumber.value }),
+)
 
 // The passage in a page's text: at its interval when it is known and it is in the page, else by its text.
 function highlight(content: string, pageNumber: number): PassageMatch {
@@ -69,8 +84,43 @@ async function fetchPage(number: number): Promise<DocumentPage | undefined> {
     { credentials: 'include' },
   )
   if (!response.ok) throw new Error(`${response.status}`)
-  const body: { items: DocumentPage[] } = await response.json()
+  const body: { items: DocumentPage[]; total?: number } = await response.json()
+  if (body.total !== undefined) total.value = body.total
   return body.items[0]
+}
+
+// Moves to a page of the document: one of the cited pages keeps its frames and its highlight, any other is shown as it is.
+async function goTo(target: number | undefined) {
+  if (target === undefined || (total.value !== undefined && (target < 1 || target > total.value))) return
+  pageError.value = false
+  const citedAt = cited.value.findIndex((entry) => entry.page.page_number === target)
+  if (citedAt >= 0) {
+    index.value = citedAt
+    browsed.value = null
+    return
+  }
+  try {
+    const page = await fetchPage(target)
+    if (page) browsed.value = { page, match: highlightPassage(page.content, undefined), rects: [] }
+  } catch {
+    pageError.value = true
+  }
+}
+
+function goToTyped() {
+  const target = pageWithin(pageInput.value, total.value ?? 0)
+  if (target !== undefined) void goTo(target)
+  pageInput.value = ''
+}
+
+// A source with no page of its own: the reader can still go through the document, from its first page.
+async function startReading() {
+  loading.value = true
+  try {
+    await goTo(1)
+  } finally {
+    loading.value = false
+  }
 }
 
 // The zones to frame come after the page itself: the text is shown at once, the frames when they arrive.
@@ -152,6 +202,18 @@ onMounted(async () => {
         <h2 id="source-document-modal-title" class="source-document-modal__title">
           {{ documentName }}<span v-if="pageNumber"> — page {{ current?.page.page_number ?? pageNumber }}</span>
         </h2>
+        <div v-if="fileAvailable" class="source-document-modal__actions">
+          <a class="fr-btn fr-btn--tertiary fr-btn--sm" :href="downloadUrl" download>Télécharger le fichier</a>
+          <a
+            v-if="opensAtPage(documentName)"
+            class="fr-btn fr-btn--tertiary fr-btn--sm"
+            :href="openUrl"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Ouvrir à la page {{ shownNumber }}
+          </a>
+        </div>
         <button type="button" class="source-document-modal__close" aria-label="Fermer" @click="emit('close')">
           ✕
         </button>
@@ -166,27 +228,65 @@ onMounted(async () => {
           <p class="source-document-modal__excerpt-text">{{ excerpt }}</p>
         </section>
 
-        <nav v-if="cited.length > 1" class="source-document-modal__pager" aria-label="Pages citées">
-          <button type="button" class="fr-btn fr-btn--tertiary fr-btn--sm" :disabled="index === 0" @click="index--">
-            Page précédente
-          </button>
-          <span class="source-document-modal__pager-count" aria-live="polite">
-            Page {{ index + 1 }} sur {{ cited.length }} citées
-          </span>
+        <nav v-if="total && total > 1" class="source-document-modal__pager" aria-label="Pages du document">
           <button
             type="button"
             class="fr-btn fr-btn--tertiary fr-btn--sm"
-            :disabled="index === cited.length - 1"
-            @click="index++"
+            :disabled="shownNumber <= 1"
+            @click="goTo(shownNumber - 1)"
+          >
+            Page précédente
+          </button>
+          <span class="source-document-modal__pager-count" aria-live="polite">Page {{ shownNumber }} sur {{ total }}</span>
+          <button
+            type="button"
+            class="fr-btn fr-btn--tertiary fr-btn--sm"
+            :disabled="shownNumber >= total"
+            @click="goTo(shownNumber + 1)"
           >
             Page suivante
           </button>
+          <label class="source-document-modal__goto">
+            Aller à la page
+            <input
+              v-model="pageInput"
+              type="number"
+              min="1"
+              :max="total"
+              inputmode="numeric"
+              class="fr-input source-document-modal__goto-input"
+              @keydown.enter.prevent="goToTyped"
+            />
+          </label>
         </nav>
+        <p v-if="cited.length > 1" class="source-document-modal__cited-pages">
+          Pages citées :
+          <button
+            v-for="entry in cited"
+            :key="entry.page.page_number"
+            type="button"
+            class="source-document-modal__cited-page"
+            :class="{ 'source-document-modal__cited-page--current': entry.page.page_number === shownNumber }"
+            :aria-current="entry.page.page_number === shownNumber ? 'page' : undefined"
+            @click="goTo(entry.page.page_number)"
+          >
+            {{ entry.page.page_number }}
+          </button>
+        </p>
 
         <section>
           <h3 class="source-document-modal__section-title">Page source</h3>
-          <p v-if="!pageNumber" class="source-document-modal__empty">
+          <p v-if="!pageNumber && !current" class="source-document-modal__empty">
             Cette source n'est pas liée à une page précise du document.
+            <button
+              v-if="fileAvailable"
+              type="button"
+              class="fr-btn fr-btn--tertiary fr-btn--sm"
+              :disabled="loading"
+              @click="startReading"
+            >
+              Parcourir le document
+            </button>
           </p>
           <p v-else-if="loading" class="source-document-modal__empty">Chargement…</p>
           <p v-else-if="pageError" class="source-document-modal__error">Impossible de charger cette page.</p>
@@ -227,7 +327,7 @@ onMounted(async () => {
                 </template>
               </p>
               <p
-                v-if="excerpt && !current.match.matched"
+                v-if="excerpt && !browsed && !current.match.matched"
                 class="source-document-modal__empty source-document-modal__not-found"
               >
                 Le passage cité n'a pas été retrouvé tel quel dans cette page.
@@ -241,6 +341,48 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.source-document-modal__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-left: auto;
+  margin-right: 0.5rem;
+}
+
+.source-document-modal__goto {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+}
+
+.source-document-modal__goto-input {
+  width: 5rem;
+  padding: 0.25rem 0.5rem;
+}
+
+.source-document-modal__cited-pages {
+  margin: 0.5rem 0 0;
+  font-size: 0.875rem;
+  color: var(--text-mention-grey);
+}
+
+.source-document-modal__cited-page {
+  min-width: 1.75rem;
+  margin-left: 0.25rem;
+  padding: 0.125rem 0.375rem;
+  border: 1px solid var(--border-default-grey);
+  border-radius: 0.25rem;
+  background: var(--background-default-grey);
+  color: var(--text-action-high-blue-france);
+  cursor: pointer;
+}
+
+.source-document-modal__cited-page--current {
+  background: var(--background-action-low-blue-france);
+  font-weight: 700;
+}
+
 .source-document-modal-overlay {
   position: fixed;
   inset: 0;
