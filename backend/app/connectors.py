@@ -1,4 +1,5 @@
 import redis
+import redis.asyncio as redis_async
 from qdrant_client import QdrantClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -18,6 +19,18 @@ class RedisConnector:
             return Health(name="redis", status="healthy")
         except redis.RedisError as error:
             return Health(name="redis", status="unhealthy", extras={"error": str(error)})
+
+
+_async_redis: redis_async.Redis | None = None
+
+
+def async_redis() -> redis_async.Redis:
+    """The Redis client for what must not block the event loop - the live stream of a run (#510). Built on first use, in
+    the loop that uses it: an asyncio connection belongs to the loop that opened it."""
+    global _async_redis
+    if _async_redis is None:
+        _async_redis = redis_async.Redis.from_url(redis_settings.REDIS_URL, decode_responses=True)
+    return _async_redis
 
 
 class QdrantConnector:

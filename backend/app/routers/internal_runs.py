@@ -45,6 +45,7 @@ from app.schemas.internal_run import (
     TabularDocumentOut,
     TabularSheetRef,
 )
+from app.services import run_stream
 from app.services.run_service import PARTIAL_ANSWER_TTL_SECONDS, partial_answer_key
 from app.services.search_service import SearchService
 from app.services.table_views import table_out
@@ -126,6 +127,11 @@ async def update_run_status(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
     await repository.update_status(run, RunStatus(update.status), update.current_node, update.current_activity)
     await db.commit()
+    await run_stream.publish(
+        run_id,
+        run_stream.STATUS,
+        {"status": update.status, "current_node": update.current_node, "current_activity": update.current_activity},
+    )
     return {"status": "ok"}
 
 
@@ -314,8 +320,20 @@ async def create_run_event(
     repository = RunRepository(db)
     if await repository.get_by_id(run_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
-    await repository.add_event(run_id, event.type, event.data, event.task_id)
+    created = await repository.add_event(run_id, event.type, event.data, event.task_id)
     await db.commit()
+    await db.refresh(created, attribute_names=["created_at"])
+    await run_stream.publish(
+        run_id,
+        run_stream.STEP,
+        {
+            "id": str(created.id),
+            "task_id": created.task_id,
+            "type": created.type,
+            "data": created.data,
+            "created_at": created.created_at.isoformat(),
+        },
+    )
     return {"status": "ok"}
 
 
