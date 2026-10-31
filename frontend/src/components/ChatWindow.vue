@@ -31,6 +31,7 @@ const emit = defineEmits<{
 
 const {
   activeId,
+  focusedMessageId,
   activeAttachedFiles,
   attachFile,
   removeAttachedFile,
@@ -237,9 +238,33 @@ function resizeTextarea() {
   el.style.height = `${Math.min(el.scrollHeight, 200)}px`
 }
 
+// The message a search result led to (#509): the conversation opens on it rather than at its end, and the message is
+// outlined for a moment. It only counts once the messages are there, and is forgotten when found.
+const foundMessageId = ref<string | null>(null)
+let foundTimer: ReturnType<typeof setTimeout> | undefined
+
+watch(
+  () => [focusedMessageId.value, props.messages.length] as const,
+  async ([id]) => {
+    if (!id || !props.messages.some((message) => message.id === id)) return
+    // Marked before it is forgotten: the watch below, fired by the same change, must still see that the end of the
+    // conversation is not where to go.
+    foundMessageId.value = id
+    focusedMessageId.value = null
+    clearTimeout(foundTimer)
+    foundTimer = setTimeout(() => (foundMessageId.value = null), 2500)
+    await nextTick()
+    document.querySelector(`[data-message-id="${CSS.escape(id)}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  },
+  { immediate: true },
+)
+onUnmounted(() => clearTimeout(foundTimer))
+
 watch(
   () => props.messages.length,
   async () => {
+    // Opening a conversation on a message found by the search must not be followed by a jump to its end.
+    if (focusedMessageId.value || foundMessageId.value) return
     await nextTick()
     scrollAnchor.value?.scrollIntoView({ behavior: 'smooth' })
   },
@@ -271,6 +296,8 @@ watch(
         <ChatMessageItem
           v-for="message in messages"
           :key="message.id"
+          :data-message-id="message.id"
+          :class="{ 'chat-window__message--found': message.id === foundMessageId }"
           :message="message"
           :is-latest-answer="message.id === latestAnswerId"
           @regenerate="emit('regenerate', $event)"
@@ -545,6 +572,13 @@ watch(
 
 .chat-window__form {
   padding: 0 0 1.5rem;
+}
+
+/* The message a search result led to, outlined for a moment (#509). */
+.chat-window__message--found {
+  outline: 2px solid var(--border-action-high-blue-france);
+  outline-offset: 4px;
+  border-radius: 0.5rem;
 }
 
 .chat-window__chips {

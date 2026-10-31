@@ -72,6 +72,7 @@ const activeView = computed(() => {
       :active-view="activeView"
       :user="user"
       @select="selectConversation"
+      @select-message="(id: string, messageId: string) => selectConversation(id, { messageId })"
       @load-more="loadMoreConversations"
       @new="newConversation"
       @rename="renameConversation"

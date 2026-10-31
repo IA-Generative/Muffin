@@ -626,8 +626,12 @@ function dropAttachedFileLocally(conversationId: string, fileId: string) {
 
 // `navigate: false` is used when a route change already triggered this (see
 // ChatView's route watcher) - pushing again there would just double the entry.
-function selectConversation(id: string, options: { navigate?: boolean } = {}) {
+// The message a search result led to (#509): the chat scrolls to it once the conversation is loaded, then forgets it.
+const focusedMessageId = ref<string | null>(null)
+
+function selectConversation(id: string, options: { navigate?: boolean; messageId?: string } = {}) {
   activeId.value = id
+  focusedMessageId.value = options.messageId ?? null
   if (!messagesByConversation.value[id]) messagesByConversation.value[id] = []
   ensureMessagesLoaded(id)
   const target = `/c/${id}`
@@ -1463,6 +1467,7 @@ export function useChat() {
     activeExecutionEvents,
     activeExecutionError,
     selectConversation,
+    focusedMessageId,
     newConversation,
     renameConversation,
     deleteConversation,
