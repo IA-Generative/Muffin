@@ -6,12 +6,14 @@ from fastapi.responses import JSONResponse
 
 from app import __version__
 from app.agent.runner import agent_runner
-from app.config import KeycloakSettings
+from app.config import KeycloakSettings, SecretsSettings
+from app.core.secret_store import check_configuration as check_secrets_configuration
 from app.mcp_server import mcp_app, mcp_lifespan
 from app.routers.admin_cgu import router as admin_cgu_router
 from app.routers.admin_owui_sync import router as admin_owui_sync_router
 from app.routers.admin_prompts import router as admin_prompts_router
 from app.routers.admin_reports import router as admin_reports_router
+from app.routers.admin_secrets import router as admin_secrets_router
 from app.routers.admin_settings import router as admin_settings_router
 from app.routers.api_keys import router as api_keys_router
 from app.routers.auth import router as auth_router
@@ -62,6 +64,8 @@ _keycloak_settings = KeycloakSettings()
 async def lifespan(application: FastAPI):
     """What runs for as long as the API does: the MCP server's sessions, and the agent's runs (which are tasks of this
     process: they are started here, and the ones still going are failed cleanly when it stops)."""
+    # A deployment that asked for Vault and has none does not start (#521).
+    check_secrets_configuration(SecretsSettings())
     async with mcp_lifespan(application):
         await agent_runner.start_up()
         try:
@@ -165,6 +169,7 @@ app.include_router(admin_settings_router, prefix="/api")
 app.include_router(admin_prompts_router, prefix="/api")
 app.include_router(admin_owui_sync_router, prefix="/api")
 app.include_router(admin_cgu_router, prefix="/api")
+app.include_router(admin_secrets_router, prefix="/api")
 app.include_router(cgu_router, prefix="/api")
 app.include_router(admin_reports_router, prefix="/api")
 app.include_router(internal_groups_router, prefix="/api")
