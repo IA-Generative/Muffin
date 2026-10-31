@@ -1,11 +1,13 @@
 """Description d'une collection, faite d'un échantillon de ses fichiers (#457).
 
+- ``scan_undescribed_collections`` : tâche planifiée, demande la description des collections qui n'en ont pas.
 - ``describe_collection`` : tire au hasard quelques fichiers de la collection, résume l'échantillon puis écrit la
   description. Indépendante des résumés de fichiers : elle n'attend aucun fichier en particulier.
 """
 
 import random
 
+import redis
 from loguru import logger
 
 from app.celery_app import celery_app
@@ -93,6 +95,33 @@ def propose_description(model: str, instructions: str, current: str, excerpts: l
     if not verdict or verdict.upper().startswith(UNCHANGED) or verdict == current:
         return None
     return verdict
+
+
+# Celery's lowest priority, as the other tasks of the enrichment are sent with when they are not waited for.
+LOW_PRIORITY = 9
+
+
+def _claim_description(collection_id: str) -> bool:
+    """Whether this pass is the first in DESCRIBE_RETRY_HOURS to ask for the collection (and so, of several replicas'
+    beats, the only one)."""
+    client = redis.Redis.from_url(worker_settings.REDIS_URL)
+    return bool(
+        client.set(f"describe-collection:{collection_id}", "1", nx=True, ex=worker_settings.DESCRIBE_RETRY_HOURS * 3600)
+    )
+
+
+@celery_app.task(name="app.tasks.scan_undescribed_collections")
+def scan_undescribed_collections() -> int:
+    """Asks for the description of every collection of Muffin that has files and none yet. Returns how many were
+    asked for."""
+    asked = 0
+    for collection_id in _shared.backend_client.list_undescribed_collections():
+        if _claim_description(collection_id):
+            describe_collection.apply_async(args=[collection_id], priority=LOW_PRIORITY)
+            asked += 1
+    if asked:
+        logger.info(f"Description: {asked} collection(s) without one asked for")
+    return asked
 
 
 @celery_app.task(name="app.tasks.describe_collection", bind=True)
