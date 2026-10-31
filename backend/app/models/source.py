@@ -7,7 +7,7 @@ from app.models.base import Base, TimestampMixin, UUIDMixin
 
 
 class Source(UUIDMixin, TimestampMixin, Base):
-    """A normalized copy of one citation the agent produced (see worker/agent_execution/app/
+    """A normalized copy of one citation the agent produced (see backend/app/agent/
     graph/nodes/generate_answer.py's `citations`), materialized so a stable id exists to
     validate/add in feedback (see FeedbackSource) - Run.citations (JSONB) stays the source of
     truth for what's *shown* in the chat, this is only about giving it an identity."""

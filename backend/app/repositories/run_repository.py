@@ -150,7 +150,7 @@ class RunRepository:
         """Aggregates the grounding verdicts (see Run.grounding_valid) of every completed run
         that cited this collection - identified via citations[].vdb_id, the only link between a
         run and a collection (a run's pinned_collection_ids is what the user attached, not
-        necessarily what actually got searched/cited - see worker/agent_execution/app/graph/
+        necessarily what actually got searched/cited - see backend/app/agent/graph/
         nodes/research_task.py). No dedicated join table for this, jsonb_array_elements is cheap
         enough at this scale and avoids a schema change just to index an already-denormalized
         JSONB column."""

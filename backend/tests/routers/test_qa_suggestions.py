@@ -199,7 +199,7 @@ async def test_it_never_goes_through_the_research_agent(client):
     document = await _document(collection.id)
     pair = await _pair(collection.id, document.id)
 
-    with patch("app.services.run_service.enqueue_run_agent") as enqueue:
+    with patch("app.services.run_service.agent_runner.start") as enqueue:
         response = await client.post(f"/api/qa-suggestions/{pair.id}/answer", json={})
 
     assert response.status_code == 201
