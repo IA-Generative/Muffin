@@ -47,7 +47,7 @@ les résultats de plusieurs collections) est le cosinus entre la requête et le 
 sur le vecteur renvoyé avec le point. Il vaut donc la même chose quelle que soit la branche qui a trouvé le point : un point
 trouvé seulement par la branche lexicale (un code, un nom propre) a le cosinus, souvent bas, de son embedding.
 
-Conséquence : la décision « cette question a déjà été répondue » (`_QA_MATCH_THRESHOLD = 0.85`, `worker/agent_execution/.../research_task.py`)
+Conséquence : la décision « cette question a déjà été répondue » (`_QA_MATCH_THRESHOLD = 0.85`, `backend/app/agent/graph/nodes/research_task.py`)
 porte sur ce cosinus, pas sur un score de fusion, et un point lexical-seul ne la franchit pas. La fusion pouvant mettre
 en tête un point au cosinus plus faible qu'un suivant, l'agent demande les 3 premiers candidats (déjà triés par cosinus par le
 backend) et regarde le meilleur. **Le seuil 0,85 n'est pas recalibré** : il le sera avec les paires de test de l'évaluation, ce

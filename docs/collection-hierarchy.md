@@ -92,15 +92,15 @@ résultat porte `collection_path`, limité aux collections demandées.
 
 ## Agent (#219, #233)
 
-**Routage à plat** (`worker/agent_execution/app/graph/services/vdb_router.py`) : toutes les
-collections accessibles, tous niveaux confondus, sont en concurrence sur leur description.
+**Choix des collections** (`backend/app/agent/graph/nodes/plan.py`) : le plan, un seul appel au modèle, voit toutes les
+collections accessibles, tous niveaux confondus, et choisit celles qui peuvent contenir la réponse d'après leur description.
 
-- Jusqu'à 20 collections, l'IA les voit toutes ; au-delà, une recherche vectorielle sur les
-  descriptions garde les 20 plus proches.
-- Un seul appel IA choisit. Les collections imbriquées sont présentées avec leur chemin
+- Jusqu'à 20 collections, le plan les voit toutes ; au-delà, une recherche vectorielle sur les
+  descriptions garde les 20 plus proches (sans modèle). Les collections imbriquées sont présentées avec leur chemin
   (« RH › Congés »), sans jamais nommer un ancêtre illisible.
-- Avec des sous-collections, au plus `MAX_ROUTED_COLLECTIONS` (15) sont interrogées. Sans
-  sous-collections, le routage est celui d'avant.
+- **La recherche se fait dans les collections choisies et dans toutes leurs sous-collections** (`include_descendants`) : il n'y
+  a plus de plafond ni de collection « non explorée », puisque rien n'est coupé. Si le plan n'en a choisi aucune, ou si elles
+  ne donnent rien, la recherche se fait dans toutes les collections accessibles.
 
 **Aller plus loin**
 - Le point d'arrêt d'une réponse regroupe les collections retenues dont des sous-collections n'ont
@@ -139,7 +139,6 @@ niveau) : ses dossiers deviennent des sous-collections et ses fichiers des docum
 
 | Variable | Service | Défaut |
 |---|---|---|
-| `MAX_ROUTED_COLLECTIONS` | worker `agent_execution` | `15` |
 | `PINNED_DESCENDANTS_LIMIT` | backend | `30` |
 | `ZIP_IMPORT_MAX_FILES`, `ZIP_IMPORT_MAX_TOTAL_BYTES`, `ZIP_IMPORT_MAX_FILE_BYTES`, `ZIP_IMPORT_MAX_RATIO`, `ZIP_IMPORT_MAX_DEPTH` | worker `document_process` | aucune limite, sauf le taux de compression (100) |
 

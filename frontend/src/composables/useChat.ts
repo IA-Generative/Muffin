@@ -269,7 +269,7 @@ const activeExecutionError = computed(
 )
 
 // Node name (Run.current_node, set by every node's set_activity() call - see
-// worker/agent_execution/app/graph/services/events.py) -> the French label shown as the chat
+// backend/app/agent/graph/services/events.py) -> the French label shown as the chat
 // placeholder while a run is in progress. Run.current_activity itself is worker-internal English
 // (used for logging/debugging), never shown as-is except for "research_task", whose activity
 // *is* the task's own query text - already meaningful on its own, in whatever language the user
@@ -309,7 +309,7 @@ function activityLabel(run: RunOut): string {
 
 // Internal run_events type -> a short label a user can actually read - never the model's own
 // reasoning (the backend never emits that as an event, only these fixed step names, see
-// worker/agent_execution/app/graph/services/events.py).
+// backend/app/agent/graph/services/events.py).
 const EVENT_LABELS: Record<string, string> = {
   run_started: 'Recherche démarrée',
   vdb_discovery_started: 'Recherche des bases de connaissances accessibles…',
