@@ -2,10 +2,10 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agent.runner import agent_runner
 from app.config import RunSettings
 from app.connectors import redis_connector
 from app.core.security.factory import RequestContext
-from app.core.tasks import enqueue_resume_agent, enqueue_run_agent, revoke_tasks
 from app.models.feedback import FeedbackSourceRole
 from app.models.message import MessageRole
 from app.models.run import Run, RunStatus
@@ -114,12 +114,9 @@ class RunService:
             interactive=body.interactive,
         )
         await self.db.commit()
-        # Dispatched after the first commit: the worker's very first read of
-        # this run (see worker/agent_execution's idempotency check) must
-        # never race the row not existing yet.
-        celery_task_id = enqueue_run_agent(str(run.id))
-        await self.runs.set_celery_task_id(run, celery_task_id)
-        await self.db.commit()
+        # Started after the first commit: the agent's very first read of this run (its idempotency check) must never
+        # race the row not existing yet. It runs in the background, in this process, with the user's own token.
+        agent_runner.start(str(run.id), user.access_token)
         # created_at/updated_at have a server_default/onupdate, so SQLAlchemy
         # expires them on every flush regardless of expire_on_commit - read
         # back the real value instead of lazy-loading outside a greenlet.
@@ -220,25 +217,19 @@ class RunService:
         run = await self._get_owned(run_id, user)
         if run.status != RunStatus.WAITING_FOR_USER:
             raise RunNotWaitingError(str(run_id))
-        # Dispatched before the commit below has even run isn't safe here (unlike create_run,
-        # this row already exists and the worker only reads it, doesn't idempotency-check a
-        # freshly-inserted one) - order doesn't matter, so commit first for consistency with
-        # create_run's "never race a read the worker might do first" reasoning anyway.
-        celery_task_id = enqueue_resume_agent(str(run_id), answer)
-        await self.runs.set_celery_task_id(run, celery_task_id)
         await self.db.commit()
+        agent_runner.start(str(run_id), user.access_token, resume_answer=answer)
         await self.db.refresh(run, attribute_names=["updated_at"])
         return self._to_out(run)
 
     async def cancel_run(self, run_id: uuid.UUID, user: RequestContext) -> RunOut:
         run = await self._get_owned(run_id, user)
         await self.runs.request_cancel(run)
-        # Best-effort immediate stop if the task hasn't started a node yet;
-        # the cooperative `cancel_requested` flag is what actually halts a
-        # run already mid-flight (see docs/research-agent-plan.md §6).
-        if run.celery_task_id:
-            revoke_tasks([run.celery_task_id])
+        # The cooperative `cancel_requested` flag is what halts a run mid-flight, whichever pod runs it (every node
+        # looks
+        # at it); the pod that does run it is also told, so that what waits on something slow stops at its next look.
         await self.db.commit()
+        agent_runner.cancel(str(run_id))
         await self.db.refresh(run, attribute_names=["created_at", "updated_at"])
         return self._to_out(run)
 

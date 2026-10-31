@@ -1,5 +1,43 @@
 # Changelog
 
+## [0.40.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.39.0...v0.40.0-rc) (2026-10-31)
+
+
+### Features
+
+* **agent:** les runs démarrent dans le backend avec le jeton de l'utilisateur ([03c89fa](https://github.com/IA-Generative/Muffin/commit/03c89fa055ffb1d3c57acd9ad78c0df704871a2d))
+* **agent:** libellés de consommation du nouvel agent et étape propre au contrôle d'ancrage ([d8bb09a](https://github.com/IA-Generative/Muffin/commit/d8bb09afe8b2591c07e9a4866148326dacf754f6))
+* **agent:** route qui enregistre le verdict du contrôle d'ancrage après la réponse ([24fe1b9](https://github.com/IA-Generative/Muffin/commit/24fe1b9103910dd6f82d5625f3d7751a35371b23))
+* **agent:** un appel décide de tout, la recherche est du code, un appel écrit la réponse ([77fdde0](https://github.com/IA-Generative/Muffin/commit/77fdde06b9c95dbe4da9e5b4a88028712f36da61))
+* **backend:** route interne listant les documents d'une collection ([#457](https://github.com/IA-Generative/Muffin/issues/457)) ([2c572f5](https://github.com/IA-Generative/Muffin/commit/2c572f5f99dc1d94fda45659c4002d3253fa1610))
+* **description:** job qui demande la description des collections sans description ([#457](https://github.com/IA-Generative/Muffin/issues/457)) ([e27c4ff](https://github.com/IA-Generative/Muffin/commit/e27c4ff5e3ff39f577802375a903c2e965238f60))
+* **description:** le propriétaire génère la description de sa collection ([#457](https://github.com/IA-Generative/Muffin/issues/457)) ([0b32618](https://github.com/IA-Generative/Muffin/commit/0b32618c031cb26fe7228a537e873ed04646a5a6))
+* **description:** route interne des collections sans description ([#457](https://github.com/IA-Generative/Muffin/issues/457)) ([3a30102](https://github.com/IA-Generative/Muffin/commit/3a30102aa4e15d00517c2dfd98af7ec0cbd88728))
+* **frontend:** bouton de description pour le propriétaire de la collection ([#457](https://github.com/IA-Generative/Muffin/issues/457)) ([f03bc03](https://github.com/IA-Generative/Muffin/commit/f03bc0392163ef64bd62b3df7b45326519f532ee))
+* **frontend:** bouton pour générer la description d'une collection copiée ([#457](https://github.com/IA-Generative/Muffin/issues/457)) ([8a2537c](https://github.com/IA-Generative/Muffin/commit/8a2537c9b87adcc8357516950c249930bd6bdb86))
+* **frontend:** chaque étape de la recherche s'affiche en direct dans le chat ([50ab336](https://github.com/IA-Generative/Muffin/commit/50ab336091ec99855d5f07455d0f59de6d898235))
+* **frontend:** étapes du nouvel agent dans l'indicateur d'avancement ([90ba1e6](https://github.com/IA-Generative/Muffin/commit/90ba1e6bc6db8394271a120ede16f46a8907a090))
+* **owui:** décrire une collection copiée d'après un échantillon de fichiers ([#457](https://github.com/IA-Generative/Muffin/issues/457)) ([faf4598](https://github.com/IA-Generative/Muffin/commit/faf4598fe9b48aee8ad9d49a6996e0a8faaab2f0))
+* **owui:** route pour générer la description d'une collection copiée ([#457](https://github.com/IA-Generative/Muffin/issues/457)) ([f9a7ba4](https://github.com/IA-Generative/Muffin/commit/f9a7ba4b4b693bcc74e6d64cfe8ca634a82b82df))
+
+
+### Bug Fixes
+
+* **agent:** périodes relatives du time tool le 31 du mois ([db738d5](https://github.com/IA-Generative/Muffin/commit/db738d5a07db72a6e0c4b7821434c27d54909cbe))
+
+
+### Code Refactoring
+
+* **agent:** le code de l'agent passe de worker/agent_execution à backend/app/agent ([f5424d3](https://github.com/IA-Generative/Muffin/commit/f5424d31b9123c9385eb0450d2d6e83a45c5d093))
+* **agent:** le graphe de l'agent est natif async, un nœud est une coroutine ([bc78c51](https://github.com/IA-Generative/Muffin/commit/bc78c512ac0450385fac5451d68e1b37830d70cc))
+* **description:** la description d'une collection dans sa propre tâche ([#457](https://github.com/IA-Generative/Muffin/issues/457)) ([75f0404](https://github.com/IA-Generative/Muffin/commit/75f04043f73bcac260a2d5e163060b76607efc32))
+* **owui:** la synchronisation ne demande plus la description ([#457](https://github.com/IA-Generative/Muffin/issues/457)) ([07065c0](https://github.com/IA-Generative/Muffin/commit/07065c0ba896785f760a46832669dba393ab9c64))
+
+
+### Dependencies
+
+* **backend:** dépendances de LangGraph pour l'agent ([e755268](https://github.com/IA-Generative/Muffin/commit/e755268a5d47af8f37a8939f06f26f36efabe072))
+
 ## [0.39.0](https://github.com/IA-Generative/Muffin/compare/v0.38.1...v0.39.0) (2026-10-30)
 
 

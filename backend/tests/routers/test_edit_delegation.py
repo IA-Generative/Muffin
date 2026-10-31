@@ -199,7 +199,7 @@ async def test_a_run_snapshots_whether_the_user_is_an_admin_and_how_to_show_them
         first_name="Marie",
         last_name="Lefèvre",
     )
-    with patch("app.services.run_service.enqueue_run_agent", return_value="celery-run-1"):
+    with patch("app.services.run_service.agent_runner.start"):
         created = await client.post("/api/runs", json={"query": "Ajoute un numéro"})
 
     async with async_session_factory() as session:

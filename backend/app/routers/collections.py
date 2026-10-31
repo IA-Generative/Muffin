@@ -265,6 +265,19 @@ async def get_feedback_stats(collection_id: uuid.UUID, user: UserDep, service: S
 
 
 @router.post(
+    "/collections/{collection_id}/description/generate",
+    summary="Write the collection's description from a random sample of its files (runs asynchronously - #457)",
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def generate_description(collection_id: uuid.UUID, user: UserDep, service: ServiceDep) -> dict[str, str]:
+    try:
+        celery_task_id = await service.generate_description(collection_id, user)
+    except CollectionNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
+    return {"celery_task_id": celery_task_id}
+
+
+@router.post(
     "/collections/{collection_id}/evaluations",
     summary="Trigger a retrieval-evaluation run against this collection's QA pairs "
     "(runs asynchronously in a dedicated worker - see #11)",

@@ -26,6 +26,7 @@ _EXTRACTION_TASKS = (
     "app.tasks.scan_url_refresh",
     "app.tasks.purge_task_logs",
     "app.tasks.release_import_queue",
+    "app.tasks.scan_undescribed_collections",
 )
 _ENRICHMENT_TASKS = (
     "app.tasks.chunk_document",
@@ -38,7 +39,7 @@ _ENRICHMENT_TASKS = (
     "app.tasks.rollup_collection_description",
     "app.tasks.generate_collection_qa",
     "app.tasks.summarize_copied_document",
-    "app.tasks.describe_copied_collection",
+    "app.tasks.describe_collection",
 )
 
 celery_app.conf.update(
@@ -101,6 +102,18 @@ celery_app.conf.update(
             "schedule": crontab(minute="*/5"),
             "options": {"queue": settings.EXTRACTION_QUEUE_NAME},
         },
+        # The collections with no description (#457): a description is asked for each. Off at 0.
+        **(
+            {
+                "scan-undescribed-collections": {
+                    "task": "app.tasks.scan_undescribed_collections",
+                    "schedule": settings.DESCRIBE_SCAN_MINUTES * 60,
+                    "options": {"queue": settings.EXTRACTION_QUEUE_NAME},
+                }
+            }
+            if settings.DESCRIBE_SCAN_MINUTES > 0
+            else {}
+        ),
         # The task log lines past their retention (#305), once an hour.
         "purge-task-logs": {
             "task": "app.tasks.purge_task_logs",

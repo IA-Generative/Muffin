@@ -3,7 +3,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class TabularSettings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0"
-    # The queue this pod consumes, and the one the agent sends to (worker/agent_execution/app/config.py). Not
+    # The queue this pod consumes, and the one the agent sends to (backend/app/agent/config.py). Not
     # `tabular_query`: that is the name of the agent's own task.
     SQL_QUEUE_NAME: str = "tabular_sql"
 

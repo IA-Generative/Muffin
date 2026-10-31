@@ -33,22 +33,17 @@ BULK_PRIORITY = 9
 # Always sent with a countdown, see app/services/description_rollup_service.py.
 DOCUMENT_ENRICHMENT_QUEUE = "document_enrichment"
 ROLLUP_COLLECTION_DESCRIPTION_TASK = "app.tasks.rollup_collection_description"
+# Writing a collection's description from a random sample of its files (#457).
+DESCRIBE_COLLECTION_TASK = "app.tasks.describe_collection"
 
 # Long I/O, on the index rebuilds' pod: turning an uploaded ZIP into a collection and its
 # sub-collections (#223) - minutes for a large archive, which must hold up no extraction slot.
 DOCUMENT_IMPORT_QUEUE = "document_import"
 IMPORT_ZIP_TASK = "app.tasks.import_zip"
 
-# Same reasoning, for the separate worker/agent_execution service - a
-# distinct queue so scaling/deploying one worker never affects the other,
-# even though both are produced from this same Celery app instance.
-AGENT_EXECUTION_QUEUE = "agent_execution"
-RUN_AGENT_TASK = "app.tasks.run_agent"
-RESUME_AGENT_TASK = "app.tasks.resume_agent"
-
 # Same reasoning again, for worker/evaluation (see #11) - a retrieval evaluation replays every
 # validated QA pair of a collection through search + generation, potentially long and LLM-heavy,
-# so it gets its own queue rather than competing with document ingestion or agent_execution.
+# so it gets its own queue rather than competing with document ingestion.
 EVALUATION_QUEUE = "evaluation"
 RUN_EVALUATION_TASK = "app.tasks.run_evaluation"
 # A second task type on the same worker/evaluation service and queue (see #31) - one LLM judgment
@@ -103,26 +98,15 @@ def enqueue_rollup_collection_description(collection_id: str, countdown: int) ->
     return result.id
 
 
+def enqueue_describe_collection(collection_id: str) -> str:
+    """Returns the Celery task id, recorded as a collection-scoped Task row."""
+    result = _celery_app.send_task(DESCRIBE_COLLECTION_TASK, args=[collection_id], queue=DOCUMENT_ENRICHMENT_QUEUE)
+    return result.id
+
+
 def enqueue_import_zip(import_id: str) -> str:
     """Returns the Celery task id, recorded as a collection-scoped Task row."""
     result = _celery_app.send_task(IMPORT_ZIP_TASK, args=[import_id], queue=DOCUMENT_IMPORT_QUEUE)
-    return result.id
-
-
-def enqueue_run_agent(run_id: str) -> str:
-    """Returns the Celery task id, recorded on the Run row itself (see
-    app/models/run.py) rather than a separate Task row - a run already has
-    the id, and it's 1:1 with its own dispatch (no parent/children)."""
-    result = _celery_app.send_task(RUN_AGENT_TASK, args=[run_id], queue=AGENT_EXECUTION_QUEUE)
-    return result.id
-
-
-def enqueue_resume_agent(run_id: str, answer: str) -> str:
-    """Continues a run paused on request_clarification's interrupt() (§31) - a distinct task
-    name/args from enqueue_run_agent rather than overloading it, since resuming re-enters the
-    same checkpointed graph execution (Command(resume=...)) instead of starting a fresh one.
-    """
-    result = _celery_app.send_task(RESUME_AGENT_TASK, args=[run_id, answer], queue=AGENT_EXECUTION_QUEUE)
     return result.id
 
 

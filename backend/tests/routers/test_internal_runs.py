@@ -213,6 +213,38 @@ async def test_update_run_result_persists_grounding_verdict(client):
         assert run.grounding_research_count == 1
 
 
+async def test_the_grounding_verdict_is_recorded_after_the_result_without_touching_it(client):
+    run_id = await _create_run()
+    await client.patch(
+        f"/api/internal/runs/{run_id}/result",
+        headers=_headers(),
+        json={"answer": "Telework is allowed 2 days/week.", "citations": []},
+    )
+
+    response = await client.patch(
+        f"/api/internal/runs/{run_id}/grounding",
+        headers=_headers(),
+        json={"grounding_valid": False, "grounding_unsupported_claims": ["exactly 2 days/week"]},
+    )
+
+    assert response.status_code == 200
+    async with async_session_factory() as session:
+        run = await session.get(Run, run_id)
+        assert run.grounding_valid is False
+        assert run.grounding_unsupported_claims == ["exactly 2 days/week"]
+        assert run.answer == "Telework is allowed 2 days/week."
+
+
+async def test_the_grounding_verdict_of_an_unknown_run_is_not_found(client):
+    response = await client.patch(
+        f"/api/internal/runs/{uuid.uuid4()}/grounding",
+        headers=_headers(),
+        json={"grounding_valid": True, "grounding_unsupported_claims": []},
+    )
+
+    assert response.status_code == 404
+
+
 async def test_update_run_result_stores_unexplored_collections(client):
     run_id = await _create_run()
     await client.patch(

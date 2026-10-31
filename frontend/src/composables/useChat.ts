@@ -1,3 +1,4 @@
+import { applyEvents, type LiveStep } from '../utils/runSteps'
 import { computed, ref } from 'vue'
 import { router } from '../router'
 import { useCollectionImports } from './useCollectionImports'
@@ -269,22 +270,34 @@ const activeExecutionError = computed(
 )
 
 // Node name (Run.current_node, set by every node's set_activity() call - see
-// worker/agent_execution/app/graph/services/events.py) -> the French label shown as the chat
+// backend/app/agent/graph/services/events.py) -> the French label shown as the chat
 // placeholder while a run is in progress. Run.current_activity itself is worker-internal English
 // (used for logging/debugging), never shown as-is except for "research_task", whose activity
 // *is* the task's own query text - already meaningful on its own, in whatever language the user
 // asked in.
 const NODE_LABELS: Record<string, string> = {
+  prepare: 'Démarrage de la recherche',
+  plan: 'Analyse de votre question',
+  answer_help: "Recherche de l'aide",
+  edit_resolve: 'Préparation de la modification',
+  edit_request: "Demande à l'agent d'édition",
+  edit_wait: "Attente de l'agent d'édition",
+  edit_report: 'Résumé de la modification',
+  create_resolve: 'Préparation du document',
+  create_write: 'Rédaction du document',
+  merge_evidence: 'Fusion des résultats de recherche',
+  gate: 'Vérification de la pertinence des résultats',
+  widen_search: 'Recherche dans toutes vos bases de connaissances',
+  build_answer_context: 'Préparation de la réponse',
+  generate_answer: 'Génération de la réponse',
+  // Runs made before the agent was reduced to one planning call keep their old steps.
   load_context: 'Démarrage de la recherche',
   load_accessible_vdbs: 'Vérification de vos bases de connaissances accessibles',
   analyze_query: 'Analyse de votre question',
   decompose_query: 'Découpage de votre question',
   build_research_plan: 'Planification de la recherche',
-  merge_evidence: 'Fusion des résultats de recherche',
   evaluate_coverage: 'Vérification de la pertinence des résultats',
   clarify_coverage: 'En attente de votre précision',
-  build_answer_context: 'Préparation de la réponse',
-  generate_answer: 'Génération de la réponse',
   validate_grounding: 'Vérification des faits de la réponse',
   targeted_research: "Recherche d'éléments complémentaires",
   request_clarification: 'En attente de votre précision',
@@ -297,7 +310,7 @@ function activityLabel(run: RunOut): string {
 
 // Internal run_events type -> a short label a user can actually read - never the model's own
 // reasoning (the backend never emits that as an event, only these fixed step names, see
-// worker/agent_execution/app/graph/services/events.py).
+// backend/app/agent/graph/services/events.py).
 const EVENT_LABELS: Record<string, string> = {
   run_started: 'Recherche démarrée',
   vdb_discovery_started: 'Recherche des bases de connaissances accessibles…',
@@ -317,6 +330,7 @@ const EVENT_LABELS: Record<string, string> = {
   evidence_updated: 'Preuves mises à jour',
   coverage_evaluation_started: 'Évaluation de la couverture des preuves…',
   coverage_evaluation_completed: 'Couverture des preuves évaluée',
+  search_widened: 'Recherche élargie à toutes les bases de connaissances',
   answer_context_built: 'Contexte de réponse préparé',
   answer_generation_started: 'Génération de la réponse…',
   answer_generation_completed: 'Réponse générée',
@@ -336,8 +350,9 @@ function eventLabel(type: string): string {
   return EVENT_LABELS[type] ?? type.replaceAll('_', ' ')
 }
 
-async function fetchRunEvents(runId: string): Promise<RunEventOut[]> {
-  const response = await fetch(`${API_BASE_URL}/api/runs/${runId}/events`, { credentials: 'include' })
+async function fetchRunEvents(runId: string, since?: string): Promise<RunEventOut[]> {
+  const query = since ? `?since=${encodeURIComponent(since)}` : ''
+  const response = await fetch(`${API_BASE_URL}/api/runs/${runId}/events${query}`, { credentials: 'include' })
   if (!response.ok) throw new Error(`${response.status} ${await response.text()}`)
   return response.json()
 }
@@ -967,6 +982,31 @@ function withoutCitationMarkers(text: string): string {
   return text.replace(/\s?\[[^\]\s]+\]/g, '').replace(/\s?\[[^\]\s]*$/, '')
 }
 
+// The steps of the runs going on, by the message they will answer: what the pending message shows, line by line, while
+// the run goes (the execution panel lists the same events once it is over).
+const liveStepsByMessageId = ref<Record<string, LiveStep[]>>({})
+const lastEventByMessageId = new Map<string, string>()
+
+// Reads what the run did since the last look. Best-effort: a missed look only means the steps show up a little later.
+async function refreshLiveSteps(runId: string, messageId: string) {
+  try {
+    const items = await fetchRunEvents(runId, lastEventByMessageId.get(messageId))
+    if (!items.length) return
+    lastEventByMessageId.set(messageId, items[items.length - 1].id)
+    liveStepsByMessageId.value[messageId] = applyEvents(
+      liveStepsByMessageId.value[messageId] ?? [],
+      items.map((item) => ({ id: item.id, type: item.type, taskId: item.task_id, data: item.data, createdAt: item.created_at })),
+    )
+  } catch {
+    // The next look tries again.
+  }
+}
+
+function forgetLiveSteps(messageId: string) {
+  delete liveStepsByMessageId.value[messageId]
+  lastEventByMessageId.delete(messageId)
+}
+
 function assistantMessageFor(id: string, run: RunOut): ChatMessage {
   // A run that was already waiting for an answer when questions stopped holding a run up (#344): it
   // can no longer be resumed, the question is shown and a new message goes on from there.
@@ -981,8 +1021,9 @@ function assistantMessageFor(id: string, run: RunOut): ChatMessage {
   if (!TERMINAL_STATUSES.has(run.status)) {
     // The answer is being written: show what exists so far instead of the step label.
     const partial = withoutCitationMarkers(run.partial_answer ?? '')
-    if (partial) return { id, role: 'assistant', content: partial, runId: run.id, pending: true, streaming: true }
-    return { id, role: 'assistant', content: activityLabel(run), runId: run.id, pending: true }
+    const steps = liveStepsByMessageId.value[id]
+    if (partial) return { id, role: 'assistant', content: partial, runId: run.id, pending: true, streaming: true, steps }
+    return { id, role: 'assistant', content: activityLabel(run), runId: run.id, pending: true, steps }
   }
   if (run.status === 'completed') {
     const [content, sources] = formatAnswerWithCitations(
@@ -1050,16 +1091,21 @@ function applyRunUpdate(conversationId: string, messageId: string, run: RunOut):
 function trackRun(conversationId: string, messageId: string, run: RunOut) {
   if (applyRunUpdate(conversationId, messageId, run)) return
 
+  void refreshLiveSteps(run.id, messageId)
   const interval = setInterval(async () => {
     try {
+      // The steps first, so that the message built from the run carries them.
+      await refreshLiveSteps(run.id, messageId)
       const current = await fetchRun(run.id)
       if (applyRunUpdate(conversationId, messageId, current)) {
         clearInterval(interval)
         activePolls.delete(messageId)
+        forgetLiveSteps(messageId)
       }
     } catch {
       clearInterval(interval)
       activePolls.delete(messageId)
+      forgetLiveSteps(messageId)
       replaceMessage(conversationId, messageId, {
         id: messageId,
         role: 'assistant',

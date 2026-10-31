@@ -73,7 +73,7 @@ class RunStateUpdate(BaseModel):
 class RunResultUpdate(BaseModel):
     answer: str
     citations: list[dict[str, Any]] = []
-    # Final verdict from worker/agent_execution/app/graph/nodes/validate_grounding.py - optional
+    # Final verdict from backend/app/agent/graph/nodes/validate_grounding.py - optional
     # so a worker build that predates this field keeps working against a newer backend.
     grounding_valid: bool | None = None
     grounding_unsupported_claims: list[str] | None = None
@@ -91,6 +91,14 @@ class RunResultUpdate(BaseModel):
     # Questions with options the assistant asks instead of answering (#344): the answer is then the same
     # questions as text, and they are kept on the message for the interface.
     questions: list[Question] | None = None
+
+
+class RunGroundingUpdate(BaseModel):
+    """The verdict of the check made once the answer is out (worker/agent_execution ground_check): the run is already
+    completed, only these fields are written."""
+
+    grounding_valid: bool
+    grounding_unsupported_claims: list[str] = []
 
 
 class RunErrorUpdate(BaseModel):

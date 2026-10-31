@@ -403,7 +403,6 @@
     "backend": { "$ref": "#/definitions/workloadComponent" },
     "frontend": { "$ref": "#/definitions/workloadComponent" },
     "document_process": { "$ref": "#/definitions/workloadComponent" },
-    "agent_execution": { "$ref": "#/definitions/workloadComponent" },
     "worker_evaluation": { "$ref": "#/definitions/workloadComponent" },
     "worker_document_edit": { "$ref": "#/definitions/workloadComponent" },
     "worker_owui_sync": { "$ref": "#/definitions/workloadComponent" },

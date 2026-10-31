@@ -64,7 +64,7 @@ def _as_user(user_id: str):
 
 
 async def _run(client, query: str, **extra) -> dict:
-    with patch("app.services.run_service.enqueue_run_agent", return_value=f"celery-{uuid.uuid4()}"):
+    with patch("app.services.run_service.agent_runner.start"):
         response = await client.post("/api/runs", json={"query": query, **extra})
     assert response.status_code == 202, response.text
     return response.json()
@@ -166,7 +166,7 @@ async def test_answers_that_do_not_fit_the_questions_are_refused(client, answers
     await _ask(client, run)
     assistant = (await _messages(client, run["conversation_id"]))[1]
 
-    with patch("app.services.run_service.enqueue_run_agent", return_value="celery-x"):
+    with patch("app.services.run_service.agent_runner.start"):
         response = await client.post(
             "/api/runs",
             json={
@@ -191,7 +191,7 @@ async def test_writing_something_else_abandons_the_questions(client):
     messages = await _messages(client, run["conversation_id"])
     assert messages[1]["questions_abandoned"] is True
     assert messages[1]["questions_answer"] is None
-    with patch("app.services.run_service.enqueue_run_agent", return_value="celery-x"):
+    with patch("app.services.run_service.agent_runner.start"):
         late = await client.post(
             "/api/runs",
             json={
@@ -211,7 +211,7 @@ async def test_questions_are_answered_once(client):
     answers = [{"selected": ["2024"]}, {"selected": ["RH"]}]
     await _run(client, "r", conversation_id=run["conversation_id"], answers_run_id=assistant["run_id"], answers=answers)
 
-    with patch("app.services.run_service.enqueue_run_agent", return_value="celery-x"):
+    with patch("app.services.run_service.agent_runner.start"):
         again = await client.post(
             "/api/runs",
             json={
@@ -230,7 +230,7 @@ async def test_a_message_without_questions_cannot_be_answered(client):
     await _ask(client, run, None)
     assistant = (await _messages(client, run["conversation_id"]))[1]
 
-    with patch("app.services.run_service.enqueue_run_agent", return_value="celery-x"):
+    with patch("app.services.run_service.agent_runner.start"):
         response = await client.post(
             "/api/runs",
             json={
@@ -250,7 +250,7 @@ async def test_questions_of_another_conversation_cannot_be_answered(client):
     assistant = (await _messages(client, first["conversation_id"]))[1]
     other = await _run(client, "Autre conversation")
 
-    with patch("app.services.run_service.enqueue_run_agent", return_value="celery-x"):
+    with patch("app.services.run_service.agent_runner.start"):
         response = await client.post(
             "/api/runs",
             json={
@@ -325,7 +325,7 @@ async def test_questions_asked_to_someone_else_cannot_be_answered(client):
     assistant = (await _messages(client, run["conversation_id"]))[1]
 
     app.dependency_overrides[get_current_user] = _as_user("someone-else")
-    with patch("app.services.run_service.enqueue_run_agent", return_value="celery-x"):
+    with patch("app.services.run_service.agent_runner.start"):
         response = await client.post(
             "/api/runs",
             json={

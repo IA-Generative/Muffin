@@ -9,7 +9,7 @@ server:
 
 search:
   # json is disabled by default upstream (lets any caller scrape results programmatically) -
-  # explicitly enabled here since worker/agent_execution/app/searxng_client.py needs it.
+  # explicitly enabled here since backend/app/agent/searxng_client.py needs it.
   formats:
     - html
     - json

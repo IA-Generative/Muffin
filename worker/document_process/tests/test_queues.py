@@ -15,6 +15,7 @@ EXTRACTION = [
     "app.tasks.scan_url_refresh",
     "app.tasks.purge_task_logs",
     "app.tasks.release_import_queue",
+    "app.tasks.scan_undescribed_collections",
 ]
 ENRICHMENT = [
     "app.tasks.chunk_document",
@@ -27,7 +28,7 @@ ENRICHMENT = [
     "app.tasks.rollup_collection_description",
     "app.tasks.generate_collection_qa",
     "app.tasks.summarize_copied_document",
-    "app.tasks.describe_copied_collection",
+    "app.tasks.describe_collection",
 ]
 
 

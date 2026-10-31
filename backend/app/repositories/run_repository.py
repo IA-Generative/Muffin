@@ -128,6 +128,10 @@ class RunRepository:
         run.grounding_unsupported_claims = grounding_unsupported_claims
         run.grounding_research_count = grounding_research_count
 
+    async def set_grounding(self, run: Run, valid: bool, unsupported_claims: list[str]) -> None:
+        run.grounding_valid = valid
+        run.grounding_unsupported_claims = unsupported_claims
+
     async def get_previous_in_conversation(self, run: Run) -> Run | None:
         """The run that answered the message just before this one in the same conversation -
         what a "go further" follow-up resumes from (#219)."""
@@ -146,7 +150,7 @@ class RunRepository:
         """Aggregates the grounding verdicts (see Run.grounding_valid) of every completed run
         that cited this collection - identified via citations[].vdb_id, the only link between a
         run and a collection (a run's pinned_collection_ids is what the user attached, not
-        necessarily what actually got searched/cited - see worker/agent_execution/app/graph/
+        necessarily what actually got searched/cited - see backend/app/agent/graph/
         nodes/research_task.py). No dedicated join table for this, jsonb_array_elements is cheap
         enough at this scale and avoids a schema change just to index an already-denormalized
         JSONB column."""

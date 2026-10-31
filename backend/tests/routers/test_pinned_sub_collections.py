@@ -43,7 +43,7 @@ async def _collection(client: AsyncClient, name: str, parent_id: str | None = No
 
 
 async def _run(client: AsyncClient, collection_ids: list[str], **extra) -> Run:
-    with patch("app.services.run_service.enqueue_run_agent", return_value="celery-run"):
+    with patch("app.services.run_service.agent_runner.start"):
         response = await client.post("/api/runs", json={"query": "q", "collection_ids": collection_ids, **extra})
     assert response.status_code == 202, response.text
     async with async_session_factory() as session:

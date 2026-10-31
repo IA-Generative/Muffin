@@ -1,4 +1,4 @@
-"""Les fichiers copiés d'un autre système (#457) : un résumé par fichier, puis la description de leur collection."""
+"""Les fichiers copiés d'un autre système (#457) : un résumé par fichier, et la description de leur collection."""
 
 from unittest.mock import MagicMock
 
@@ -6,7 +6,7 @@ import pytest
 
 from app import task_logging, tasks
 from app.config import settings
-from app.tasks import collection, copied
+from app.tasks import copied
 
 
 def test_fictional_pages_cut_the_text_by_a_number_of_words():
@@ -99,14 +99,10 @@ def test_a_file_without_text_is_not_summarized(backend):
     backend.set_document_summary.assert_not_called()
 
 
-def test_the_description_follows_with_the_lowest_priority(backend):
+def test_the_summary_of_a_file_starts_nothing_after_it(backend):
     copied.summarize_copied_document.run("doc-1", "col-1")
 
-    spawn = tasks._shared._spawn
-    spawn.assert_called_once()
-    assert spawn.call_args.args[0] is copied.describe_copied_collection
-    assert spawn.call_args.args[1] == ["doc-1", "col-1"]
-    assert spawn.call_args.kwargs["priority"] == 9
+    tasks._shared._spawn.assert_not_called()
 
 
 def test_a_summary_that_fails_is_reported_on_the_document(backend):
@@ -116,62 +112,3 @@ def test_a_summary_that_fails_is_reported_on_the_document(backend):
         copied.summarize_copied_document.run("doc-1", "col-1")
 
     backend.set_document_error.assert_called_once()
-
-
-def _metadata(description: str, indexed: bool) -> dict:
-    return {
-        "description": description,
-        "tags": [],
-        "document_summaries": ["résumé A"],
-        "description_indexed": indexed,
-    }
-
-
-def test_an_empty_description_is_made_from_the_summaries_and_indexed(backend):
-    backend.get_collection_metadata.return_value = _metadata("", False)
-    backend.llm_chat.side_effect = None
-    backend.llm_chat.return_value = "Une collection de procédures."
-    backend.get_default_embedding_model.return_value = "default-embed"
-
-    copied.describe_copied_collection.run("doc-1", "col-1")
-
-    backend.update_collection_description.assert_called_once_with("col-1", "Une collection de procédures.")
-    backend.update_collection_description_embedding.assert_called_once()
-    assert backend.embed.call_args.args[0] == "default-embed"
-
-
-def test_a_description_the_model_keeps_is_indexed_when_it_never_was(backend):
-    backend.get_collection_metadata.return_value = _metadata("Celle d'Open WebUI", False)
-    backend.get_document.return_value = {"id": "doc-1", "summary": "résumé A"}
-    backend.llm_chat.side_effect = None
-    backend.llm_chat.return_value = "Celle d'Open WebUI"
-    backend.get_default_embedding_model.return_value = "default-embed"
-
-    copied.describe_copied_collection.run("doc-1", "col-1")
-
-    backend.update_collection_description.assert_not_called()
-    backend.update_collection_description_embedding.assert_called_once()
-
-
-def test_a_description_that_stays_and_is_indexed_asks_nothing_more(backend):
-    backend.get_collection_metadata.return_value = _metadata("Celle d'Open WebUI", True)
-    backend.get_document.return_value = {"id": "doc-1", "summary": "résumé A"}
-    backend.llm_chat.side_effect = None
-    backend.llm_chat.return_value = "Celle d'Open WebUI"
-
-    copied.describe_copied_collection.run("doc-1", "col-1")
-
-    backend.update_collection_description.assert_not_called()
-    backend.update_collection_description_embedding.assert_not_called()
-
-
-def test_a_collection_of_muffin_does_not_index_a_description_that_stays(backend):
-    """Only the collections copied ask for it: Muffin's own already put theirs in the index when they wrote it."""
-    backend.get_collection_metadata.return_value = _metadata("Décrite", False)
-    backend.get_document.return_value = {"id": "doc-1", "summary": "résumé A"}
-    backend.llm_chat.side_effect = None
-    backend.llm_chat.return_value = "Décrite"
-
-    assert collection._maintain_description("doc-1", "col-1") is None
-
-    backend.update_collection_description_embedding.assert_not_called()

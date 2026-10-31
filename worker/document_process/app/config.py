@@ -136,6 +136,12 @@ class WorkerSettings(BaseSettings):
     # A file copied from another system (#457) has its text on one page, and the summary reads by pages: it is cut,
     # in memory only, into pages of this many words.
     SYNC_SUMMARY_WORDS_PER_PAGE: int = 500
+    # The description of a collection copied from another system is made from a sample of its files (#457): this many,
+    # of different names, the first DESCRIBE_SAMPLE_CHARS characters of each. A file with less than
+    # DESCRIBE_MIN_CHARS characters of text says nothing of the collection and is passed over.
+    DESCRIBE_SAMPLE_FILES: int = 5
+    DESCRIBE_SAMPLE_CHARS: int = 3000
+    DESCRIBE_MIN_CHARS: int = 500
     URL_FETCH_TIMEOUT_SECONDS: int = 30 * 60
     # RustFS/S3: connecting, and waiting for the next bytes of a transfer.
     STORAGE_CONNECT_TIMEOUT_SECONDS: int = 10
@@ -166,6 +172,13 @@ class WorkerSettings(BaseSettings):
     # past, the times a schedule can be set to. Several replicas each running their own beat is
     # harmless: the backend hands each due document to one scan only.
     URL_REFRESH_SCAN_MINUTES: str = "0,30"
+
+    # The job that looks for collections with no description and asks for one (#457): every
+    # this many minutes (0: none). A collection asked for is not asked for again before DESCRIBE_RETRY_HOURS, so one
+    # with nothing to read, or that the model cannot describe, does not cost a call at every pass. Several replicas
+    # each running their own beat is harmless for the same reason.
+    DESCRIBE_SCAN_MINUTES: int = 60
+    DESCRIBE_RETRY_HOURS: int = 24
 
     # Logging (#305): stdout - JSON for kubectl/Loki, or readable - from LOG_LEVEL up. The lines a task
     # logs from TASK_LOG_LEVEL up are also sent to the backend, to be followed in Muffin as it runs.

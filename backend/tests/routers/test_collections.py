@@ -135,7 +135,7 @@ async def test_create_collection_accepts_a_prefilled_name_and_description(client
 
 
 async def test_list_collections_excludes_temporary_collections(client):
-    with patch("app.services.run_service.enqueue_run_agent", return_value="celery-run-1"):
+    with patch("app.services.run_service.agent_runner.start"):
         run = (await client.post("/api/runs", json={"query": "hi"})).json()
 
     with (
@@ -696,3 +696,56 @@ async def test_a_new_collection_is_chunked_by_llm(client):
     collection = (await client.post("/api/collections")).json()
 
     assert collection["chunking_settings"]["strategy"] == "llm"
+
+
+async def _copy(collection_id: str) -> None:
+    async with async_session_factory() as session:
+        collection = await session.get(Collection, uuid.UUID(collection_id))
+        collection.source, collection.external_id = "owui", "kb1"
+        await session.commit()
+
+
+async def test_the_owner_asks_for_the_description_of_a_collection(client):
+    collection_id = (await client.post("/api/collections")).json()["id"]
+
+    with patch("app.services.collection_service.enqueue_describe_collection", return_value="celery-desc-1") as enqueue:
+        response = await client.post(f"/api/collections/{collection_id}/description/generate")
+
+    assert response.status_code == 202
+    assert response.json() == {"celery_task_id": "celery-desc-1"}
+    enqueue.assert_called_once_with(collection_id)
+    async with async_session_factory() as session:
+        task = (await session.execute(select(Task).where(Task.celery_task_id == "celery-desc-1"))).scalar_one()
+    assert task.collection_id == uuid.UUID(collection_id)
+    assert task.task_name == "app.tasks.describe_collection"
+
+
+async def test_only_the_owner_asks_for_a_description(client):
+    collection_id = (await client.post("/api/collections")).json()["id"]
+    app.dependency_overrides[get_current_user] = _as_user("someone-else", "else@example.com")
+
+    try:
+        with patch("app.services.collection_service.enqueue_describe_collection") as enqueue:
+            response = await client.post(f"/api/collections/{collection_id}/description/generate")
+    finally:
+        del app.dependency_overrides[get_current_user]
+
+    assert response.status_code == 404
+    enqueue.assert_not_called()
+
+
+async def test_the_description_of_a_copied_collection_is_not_asked_for_here(client):
+    collection_id = (await client.post("/api/collections")).json()["id"]
+    await _copy(collection_id)
+
+    with patch("app.services.collection_service.enqueue_describe_collection") as enqueue:
+        response = await client.post(f"/api/collections/{collection_id}/description/generate")
+
+    assert response.status_code == 409
+    enqueue.assert_not_called()
+
+
+async def test_the_description_of_an_unknown_collection_is_not_found(client):
+    response = await client.post(f"/api/collections/{uuid.uuid4()}/description/generate")
+
+    assert response.status_code == 404

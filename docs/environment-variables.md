@@ -2,7 +2,7 @@
 
 Référence de toutes les variables d'environnement utilisées dans Muffin : leur définition, leur
 valeur par défaut, et les services qui les consomment. Chaque service Python (`backend`,
-`worker/document_process`, `worker/agent_execution`) lit ses variables via des classes
+`worker/document_process`) lit ses variables via des classes
 `pydantic_settings.BaseSettings` (`case_sensitive=True`, chargées depuis `.env`/`.env.local` puis
 l'environnement réel). En local, `docker-compose.yaml` fixe la plupart de ces valeurs directement ;
 `${VAR:-default}` dans ce fichier signifie que la variable peut être surchargée depuis un `.env` à
@@ -33,11 +33,11 @@ d'environnement (exportée par Docker Compose ou la CI) l'emporte toujours sur u
 
 | Variable | Définition | Défaut | Utilisée par |
 |---|---|---|---|
-| `REDIS_URL` | URL Redis (broker ET result backend Celery, aussi utilisé comme checkpointer LangGraph côté agent_execution) | `redis://localhost:6379/0` | **backend** (`app/config/redis.py` → `app/core/tasks.py`, producteur Celery), **worker/document_process**, **worker/agent_execution**, **worker/evaluation**, **worker/document_edit** (`app/config.py`, chacun avec sa propre queue) |
+| `REDIS_URL` | URL Redis (broker ET result backend Celery, aussi utilisé comme checkpointer LangGraph par l'agent, qui tourne dans le backend) | `redis://localhost:6379/0` | **backend** (`app/config/redis.py` → `app/core/tasks.py`, producteur Celery), **worker/document_process**, **worker/evaluation**, **worker/document_edit** (`app/config.py`, chacun avec sa propre queue) |
 
 Le broker est un unique `redis-stack-server` partagé ; chaque worker consomme ses propres queues
 Celery sur ce même Redis (`document_extraction`, `document_enrichment`, `document_import`,
-`index_rebuild` pour worker/document_process, voir son README ; `agent_execution`, `evaluation`,
+`index_rebuild` pour worker/document_process, voir son README ; `evaluation`,
 `document_edit` pour les autres). Les noms sont configurables côté worker mais gardent leur valeur
 par défaut en pratique, et doivent correspondre à ceux de `backend/app/core/tasks.py`.
 
@@ -130,10 +130,10 @@ Lues par le backend. Les valeurs par défaut valent quand un appel ne précise r
 
 | Variable | Définition | Défaut | Utilisée par |
 |---|---|---|---|
-| `SEARXNG_URL` | URL de l'instance SearXNG | `http://localhost:8080` | **worker/agent_execution** (`app/config.py` → `app/searxng_client.py`) |
+| `SEARXNG_URL` | URL de l'instance SearXNG | `http://localhost:8080` | **backend** (`app/agent/config.py` → `app/agent/searxng_client.py`) |
 
-Contrairement à Qdrant/Postgres, c'est le worker `agent_execution` qui appelle SearXNG
-directement (pas via le backend) - aucune donnée utilisateur n'y transite en base, l'appel est
+Contrairement à Qdrant/Postgres, c'est l'agent (qui tourne dans le backend) qui appelle SearXNG
+directement - aucune donnée utilisateur n'y transite en base, l'appel est
 un aller-retour HTTP simple, sans authentification (SearXNG n'en a pas par défaut). L'outil
 `web_search` de l'agent n'est appelé que si le run a explicitement activé la recherche web
 (toggle du composer de chat, désactivé par défaut - voir `Run.web_search_enabled` côté backend) ;
@@ -152,7 +152,7 @@ désactivée par défaut en amont et doit être explicitement activée côté se
 
 | Variable | Définition | Défaut | Utilisée par |
 |---|---|---|---|
-| `WORKER_API_KEY` | Secret partagé, vérifié sur chaque appel `/internal/*` par `app/core/security/worker_auth.py` (dépendance `require_worker_api_key`) | `""` côté backend / `""` côté workers | **backend** (`app/config/worker.py`), **worker/document_process**, **worker/agent_execution**, **worker/evaluation**, **worker/document_edit** — doit être identique des deux côtés, sinon tout appel interne échoue en 401 |
+| `WORKER_API_KEY` | Secret partagé, vérifié sur chaque appel `/internal/*` par `app/core/security/worker_auth.py` (dépendance `require_worker_api_key`) | `""` côté backend / `""` côté workers | **backend** (`app/config/worker.py`, aussi pour les appels de l'agent à ses propres routes), **worker/document_process**, **worker/evaluation**, **worker/document_edit** — doit être identique des deux côtés, sinon tout appel interne échoue en 401 |
 
 ## Partage de collections (invitations hashées)
 
@@ -174,7 +174,7 @@ désactivée par défaut en amont et doit être explicitement activée côté se
 
 | Variable | Définition | Défaut | Utilisée par |
 |---|---|---|---|
-| `BACKEND_API_URL` | URL du backend vue par les workers, base de tous leurs appels `/internal/*` | `http://localhost:8000` | **worker/document_process**, **worker/agent_execution**, **worker/evaluation**, **worker/document_edit** (`app/config.py` → clients HTTP `backend_client.py`) |
+| `BACKEND_API_URL` | URL du backend vue par les workers, base de tous leurs appels `/internal/*` | `http://localhost:8000` | **worker/document_process**, **worker/evaluation**, **worker/document_edit** (`app/config.py` → clients HTTP `backend_client.py`) |
 
 ## Logs
 
@@ -329,22 +329,19 @@ extraits (pas de rattrapage) ; les ré-extraire les décrit. Variables du **work
 | `CAPTION_MAX_CHARS` | Longueur maximale d'une description dans le texte de la page (coupée à un mot) | `600` | idem |
 | `CAPTION_STAGE_TIMEOUT_SECONDS` | Temps accordé aux descriptions d'une page. Passé ce délai, la page est gardée **sans** elles, sans repasser par la lecture de secours | `300` | idem |
 
-## worker/agent_execution — budgets d'exécution de l'agent
+## backend — l'agent de recherche (`app/agent/config.py`)
 
 Ces variables bornent le graphe LangGraph de recherche (§28 du brief d'architecture) pour qu'une
-requête pathologique ne puisse pas faire tourner indéfiniment le fan-out ou la
-boucle de vérification (« grounding »).
+requête pathologique ne puisse pas faire tourner indéfiniment le fan-out. L'agent tourne dans le backend, en tâche de fond.
 
 | Variable | Définition | Défaut | Utilisée par |
 |---|---|---|---|
-| `CELERY_QUEUE_NAME` | Nom de la queue Celery consommée par ce worker | `agent_execution` | **worker/agent_execution** (`app/config.py`) |
-| `MAX_PARALLEL_TASKS` | Nombre max de tâches de recherche exécutées en parallèle (fan-out `Send`) | `4` | idem (`graph/routing/conditions.py`) |
-| `MAX_PARALLEL_SEARCHES` | Nombre max de recherches vectorielles en parallèle au sein d'une tâche | `4` | idem |
+| `MAX_CONCURRENT_RUNS` | Runs qu'un pod du backend exécute en même temps (une tâche asyncio chacune) ; les autres attendent, en file | `8` | **backend** (`app/agent/config.py`, `app/agent/runner.py`) |
+| `MAX_PARALLEL_TASKS` | Nombre max de requêtes du plan exécutées en parallèle (fan-out `Send`) | `4` | idem (`graph/routing/conditions.py`) |
 | `MAX_TOTAL_TASKS` | Plafond cumulé de tâches sur toute la durée d'un run | `12` | idem |
-| `MAX_TOTAL_SEARCHES` | Plafond cumulé de recherches sur toute la durée d'un run | `20` | idem |
-| `MAX_GROUNDING_RESEARCHES` | Nombre max de relances de recherche déclenchées par un échec de vérification (grounding) | `1` | idem |
-| `SQL_QUEUE_NAME` | Queue du worker de requêtes SQL (`worker/tabular`, #432) à laquelle l'outil `tabular_query` envoie ses requêtes (#433) | `tabular_sql` | idem (`app/graph/services/tabular_worker.py`) |
-| `MAX_CITATION_REWRITES` | Fois qu'une réponse est réécrite parce que ses citations sont fausses ou manquantes (contrôle d'ancrage, #402) | `1` | idem |
+| `GATE_MIN_EVIDENCE` | Passages d'une recherche de contenu qui suffisent pour écrire une réponse (le `gate`, sans modèle) ; en dessous, la recherche est élargie à toutes les collections une fois | `1` | idem (`graph/nodes/gate.py`) |
+| `GATE_MIN_SCORE` | Score en dessous duquel un passage ne compte pas pour le `gate` (0 : tout passage compte, à calibrer sur de vraies questions) | `0.0` | idem |
+| `SQL_QUEUE_NAME` | Queue du worker de requêtes SQL (`worker/tabular`, #432) à laquelle l'outil `tabular_query` envoie ses requêtes (#433) | `tabular_sql` | idem (`app/agent/graph/services/tabular_worker.py`) |
 | `TABULAR_MAX_STEPS` | Appels de `query_data` qu'une tâche `tabular_query` peut enchaîner avant d'être invitée à conclure | `8` | idem |
 | `TABULAR_QUERY_TIMEOUT_SECONDS` | Attente de la réponse du worker pour une requête ; au-delà, la tâche échoue avec un message clair | `120` | idem |
 | `TABULAR_POLL_SECONDS` | Intervalle entre deux regards sur le résultat (la révocation est regardée à chaque fois) | `0.3` | idem |
@@ -355,9 +352,8 @@ boucle de vérification (« grounding »).
 | `TABULAR_PROMPT_ROWS` / `TABULAR_EVIDENCE_ROWS` | Lignes d'un résultat relues par le modèle / gardées dans la preuve sous la réponse | `50` / `100` | idem |
 
 L'agent n'exécute plus de SQL ni ne lit de fichier : il n'a plus de variables `AWS_*` ni de DuckDB (#433).
-| `MAX_QUESTION_ROUNDS` | Nombre max de fois de suite où l'assistant pose des questions à choix avant de poursuivre avec des hypothèses qu'il énonce (#344) | `2` | idem (`graph/nodes/request_clarification.py`) |
+| `MAX_QUESTION_ROUNDS` | Nombre max de fois de suite où l'assistant pose des questions à choix avant de poursuivre avec des hypothèses qu'il énonce (#344) | `2` | idem (`graph/nodes/plan.py`) |
 | `SEARCH_RESULTS_PER_QUERY` | Nombre de résultats retournés par recherche vectorielle | `5` | idem |
-| `MAX_ROUTED_COLLECTIONS` | Nombre max de collections retenues par le routage pour une tâche de recherche, dès qu'il existe des sous-collections ; au-delà, l'agent propose à l'utilisateur d'aller plus loin | `15` | idem |
 
 Délégation d'une modification de document vivant à l'agent d'édition (#171) :
 

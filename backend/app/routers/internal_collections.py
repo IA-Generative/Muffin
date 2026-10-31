@@ -10,6 +10,7 @@ from app.db import get_db
 from app.repositories.collection_hierarchy_repository import CollectionHierarchyRepository
 from app.repositories.collection_repository import CollectionRepository
 from app.repositories.document_repository import DocumentRepository
+from app.schemas.internal_document import CollectionDocumentOut
 from app.schemas.internal_pipeline import (
     CollectionDescriptionEmbeddingUpdate,
     CollectionDescriptionUpdate,
@@ -31,6 +32,15 @@ router = APIRouter(prefix="/internal", tags=["Internal"], dependencies=[Depends(
 # UI) are attributed to this fixed name, same idea as FieldStamp.updated_by
 # for a real user - shown as-is in the collection's "last updated by" info.
 PIPELINE_UPDATED_BY = "pipeline"
+
+
+@router.get(
+    "/collections/undescribed",
+    summary="Muffin's collections that have files and no description yet, for the job that asks for theirs to be "
+    "written (#457)",
+)
+async def list_undescribed_collections(db: Annotated[AsyncSession, Depends(get_db)]) -> list[uuid.UUID]:
+    return await CollectionRepository(db).list_undescribed_ids()
 
 
 @router.get(
@@ -88,6 +98,20 @@ async def get_collection_metadata(
         ],
         description_indexed=vector_store.has_collection_description(collection_id),
     )
+
+
+@router.get(
+    "/collections/{collection_id}/documents",
+    summary="List a collection's documents (id and name), for the task that describes it from a sample of them",
+    response_model=list[CollectionDocumentOut],
+)
+async def list_collection_documents(
+    collection_id: uuid.UUID, db: Annotated[AsyncSession, Depends(get_db)]
+) -> list[CollectionDocumentOut]:
+    if await CollectionRepository(db).get_by_id(collection_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found")
+    refs = await DocumentRepository(db).list_refs_by_collection(collection_id)
+    return [CollectionDocumentOut(id=document_id, name=name) for document_id, name in refs]
 
 
 @router.patch(
