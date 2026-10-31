@@ -5,6 +5,7 @@ import CguGateModal from './components/CguGateModal.vue'
 import ChatSidebar from './components/ChatSidebar.vue'
 import HomeView from './components/HomeView.vue'
 import OnboardingModal from './components/OnboardingModal.vue'
+import ApiKeysModal from './components/ApiKeysModal.vue'
 import SettingsModal from './components/SettingsModal.vue'
 import { useCgu } from './composables/useCgu'
 import { useChat } from './composables/useChat'
@@ -14,6 +15,7 @@ import { useOnboarding } from './composables/useOnboarding'
 const route = useRoute()
 const router = useRouter()
 const showSettings = ref(false)
+const showApiKeys = ref(false)
 
 const { user, isAuthenticated, isLoading, login, logout } = useCurrentUser()
 const { status: cguStatus, fetchCguStatus } = useCgu()
@@ -85,12 +87,14 @@ const activeView = computed(() => {
       @open-admin="router.push('/admin')"
       @open-filing="router.push('/filing')"
       @open-settings="showSettings = true"
+      @open-api-keys="showApiKeys = true"
       @login="login()"
       @logout="logout"
     />
     <router-view />
 
     <SettingsModal v-if="showSettings" @close="showSettings = false" />
+    <ApiKeysModal v-if="showApiKeys" @close="showApiKeys = false" />
     <CguGateModal v-if="isAuthenticated && cguStatus && !cguStatus.accepted" />
     <OnboardingModal v-if="showTutorial" />
   </div>
