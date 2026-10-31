@@ -12,49 +12,52 @@ backend - aucune donnée utilisateur n'y est stockée, ce n'est qu'un aller-reto
 
 ## Le graphe (`app/graph/graph.py`)
 
-1. `load_context` / `load_accessible_vdbs` - charge l'historique de conversation et la liste des
-   collections auxquelles l'utilisateur a accès (**la** barrière de permission - voir
-   `docs/research-agent-plan.md` à la racine du repo : le routing par LLM ne fait que restreindre
-   à l'intérieur de cette liste, jamais l'élargir).
-1bis. `detect_edit` / `delegate_edit` - **délégation d'une modification** (#171) : si le message demande de
-   modifier un document vivant, l'agent ne fait aucune recherche. Il confie la modification à l'agent
-   d'édition (`worker/document_edit`) et **attend son résultat**, puis répond avec ce que celui-ci a
-   conclu. Voir la section dédiée plus bas.
-2. `analyze_query` - décide si la question nécessite une clarification (`request_clarification`,
-   qui **termine le run** sur 1 à 4 questions à choix, voir
-   [docs/assistant-questions.md](../../docs/assistant-questions.md)) ou peut être traitée directement.
-3. `decompose_query` / `build_research_plan` - découpe la question en sous-tâches de recherche.
-4. `research_task` (fan-out dynamique via `Send`, un nœud par tâche en parallèle, borné par les
-   budgets `MAX_PARALLEL_TASKS`/`MAX_PARALLEL_SEARCHES`/...) - exécute un outil par tâche :
-   `search`, `page_content`, `list_documents`, `collection_summary`, `list_collections`,
-   `web_search`. Pour `search`, cascade QA cache → résumés → chunks (voir
-   `app/graph/nodes/research_task.py`) avant de faire une recherche vectorielle complète.
-   `web_search` (SearXNG) n'est jamais proposé au planner ni exécuté sauf si le run a activé la
-   recherche web (toggle du composer de chat, désactivé par défaut - voir
-   `AgentState.web_search_enabled`, double vérification dans `decompose_query.py` et
-   `research_task.py`).
-5. `merge_evidence` → `evaluate_coverage` → `clarify_coverage` -
-   vérifie que les preuves collectées suffisent à répondre ; sinon le run **se termine sur 1 à 4 questions
-   à choix** ("vouliez-vous dire A ou B ?") au lieu de relancer une recherche, pour ne jamais boucler. Sans
-   personne à qui demander (run non interactif) ou après `MAX_QUESTION_ROUNDS` questions de suite, l'agent
-   répond avec ce qu'il a et dit ce qui n'a pu être établi.
-6. `build_answer_context` → `generate_answer` - génère la réponse finale avec citations.
-7. `validate_grounding` → `targeted_research` (boucle bornée par `MAX_GROUNDING_RESEARCHES`) -
-   vérifie que chaque affirmation citée est bien supportée par une preuve réelle ; relance une
-   recherche ciblée sur les affirmations non supportées sinon.
+Un seul appel au modèle décide de tout (`plan`), la recherche qui suit est du code, un second appel écrit la réponse. Le
+dessin est dans [docs/agent-execution-graph-proposal.md](../../docs/agent-execution-graph-proposal.md) ; `scripts/draw_graph.py`
+le régénère depuis le graphe compilé.
 
-Le graphe peut être annulé (`cancel_requested` sur le run). Une clarification ne met plus le run en
-pause (#344) : les questions sont enregistrées avec le message de l'assistant, la réponse de l'utilisateur
-démarre un nouveau run qui la lit avec l'historique de la conversation. Le checkpointer LangGraph sur
-Redis ne sert plus qu'à reprendre un run qui attendait déjà une réponse avant ce changement.
+1. `prepare` - charge la liste des collections auxquelles l'utilisateur a accès (**la** barrière de permission : le plan
+   ne fait que restreindre à l'intérieur de cette liste, jamais l'élargir), tronque l'historique, et - seulement si le message
+   contient un verbe de modification ou de création - charge ce que l'utilisateur peut modifier ou ce où il peut créer.
+   Avec beaucoup de collections, le catalogue donné au plan est réduit par le pré-filtre vectoriel (sans modèle).
+2. `plan` (**appel n°1**) - lit le message à la lumière des derniers tours et rend un JSON : `mode` (`direct`, `clarify`,
+   `help`, `edit`, `create`, `search`), et pour `search` la question autonome, 1 à 4 requêtes indépendantes avec leur outil, les
+   collections à chercher et la complexité. `direct` porte la réponse elle-même (salutation, identité) : le run s'arrête là,
+   avec un seul appel. `clarify` termine le run sur 1 à 4 questions à choix (voir
+   [docs/assistant-questions.md](../../docs/assistant-questions.md)) ; sans personne à qui demander, ou après
+   `MAX_QUESTION_ROUNDS` questions de suite, il continue et dit ce qu'il suppose. Un identifiant que le modèle cite et qui n'est
+   pas dans les listes du backend est écarté, et un plan inutilisable est une simple recherche de la question.
+3. `answer_help` - répond à une question sur l'utilisation de Muffin avec le guide intégré (appel n°2).
+4. Sous-graphe `edit` (`edit_resolve` → `edit_request` → `edit_wait` → `edit_report`) et sous-graphe `create`
+   (`create_resolve` → `create_write`) - voir les sections dédiées plus bas. Aucun ne revient à la recherche.
+5. `research_task` (fan-out dynamique via `Send`, une branche par requête du plan, en parallèle, borné par `MAX_PARALLEL_TASKS` et
+   `MAX_TOTAL_TASKS`) - exécute un outil par requête : `search`, `page_content`, `list_documents`, `collection_summary`,
+   `list_collections`, `tabular_query`, `time`, `web_search`. **Aucun appel au modèle pour choisir les collections** : la
+   recherche se fait dans celles du plan (et celles que l'utilisateur a épinglées) avec leurs sous-collections
+   (`include_descendants`), ou dans toutes si le plan n'en a pas choisi. Pour `search`, les trois niveaux (une question déjà
+   répondue, les résumés des documents, les passages) sont interrogés en même temps. `web_search` (SearXNG) n'est jamais
+   proposé au plan ni exécuté sauf si le run a activé la recherche web (toggle du composer de chat, désactivé par défaut).
+6. `merge_evidence` → `gate` - décide **en code** si les preuves suffisent (`GATE_MIN_EVIDENCE`, `GATE_MIN_SCORE`). Pas assez et
+   le plan avait restreint les collections : `widen_search` refait les recherches dans toutes, une fois. Toujours pas assez :
+   la réponse dit ce qui n'a pu être établi (sans appel au modèle quand il n'y a aucun extrait).
+7. `build_answer_context` → `generate_answer` (**appel n°2**, en streaming) - réponse finale avec citations.
+8. `ground_check` (**appel n°3, optionnel**) - hors du graphe : `AgentService` le lance une fois le run `completed`, seulement pour
+   une réponse difficile (plusieurs requêtes ou complexité forte), et enregistre le verdict sur le run
+   (`PATCH /internal/runs/{id}/grounding`). L'utilisateur ne l'attend pas.
 
-## Déléguer une modification à l'agent d'édition (`detect_edit`, `delegate_edit`)
+Un message simple coûte donc 2 appels (3 avec le contrôle), une salutation 1, hors la boucle SQL de `tabular_query`. Le graphe
+peut être annulé (`cancel_requested` sur le run) : chaque nœud le vérifie à son début. Une clarification ne met plus le run en pause
+(#344) : les questions sont enregistrées avec le message de l'assistant, la réponse de l'utilisateur démarre un nouveau run qui
+la lit avec l'historique de la conversation. Le checkpointer LangGraph sur Redis ne sert plus qu'à reprendre un run qui attendait
+déjà une réponse avant ce changement.
+
+## Déléguer une modification à l'agent d'édition (sous-graphe `edit`)
 
 L'agent de recherche ne modifie jamais rien lui-même, ni ne parle directement à l'agent d'édition :
 c'est le backend qui porte l'état d'une proposition (brouillon, verrou du document, tâche), et c'est
 cet état que l'interface d'examen affiche déjà. Le circuit est donc le suivant :
 
-1. **`detect_edit`** (juste après `load_accessible_vdbs`). Un filtre peu coûteux d'abord : le message
+1. **Le plan** (`prepare` puis `plan`). Un filtre peu coûteux d'abord : le message
    doit contenir un verbe de modification (ajoute, supprime, remplace, corrige… et leurs équivalents
    anglais), sinon ni le backend ni le modèle ne sont sollicités. Ensuite l'agent demande au backend la
    liste des documents vivants **que l'utilisateur peut modifier** (`GET /internal/runs/{id}/editable-
@@ -64,7 +67,7 @@ cet état que l'interface d'examen affiche déjà. Le circuit est donc le suivan
    question), et en cas de doute `edit` est faux - répondre à une question est sans danger, modifier un
    document non. Si plusieurs documents peuvent convenir sans que rien n'indique lequel, l'agent le
    demande à l'utilisateur au lieu de deviner.
-2. **`delegate_edit`**. Il demande au backend de créer la demande (`POST /internal/runs/{id}/edit-
+2. **`edit_request`, `edit_wait`, `edit_report`**. Ils demandent au backend de créer la demande (`POST /internal/runs/{id}/edit-
    requests`), qui crée le brouillon, prend le verrou du document et envoie le job à l'agent d'édition,
    puis **suit le brouillon** (`GET …/edit-requests/{document}`, toutes les `EDIT_POLL_SECONDS`, pendant
    au plus `EDIT_WAIT_SECONDS`) en vérifiant l'annulation à chaque tour. Lire le brouillon renouvelle son
@@ -98,10 +101,9 @@ run réel de bout en bout contre la stack dev (utilisateur sans aucune collectio
   de document, pas une recherche méta - il doit passer par le même jugement de suffisance. Corrigé
   via l'ensemble `_CONTENT_TOOLS = {"search", "web_search"}`.
 
-À garder en tête pour tout futur outil de type "recherche" ajouté au graphe : vérifier qu'il est
-bien atteignable depuis la boucle de replan, et bien classé côté `evaluate_coverage` - un test
-unitaire isolé sur le node concerné ne suffit pas à le détecter, il faut un run bout en bout qui
-passe réellement par la boucle replan.
+À garder en tête pour tout futur outil de type « recherche » ajouté au graphe : vérifier qu'il est classé parmi les outils de
+contenu du `gate` (`_CONTENT_TOOLS` dans `nodes/gate.py`) - un test unitaire isolé sur le nœud concerné ne suffit pas à le
+détecter, il faut un run bout en bout.
 
 ## Structure
 
@@ -111,9 +113,9 @@ app/
     graph.py       assemblage du graphe (add_node / add_conditional_edges)
     state.py       AgentState (état partagé) et ResearchTaskInput (payload du fan-out)
     nodes/         un fichier par nœud du graphe (voir la liste ci-dessus)
-    routing/        conditions.py - logique de fan-out et de branchement conditionnel
-    services/       llm.py (appels LLM), vdb_router.py (sélection des collections pertinentes),
-                    evidence.py, planning.py, document_resolver.py, events.py
+    routing/        conditions.py - branchement après le plan et le gate, fan-out
+    services/       llm.py (appels LLM), scope.py (collections à chercher), vdb_router.py (catalogue montré au plan),
+                    tool_guide.py, authoring.py, evidence.py, document_resolver.py, events.py
   agent_service.py  point d'entrée appelé par la tâche Celery : charge le run, lance le graphe
   backend_client.py client HTTP vers les endpoints /internal/* du backend
   searxng_client.py client HTTP vers SearXNG (outil web_search, appelé directement, pas via le backend)
@@ -165,9 +167,9 @@ sources à partir de ces seuls marqueurs. Rien ne garantissait que le modèle le
 
 - **La consigne de citation est dans le code**, ajoutée au prompt système après le prompt administrable (`get_prompt`) :
   une version surchargée ne la perd plus.
-- **Contrôle après génération** : les ids qui ne sont pas un extrait fourni sont retirés de la réponse ; si elle ne cite
-  plus rien alors qu'il y avait de l'évidence, le modèle est invité **une fois** à la réécrire avec ses citations (la
-  consommation des deux appels est cumulée).
+- **Contrôle après génération, en code** : les ids qui ne sont pas un extrait fourni sont retirés de la réponse ; si elle ne
+  cite plus rien alors qu'il y avait de l'évidence, elle est **gardée telle quelle** (le chat indique qu'elle n'a pas de
+  source) : un second appel coûterait autant que le premier pour une réponse souvent identique.
 - **Sortie structurée** : le modèle rend `{"answer": "…", "sources": [{"id", "quote"}]}`, `answer` d'abord pour que le chat
   l'affiche pendant l'écriture (`partial_answer` lit le champ au fil du flux). Le worker ne garde **jamais** la copie du
   modèle : il cherche `quote` dans l'extrait désigné par l'`id` (insensible à la casse, aux espaces, aux retours à la
@@ -181,19 +183,20 @@ sources à partir de ces seuls marqueurs. Rien ne garantissait que le modèle le
   fier ») ; une réponse sans évidence le dit elle-même.
 - Un extrait sans nom de source est présenté au modèle sous le nom de son outil, plus sous `None`.
 
-### Le contrôle d'ancrage (`validate_grounding`)
+### Le contrôle d'ancrage (`ground_check`)
 
-Un appel au modèle après la génération (sauté pour une recherche simple ou un outil, comme avant). Il lit chaque extrait
-**en entier jusqu'à 2 000 caractères** (et, pour un extrait plus long, autour du passage cité) au lieu des 500 premiers
-caractères, avec le passage cité signalé. Il rend trois listes, plus une quatrième trouvée sans modèle :
+Un appel au modèle **après** la génération, une fois le run terminé : la réponse est partie, l'utilisateur ne l'attend pas, et le
+verdict est enregistré sur le run (`grounding_valid`, `grounding_unsupported_claims`). Il n'est fait que pour une réponse
+difficile à écrire (plusieurs requêtes, ou complexité forte) ; une recherche simple ou un outil n'en ont pas. Il lit chaque extrait
+**en entier jusqu'à 2 000 caractères** (et, pour un extrait plus long, autour du passage cité), avec le passage cité signalé. Il rend
+trois listes, plus une quatrième trouvée sans modèle :
 
-| Liste | Sens | Suite |
-|---|---|---|
-| `unsupported_claims` | affirmation que rien ne soutient | recherche ciblée (`MAX_GROUNDING_RESEARCHES`), comme avant |
-| `miscited_claims` | cite un extrait qui ne la soutient pas (`supported_by` : celui qui la soutient) | la réponse est réécrite avec ces affirmations (`MAX_CITATION_REWRITES`, 1) |
-| `uncited_claims` | soutenue par les extraits mais sans citation | idem |
-| `unverified_citations` | citation dont le passage n'est pas dans l'extrait | signalée dans l'événement, rien de plus |
+| Liste | Sens |
+|---|---|
+| `unsupported_claims` | affirmation que rien ne soutient |
+| `miscited_claims` | cite un extrait qui ne la soutient pas (`supported_by` : celui qui la soutient) |
+| `uncited_claims` | soutenue par les extraits mais sans citation |
+| `unverified_citations` | citation dont le passage n'est pas dans l'extrait (trouvée sans modèle) |
 
-La réécriture passe par le nœud `rewrite_citations`, puis `generate_answer` ; la réponse qui en revient n'est pas contrôlée
-une seconde fois. La consigne de contrôle des citations est dans le code, comme celle de la génération : un prompt
-`validate_grounding` surchargé la garde.
+Il ne relance ni recherche ni réécriture : un verdict est un constat, pas une boucle. La consigne de contrôle des citations est dans
+le code, comme celle de la génération : un prompt `validate_grounding` surchargé la garde.

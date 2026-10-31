@@ -7,6 +7,7 @@ from app.ask_user import question_rounds
 from app.backend_client import backend_client
 from app.config import settings
 from app.graph import AgentState, build_graph
+from app.graph.nodes.ground_check import ground_check
 
 # Redis-backed, not the graph's default InMemorySaver (§32): a HITL pause (request_clarification's
 # interrupt()) is resumed by whichever Celery prefork child picks up the resume_agent task, which
@@ -111,24 +112,27 @@ class AgentService:
                 "questions": None,
                 "must_assume": False,
                 "accessible_vdbs": [],
+                "catalogue": [],
+                "edit_candidates": [],
+                "create_candidates": [],
+                "plan": {},
+                "scope_ids": [],
+                "widened": False,
                 "edit_target": None,
                 "edit_proposal": None,
                 "create_target": None,
                 "query_analysis": {},
-                "research_plan": {},
                 "research_tasks": [],
                 "completed_task_ids": [],
                 "failed_task_ids": [],
                 "evidence": [],
                 "deduped_evidence": [],
                 "coverage_result": None,
-                "plan_version": run.get("plan_version", 0),
-                "replan_count": run.get("replan_count", 0),
                 "answer_context": None,
                 "answer": None,
                 "citations": [],
+                "needs_grounding": False,
                 "grounding_result": None,
-                "grounding_research_count": 0,
                 "prompt_usages": [],
                 "execution_status": "queued",
                 "cancelled": False,
@@ -183,7 +187,6 @@ class AgentService:
             final_state["citations"],
             grounding_valid=grounding_result["valid"] if grounding_result else None,
             grounding_unsupported_claims=(grounding_result["unsupported_claims"] if grounding_result else None),
-            grounding_research_count=final_state.get("grounding_research_count"),
             latency_ms=final_state.get("answer_latency_ms"),
             prompt_tokens=final_state.get("answer_prompt_tokens"),
             completion_tokens=final_state.get("answer_completion_tokens"),
@@ -199,14 +202,29 @@ class AgentService:
         prompt_usages = final_state.get("prompt_usages") or []
         if prompt_usages:
             backend_client.add_prompt_usages(run_id, list(dict.fromkeys(prompt_usages)))
-        # A question is no basis for a title: the conversation is titled once it has an answer.
+        # A question is no basis for a title, nor for a check: the conversation is titled once it has an answer.
         if final_state.get("questions"):
             return
+        _check_grounding(run_id, final_state)
         _generate_conversation_title(
             final_state["conversation_id"],
             final_state["original_query"],
             final_state["answer"] or "",
         )
+
+
+def _check_grounding(run_id: str, final_state: dict[str, Any]) -> None:
+    """The check of the answer's claims, made once the run is completed - the user is not waiting for it - and only
+    for an answer that was hard to write (several sources, a comparison). Best-effort, like the title: its verdict is
+    recorded on the run, and it never turns a completed run into a failed one."""
+    if not final_state.get("needs_grounding") or final_state.get("edit_proposal"):
+        return
+    try:
+        result = ground_check(final_state)
+        if result is not None:
+            backend_client.set_run_grounding(run_id, result["valid"], result["unsupported_claims"])
+    except Exception:
+        logger.exception(f"Failed to check the grounding of run {run_id}")
 
 
 def _unexplored(final_state: dict[str, Any]) -> list[str]:

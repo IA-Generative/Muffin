@@ -20,7 +20,7 @@ TaskTool = Literal[
 
 
 class ResearchTask(TypedDict):
-    """One unit of research work in the DAG built by decompose_query/build_research_plan.
+    """One unit of research work, one per query of the plan.
     Ids are stable for the lifetime of a run - replan_research adds new tasks rather than
     mutating a completed one, so past evidence always traces back to the task that found it.
     """
@@ -78,16 +78,16 @@ def _merge_by_id(left: list[dict[str, Any]], right: list[dict[str, Any]]) -> lis
 
 class ResearchTaskInput(TypedDict):
     """Input schema for one `research_task` fan-out branch (§11) - deliberately narrower than
-    AgentState: a task never sees the other tasks, only its own query and the accessible VDBs.
+    AgentState: a task never sees the other tasks, only its own query and the collections to search.
     """
 
     run_id: str
     user_id: str
     accessible_vdbs: list[dict[str, Any]]
+    # The collections this task searches (each with its sub-collections): chosen by the plan, widened by widen_search.
+    scope_ids: list[str]
     task: ResearchTask
     chat_model: str | None
-    pinned_vdb_ids: list[str]
-    resume_from_vdb_ids: list[str]
     web_search_enabled: bool
 
 
@@ -96,117 +96,91 @@ class AgentState(TypedDict):
     run_id: str
     user_id: str
     # Snapshot of the user's Keycloak groups at run creation time (Run.user_groups) - only
-    # consumed by load_accessible_vdbs, to include collections shared to one of these groups.
+    # consumed by prepare, to include collections shared to one of these groups.
     user_groups: list[str]
     conversation_id: str
 
     original_query: str
-    # The user's literal message, rewritten by analyze_query to stand on its own when it refers
-    # back to the conversation (e.g. "elle" -> "the AgentControl collection") - what every node
-    # doing actual research work searches/reasons over instead of original_query, so a follow-up
-    # question in the same conversation isn't treated as a cold, context-free string.
+    # The user's message rewritten by the plan to stand on its own when it refers back to the conversation
+    # ("elle" -> "the AgentControl collection"): what the research searches and the answer is written for.
     contextualized_query: str
     messages: list[dict[str, Any]]
 
-    # Resolved once by AgentService.run() and threaded through every node from here on, instead
-    # of each of them separately calling GET /api/internal/llm/default-chat-model - the model
-    # doesn't change mid-run, so doing that per node was a pure latency tax (one extra
-    # worker<->backend round trip before every single LLM call, on the critical path).
+    # Resolved once by AgentService.run() and threaded through every node from here on.
     chat_model: str | None
 
-    # Collections the user explicitly attached to this message (the chat composer's "+"
-    # picker) - always searched regardless of what VDB routing's own relevance guess would have
-    # picked, see select_relevant_vdbs. Empty list, never None, when nothing was attached.
+    # Collections the user explicitly attached to this message (the chat composer's "+" picker) - always searched,
+    # on top of what the plan chooses.
     pinned_vdb_ids: list[str]
 
-    # Sub-collection exploration (#219). `resume_from_vdb_ids`: for a "go further" follow-up, the
-    # collections the previous answer left unexplored - VDB routing descends from below them
-    # instead of from the top level (still intersected with accessible_vdbs). `unexplored_vdb_ids`:
-    # collections this run's routing selected but couldn't descend into within its budget,
-    # gathered from every research task, reported with the answer for the next "go further".
+    # A "go further" follow-up (#219): the collections the previous answer left unexplored. Kept for the runs that
+    # still carry them; a search now goes down every sub-collection, so nothing new is left unexplored.
     resume_from_vdb_ids: list[str]
     unexplored_vdb_ids: Annotated[list[str], operator.add]
 
     # Opt-in per message (chat composer toggle, off by default) - see Run.web_search_enabled.
-    # Read by decompose_query (only offers the "web_search" tool to the planner when true) and
-    # research_task (refuses to run it otherwise, an independent second gate).
     web_search_enabled: bool
 
     # --- questions to the user (#344) ---
-    # Whether someone reads the answer and can reply (Run.interactive): a run started by a program is never
-    # asked anything. `question_rounds`: how many times in a row the assistant already asked, at the end of
-    # the conversation - what the cap on asking is counted against.
     interactive: bool
     question_rounds: int
-    # Set by request_clarification when the run ends on questions with options (the answer is then the same
-    # questions as text): [{"question", "header", "multi_select", "options": [{"label", "description"}]}].
+    # Set when the run ends on questions with options (the answer is then the same questions as text).
     questions: list[dict[str, Any]] | None
-    # Set when the request was left open and nobody could be asked (no one there, or the cap was reached):
-    # the answer states the assumptions it made.
+    # Set when the request was left open and nobody could be asked: the answer states the assumptions it made.
     must_assume: bool
 
     # --- permission barrier (§4) ---
     accessible_vdbs: list[dict[str, Any]]
+    # What the plan was shown: the accessible collections, narrowed by the vector pre-filter when there are many.
+    catalogue: list[dict[str, Any]]
+    # What the user may edit / add a document to, loaded only when the message looks like a request to.
+    edit_candidates: list[dict[str, Any]]
+    create_candidates: list[dict[str, Any]]
+
+    # --- the plan (one LLM call): what to do, with which tools, where ---
+    plan: dict[str, Any]
+    # The collections to search (the plan's and the pinned ones), each with its sub-collections by the backend;
+    # empty means every accessible collection. `widened`: the search was already widened to all of them.
+    scope_ids: list[str]
+    widened: bool
 
     # --- delegated edit of a living document (#171) ---
-    # Set by detect_edit when the message asks to change one of the user's living documents:
-    # {"document_id", "document_name", "collection_id", "instruction"} - or, when the request
-    # can't be acted on as is, {"clarification": "..."} with what to tell the user instead.
+    # {"document_id", "document_name", "collection_id", "instruction"} - or {"clarification": "..."} with what to tell
+    # the user instead.
     edit_target: dict[str, Any] | None
-    # What delegate_edit hands back with the answer so the chat can show the proposal next to it:
-    # {"collection_id", "document_id", "document_name"} for a change to a document - or, for a new
-    # Markdown document the agent wrote (delegate_create), {"kind": "create", "status", "collection_id",
-    # "collection_name", "name", "content"}: created only once the user validates it.
+    # What the edit / create path hands back with the answer so the chat can show the proposal next to it.
     edit_proposal: dict[str, Any] | None
-
-    # --- a new Markdown document, written on request ---
-    # Set by detect_create when the message asks to create a document: {"collection_id",
-    # "collection_name", "title", "instruction"} - or {"clarification": "..."} with what to tell the
-    # user instead (which collection? only Markdown is possible).
+    # {"collection_id", "collection_name", "title", "instruction"} - or {"clarification": "..."}.
     create_target: dict[str, Any] | None
 
-    # --- understanding (§5/§6) ---
+    # --- understanding, kept in the shape the rest of the system reads (intent, complexity...) ---
     query_analysis: dict[str, Any]
 
-    # --- research DAG (§7-§10) ---
-    research_plan: dict[str, Any]
+    # --- research (independent tasks, in parallel) ---
     research_tasks: Annotated[list[ResearchTask], _merge_by_id]
     completed_task_ids: Annotated[list[str], operator.add]
     failed_task_ids: Annotated[list[str], operator.add]
 
     # --- evidence (§15-§16) ---
-    # `evidence` only ever grows via the operator.add reducer (each research_task branch appends
-    # its own findings); merge_evidence can't dedupe it in place without double-applying the
-    # reducer on its own output, so the deduped view downstream nodes read from lives separately.
     evidence: Annotated[list[Evidence], operator.add]
     deduped_evidence: list[Evidence]
 
-    # --- coverage / replan loop (§17-§20) ---
+    # The gate's verdict on the evidence (code, no model).
     coverage_result: CoverageResult | None
-    plan_version: int
-    replan_count: int
 
     # --- answer (§21-§22) ---
     answer_context: dict[str, Any] | None
     answer: str | None
     citations: list[dict[str, Any]]
-    # Per-message metrics from generate_answer's LLM call - recorded on the assistant Message
-    # row by the backend (see RunResultUpdate), used by the quality dashboard for latency/cost.
     answer_latency_ms: int | None
     answer_prompt_tokens: int | None
     answer_completion_tokens: int | None
 
-    # --- grounding loop (§23-§24) ---
+    # --- grounding, checked after the answer is out ---
+    needs_grounding: bool
     grounding_result: GroundingResult | None
-    grounding_research_count: int
-    # The answer written again with the claims the check found cited wrongly or not at all (#402): how many times
-    # (once at most), and the claims it is told about.
-    citation_rewrites: int
-    citation_feedback: list[str]
 
-    # Prompt version ids actually used by this run (§ issue #96 traceability) - each node
-    # fetching a versioned prompt appends its id here; operator.add since several nodes (and a
-    # replanning node run more than once) each contribute their own entry across the graph.
+    # Prompt version ids actually used by this run (§ issue #96 traceability).
     prompt_usages: Annotated[list[str], operator.add]
 
     # --- lifecycle (§30) ---

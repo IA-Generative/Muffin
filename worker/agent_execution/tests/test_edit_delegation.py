@@ -45,18 +45,22 @@ def _draft(status="pending", **overrides) -> dict:
 
 
 def _router(edit_verdict: dict | None = None):
-    """Answers the detect_edit prompt with `edit_verdict`, and the rest of the pipeline like the
-    plain lookup tests do - so a run that falls through to research still completes."""
+    """Answers the plan with what `edit_verdict` says (an edit of a document, or a plain search), and the rest of the
+    pipeline like the plain lookup tests do - so a run that falls through to research still completes."""
 
     def router(system_prompt: str) -> str:
-        if "may be asking to CHANGE" in system_prompt:
-            return json.dumps(edit_verdict or {"edit": False})
-        if "Analyze the user" in system_prompt:
-            return json.dumps({"intent": "lookup", "ambiguous": False, "complexity": "simple"})
-        if "select the ones relevant" in system_prompt.lower():
-            return '["col-1"]'
-        if "Decide whether" in system_prompt:
-            return json.dumps({"status": "sufficient", "missing_information": [], "reasoning": "ok"})
+        if "You are the planner" in system_prompt:
+            verdict = edit_verdict or {"edit": False}
+            if verdict.get("edit"):
+                return json.dumps(
+                    {
+                        "mode": "edit",
+                        "document_id": verdict.get("document_id"),
+                        "candidates": verdict.get("candidates", []),
+                        "instruction": verdict.get("instruction"),
+                    }
+                )
+            return json.dumps({"mode": "search"})
         return "Réponse de recherche."
 
     return router
@@ -95,7 +99,7 @@ def test_a_question_without_an_edit_verb_never_touches_the_edit_machinery(make_r
 
     assert fake.editable_calls == []
     assert result["answer"] == "Réponse de recherche."
-    assert not any("may be asking to CHANGE" in call[0]["content"] for call in fake.llm_calls)
+    assert not any("Documents the user can edit" in call[1]["content"] for call in fake.llm_calls)
 
 
 def test_a_message_that_looks_like_an_edit_but_has_nothing_editable_goes_on_as_a_question(make_run):
@@ -104,7 +108,7 @@ def test_a_message_that_looks_like_an_edit_but_has_nothing_editable_goes_on_as_a
     assert fake.editable_calls == [state["run_id"]]
     assert fake.edit_creates == []
     assert result["answer"] == "Réponse de recherche."  # the research pipeline answered
-    assert not any("may be asking to CHANGE" in call[0]["content"] for call in fake.llm_calls)
+    assert not any("Documents the user can edit" in call[1]["content"] for call in fake.llm_calls)
 
 
 def test_the_model_saying_it_is_not_an_edit_leaves_the_run_to_the_research_pipeline(make_run):
@@ -141,10 +145,10 @@ def test_an_unusable_reply_from_the_model_falls_back_to_the_research_pipeline(ma
 def test_the_model_is_only_shown_documents_the_backend_listed_and_the_conversation(make_run):
     _, fake, _ = _run(make_run, "Ajoute le numéro 15", _edit())
 
-    prompt = next(c for c in fake.llm_calls if "may be asking to CHANGE" in c[0]["content"])[1]["content"]
+    prompt = next(c for c in fake.llm_calls if "You are the planner" in c[0]["content"])[1]["content"]
     assert f"id={DOC_ID} | « procedure.odt » (collection « Procédures RH ») - Les étapes d'arrivée" in prompt
     assert "id=doc-2 | « glossaire.md »" in prompt
-    assert prompt.endswith("Current message: Ajoute le numéro 15")
+    assert "Current message: Ajoute le numéro 15" in prompt
 
 
 # -- delegating ---------------------------------------------------------------------------------

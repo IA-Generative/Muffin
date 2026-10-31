@@ -81,7 +81,6 @@ def test_finalize_reports_the_grounding_verdict_alongside_the_result(monkeypatch
         "run-1",
         _completed_state(
             grounding_result={"valid": False, "unsupported_claims": ["25 days is a minimum, not a guarantee"]},
-            grounding_research_count=2,
         ),
     )
 
@@ -91,7 +90,6 @@ def test_finalize_reports_the_grounding_verdict_alongside_the_result(monkeypatch
         [{"evidence_id": "abc", "source": "policy.pdf", "vdb_id": "hr"}],
         grounding_valid=False,
         grounding_unsupported_claims=["25 days is a minimum, not a guarantee"],
-        grounding_research_count=2,
         latency_ms=None,
         prompt_tokens=None,
         completion_tokens=None,
@@ -101,10 +99,9 @@ def test_finalize_reports_the_grounding_verdict_alongside_the_result(monkeypatch
     )
 
 
-def test_finalize_reports_no_grounding_verdict_when_validate_grounding_was_skipped(monkeypatch):
-    """after_generate_answer can route straight to END without ever running validate_grounding
-    (e.g. no evidence to check) - grounding_result stays None in that case, not a fabricated
-    "valid" verdict."""
+def test_finalize_reports_no_grounding_verdict_when_no_grounding_check_was_made(monkeypatch):
+    """The check of the claims is made after the result is reported, and only for a hard answer: the result carries no
+    verdict then - not a fabricated "valid" one."""
     fake = MagicMock()
     fake.get_default_chat_model.return_value = None
     monkeypatch.setattr("app.agent_service.backend_client", fake)
@@ -117,7 +114,6 @@ def test_finalize_reports_no_grounding_verdict_when_validate_grounding_was_skipp
         [{"evidence_id": "abc", "source": "policy.pdf", "vdb_id": "hr"}],
         grounding_valid=None,
         grounding_unsupported_claims=None,
-        grounding_research_count=None,
         latency_ms=None,
         prompt_tokens=None,
         completion_tokens=None,
@@ -240,3 +236,48 @@ def test_a_run_nobody_reads_is_told_so(monkeypatch):
 
     _, state = _run(monkeypatch, _run_row([]))
     assert state["interactive"] is True
+
+
+def test_a_hard_answer_is_checked_once_the_run_is_completed(monkeypatch):
+    fake = MagicMock()
+    fake.get_default_chat_model.return_value = None
+    monkeypatch.setattr("app.agent_service.backend_client", fake)
+    monkeypatch.setattr(
+        "app.agent_service.ground_check", lambda state: {"valid": False, "unsupported_claims": ["a claim"]}
+    )
+    order = []
+    fake.update_run_status.side_effect = lambda *args: order.append("completed")
+    fake.set_run_grounding.side_effect = lambda *args: order.append("grounding")
+
+    AgentService()._finalize("run-1", _completed_state(needs_grounding=True))
+
+    fake.set_run_grounding.assert_called_once_with("run-1", False, ["a claim"])
+    assert order == ["completed", "grounding"]
+
+
+def test_an_easy_answer_is_not_checked(monkeypatch):
+    fake = MagicMock()
+    fake.get_default_chat_model.return_value = None
+    monkeypatch.setattr("app.agent_service.backend_client", fake)
+    called = []
+    monkeypatch.setattr("app.agent_service.ground_check", lambda state: called.append(state))
+
+    AgentService()._finalize("run-1", _completed_state(needs_grounding=False))
+
+    assert called == []
+    fake.set_run_grounding.assert_not_called()
+
+
+def test_a_check_that_fails_never_fails_a_completed_run(monkeypatch):
+    fake = MagicMock()
+    fake.get_default_chat_model.return_value = None
+    monkeypatch.setattr("app.agent_service.backend_client", fake)
+
+    def boom(state):
+        raise RuntimeError("model down")
+
+    monkeypatch.setattr("app.agent_service.ground_check", boom)
+
+    AgentService()._finalize("run-1", _completed_state(needs_grounding=True))  # must not raise
+
+    fake.update_run_status.assert_called_once_with("run-1", "completed")

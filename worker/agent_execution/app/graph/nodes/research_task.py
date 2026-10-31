@@ -1,4 +1,5 @@
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from typing import Any
 
@@ -9,11 +10,10 @@ from app.config import settings
 from app.graph.services.document_resolver import resolve_document_page
 from app.graph.services.events import emit, is_cancelled, set_activity
 from app.graph.services.evidence import normalize_results
-from app.graph.services.llm import json_chat
+from app.graph.services.scope import scope_vdbs
 from app.graph.services.tabular_catalog import Catalog
 from app.graph.services.tabular_query import LoopOutcome, format_tabular_evidence, run_query_loop
 from app.graph.services.time_tool import build_time_context, format_time_context
-from app.graph.services.vdb_router import RoutingScope, select_relevant_vdbs
 from app.graph.state import Evidence, ResearchTaskInput
 from app.searxng_client import searxng_client
 
@@ -25,17 +25,6 @@ from app.searxng_client import searxng_client
 _QA_MATCH_THRESHOLD = 0.85
 # The fusion orders the candidates, the cosine decides: the best of a few is looked at, not just the first.
 _QA_CANDIDATES = 3
-
-_SUMMARY_SUFFICIENCY_PROMPT = (
-    "Given a query and the summaries of the documents in a knowledge base, decide whether these summaries "
-    "alone (without reading the documents' full content) are enough to answer it completely and precisely. "
-    'Respond only with JSON: {"sufficient": bool, "answer": string or null - a complete, precise answer '
-    "using only the given summaries, set only when sufficient is true}. "
-    "A summary flagged as partial was written from some pages of a long document only: it says nothing of "
-    "the other pages, so it is never enough for a question about a detail, a section or a passage that "
-    "those pages may not cover - answer sufficient=false then. It can still be enough for a general question "
-    "about what the document is about."
-)
 
 
 def _collection_evidence(vdb: dict[str, Any], task_id: str, retrieval_query: str) -> Evidence:
@@ -116,16 +105,20 @@ def _qa_evidence(task_id: str, retrieval_query: str, hit: dict[str, Any]) -> Evi
     )
 
 
-def _summary_evidence(task_id: str, retrieval_query: str, vdb: dict[str, Any], answer: str) -> Evidence:
+def _summary_evidence(task_id: str, retrieval_query: str, hit: dict[str, Any]) -> Evidence:
+    """The summary of a document the question lands in: context about it as a whole, read with the passages. It cites
+    the document by its name but has no page to open (the summary is of the whole document), so it is not a "document"
+    evidence."""
+    pages = hit.get("summary_pages")
+    partial = f" [partial summary: pages {_pages_text(pages)} only]" if pages else ""
     return Evidence(
         id=str(uuid.uuid4()),
         task_id=task_id,
-        vdb_id=str(vdb["id"]),
-        # Same as _qa_evidence: a summary-derived answer has no specific document_id to cite.
-        source_id="",
-        content=answer,
-        metadata={"document_name": vdb["name"], "evidence_kind": "summary"},
-        relevance_score=None,
+        vdb_id=str(hit["collection_id"]),
+        source_id=str(hit["document_id"]),
+        content=f"{hit['name']}{partial}: {hit['summary']}",
+        metadata={"document_name": hit["name"], "evidence_kind": "summary"},
+        relevance_score=hit.get("score"),
         retrieval_query=retrieval_query,
     )
 
@@ -160,77 +153,56 @@ def _pages_text(ranges: list[list[int]]) -> str:
     return ", ".join(f"{start}-{end}" if start != end else str(start) for start, end in ranges)
 
 
-def _summary_line(summary: dict[str, Any]) -> str:
-    """A summary written from some pages only says so, so that the judge never takes it for the whole document."""
-    pages = summary.get("summary_pages")
-    flag = f" [partial summary: pages {_pages_text(pages)} only]" if pages else ""
-    return f"{summary['name']}{flag}: {summary['summary']}"
-
-
-def _summaries_suffice(query: str, summaries: list[dict[str, Any]], model: str | None) -> tuple[bool, str | None]:
-    """Tier 2 of the research agent's retrieval cascade (§ QA -> summaries -> chunks): before
-    ever running a full chunk search, ask whether the top-matching documents' own summaries
-    already answer the query - cheaper and often already precise enough for "what is X
-    about"-style questions. Only the top _SUMMARY_MATCH_LIMIT summaries (found by vector search
-    over summary embeddings, see backend_client.search_summaries), never every document in the
-    collection - that wouldn't scale to a collection with hundreds of them."""
-    if model is None:
-        return False, None
-    listing = "\n\n".join(_summary_line(s) for s in summaries if s.get("summary"))
-    if not listing:
-        return False, None
-    raw = json_chat(
-        model,
-        _SUMMARY_SUFFICIENCY_PROMPT,
-        f"Query: {query}\n\nDocument summaries:\n{listing}",
-        fallback={"sufficient": False, "answer": None},
-    )
-    if not isinstance(raw, dict):
-        return False, None
-    return bool(raw.get("sufficient")), raw.get("answer")
+def _best_effort(call: Any, default: Any) -> Any:
+    """The QA and the summaries only add to what the chunks give: failing to read them never fails the search."""
+    try:
+        return call()
+    except Exception:
+        logger.exception("A search tier failed, going on without it")
+        return default
 
 
 def _run_search(
     task: dict[str, Any],
     _user_id: str,
     accessible_vdbs: list[dict[str, Any]],
-    model: str | None,
-    scope: RoutingScope,
+    _model: str | None,
+    scope_ids: list[str],
     _web_search_enabled: bool,
 ) -> tuple[dict[str, Any], list[Evidence]]:
-    routing = select_relevant_vdbs(task["query"], accessible_vdbs, model, *scope)
-    selected_vdbs = routing.selected
+    """The content search, with no model: one query to each of the three tiers - a question already answered (QA), the
+    summaries of the documents, the chunks - in the chosen collections and the ones below them, all at once. A
+    question already answered counts first when it is the same question; the summaries add the document as a whole."""
+    selected_vdbs = scope_vdbs(scope_ids, accessible_vdbs)
     if not selected_vdbs:
         return {"selected_vdbs": [], "results": []}, []
     vdb_ids = [str(v["id"]) for v in selected_vdbs]
-    vdb_names = {str(v["id"]): v["name"] for v in selected_vdbs}
-    # Only content search reports what the sub-collection descent left out (#219): "go further"
-    # is about searching deeper, the meta-lookups below don't need to offer it.
-    base_updates = {
-        "selected_vdbs": vdb_ids,
-        "search_queries": [task["query"]],
-        "unexplored_vdb_ids": [str(v["id"]) for v in routing.unexplored],
-    }
+    base_updates = {"selected_vdbs": vdb_ids, "search_queries": [task["query"]], "unexplored_vdb_ids": []}
+    query = task["query"]
 
-    # Tier 1: has this exact question already been answered (a QA pair), in these collections?
-    qa_hits = backend_client.search_qa(vdb_ids, task["query"], limit=_QA_CANDIDATES)
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        qa_future = pool.submit(
+            _best_effort,
+            lambda: backend_client.search_qa(vdb_ids, query, limit=_QA_CANDIDATES, include_descendants=True),
+            [],
+        )
+        summary_future = pool.submit(
+            _best_effort,
+            lambda: backend_client.search_summaries(
+                vdb_ids, query, limit=_SUMMARY_MATCH_LIMIT, include_descendants=True
+            ),
+            [],
+        )
+        chunk_future = pool.submit(
+            backend_client.search, vdb_ids, query, settings.SEARCH_RESULTS_PER_QUERY, include_descendants=True
+        )
+        qa_hits, summary_hits, results = qa_future.result(), summary_future.result(), chunk_future.result()
+
+    evidence: list[Evidence] = []
     if qa_hits and qa_hits[0]["score"] >= _QA_MATCH_THRESHOLD:
-        evidence = [_qa_evidence(task["id"], task["query"], qa_hits[0])]
-        return {**base_updates, "results": []}, evidence
-
-    # Tier 2: do the best-matching documents' own summaries already answer it, without reading
-    # full chunks?
-    summary_hits = backend_client.search_summaries(vdb_ids, task["query"], limit=_SUMMARY_MATCH_LIMIT)
-    sufficient, summary_answer = _summaries_suffice(task["query"], summary_hits, model)
-    if sufficient and summary_answer:
-        top_vdb_id = str(summary_hits[0]["collection_id"]) if summary_hits else vdb_ids[0]
-        vdb = {"id": top_vdb_id, "name": vdb_names.get(top_vdb_id, top_vdb_id)}
-        evidence = [_summary_evidence(task["id"], task["query"], vdb, summary_answer)]
-        return {**base_updates, "results": []}, evidence
-
-    # Tier 3: the original, unconditional behavior - full vector search over the chunks.
-    results = backend_client.search(vdb_ids, task["query"], settings.SEARCH_RESULTS_PER_QUERY)
-    evidence = normalize_results(task["id"], task["query"], results)
+        evidence.append(_qa_evidence(task["id"], query, qa_hits[0]))
+    evidence += [_summary_evidence(task["id"], query, hit) for hit in summary_hits if hit.get("summary")]
+    evidence += normalize_results(task["id"], query, results)
     return {**base_updates, "results": results}, evidence
 
 
@@ -246,10 +218,9 @@ def _run_list_collections(task: dict[str, Any], accessible_vdbs: list[dict[str, 
 def _run_collection_summary(
     task: dict[str, Any],
     accessible_vdbs: list[dict[str, Any]],
-    model: str | None,
-    scope: RoutingScope,
+    scope_ids: list[str],
 ) -> tuple[dict, list[Evidence]]:
-    selected_vdbs = select_relevant_vdbs(task["query"], accessible_vdbs, model, *scope).selected
+    selected_vdbs = scope_vdbs(scope_ids, accessible_vdbs)
     evidence = [_collection_evidence(vdb, task["id"], task["query"]) for vdb in selected_vdbs]
     return {"selected_vdbs": [str(v["id"]) for v in selected_vdbs]}, evidence
 
@@ -259,10 +230,10 @@ def _run_list_documents(
     user_id: str,
     accessible_vdbs: list[dict[str, Any]],
     model: str | None,
-    scope: RoutingScope,
+    scope_ids: list[str],
     _web_search_enabled: bool,
 ) -> tuple[dict, list[Evidence]]:
-    selected_vdbs = select_relevant_vdbs(task["query"], accessible_vdbs, model, *scope).selected
+    selected_vdbs = scope_vdbs(scope_ids, accessible_vdbs)
     evidence: list[Evidence] = []
     for vdb in selected_vdbs:
         documents = backend_client.list_collection_documents(user_id, str(vdb["id"]))
@@ -314,10 +285,10 @@ def _run_page_content(
     user_id: str,
     accessible_vdbs: list[dict[str, Any]],
     model: str | None,
-    scope: RoutingScope,
+    scope_ids: list[str],
     _web_search_enabled: bool,
 ) -> tuple[dict, list[Evidence]]:
-    selected_vdbs = select_relevant_vdbs(task["query"], accessible_vdbs, model, *scope).selected
+    selected_vdbs = scope_vdbs(scope_ids, accessible_vdbs)
     if not selected_vdbs:
         return {"selected_vdbs": []}, []
 
@@ -356,7 +327,7 @@ def _run_web_search(
     _user_id: str,
     _accessible_vdbs: list[dict[str, Any]],
     _model: str | None,
-    _scope: RoutingScope,
+    _scope_ids: list[str],
     web_search_enabled: bool,
 ) -> tuple[dict[str, Any], list[Evidence]]:
     if not web_search_enabled:
@@ -379,7 +350,7 @@ def _run_time(
     _user_id: str,
     _accessible_vdbs: list[dict[str, Any]],
     _model: str | None,
-    _scope: RoutingScope,
+    _scope_ids: list[str],
     _web_search_enabled: bool,
 ) -> tuple[dict[str, Any], list[Evidence]]:
     """Time tool: gives the LLM precise temporal context (current time to the second) and
@@ -415,7 +386,7 @@ def _run_tabular_query(
     user_id: str,
     accessible_vdbs: list[dict[str, Any]],
     model: str | None,
-    scope: RoutingScope,
+    scope_ids: list[str],
     _web_search_enabled: bool,
     run_id: str | None = None,
 ) -> tuple[dict[str, Any], list[Evidence]]:
@@ -428,14 +399,14 @@ def _run_tabular_query(
     2. The model's tool loop runs over the catalog (app/graph/services/tabular_query.py).
     3. Every call of the loop - the SQL and its result or its error - is in the evidence.
 
-    If no model is configured or there is nothing to query, returns empty evidence - evaluate_coverage will decide if
+    If no model is configured or there is nothing to query, returns empty evidence - the gate will decide if
     the surviving tasks are enough. A SQL worker that does not answer fails the task, with a message that says so.
     """
     if model is None:
         logger.warning(f"Task {task['id']} requested tabular_query but no chat model is configured")
         return {"selected_vdbs": [], "results": []}, []
 
-    selected_vdbs = select_relevant_vdbs(task["query"], accessible_vdbs, model, *scope).selected
+    selected_vdbs = scope_vdbs(scope_ids, accessible_vdbs)
     if not selected_vdbs:
         return {"selected_vdbs": [], "results": []}, []
     updates = {"selected_vdbs": [str(v["id"]) for v in selected_vdbs]}
@@ -501,11 +472,11 @@ def _run_tabular_query(
 
 
 _RUNNERS = {
-    "list_collections": lambda task, user_id, accessible_vdbs, model, scope, web_search_enabled: _run_list_collections(
-        task, accessible_vdbs
+    "list_collections": lambda task, user_id, accessible_vdbs, model, scope_ids, web_search_enabled: (
+        _run_list_collections(task, accessible_vdbs)
     ),
-    "collection_summary": lambda task, user_id, accessible_vdbs, model, scope, web_search_enabled: (
-        _run_collection_summary(task, accessible_vdbs, model, scope)
+    "collection_summary": lambda task, user_id, accessible_vdbs, model, scope_ids, web_search_enabled: (
+        _run_collection_summary(task, accessible_vdbs, scope_ids)
     ),
     "list_documents": _run_list_documents,
     "page_content": _run_page_content,
@@ -521,7 +492,7 @@ def research_task(state: ResearchTaskInput) -> dict[str, Any]:
     (§35: these are not themselves LangGraph nodes, only research_task is). `task["tool"]` picks
     which of those services actually runs - content search by default, or a knowledge-base
     introspection lookup (collection/document counts and summaries, page content) chosen by
-    decompose_query. Every lookup still goes through the same accessible_vdbs permission
+    the plan. Every lookup still goes through the same accessible_vdbs permission
     barrier (§4/§12): a tool never reaches a collection or document this user can't access.
     """
     run_id, task, user_id = state["run_id"], state["task"], state["user_id"]
@@ -550,7 +521,7 @@ def research_task(state: ResearchTaskInput) -> dict[str, Any]:
             user_id,
             state["accessible_vdbs"],
             state["chat_model"],
-            RoutingScope(state["pinned_vdb_ids"], state["resume_from_vdb_ids"]),
+            state["scope_ids"],
             state["web_search_enabled"],
         )
         # Stamped centrally here (not in each runner) so every evidence-producing branch tags

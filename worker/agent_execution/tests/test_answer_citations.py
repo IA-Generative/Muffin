@@ -1,5 +1,5 @@
-"""An answer is attached to its sources (#402): its markers are checked against the excerpts it was given, and an answer
-that cites nothing is asked for again, once."""
+"""An answer is attached to its sources (#402): its markers are checked against the excerpts it was given, and the ones
+that point to nothing are taken off."""
 
 import json
 from typing import Any
@@ -128,36 +128,23 @@ def test_an_answer_that_cites_its_excerpts_is_kept_and_only_the_cited_ones_are_m
     assert {c["evidence_id"]: c["cited"] for c in result["citations"]} == {FIRST: True, SECOND: False}
 
 
-def test_an_answer_with_no_marker_is_asked_for_again_with_its_citations(monkeypatch):
-    model = Model(["Vingt-cinq jours.", f"Vingt-cinq jours [{SECOND}]."])
+def test_an_answer_with_no_marker_is_kept_and_not_asked_for_again(monkeypatch):
+    model = Model(["Vingt-cinq jours."])
 
     result = run(monkeypatch, model)
 
-    assert result["answer"] == f"Vingt-cinq jours [{SECOND}]."
-    assert len(model.calls) == 2
-    retry = model.calls[1]
-    assert retry[-2] == {"role": "assistant", "content": "Vingt-cinq jours."}
-    assert "cites none" in retry[-1]["content"]
-    assert {c["evidence_id"]: c["cited"] for c in result["citations"]} == {FIRST: False, SECOND: True}
-    assert result["answer_prompt_tokens"] == 20 and result["answer_completion_tokens"] == 10
+    # One call: a second one would cost as much as the first, and the interface says the answer has no source.
+    assert result["answer"] == "Vingt-cinq jours." and len(model.calls) == 1
+    assert {c["evidence_id"]: c["cited"] for c in result["citations"]} == {FIRST: False, SECOND: False}
 
 
 def test_an_invented_marker_does_not_count_as_a_citation(monkeypatch):
-    model = Model([f"Vingt-cinq jours [{UNKNOWN}].", f"Vingt-cinq jours [{FIRST}]."])
+    model = Model([f"Vingt-cinq jours [{UNKNOWN}]."])
 
     result = run(monkeypatch, model)
 
-    assert UNKNOWN not in result["answer"] and result["answer"] == f"Vingt-cinq jours [{FIRST}]."
-    assert len(model.calls) == 2
-
-
-def test_an_answer_that_still_cites_nothing_is_kept_and_asked_for_only_once(monkeypatch):
-    model = Model(["Vingt-cinq jours.", "Vingt-cinq jours, vraiment."])
-
-    result = run(monkeypatch, model)
-
-    assert result["answer"] == "Vingt-cinq jours." and len(model.calls) == 2
-    assert not any(c["cited"] for c in result["citations"]) and len(result["citations"]) == 2
+    assert UNKNOWN not in result["answer"] and len(model.calls) == 1
+    assert not any(c["cited"] for c in result["citations"])
 
 
 def test_the_citation_rule_is_kept_when_the_administrable_prompt_is_overridden(monkeypatch):
@@ -309,15 +296,13 @@ def test_the_sources_listed_are_citations_even_without_a_marker_in_the_text(monk
     assert len(model.calls) == 1
 
 
-def test_a_source_that_is_no_excerpt_is_ignored_and_the_answer_is_asked_for_again(monkeypatch):
-    model = Model(
-        [structured("Vingt-cinq jours.", (UNKNOWN, "un passage")), structured("Oui.", (FIRST, "Contenu de 0b9f"))]
-    )
+def test_a_source_that_is_no_excerpt_is_ignored(monkeypatch):
+    model = Model([structured("Vingt-cinq jours.", (UNKNOWN, "un passage"))])
 
     result = run(monkeypatch, model)
 
-    assert len(model.calls) == 2 and result["answer"] == "Oui."
-    assert "JSON" in model.calls[1][-1]["content"]
+    assert len(model.calls) == 1 and result["answer"] == "Vingt-cinq jours."
+    assert not any(c["cited"] for c in result["citations"])
 
 
 def test_the_chat_is_shown_the_answer_as_it_is_written_not_the_json(monkeypatch):

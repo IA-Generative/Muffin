@@ -1,14 +1,13 @@
 from langgraph.types import Send
 
 from app.config import settings
-from app.graph.services.events import is_cancelled
-from app.graph.services.planning import compute_ready_and_blocked
+from app.graph.nodes.gate import fan_out
 from app.graph.state import AgentState
 
 
 def route_or_cancel(next_node: str):
-    """Every edge in the graph goes through this instead of a plain add_edge, so a
-    cancellation request is honored between any two nodes, not just at fixed checkpoints (§30)."""
+    """Every plain edge of the graph goes through this instead of an `add_edge`, so a cancellation request is honored
+    between any two nodes (§30). The node that saw the request set `cancelled`: no call to the backend is made here."""
 
     def _route(state: AgentState) -> str:
         return "cancelled" if state.get("cancelled") else next_node
@@ -16,160 +15,43 @@ def route_or_cancel(next_node: str):
     return _route
 
 
-def after_detect_edit(state: AgentState) -> str:
-    if state.get("cancelled") or is_cancelled(state["run_id"]):
-        return "cancelled"
-    return "delegate_edit" if state.get("edit_target") else "detect_create"
-
-
-def after_detect_create(state: AgentState) -> str:
-    if state.get("cancelled") or is_cancelled(state["run_id"]):
-        return "cancelled"
-    return "delegate_create" if state.get("create_target") else "analyze_query"
-
-
-def after_analyze_query(state: AgentState) -> str:
-    if state.get("cancelled") or is_cancelled(state["run_id"]):
-        return "cancelled"
-    # How to use the application (#251) is answered from the user guide: it is never ambiguous, and
-    # searching the user's documents for it would come back empty or answer something else.
-    if state["query_analysis"].get("intent") == "help":
-        return "answer_help"
-    if state["query_analysis"].get("ambiguous"):
-        return "request_clarification"
-    # A question about the agent itself (§ issue #99) never needs a clarification pass either -
-    # "qui es-tu ?" is never ambiguous, and searching the user's collections for it would only
-    # ever come back empty (§ issue #97).
-    if state["query_analysis"].get("intent") == "identity":
-        return "answer_identity"
-    return "decompose_query"
-
-
-def after_request_clarification(state: AgentState) -> str:
-    if state.get("cancelled") or is_cancelled(state["run_id"]):
-        return "cancelled"
-    return "end" if state.get("questions") else "decompose_query"
-
-
-def after_route_collections(state: AgentState):
-    """Routing found nothing dominant and asked (the run ends on the question), or the research carries on."""
-    if state.get("cancelled") or is_cancelled(state["run_id"]):
-        return "cancelled"
-    return "end" if state.get("questions") else execute_research_plan(state)
-
-
-def _ready_batch(state: AgentState) -> list:
-    """Tasks currently runnable, capped by the parallelism and total-task budgets (§27/§28) - a
-    dependency is never started before every task it depends on is in completed_task_ids."""
-    tasks = state["research_tasks"]
-    completed = set(state["completed_task_ids"])
-    running_or_done = completed | set(state["failed_task_ids"])
-    ready, _blocked = compute_ready_and_blocked(tasks, completed, running_or_done)
-    if not ready:
-        return []
-
-    total_started = len(completed) + len(state["failed_task_ids"])
-    budget_left = max(settings.MAX_TOTAL_TASKS - total_started, 0)
-    return ready[: min(settings.MAX_PARALLEL_TASKS, budget_left)] if budget_left else []
-
-
-def _fan_out(state: AgentState, batch: list) -> list[Send]:
-    return [
-        Send(
-            "research_task",
-            {
-                "run_id": state["run_id"],
-                "user_id": state["user_id"],
-                "accessible_vdbs": state["accessible_vdbs"],
-                "task": task,
-                "chat_model": state["chat_model"],
-                "pinned_vdb_ids": state["pinned_vdb_ids"],
-                "resume_from_vdb_ids": state["resume_from_vdb_ids"],
-                "web_search_enabled": state["web_search_enabled"],
-            },
-        )
-        for task in batch
+def _ready_tasks(state: AgentState, prefix: str | None = None) -> list:
+    """The tasks of the plan not yet run (the plan's tasks are independent, so all of them are ready at once), within
+    the parallelism and total-task budgets (§28)."""
+    done = set(state["completed_task_ids"]) | set(state["failed_task_ids"])
+    ready = [
+        t
+        for t in state["research_tasks"]
+        if t["id"] not in done and (t["id"].startswith(prefix) if prefix else not t["id"].startswith("wide-"))
     ]
+    budget_left = max(settings.MAX_TOTAL_TASKS - len(done), 0)
+    return ready[: min(settings.MAX_PARALLEL_TASKS, budget_left)]
 
 
-def execute_research_plan(state: AgentState):
-    """Dynamic fan-out (§9/§10) from build_research_plan - one Send per task
-    currently ready. The number of branches is never hardcoded, it falls out of however many
-    tasks decompose_query produced."""
-    if state.get("cancelled") or is_cancelled(state["run_id"]):
+def after_plan(state: AgentState) -> str | list[Send]:
+    """Where the plan sends the run. Answering now and asking end it: the plan already wrote the answer."""
+    if state.get("cancelled"):
         return "cancelled"
-
-    batch = _ready_batch(state)
-    return _fan_out(state, batch) if batch else "merge_evidence"
-
-
-def continue_dag_or_evaluate(state: AgentState):
-    """Re-entered after every merge_evidence (§9/§27): a task blocked on a dependency that just
-    completed becomes ready here and is fanned out again, *before* evaluate_coverage ever runs -
-    the DAG must fully drain on its own, not rely on the coverage check to progress it."""
-    if state.get("cancelled") or is_cancelled(state["run_id"]):
-        return "cancelled"
-
-    batch = _ready_batch(state)
-    return _fan_out(state, batch) if batch else "evaluate_coverage"
-
-
-def after_evaluate_coverage(state: AgentState) -> str:
-    if state.get("cancelled") or is_cancelled(state["run_id"]):
-        return "cancelled"
-    if state["coverage_result"]["status"] == "sufficient":
-        return "build_answer_context"
-    # Not enough to answer: ask the user what they meant instead of searching again (#344), as long as
-    # someone can answer and the assistant hasn't already asked too many times in a row.
-    # Never after the grounding loop: an answer was already written by then.
-    can_ask = state.get("interactive", True) and state.get("question_rounds", 0) < settings.MAX_QUESTION_ROUNDS
-    if can_ask and not state.get("grounding_research_count"):
-        return "clarify_coverage"
-    # Nobody to ask, or the cap on asking is reached: answer with what we have - the final answer must
-    # say plainly that some information couldn't be established.
-    return "build_answer_context"
-
-
-def after_clarify_coverage(state: AgentState) -> str:
-    if state.get("cancelled") or is_cancelled(state["run_id"]):
-        return "cancelled"
-    return "end"
-
-
-def after_generate_answer(state: AgentState) -> str:
-    """Skips the grounding check entirely for answers unlikely to need it (§ optimize latency) -
-    it's a full extra LLM call re-reading the whole answer against the evidence, worth paying
-    for a synthesized/multi-source answer but not for a deterministic knowledge-base lookup
-    (counts, summaries - nothing to hallucinate a *claim* about) or a simple single-fact answer."""
-    if state.get("cancelled") or is_cancelled(state["run_id"]):
-        return "cancelled"
-
-    # Written again for its citations (#402): it is not checked a second time.
-    if state.get("citation_rewrites"):
+    mode = state["plan"]["mode"]
+    if mode in ("direct", "clarify"):
         return "end"
-
-    completed_ids = set(state["completed_task_ids"])
-    completed_tasks = [t for t in state["research_tasks"] if t["id"] in completed_ids]
-    is_meta_only = bool(completed_tasks) and all(t.get("tool", "search") != "search" for t in completed_tasks)
-
-    analysis = state["query_analysis"]
-    is_simple_lookup = (
-        analysis.get("intent") not in ("comparison", "synthesis")
-        and not analysis.get("requires_multiple_sources")
-        and analysis.get("complexity") == "simple"
-    )
-
-    return "end" if is_meta_only or is_simple_lookup else "validate_grounding"
+    if mode == "help":
+        return "answer_help"
+    if mode in ("edit", "create"):
+        return mode
+    batch = _ready_tasks(state)
+    return fan_out(state, batch) if batch else "gate"
 
 
-def after_validate_grounding(state: AgentState) -> str:
-    if state.get("cancelled") or is_cancelled(state["run_id"]):
+def after_gate(state: AgentState) -> str:
+    """Not enough found: widen the search to every collection once, if the plan had narrowed it. Otherwise write the
+    answer - which says plainly what could not be established."""
+    if state.get("cancelled"):
         return "cancelled"
-    grounding = state["grounding_result"]
-    if not grounding["valid"] and state["grounding_research_count"] < settings.MAX_GROUNDING_RESEARCHES:
-        return "targeted_research"
-    # What is supported but cited wrongly or not at all needs no more research, only the answer written again (#402).
-    needs_citations = grounding.get("miscited_claims") or grounding.get("uncited_claims")
-    if needs_citations and state.get("citation_rewrites", 0) < settings.MAX_CITATION_REWRITES:
-        return "rewrite_citations"
-    return "end"
+    insufficient = state["coverage_result"]["status"] == "insufficient"
+    return "widen_search" if insufficient and state["scope_ids"] and not state["widened"] else "build_answer_context"
+
+
+def after_widen_search(state: AgentState) -> str | list[Send]:
+    batch = _ready_tasks(state, prefix="wide-")
+    return fan_out(state, batch) if batch else "build_answer_context"
