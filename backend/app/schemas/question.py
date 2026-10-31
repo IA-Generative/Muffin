@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 
-# What the worker sanitizes the model's questions down to (worker/agent_execution/app/ask_user.py), with
+# What the worker sanitizes the model's questions down to (backend/app/agent/ask_user.py), with
 # a little room: these are the bounds a value is refused beyond, not the ones the model is held to.
 MAX_QUESTIONS = 4
 MAX_OPTIONS = 4

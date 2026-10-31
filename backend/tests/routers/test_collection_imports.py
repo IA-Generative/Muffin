@@ -186,7 +186,7 @@ class TestConversation:
         body = (await _import(client, conversation_id=conversation_id)).json()
         child = await _collection(client, "Sous-dossier", body["root_collection_id"])
 
-        with patch("app.services.run_service.enqueue_run_agent", return_value="celery-run"):
+        with patch("app.services.run_service.agent_runner.start"):
             run = (await client.post("/api/runs", json={"query": "q", "conversation_id": str(conversation_id)})).json()
 
         async with async_session_factory() as session:

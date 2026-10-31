@@ -37,13 +37,14 @@ def _as_user(user_id: str, email: str, groups: list[str] | None = None):
 
 
 async def _create_run(client, query: str = "What is the telework policy?"):
-    with patch("app.services.run_service.enqueue_run_agent", return_value="celery-run-1"):
+    with patch("app.services.run_service.agent_runner.start"):
         response = await client.post("/api/runs", json={"query": query})
     return response
 
 
 async def test_create_run_creates_conversation_message_and_run(client):
-    response = await _create_run(client)
+    with patch("app.services.run_service.agent_runner.start") as mock_start:
+        response = await client.post("/api/runs", json={"query": "What is the telework policy?"})
 
     assert response.status_code == 202
     body = response.json()
@@ -55,14 +56,16 @@ async def test_create_run_creates_conversation_message_and_run(client):
     async with async_session_factory() as session:
         run = await session.get(Run, uuid.UUID(body["id"]))
     assert run is not None
-    assert run.celery_task_id == "celery-run-1"
+    # Started in the background, in this process - no longer a task sent to a worker.
+    mock_start.assert_called_once_with(body["id"], None)
+    assert run.celery_task_id is None
     assert run.message_id is not None
     assert run.conversation_id is not None
 
 
 async def test_create_run_persists_pinned_collection_ids(client):
     collection_id = uuid.uuid4()
-    with patch("app.services.run_service.enqueue_run_agent", return_value="celery-run-1"):
+    with patch("app.services.run_service.agent_runner.start"):
         response = await client.post(
             "/api/runs", json={"query": "What is this?", "collection_ids": [str(collection_id)]}
         )
@@ -75,7 +78,7 @@ async def test_create_run_persists_pinned_collection_ids(client):
 
 async def test_create_run_snapshots_the_requesting_user_s_groups(client):
     app.dependency_overrides[get_current_user] = _as_user("owner", "owner@example.com", groups=["/hr-team"])
-    with patch("app.services.run_service.enqueue_run_agent", return_value="celery-run-1"):
+    with patch("app.services.run_service.agent_runner.start"):
         response = await client.post("/api/runs", json={"query": "What is this?"})
     assert response.status_code == 202
 
@@ -92,7 +95,7 @@ async def test_create_run_web_search_enabled_defaults_to_false(client):
 
 
 async def test_create_run_persists_web_search_enabled_when_requested(client):
-    with patch("app.services.run_service.enqueue_run_agent", return_value="celery-run-1"):
+    with patch("app.services.run_service.agent_runner.start"):
         response = await client.post("/api/runs", json={"query": "What's the weather?", "web_search_enabled": True})
     assert response.status_code == 202
 
@@ -102,7 +105,7 @@ async def test_create_run_persists_web_search_enabled_when_requested(client):
 
 
 async def test_create_run_persists_continue_exploration_and_exposes_the_frontier(client):
-    with patch("app.services.run_service.enqueue_run_agent", return_value="celery-run-1"):
+    with patch("app.services.run_service.agent_runner.start"):
         response = await client.post("/api/runs", json={"query": "Go further", "continue_exploration": True})
     assert response.status_code == 202
     assert response.json()["unexplored_collection_ids"] is None
@@ -127,7 +130,7 @@ async def test_create_run_without_pinned_collections_stores_none(client):
 
 async def test_create_run_reuses_an_existing_conversation(client):
     first = (await _create_run(client)).json()
-    with patch("app.services.run_service.enqueue_run_agent", return_value="celery-run-2"):
+    with patch("app.services.run_service.agent_runner.start"):
         second = await client.post(
             "/api/runs", json={"query": "And what about leave policy?", "conversation_id": first["conversation_id"]}
         )
@@ -139,7 +142,7 @@ async def test_create_run_reuses_an_existing_conversation(client):
 
 
 async def test_create_run_for_unknown_conversation_returns_404(client):
-    with patch("app.services.run_service.enqueue_run_agent", return_value="celery-run-3"):
+    with patch("app.services.run_service.agent_runner.start"):
         response = await client.post("/api/runs", json={"query": "hello", "conversation_id": str(uuid.uuid4())})
     assert response.status_code == 404
 
@@ -165,15 +168,15 @@ async def test_list_run_events_empty_initially(client):
     assert response.json() == []
 
 
-async def test_cancel_run_sets_cancel_requested_and_revokes(client):
+async def test_cancel_run_sets_cancel_requested_and_tells_the_runner(client):
     created = (await _create_run(client)).json()
 
-    with patch("app.services.run_service.revoke_tasks") as mock_revoke:
+    with patch("app.services.run_service.agent_runner.cancel") as mock_cancel:
         response = await client.post(f"/api/runs/{created['id']}/cancel")
 
     assert response.status_code == 200
     assert response.json()["cancel_requested"] is True
-    mock_revoke.assert_called_once_with(["celery-run-1"])
+    mock_cancel.assert_called_once_with(created["id"])
 
 
 async def test_cancel_unknown_run_returns_404(client):
@@ -191,15 +194,11 @@ async def test_resume_run_waiting_for_user_dispatches_and_returns_ok(client):
         run.pending_human_action = {"question": "Which department do you mean?"}
         await session.commit()
 
-    with patch("app.services.run_service.enqueue_resume_agent", return_value="celery-resume-1") as mock_enqueue:
+    with patch("app.services.run_service.agent_runner.start") as mock_start:
         response = await client.post(f"/api/runs/{created['id']}/resume", json={"answer": "HR"})
 
     assert response.status_code == 200
-    mock_enqueue.assert_called_once_with(created["id"], "HR")
-
-    async with async_session_factory() as session:
-        run = await session.get(Run, uuid.UUID(created["id"]))
-    assert run.celery_task_id == "celery-resume-1"
+    mock_start.assert_called_once_with(created["id"], None, resume_answer="HR")
 
 
 async def test_resume_run_not_waiting_returns_409(client):
@@ -403,7 +402,7 @@ async def test_create_run_auto_pins_the_conversation_s_temporary_collection(clie
             await session.execute(select(Collection).where(Collection.conversation_id == uuid.UUID(conversation_id)))
         ).scalar_one()
 
-    with patch("app.services.run_service.enqueue_run_agent", return_value="celery-run-2"):
+    with patch("app.services.run_service.agent_runner.start"):
         second = await client.post(
             "/api/runs", json={"query": "What does the file say?", "conversation_id": conversation_id}
         )
@@ -434,7 +433,7 @@ async def test_create_run_does_not_duplicate_an_already_pinned_temporary_collect
             await session.execute(select(Collection).where(Collection.conversation_id == uuid.UUID(conversation_id)))
         ).scalar_one()
 
-    with patch("app.services.run_service.enqueue_run_agent", return_value="celery-run-2"):
+    with patch("app.services.run_service.agent_runner.start"):
         second = await client.post(
             "/api/runs",
             json={
@@ -470,3 +469,11 @@ async def test_get_run_exposes_the_partial_answer_only_while_it_is_running(clien
         completed = (await client.get(f"/api/runs/{run_id}")).json()
     assert completed["partial_answer"] is None
     mock_redis.client.get.assert_not_called()
+
+
+def test_the_users_token_is_never_shown_in_the_identity_repr():
+    from app.core.security.factory import RequestContext
+
+    context = RequestContext(user_id="u", email="u@example.com", roles=[], is_admin=False, access_token="secret-token")
+
+    assert "secret-token" not in repr(context) and context.access_token == "secret-token"

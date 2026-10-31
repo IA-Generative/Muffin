@@ -1,8 +1,10 @@
 # backend
 
 API FastAPI de Muffin, en BFF (Backend For Frontend) : c'est le **seul** service qui parle
-directement à Postgres, Qdrant, RustFS, Keycloak et au hub LLM. Le frontend et les deux workers
-Celery (`worker/document_process`, `worker/agent_execution`) passent tous par ses endpoints HTTP.
+directement à Postgres, Qdrant, RustFS, Keycloak et au hub LLM. Le frontend et les workers
+Celery (`worker/document_process`, `worker/evaluation`, `worker/document_edit`) passent tous par ses endpoints HTTP.
+L'agent de recherche (`app/agent/`) tourne dans le backend lui-même, en tâche de fond, et appelle ses propres routes sans
+quitter le processus.
 
 ## Rôle
 

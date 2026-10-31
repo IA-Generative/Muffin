@@ -135,7 +135,7 @@ async def test_create_collection_accepts_a_prefilled_name_and_description(client
 
 
 async def test_list_collections_excludes_temporary_collections(client):
-    with patch("app.services.run_service.enqueue_run_agent", return_value="celery-run-1"):
+    with patch("app.services.run_service.agent_runner.start"):
         run = (await client.post("/api/runs", json={"query": "hi"})).json()
 
     with (

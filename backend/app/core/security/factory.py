@@ -21,6 +21,9 @@ class RequestContext:
     first_name: str = ""
     last_name: str = ""
     groups: list[str] = field(default_factory=list)
+    # The user's own access token, for the tools that call a service on their behalf (see app/agent/user_token.py): kept
+    # out of every repr and log, and never stored.
+    access_token: str | None = field(default=None, repr=False)
 
 
 class KeycloakToken:
@@ -48,7 +51,7 @@ class KeycloakToken:
         except Exception:
             return None
         identity = extract_identity(claims, self._keycloak_settings.KEYCLOAK_CLIENT_ID)
-        return identity
+        return {**identity, "access_token": token}
 
     def _from_session_cookie(self, request: Request) -> dict | None:
         session_id = request.cookies.get(self._keycloak_settings.SESSION_COOKIE_NAME)
@@ -57,7 +60,7 @@ class KeycloakToken:
         session = session_store.get_session(session_id)
         if session is None:
             return None
-        return session.identity
+        return {**session.identity, "access_token": session.access_token}
 
 
 class AllowAllAccess:

@@ -104,7 +104,7 @@ class Run(UUIDMixin, TimestampMixin, Base):
     edit_proposal: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    # Final claim-by-claim grounding check (see worker/agent_execution/app/graph/nodes/
+    # Final claim-by-claim grounding check (see backend/app/agent/graph/nodes/
     # validate_grounding.py's GroundingResult) - null until the run completes with an answer,
     # stays null on a failed/cancelled/waiting run. Not recomputed here: this is the same verdict
     # already used internally to decide whether to loop through targeted_research, just persisted
