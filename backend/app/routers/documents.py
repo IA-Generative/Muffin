@@ -1,7 +1,10 @@
+import mimetypes
 import uuid
 from typing import Annotated
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, UploadFile, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security.factory import RequestContext, get_current_user
@@ -89,6 +92,43 @@ async def get_page_screenshot(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
     except DocumentNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Page not found") from error
+
+
+# What a browser may show in its own tab, from the application's origin, without running anything: a PDF and the
+# raster images. Anything else (HTML, SVG, an Office file...) is only ever downloaded - a file a user uploaded must not
+# run in the application's origin.
+_INLINE_TYPES = frozenset({"application/pdf", "image/png", "image/jpeg", "image/gif", "image/webp"})
+
+
+@router.get(
+    "/collections/{collection_id}/documents/{document_id}/file",
+    summary="The file a document was made from, streamed through the backend: downloaded, or with `inline=true` opened "
+    "in the browser (a PDF can then be opened at a page with `#page=N`) when its type is safe to show",
+)
+async def get_document_file(
+    collection_id: uuid.UUID,
+    document_id: uuid.UUID,
+    user: UserDep,
+    service: ServiceDep,
+    inline: bool = False,
+) -> StreamingResponse:
+    try:
+        document, stream, stored_type, length = await service.open_file(collection_id, user, document_id)
+    except CollectionNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found") from error
+    except DocumentNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="This document has no file") from error
+    media_type = mimetypes.guess_type(document.name)[0] or stored_type
+    shown = "inline" if inline and media_type in _INLINE_TYPES else "attachment"
+    # filename* (RFC 5987) carries accents and spaces safely; the ASCII filename is the fallback.
+    ascii_name = document.name.encode("ascii", "replace").decode().replace("?", "_").replace('"', "")
+    headers = {
+        "Content-Disposition": f"{shown}; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(document.name)}",
+        "X-Content-Type-Options": "nosniff",
+    }
+    if length is not None:
+        headers["Content-Length"] = str(length)
+    return StreamingResponse(stream, media_type=media_type, headers=headers)
 
 
 @router.post(

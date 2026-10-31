@@ -624,3 +624,103 @@ async def test_a_cancelled_document_is_relaunched_like_one_in_error(client, rela
     response = await client.post(f"/api/collections/{collection_id}/documents/{document_id}/reprocess")
 
     assert response.status_code == 200
+
+
+# -- the file a document was made from -------------------------------------------------------------------------
+
+
+async def _upload(client, collection_id: str, name: str, content: bytes, content_type: str) -> dict:
+    with (
+        patch("app.services.document_upload_service.storage.upload_fileobj"),
+        patch("app.services.document_upload_service.enqueue_process_document", return_value="celery-task-id"),
+    ):
+        response = await client.post(
+            f"/api/collections/{collection_id}/documents/file", files={"file": (name, content, content_type)}
+        )
+    return response.json()
+
+
+def _stored(content: bytes, content_type: str = "application/octet-stream"):
+    """What the storage hands back for any key: a stream of two chunks, its type and its size."""
+    return patch(
+        "app.services.document_upload_service.storage.open_object",
+        return_value=(iter([content[: len(content) // 2], content[len(content) // 2 :]]), content_type, len(content)),
+    )
+
+
+async def test_the_file_of_a_document_is_downloaded_through_the_backend_with_its_name(client):
+    collection_id = await _create_collection(client)
+    created = await _upload(client, collection_id, "Rapport été.docx", b"fake-docx-bytes", "application/msword")
+
+    with _stored(b"fake-docx-bytes") as opened:
+        response = await client.get(f"/api/collections/{collection_id}/documents/{created['id']}/file")
+
+    assert response.status_code == 200
+    assert response.content == b"fake-docx-bytes"
+    assert response.headers["content-length"] == "15"
+    disposition = response.headers["content-disposition"]
+    assert disposition.startswith("attachment;") and "filename*=UTF-8''Rapport%20%C3%A9t%C3%A9.docx" in disposition
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert opened.call_args.args[0].endswith("-Rapport été.docx")
+
+
+async def test_a_pdf_can_be_opened_in_the_browser_at_a_page(client):
+    collection_id = await _create_collection(client)
+    created = await _upload(client, collection_id, "report.pdf", b"%PDF-1.4 fake", "application/pdf")
+
+    with _stored(b"%PDF-1.4 fake"):
+        response = await client.get(f"/api/collections/{collection_id}/documents/{created['id']}/file?inline=true")
+
+    assert response.headers["content-type"] == "application/pdf"
+    assert response.headers["content-disposition"].startswith("inline;")
+
+
+@pytest.mark.parametrize("name", ["page.html", "image.svg", "sheet.xlsx", "notes.docx"])
+async def test_a_file_that_could_run_in_the_applications_origin_is_never_shown_inline(client, name):
+    collection_id = await _create_collection(client)
+    created = await _upload(client, collection_id, name, b"<script>alert(1)</script>", "text/html")
+
+    with _stored(b"<script>alert(1)</script>", "text/html"):
+        response = await client.get(f"/api/collections/{collection_id}/documents/{created['id']}/file?inline=true")
+
+    assert response.status_code == 200
+    assert response.headers["content-disposition"].startswith("attachment;")
+
+
+async def test_a_web_page_has_no_file_to_download(client):
+    collection_id = await _create_collection(client)
+    document_id = await _add_url_document(client, collection_id)
+
+    response = await client.get(f"/api/collections/{collection_id}/documents/{document_id}/file")
+
+    assert response.status_code == 404
+
+
+async def test_the_file_of_a_document_of_someone_elses_private_collection_is_not_found(client):
+    app.dependency_overrides[get_current_user] = _as_user("owner", "owner@example.com")
+    collection_id = await _create_collection(client)
+    created = await _upload(client, collection_id, "report.pdf", b"%PDF-1.4 fake", "application/pdf")
+
+    try:
+        app.dependency_overrides[get_current_user] = _as_user("stranger", "stranger@example.com")
+        with _stored(b"%PDF-1.4 fake") as opened:
+            response = await client.get(f"/api/collections/{collection_id}/documents/{created['id']}/file")
+        assert response.status_code == 404
+        opened.assert_not_called()
+    finally:
+        del app.dependency_overrides[get_current_user]
+
+
+async def test_a_reader_of_a_public_collection_can_download_its_files(client):
+    app.dependency_overrides[get_current_user] = _as_user("owner", "owner@example.com")
+    collection_id = await _create_collection(client)
+    created = await _upload(client, collection_id, "report.pdf", b"%PDF-1.4 fake", "application/pdf")
+    await client.patch(f"/api/collections/{collection_id}/visibility", json={"visibility": "public"})
+
+    try:
+        app.dependency_overrides[get_current_user] = _as_user("viewer", "viewer@example.com")
+        with _stored(b"%PDF-1.4 fake"):
+            response = await client.get(f"/api/collections/{collection_id}/documents/{created['id']}/file")
+        assert response.status_code == 200 and response.content == b"%PDF-1.4 fake"
+    finally:
+        del app.dependency_overrides[get_current_user]
