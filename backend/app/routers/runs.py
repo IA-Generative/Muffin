@@ -1,15 +1,23 @@
+import json
 import uuid
-from typing import Annotated
+from collections import Counter
+from collections.abc import AsyncIterator
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi.responses import StreamingResponse
+from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import RunSettings
 from app.core.security.factory import RequestContext, get_current_user
-from app.db import get_db
+from app.db import async_session_factory, get_db
+from app.repositories.run_repository import RunRepository
 from app.schemas.document import DocumentOut
 from app.schemas.feedback import FeedbackCreate, FeedbackOut
 from app.schemas.question import InvalidAnswersError
 from app.schemas.run import RunCreate, RunEventOut, RunOut, RunResumeRequest
+from app.services import run_stream
 from app.services.collection_service import CollectionNotEditableError, CollectionNotFoundError
 from app.services.creation_proposal_service import CreationProposalService, NoPendingCreationError
 from app.services.run_service import (
@@ -22,6 +30,15 @@ from app.services.run_service import (
 )
 
 router = APIRouter(tags=["Runs"])
+
+_run_settings = RunSettings()
+# The streams held open by each user on this pod (#510). Each one is a request kept for the length of an answer.
+_open_streams: Counter[str] = Counter()
+_STREAM_HEADERS = {
+    "Cache-Control": "no-cache",
+    # nginx would hold the pieces back until a buffer is full, which is the opposite of a stream.
+    "X-Accel-Buffering": "no",
+}
 
 
 def get_run_service(db: Annotated[AsyncSession, Depends(get_db)]) -> RunService:
@@ -62,6 +79,83 @@ async def get_run(run_id: uuid.UUID, user: UserDep, service: ServiceDep) -> RunO
         return await service.get_run(run_id, user)
     except RunNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found") from error
+
+
+def _sse(kind: str, payload: dict[str, Any], entry_id: str | None = None) -> str:
+    head = f"id: {entry_id}\n" if entry_id else ""
+    return f"{head}event: {kind}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+async def _run_status(run_id: uuid.UUID) -> str | None:
+    """The status in the database, which is what the run really is whatever the stream says (or no longer says)."""
+    async with async_session_factory() as db:
+        run = await RunRepository(db).get_by_id(run_id)
+        return run.status.value if run is not None else None
+
+
+async def _follow_run(
+    request: Request, run_id: uuid.UUID, user_id: str, cursor: str, status_now: str
+) -> AsyncIterator[str]:
+    _open_streams[user_id] += 1
+    ping = _run_settings.RUN_STREAM_PING_SECONDS
+    try:
+        yield "retry: 3000\n\n"
+        # A run that is already over has nothing to wait for: what is left of its stream is read at once.
+        block_ms = 0 if status_now in run_stream.ENDING_STATUSES else ping * 1000
+        while not await request.is_disconnected():
+            try:
+                entries = await run_stream.read(run_id, cursor, block_ms)
+            except Exception:
+                logger.warning(f"Could not read the stream of run {run_id}", exc_info=True)
+                yield _sse("unavailable", {})
+                return
+            for entry in entries:
+                cursor = entry.id
+                yield _sse(entry.kind, entry.payload, entry.id)
+                if entry.kind == run_stream.STATUS and entry.payload.get("status") in run_stream.ENDING_STATUSES:
+                    return
+            if entries:
+                block_ms = ping * 1000
+                continue
+            # Nothing came: either the run is quiet, or it ended without a word (a pod that went down, a stream that
+            # expired) - the database tells which.
+            current = await _run_status(run_id)
+            if current in run_stream.ENDING_STATUSES:
+                yield _sse(run_stream.STATUS, {"status": current})
+                return
+            block_ms = ping * 1000
+            yield _sse(run_stream.PING, {})
+    finally:
+        _open_streams[user_id] -= 1
+        if _open_streams[user_id] <= 0:
+            del _open_streams[user_id]
+
+
+@router.get(
+    "/runs/{run_id}/stream",
+    summary="Follow a run live (Server-Sent Events): its steps, the answer as it is written, then its status. "
+    "Resumes after `Last-Event-ID`. The run itself (GET /runs/{id}) stays the source of truth.",
+    response_class=StreamingResponse,
+)
+async def stream_run(
+    run_id: uuid.UUID,
+    request: Request,
+    user: UserDep,
+    last_event_id: Annotated[str | None, Header()] = None,
+) -> StreamingResponse:
+    # Not through the request's own session: it would be held, with its connection, for as long as the stream is open.
+    async with async_session_factory() as db:
+        try:
+            run = await RunService(db).get_run(run_id, user)
+        except RunNotFoundError as error:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found") from error
+    if _open_streams[user.user_id] >= _run_settings.RUN_STREAMS_PER_USER:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many streams open")
+    return StreamingResponse(
+        _follow_run(request, run_id, user.user_id, last_event_id or "0-0", run.status),
+        media_type="text/event-stream",
+        headers=_STREAM_HEADERS,
+    )
 
 
 @router.get(
