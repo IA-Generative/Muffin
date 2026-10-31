@@ -51,12 +51,14 @@ def test_the_chart_runs_the_pods_that_engine_sends_pages_to(chart):
         ("ocr_vision", "document_vision"),
     ):
         assert queue in chart[pod]["args"], pod
-    scaled = {
-        obj["spec"]["triggers"][0]["metadata"]["listName"]
-        for obj in chart["extraObjects"].values()
-        if obj.get("kind") == "ScaledObject"
-    }
-    assert {"document_layout", "document_ocr", "document_table", "document_vision"} <= scaled
+    for pod, queue in (
+        ("ocr_layout", "document_layout"),
+        ("ocr", "document_ocr"),
+        ("ocr_table", "document_table"),
+        ("ocr_vision", "document_vision"),
+    ):
+        autoscaler = chart[pod]["kedaAutoscaler"]
+        assert autoscaler["enabled"] is True and queue in autoscaler["queues"], pod
 
 
 def test_every_service_of_the_compose_file_reads_the_scanned_pages_the_same_way(compose):
