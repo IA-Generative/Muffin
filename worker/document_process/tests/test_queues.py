@@ -27,7 +27,7 @@ ENRICHMENT = [
     "app.tasks.rollup_collection_description",
     "app.tasks.generate_collection_qa",
     "app.tasks.summarize_copied_document",
-    "app.tasks.describe_copied_collection",
+    "app.tasks.describe_collection",
 ]
 
 
