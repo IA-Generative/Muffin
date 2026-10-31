@@ -129,6 +129,14 @@ class BackendClient:
         )
         response.raise_for_status()
 
+    def set_run_grounding(self, run_id: str, grounding_valid: bool, unsupported_claims: list[str]) -> None:
+        """The verdict of the check made once the answer is out (see ground_check)."""
+        response = self._client.patch(
+            f"/api/internal/runs/{run_id}/grounding",
+            json={"grounding_valid": grounding_valid, "grounding_unsupported_claims": unsupported_claims},
+        )
+        response.raise_for_status()
+
     def list_editable_documents(self, run_id: str) -> list[dict[str, Any]]:
         """The living documents the run's user may change - computed backend-side from the run's own
         snapshot (user, groups, administrator flag), never from anything this worker supplies."""
@@ -200,31 +208,49 @@ class BackendClient:
         response.raise_for_status()
         return response.json()
 
-    def search(self, collection_ids: list[str], query: str, limit: int) -> list[dict[str, Any]]:
+    def search(
+        self, collection_ids: list[str], query: str, limit: int, include_descendants: bool = False
+    ) -> list[dict[str, Any]]:
+        """`include_descendants`: also the sub-collections below the given ones - read access is inherited down the
+        tree, so the whole subtree is as readable as the collections the user can read."""
         response = self._client.post(
             "/api/internal/search",
-            json={"collection_ids": collection_ids, "query": query, "limit": limit},
+            json={
+                "collection_ids": collection_ids,
+                "query": query,
+                "limit": limit,
+                "include_descendants": include_descendants,
+            },
         )
         response.raise_for_status()
         return response.json()
 
-    def probe_collections(self, collection_ids: list[str], query: str, limit: int) -> list[dict[str, Any]]:
-        """The same chunk search as `search`, used to see which collections a question lands in
-        (routing confidence) rather than to read what it finds - kept apart so the two are never mixed up."""
-        return self.search(collection_ids, query, limit)
-
-    def search_qa(self, collection_ids: list[str], query: str, limit: int) -> list[dict[str, Any]]:
+    def search_qa(
+        self, collection_ids: list[str], query: str, limit: int, include_descendants: bool = False
+    ) -> list[dict[str, Any]]:
         response = self._client.post(
             "/api/internal/qa-search",
-            json={"collection_ids": collection_ids, "query": query, "limit": limit},
+            json={
+                "collection_ids": collection_ids,
+                "query": query,
+                "limit": limit,
+                "include_descendants": include_descendants,
+            },
         )
         response.raise_for_status()
         return response.json()
 
-    def search_summaries(self, collection_ids: list[str], query: str, limit: int) -> list[dict[str, Any]]:
+    def search_summaries(
+        self, collection_ids: list[str], query: str, limit: int, include_descendants: bool = False
+    ) -> list[dict[str, Any]]:
         response = self._client.post(
             "/api/internal/summary-search",
-            json={"collection_ids": collection_ids, "query": query, "limit": limit},
+            json={
+                "collection_ids": collection_ids,
+                "query": query,
+                "limit": limit,
+                "include_descendants": include_descendants,
+            },
         )
         response.raise_for_status()
         return response.json()

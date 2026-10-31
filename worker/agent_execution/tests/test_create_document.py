@@ -17,22 +17,17 @@ def _config(state: dict) -> dict:
 
 
 def _router(verdict: dict | None = None, document: str = MARKDOWN):
-    """Answers the detect_create prompt with `verdict`, the writer with `document`, and the rest of
-    the pipeline like the plain lookup tests do - so a run that falls through to research completes."""
+    """Answers the plan with what `verdict` says (a creation, or a plain search), the writer with `document`, and the
+    rest of the pipeline like the plain lookup tests do - so a run that falls through to research completes."""
 
     def router(system_prompt: str) -> str:
-        if "may be asking you to CREATE" in system_prompt:
-            return json.dumps(verdict or {"create": False})
+        if "You are the planner" in system_prompt:
+            verdict_ = verdict or {"create": False}
+            if verdict_.get("create"):
+                return json.dumps({"mode": "create", **{k: v for k, v in verdict_.items() if k != "create"}})
+            return json.dumps({"mode": "search"})
         if "You write a document for the user" in system_prompt:
             return document
-        if "may be asking to CHANGE" in system_prompt:
-            return json.dumps({"edit": False})
-        if "Analyze the user" in system_prompt:
-            return json.dumps({"intent": "lookup", "ambiguous": False, "complexity": "simple"})
-        if "select the ones relevant" in system_prompt.lower():
-            return '["col-rh"]'
-        if "Decide whether" in system_prompt:
-            return json.dumps({"status": "sufficient", "missing_information": [], "reasoning": "ok"})
         return "Réponse de recherche."
 
     return router
@@ -73,7 +68,7 @@ def test_a_question_without_a_creation_verb_never_touches_the_creation_machinery
 
     assert fake.editable_collections_calls == []
     assert result["answer"] == "Réponse de recherche."
-    assert not _asked(fake, "may be asking you to CREATE")
+    assert not any("Collections the user may add a document to" in call[1]["content"] for call in fake.llm_calls)
 
 
 def test_the_model_saying_it_is_not_a_creation_leaves_the_run_to_the_research_pipeline(make_run):
@@ -103,7 +98,7 @@ def test_an_unusable_reply_from_the_model_falls_back_to_the_research_pipeline(ma
 def test_the_model_is_only_shown_the_collections_the_backend_listed_and_the_conversation(make_run):
     _, fake, _ = _run(make_run, "Crée un document d'accueil", _create())
 
-    prompt = next(c[1]["content"] for c in fake.llm_calls if "may be asking you to CREATE" in c[0]["content"])
+    prompt = next(c[1]["content"] for c in fake.llm_calls if "You are the planner" in c[0]["content"])
     assert "id=col-rh | « Procédures RH » - Arrivée et départ des agents" in prompt
     assert "id=col-it | « Support informatique »" in prompt
     assert "Current message: Crée un document d'accueil" in prompt
@@ -240,8 +235,8 @@ def test_a_request_to_change_a_document_is_left_to_the_edit_path(make_run):
     ]
 
     def router(system_prompt: str) -> str:
-        if "may be asking to CHANGE" in system_prompt:
-            return json.dumps({"edit": True, "document_id": "doc-1", "candidates": [], "instruction": "Ajoute 15"})
+        if "You are the planner" in system_prompt:
+            return json.dumps({"mode": "edit", "document_id": "doc-1", "candidates": [], "instruction": "Ajoute 15"})
         return _router(_create())(system_prompt)
 
     fake.llm_router = router
@@ -250,7 +245,8 @@ def test_a_request_to_change_a_document_is_left_to_the_edit_path(make_run):
     result = graph.invoke(state, config=_config(state))
 
     assert fake.edit_creates and result["edit_proposal"]["document_id"] == "doc-1"
-    assert fake.editable_collections_calls == []
+    # A message that looks like both is shown both lists; the plan decides, and an edit never writes a document.
+    assert not any("You write a document for the user" in call[0]["content"] for call in fake.llm_calls)
 
 
 # -- the agent knows what it can do -------------------------------------------------------------
@@ -258,8 +254,8 @@ def test_a_request_to_change_a_document_is_left_to_the_edit_path(make_run):
 
 def test_the_agent_tells_what_it_can_edit_and_create_when_asked_what_it_can_do(make_run):
     def router(system_prompt: str) -> str:
-        if "Analyze the user" in system_prompt:
-            return json.dumps({"intent": "identity", "ambiguous": False, "complexity": "simple"})
+        if "You are the planner" in system_prompt:
+            return json.dumps({"mode": "direct", "answer": "Je suis Muffin."})
         return "Je suis Muffin."
 
     graph, fake = make_run([], router)
@@ -267,7 +263,7 @@ def test_the_agent_tells_what_it_can_edit_and_create_when_asked_what_it_can_do(m
 
     graph.invoke(state, config=_config(state))
 
-    capabilities = next(c[1]["content"] for c in fake.llm_calls if "Available capabilities" in c[1]["content"])
+    capabilities = next(c[0]["content"] for c in fake.llm_calls if "You are the planner" in c[0]["content"])
     assert "Modify an existing living document" in capabilities
     assert "Markdown (.md) only, never Word" in capabilities
     assert "always reviews and validates first" in capabilities

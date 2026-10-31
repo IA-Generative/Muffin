@@ -36,36 +36,18 @@ class WorkerSettings(BaseSettings):
     SEARXNG_URL: str = "http://localhost:8080"
     WEB_SEARCH_RESULTS_PER_QUERY: int = 5
 
-    # Execution budgets (§28 of the architecture brief) - checked before any
-    # fan-out/targeted-research so a pathological query can't spin the
-    # research DAG or the grounding loop forever.
+    # Execution budgets (§28 of the architecture brief) - checked before the research fans out, so a pathological query
+    # can't start more tasks than this.
     MAX_PARALLEL_TASKS: int = 4
-    MAX_PARALLEL_SEARCHES: int = 4
     MAX_TOTAL_TASKS: int = 12
-    MAX_TOTAL_SEARCHES: int = 20
-    MAX_GROUNDING_RESEARCHES: int = 1
-    # Times the answer is written again because its citations are wrong or missing (#402).
-    MAX_CITATION_REWRITES: int = 1
+    # The gate (no model): the passages of a content search that make an answer worth writing, and the score under
+    # which a passage does not count (0: any does - to be calibrated on real questions).
+    GATE_MIN_EVIDENCE: int = 1
+    GATE_MIN_SCORE: float = 0.0
     # How many times in a row the assistant may ask questions before it carries on with assumptions
     # instead (#344) - the model must not question the user in a loop.
     MAX_QUESTION_ROUNDS: int = 2
     SEARCH_RESULTS_PER_QUERY: int = 5
-    # How many collections VDB routing may select per routing call once sub-collections exist
-    # (#233) - each is one index query. Picks over this cap are reported back as unexplored so
-    # the user can ask to go further.
-    MAX_ROUTED_COLLECTIONS: int = 15
-    # Routing confidence: before searching, one probe over the chunks of the accessible collections
-    # (the best ROUTING_PROBE_RESULTS hits) says which collections the question lands in. A collection
-    # holding at least ROUTING_CLEAR_SHARE of the hits is the obvious one; one holding at least
-    # ROUTING_LEAN_SHARE and ROUTING_LEAN_RATIO times the next is a likely one; otherwise nothing
-    # dominates and the user is asked. ROUTING_PROBE_MAX_COLLECTIONS bounds the probe for a user with
-    # many collections (the description pre-filter keeps the closest).
-    ROUTING_PROBE_RESULTS: int = 30
-    ROUTING_PROBE_MAX_COLLECTIONS: int = 40
-    ROUTING_CLEAR_SHARE: float = 0.6
-    ROUTING_LEAN_SHARE: float = 0.4
-    ROUTING_LEAN_RATIO: float = 1.5
-    ROUTING_MAX_OPTIONS: int = 4
 
     # Delegating an edit of a living document to the editing agent (#171): how long the run waits
     # for it, and how often it asks the backend where it stands. The editing agent itself is

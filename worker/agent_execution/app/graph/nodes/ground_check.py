@@ -1,6 +1,10 @@
+"""The check of the answer's claims against the evidence, run once the answer is out (the run is already completed):
+the user is not kept waiting for it, and its verdict is recorded on the run. One model call, made only for an
+answer that was hard to write (several sources, a comparison) - never a reason to write the answer again."""
+
 from typing import Any
 
-from app.graph.services.events import emit, is_cancelled, set_activity
+from app.graph.services.events import emit
 from app.graph.services.llm import json_chat
 from app.graph.services.prompts import get_prompt
 from app.graph.state import AgentState, GroundingResult
@@ -76,54 +80,37 @@ def _miscited(value: Any, valid_ids: set[str], limit: int = 5) -> list[dict[str,
     return found[:limit]
 
 
-def validate_grounding(state: AgentState) -> dict[str, Any]:
-    """Claim-by-claim check after generation (§23), not just the structural "citations exist"
-    check generate_answer already enforces - this catches an answer that cites real excerpts but
-    still asserts something they don't actually say, and (#402) the claims that cite an excerpt which does not
-    support them or cite none although the evidence did. Three lists come out of it: what is unsupported (searched
-    for again, as before), what is cited wrongly or not at all (the answer is written again with those claims, once),
-    and the citations whose passage is not in the excerpt (reported, nothing more)."""
+def ground_check(state: AgentState) -> GroundingResult | None:
+    """Claim-by-claim check after generation (§23), not just the structural "citations exist" check generate_answer
+    already enforces: it catches an answer that cites real excerpts but still asserts something they don't say, and
+    (#402) claims that cite an excerpt which does not support them or cite none. None when there is nothing to check."""
     run_id = state["run_id"]
-    if is_cancelled(run_id):
-        return {"cancelled": True}
-
-    set_activity(run_id, "validate_grounding", "Double-checking the answer")
-    emit(run_id, "grounding_validation_started")
     answer = state["answer"] or ""
     excerpts = state["answer_context"]["excerpts"] if state.get("answer_context") else []
-    prompt_usages: list[str] = []
+    model = state["chat_model"]
+    if not answer or not excerpts or model is None:
+        return None
+
+    emit(run_id, "grounding_validation_started")
     valid_ids = {e["id"] for e in excerpts}
     # A citation whose passage the excerpt does not have: found without a model, whatever the check says.
     unverified = [c["evidence_id"] for c in state.get("citations") or [] if c.get("cited") and not c.get("quote")]
-
-    if not excerpts:
-        # No evidence means generate_answer already refused to answer substantively - nothing to
-        # ground-check against, and nothing further to research either.
-        result = GroundingResult(valid=True, unsupported_claims=[], miscited_claims=[], uncited_claims=[])
-    else:
-        model = state["chat_model"]
-        if model is None:
-            result = GroundingResult(valid=True, unsupported_claims=[], miscited_claims=[], uncited_claims=[])
-        else:
-            evidence_block = "\n\n".join(_evidence_line(e) for e in excerpts)
-            system_prompt, prompt_version_id = get_prompt("validate_grounding", fallback=_SYSTEM_PROMPT)
-            if prompt_version_id:
-                prompt_usages.append(prompt_version_id)
-            raw = json_chat(
-                model,
-                system_prompt + _CITATION_CHECK,
-                f"Answer:\n{answer}\n\nEvidence:\n{evidence_block}",
-                fallback={"valid": True, "unsupported_claims": []},
-            )
-            if not isinstance(raw, dict) or "valid" not in raw:
-                raw = {"valid": True, "unsupported_claims": []}
-            result = GroundingResult(
-                valid=bool(raw["valid"]),
-                unsupported_claims=raw.get("unsupported_claims", []),
-                miscited_claims=_miscited(raw.get("miscited_claims"), valid_ids),
-                uncited_claims=_strings(raw.get("uncited_claims")),
-            )
+    evidence_block = "\n\n".join(_evidence_line(e) for e in excerpts)
+    system_prompt, _prompt_version_id = get_prompt("validate_grounding", fallback=_SYSTEM_PROMPT)
+    raw = json_chat(
+        model,
+        system_prompt + _CITATION_CHECK,
+        f"Answer:\n{answer}\n\nEvidence:\n{evidence_block}",
+        fallback={"valid": True, "unsupported_claims": []},
+    )
+    if not isinstance(raw, dict) or "valid" not in raw:
+        raw = {"valid": True, "unsupported_claims": []}
+    result = GroundingResult(
+        valid=bool(raw["valid"]),
+        unsupported_claims=raw.get("unsupported_claims", []),
+        miscited_claims=_miscited(raw.get("miscited_claims"), valid_ids),
+        uncited_claims=_strings(raw.get("uncited_claims")),
+    )
     result["unverified_citations"] = unverified
-
     emit(run_id, "grounding_validation_completed", dict(result))
-    return {"grounding_result": result, "prompt_usages": prompt_usages}
+    return result

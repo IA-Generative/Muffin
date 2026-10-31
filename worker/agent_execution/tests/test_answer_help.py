@@ -11,17 +11,15 @@ def _config(state: dict) -> dict:
 
 
 def _router(intent: str = "help", *, ambiguous: bool = False):
+    """`intent` is what the plan decides: the help of the application, or a search over the documents."""
+
     def router(system_prompt: str) -> str:
-        if "may be asking to CHANGE" in system_prompt:
-            return json.dumps({"edit": False})
-        if "Analyze the user" in system_prompt:
-            return json.dumps({"intent": intent, "ambiguous": ambiguous, "complexity": "simple"})
+        if "You are the planner" in system_prompt:
+            if intent == "help":
+                return json.dumps({"mode": "help", "standalone_query": "Comment je partage une collection ?"})
+            return json.dumps({"mode": "search"})
         if "help of Muffin" in system_prompt:
             return GUIDE_ANSWER
-        if "select the ones relevant" in system_prompt.lower():
-            return '["col-1"]'
-        if "Decide whether" in system_prompt:
-            return json.dumps({"status": "sufficient", "missing_information": [], "reasoning": "ok"})
         return "Réponse de recherche."
 
     return router

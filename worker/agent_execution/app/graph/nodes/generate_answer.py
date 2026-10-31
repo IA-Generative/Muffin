@@ -8,7 +8,6 @@ from app.backend_client import backend_client
 from app.graph.services.citations import (
     CITATION_RULE,
     OUTPUT_FORMAT,
-    RETRY_MESSAGE,
     cited_ids,
     parse_answer,
     partial_answer,
@@ -138,16 +137,8 @@ def generate_answer(state: AgentState) -> dict[str, Any]:
         if state.get("must_assume")
         else ""
     )
-    # The claims the check found cited wrongly or not at all (see validate_grounding): once, then the answer stands.
-    citation_note = (
-        "\n\nNote: your previous answer left these claims without a correct citation - cite each with the excerpt "
-        "that really supports it, or leave it out if none does: " + " | ".join(state["citation_feedback"])
-        if state.get("citation_feedback")
-        else ""
-    )
     user_content = (
         f"Query: {state['contextualized_query']}\n\nEvidence:{missing_note}{exploration_note}{assumption_note}"
-        f"{citation_note}"
         f"\n\n{evidence_block}"
     )
     start = time.monotonic()
@@ -161,25 +152,9 @@ def generate_answer(state: AgentState) -> dict[str, Any]:
     valid_ids = {e["id"] for e in context["excerpts"]}
     written, sources = _read_answer(result["content"], valid_ids)
     if not _cited(written, sources, valid_ids):
-        # Evidence was given and the answer cites none of it (#402): the model is asked once to write it again with its
-        # citations. If it still cites nothing, the answer stands and the interface says that it has no source.
-        logger.warning(f"Run {run_id}: the answer cites no evidence, asking for it again")
-        emit(run_id, "answer_citations_retry")
-        retry = backend_client.llm_chat_with_usage(
-            model,
-            [
-                *messages,
-                {"role": "assistant", "content": result["content"]},
-                {"role": "user", "content": RETRY_MESSAGE},
-            ],
-        )
-        retried, retried_sources = _read_answer(retry["content"], valid_ids)
-        prompt_tokens = (prompt_tokens or 0) + (retry.get("prompt_tokens") or 0) or None
-        completion_tokens = (completion_tokens or 0) + (retry.get("completion_tokens") or 0) or None
-        if _cited(retried, retried_sources, valid_ids):
-            written, sources = retried, retried_sources
-        else:
-            logger.warning(f"Run {run_id}: the answer still cites no evidence")
+        # Evidence was given and the answer cites none of it (#402): it stands, and the interface says that it has no
+        # source. Not asked again: a second call would cost as much as the first for an answer that often is the same.
+        logger.warning(f"Run {run_id}: the answer cites no evidence")
     cited = _cited(written, sources, valid_ids)
     passages = resolve_passages(sources, context["excerpts"])
     latency_ms = int((time.monotonic() - start) * 1000)

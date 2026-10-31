@@ -7,15 +7,12 @@ import pytest
 import app.backend_client as backend_client_module
 import app.execution_metrics as execution_metrics_module
 import app.graph.nodes.answer_help as answer_help_module
-import app.graph.nodes.answer_identity as answer_identity_module
-import app.graph.nodes.build_research_plan as build_research_plan_module
-import app.graph.nodes.create_document as create_document_module
-import app.graph.nodes.delegate_edit as delegate_edit_module
-import app.graph.nodes.detect_edit as detect_edit_module
+import app.graph.nodes.create as create_module
+import app.graph.nodes.edit as edit_module
 import app.graph.nodes.generate_answer as generate_answer_module
-import app.graph.nodes.load_accessible_vdbs as load_accessible_vdbs_module
+import app.graph.nodes.ground_check as ground_check_module
+import app.graph.nodes.prepare as prepare_module
 import app.graph.nodes.research_task as research_task_module
-import app.graph.nodes.targeted_research as targeted_research_module
 import app.graph.services.events as events_module
 import app.graph.services.llm as llm_module
 import app.graph.services.prompts as prompts_module
@@ -44,10 +41,9 @@ class FakeBackend:
         self.event_data: list[tuple[str, dict[str, Any] | None]] = []
         self.activities: list[tuple[str, str]] = []  # [(node, activity), ...]
         self.searched_collection_ids: list[list[str]] = []
+        self.searched_with_descendants: list[bool] = []
         # [] by default - routing confidence is then "unknown" and routing goes on as it always did,
         # unless a test seeds the probe's hits ({"collection_id", "rank"}) to make it clear or flat.
-        self.probe_hits: list[dict[str, Any]] = []
-        self.probed_collection_ids: list[list[str]] = []
         self.accessible_collections_groups_requested: list[list[str]] = []
         # [] by default - the vector pre-filter (§124) then falls back to every accessible VDB,
         # same as today's behaviour, unless a test seeds a scored subset here.
@@ -71,6 +67,7 @@ class FakeBackend:
         self.pages: dict[tuple[str, int], dict[str, Any]] = {}
         self.conversation_titles: dict[str, str] = {}
         self.run_results: list[dict[str, Any]] = []
+        self.groundings: list[tuple[str, bool, list[str]]] = []
         self.active_prompts: dict[str, dict[str, Any]] = {}
         self.recorded_prompt_usages: list[str] = []
         # Every [system, user] messages list passed to llm_chat/llm_chat_with_usage, in order -
@@ -164,26 +161,32 @@ class FakeBackend:
     def set_run_error(self, *args: Any, **kwargs: Any) -> None:
         pass
 
+    def set_run_grounding(self, run_id: str, grounding_valid: bool, unsupported_claims: list[str]) -> None:
+        self.groundings.append((run_id, grounding_valid, unsupported_claims))
+
     def list_accessible_collections(self, user_id: str, groups: list[str] | None = None) -> list[dict[str, Any]]:
         self.accessible_collections_groups_requested.append(groups or [])
         return self.accessible_vdbs
 
-    def search_qa(self, collection_ids: list[str], query: str, limit: int) -> list[dict[str, Any]]:
+    def search_qa(
+        self, collection_ids: list[str], query: str, limit: int, include_descendants: bool = False
+    ) -> list[dict[str, Any]]:
         return self.qa_hits
 
-    def search_summaries(self, collection_ids: list[str], query: str, limit: int) -> list[dict[str, Any]]:
+    def search_summaries(
+        self, collection_ids: list[str], query: str, limit: int, include_descendants: bool = False
+    ) -> list[dict[str, Any]]:
         return self.summary_hits
 
     def search_collections(self, collection_ids: list[str], query: str, limit: int) -> list[dict[str, Any]]:
         self.collection_search_calls.append(collection_ids)
         return self.collection_search_hits
 
-    def probe_collections(self, collection_ids: list[str], query: str, limit: int) -> list[dict[str, Any]]:
-        self.probed_collection_ids.append(collection_ids)
-        return self.probe_hits
-
-    def search(self, collection_ids: list[str], query: str, limit: int) -> list[dict[str, Any]]:
+    def search(
+        self, collection_ids: list[str], query: str, limit: int, include_descendants: bool = False
+    ) -> list[dict[str, Any]]:
         self.searched_collection_ids.append(collection_ids)
+        self.searched_with_descendants.append(include_descendants)
         return [
             {
                 "chunk_id": str(uuid.uuid4()),
@@ -282,15 +285,12 @@ _PATCHED_MODULES = (
     backend_client_module,
     events_module,
     llm_module,
-    load_accessible_vdbs_module,
-    detect_edit_module,
-    create_document_module,
-    delegate_edit_module,
+    prepare_module,
+    edit_module,
+    create_module,
     research_task_module,
-    targeted_research_module,
-    build_research_plan_module,
     generate_answer_module,
-    answer_identity_module,
+    ground_check_module,
     answer_help_module,
     prompts_module,
     vdb_router_module,
@@ -321,7 +321,7 @@ def make_run():
         fake.searxng = FakeSearxng(web_results)
         research_task_module.searxng_client = fake.searxng
         # The wait for the editing agent polls the backend on a timer - tests don't really sleep.
-        delegate_edit_module._sleep = lambda _seconds: None
+        edit_module._sleep = lambda _seconds: None
         graph = build_graph()
         return graph, fake
 
@@ -337,6 +337,7 @@ def initial_state(
     resume_from_vdb_ids: list[str] | None = None,
     interactive: bool = True,
     question_rounds: int = 0,
+    history: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     return {
         "run_id": str(uuid.uuid4()),
@@ -345,7 +346,7 @@ def initial_state(
         "conversation_id": "conv-1",
         "original_query": query,
         "contextualized_query": query,
-        "messages": [{"role": "user", "content": query}],
+        "messages": [*(history or []), {"role": "user", "content": query}],
         "chat_model": "test-model",
         "pinned_vdb_ids": pinned_vdb_ids or [],
         "web_search_enabled": web_search_enabled,
@@ -356,24 +357,28 @@ def initial_state(
         "questions": None,
         "must_assume": False,
         "accessible_vdbs": [],
+        "catalogue": [],
+        "edit_candidates": [],
+        "create_candidates": [],
+        "plan": {},
+        "scope_ids": [],
+        "widened": False,
         "edit_target": None,
         "edit_proposal": None,
         "create_target": None,
         "query_analysis": {},
-        "research_plan": {},
         "research_tasks": [],
         "completed_task_ids": [],
         "failed_task_ids": [],
         "evidence": [],
         "deduped_evidence": [],
         "coverage_result": None,
-        "plan_version": 0,
-        "replan_count": 0,
         "answer_context": None,
         "answer": None,
         "citations": [],
+        "needs_grounding": False,
         "grounding_result": None,
-        "grounding_research_count": 0,
+        "prompt_usages": [],
         "execution_status": "queued",
         "cancelled": False,
     }
