@@ -88,7 +88,7 @@ par le tri alphabétique du backend) :
 6. `validate_grounding`
 
 Ce sont les prompts système des nodes du graphe LangGraph de l'agent
-(`worker/agent_execution/app/graph/nodes/*.py`). Le nom affiché en haut de chaque carte
+(`backend/app/agent/graph/nodes/*.py`). Le nom affiché en haut de chaque carte
 (police monospace) est directement le nom technique utilisé comme clé API — pas de libellé
 humain séparé.
 
@@ -161,8 +161,7 @@ Pour `decompose_query` et `replan_research`, seule la partie "instructions" du p
 stockée/éditable ici. La liste des outils disponibles et l'activation conditionnelle de l'outil
 `web_search` restent codées en dur côté worker (jamais exposées à l'admin, pour ne jamais
 pouvoir accidentellement activer `web_search` pour un run qui n'a pas explicitement opté in) —
-voir les commentaires dans `worker/agent_execution/app/graph/nodes/decompose_query.py` et
-`replan_research.py`.
+voir `backend/app/agent/graph/services/tool_guide.py`.
 
 ## États d'erreur
 

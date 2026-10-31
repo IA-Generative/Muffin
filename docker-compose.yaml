@@ -68,6 +68,10 @@ services:
       AWS_BUCKET: muffin-documents
       QDRANT_URL: http://qdrant:6333
       QDRANT_API_KEY: ${QDRANT_API_KEY:-dev-only-qdrant-key-not-for-prod}
+      # The research agent runs in the backend: web_search (SearXNG) is only ever called when a run opted in (chat
+      # composer's web-search toggle, off by default) - see app/agent/searxng_client.py. The tabular_query tool sends its
+      # SQL to worker-tabular (#433): the agent reads no file itself.
+      SEARXNG_URL: http://searxng:8080
     depends_on:
       postgres:
         condition: service_healthy
@@ -210,29 +214,6 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  worker-agent-execution:
-    build:
-      context: ./worker/agent_execution
-      dockerfile: Dockerfile
-    environment:
-      REDIS_URL: redis://redis:6379/0
-      BACKEND_API_URL: http://backend:8000
-      WORKER_API_KEY: ${WORKER_API_KEY:-dev-only-worker-key-not-for-prod}
-      # The tabular_query tool sends its SQL to worker-tabular (#433): the agent reads no file itself.
-      # Only ever called when a run opted in (chat composer's web-search toggle, off by
-      # default) - see worker/agent_execution/app/searxng_client.py.
-      SEARXNG_URL: http://searxng:8080
-    depends_on:
-      redis:
-        condition: service_healthy
-      backend:
-        condition: service_started
-      searxng:
-        condition: service_healthy
-      worker-tabular:
-        condition: service_started
-    restart: unless-stopped
-
   worker-evaluation:
     build:
       context: ./worker/evaluation
@@ -367,9 +348,9 @@ services:
 
   redis:
     # redis-stack-server, not plain redis: a superset (same commands Celery already uses work
-    # unchanged) that also adds RediSearch, required by the agent_execution worker's Redis-backed
-    # LangGraph checkpointer (a HITL pause must survive being resumed by a different Celery
-    # prefork child than the one that paused it - see worker/agent_execution/app/agent_service.py).
+    # unchanged) that also adds RediSearch, required by the agent's Redis-backed LangGraph
+    # checkpointer (a run that waited for an answer must survive being resumed by another process
+    # than the one that paused it - see backend/app/agent/service.py).
     image: redis/redis-stack-server:7.4.0-v6
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]

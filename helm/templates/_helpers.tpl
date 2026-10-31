@@ -44,7 +44,7 @@ Parameters:
 */}}
 {{- define "helper.componentFullname" -}}
 {{/* Kubernetes object names are DNS-1123 subdomains (lowercase alphanumeric and "-" only) - a
-componentName like "document_process" or "agent_execution" (matching this repo's Python package
+componentName like "document_process" or "worker_evaluation" (matching this repo's Python package
 dirs) would otherwise produce an invalid metadata.name. Underscores are fine in label values, so
 this only affects the name, not selector labels built from the same componentName. */}}
 {{- printf "%s-%s" (include "helper.fullname" .root) (.componentName | replace "_" "-") | trunc 63 | trimSuffix "-" -}}

@@ -27,7 +27,7 @@ pour qu'elles puissent être reprises plus tard sans avoir à ré-auditer tout l
   `GET /internal/users/{id}/accessible-collections` (routing VDB de l'agent).
 - `Run.user_groups` (`backend/app/models/run.py`) : snapshot de `RequestContext.groups` pris à la
   création du run, propagé via `InternalRunOut` jusqu'à `AgentState` puis à
-  `load_accessible_vdbs` (`worker/agent_execution/app/graph/nodes/load_accessible_vdbs.py`), pour
+  `prepare` (`backend/app/agent/graph/nodes/prepare.py`), pour
   que les collections partagées à un groupe soient effectivement cherchables par l'agent.
 
 ## Lecture ou écriture (#454)

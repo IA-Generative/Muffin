@@ -121,9 +121,6 @@ jobs:
           - name: worker-document-process
             context: worker/document_process
             dockerfile: worker/document_process/Dockerfile
-          - name: worker-agent-execution
-            context: worker/agent_execution
-            dockerfile: worker/agent_execution/Dockerfile
           - name: worker-evaluation
             context: worker/evaluation
             dockerfile: worker/evaluation/Dockerfile

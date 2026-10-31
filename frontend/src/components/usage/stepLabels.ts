@@ -1,4 +1,4 @@
-// What each step is: an agent graph node (worker/agent_execution) or a worker task. An unknown
+// What each step is: an agent graph node (backend/app/agent) or a worker task. An unknown
 // step (a new one) shows under its own name.
 export const STEP_LABELS: Record<string, string> = {
   plan: 'Chat · analyse de la question et choix de la recherche',
