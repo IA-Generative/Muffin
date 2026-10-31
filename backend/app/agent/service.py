@@ -152,7 +152,7 @@ class AgentService:
                 "cancelled": False,
             }
             final_state = await (await _get_graph()).ainvoke(initial_state, config=_config(run_id))
-            self._finalize(run_id, final_state)
+            await self._finalize(run_id, final_state)
         except Exception as error:
             logger.exception(f"Run {run_id} failed")
             await backend_client.set_run_error(run_id, str(error))
@@ -171,7 +171,7 @@ class AgentService:
 
         try:
             final_state = await (await _get_graph()).ainvoke(Command(resume=answer), config=_config(run_id))
-            self._finalize(run_id, final_state)
+            await self._finalize(run_id, final_state)
         except Exception as error:
             logger.exception(f"Run {run_id} failed to resume")
             await backend_client.set_run_error(run_id, str(error))
