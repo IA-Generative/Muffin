@@ -3,17 +3,23 @@
 import asyncio
 import json
 import uuid
+from datetime import UTC, datetime
 
 import httpx
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import delete
+from pydantic import SecretStr
+from sqlalchemy import delete, update
 
 from app import mcp_server
 from app.core.security.factory import RequestContext
 from app.db import async_session_factory
 from app.main import app
+from app.models.api_key import ApiKey
 from app.models.collection import Collection, CollectionSettings
+from app.schemas.api_key import ApiKeyCreate
+from app.services import api_key_service
+from app.services.api_key_service import ApiKeyService
 from app.services.search_service import SearchService
 
 HEADERS = {
@@ -51,6 +57,7 @@ async def client(server):
         yield http
     async with async_session_factory() as session:
         await session.execute(delete(Collection))
+        await session.execute(delete(ApiKey))
         await session.commit()
 
 
@@ -197,3 +204,72 @@ async def test_search_returns_a_structured_result_by_sub_question(client, monkey
         ("congés", [str(collection_id)], [])
     ]
     uuid.UUID(content["sub_queries"][0]["collections"][0]["id"])
+
+
+# --- a personal API key (#521) ---
+
+
+async def _api_key(monkeypatch, scopes: list[str]) -> str:
+    monkeypatch.setattr(api_key_service._settings, "API_KEY_PEPPERS", SecretStr("v1=test-pepper"))
+    monkeypatch.setattr(mcp_server, "TokenVerifier", Keycloak())
+    user = RequestContext(user_id="owner", email="owner@example.test", roles=[], is_admin=False)
+    async with async_session_factory() as db:
+        _, key = await ApiKeyService(db).create(user, ApiKeyCreate(name="script", scopes=scopes))
+    return key
+
+
+async def test_a_key_that_may_search_calls_the_tools(client, monkeypatch):
+    key = await _api_key(monkeypatch, ["search"])
+
+    response = await client.post(
+        "/api/mcp/", headers={**HEADERS, "Authorization": f"Bearer {key}"}, json=_call("tools/list")
+    )
+
+    assert response.status_code == 200
+    assert {tool["name"] for tool in response.json()["result"]["tools"]} == {"suggest_collections", "search"}
+
+
+async def test_a_key_made_for_something_else_does_not_call_the_tools(client, monkeypatch):
+    key = await _api_key(monkeypatch, ["chat"])
+
+    response = await client.post(
+        "/api/mcp/", headers={**HEADERS, "Authorization": f"Bearer {key}"}, json=_call("tools/list")
+    )
+
+    assert response.status_code == 401 and response.headers["www-authenticate"] == "Bearer"
+
+
+async def test_a_revoked_key_does_not_call_the_tools(client, monkeypatch):
+    key = await _api_key(monkeypatch, ["search"])
+    async with async_session_factory() as session:
+        await session.execute(update(ApiKey).values(revoked_at=datetime.now(UTC)))
+        await session.commit()
+
+    response = await client.post(
+        "/api/mcp/", headers={**HEADERS, "Authorization": f"Bearer {key}"}, json=_call("tools/list")
+    )
+
+    assert response.status_code == 401
+
+
+async def test_a_key_that_asks_too_much_is_told_to_wait(client, monkeypatch):
+    key = await _api_key(monkeypatch, ["search"])
+    monkeypatch.setattr(api_key_service._settings, "API_KEY_RATE_LIMIT_PER_MINUTE", 1)
+    headers = {**HEADERS, "Authorization": f"Bearer {key}"}
+
+    first = await client.post("/api/mcp/", headers=headers, json=_call("tools/list"))
+    second = await client.post("/api/mcp/", headers=headers, json=_call("tools/list"))
+
+    assert first.status_code == 200
+    assert second.status_code == 429 and second.headers["retry-after"] == "60"
+
+
+async def test_a_key_that_looks_like_one_but_is_not_is_refused_and_not_tried_as_a_token(client, monkeypatch):
+    monkeypatch.setattr(api_key_service._settings, "API_KEY_PEPPERS", SecretStr("v1=test-pepper"))
+    monkeypatch.setattr(mcp_server, "TokenVerifier", Keycloak())
+
+    response = await client.post(
+        "/api/mcp/", headers={**HEADERS, "Authorization": "Bearer sk-muffin-good"}, json=_call("tools/list")
+    )
+
+    assert response.status_code == 401
