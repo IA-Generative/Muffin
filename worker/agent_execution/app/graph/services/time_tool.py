@@ -83,20 +83,20 @@ def _period_range(now: datetime, period: str, n: int = 0) -> tuple[datetime, dat
         return _start_of_month(now), _end_of_month(now)
     if period == "last_month":
         if now.month == 1:
-            ref = now.replace(year=now.year - 1, month=12)
+            ref = now.replace(year=now.year - 1, month=12, day=1)
         else:
-            ref = now.replace(month=now.month - 1)
+            ref = now.replace(month=now.month - 1, day=1)
         return _start_of_month(ref), _end_of_month(ref)
     if period == "next_month":
         if now.month == 12:
-            ref = now.replace(year=now.year + 1, month=1)
+            ref = now.replace(year=now.year + 1, month=1, day=1)
         else:
-            ref = now.replace(month=now.month + 1)
+            ref = now.replace(month=now.month + 1, day=1)
         return _start_of_month(ref), _end_of_month(ref)
     if period == "this_year":
         return _start_of_year(now), _end_of_year(now)
     if period == "last_year":
-        ref = now.replace(year=now.year - 1)
+        ref = now.replace(year=now.year - 1, month=1, day=1)
         return _start_of_year(ref), _end_of_year(ref)
     if period == "last_n_days" and n > 0:
         start = _start_of_day(now) - timedelta(days=n - 1)
