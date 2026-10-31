@@ -33,6 +33,9 @@ BULK_PRIORITY = 9
 # Always sent with a countdown, see app/services/description_rollup_service.py.
 DOCUMENT_ENRICHMENT_QUEUE = "document_enrichment"
 ROLLUP_COLLECTION_DESCRIPTION_TASK = "app.tasks.rollup_collection_description"
+# Writing a collection's description from a random sample of its files (#457) - what an administrator asks for
+# a collection copied from another system.
+DESCRIBE_COPIED_COLLECTION_TASK = "app.tasks.describe_copied_collection"
 
 # Long I/O, on the index rebuilds' pod: turning an uploaded ZIP into a collection and its
 # sub-collections (#223) - minutes for a large archive, which must hold up no extraction slot.
@@ -99,6 +102,14 @@ def enqueue_rollup_collection_description(collection_id: str, countdown: int) ->
         args=[collection_id],
         queue=DOCUMENT_ENRICHMENT_QUEUE,
         countdown=countdown,
+    )
+    return result.id
+
+
+def enqueue_describe_copied_collection(collection_id: str) -> str:
+    """Returns the Celery task id, recorded as a collection-scoped Task row."""
+    result = _celery_app.send_task(
+        DESCRIBE_COPIED_COLLECTION_TASK, args=[collection_id], queue=DOCUMENT_ENRICHMENT_QUEUE
     )
     return result.id
 
