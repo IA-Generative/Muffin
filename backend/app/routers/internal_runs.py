@@ -34,6 +34,7 @@ from app.schemas.internal_run import (
     QaSourceOut,
     RunErrorUpdate,
     RunEventCreate,
+    RunGroundingUpdate,
     RunPartialAnswerUpdate,
     RunResultUpdate,
     RunStateUpdate,
@@ -204,6 +205,21 @@ async def update_run_result(
         edit_proposal=update.edit_proposal,
         unexplored_collection_ids=update.unexplored_collection_ids,
     )
+    await db.commit()
+    return {"status": "ok"}
+
+
+@router.patch("/runs/{run_id}/grounding", summary="Report the verdict of the grounding check made after the answer")
+async def update_run_grounding(
+    run_id: uuid.UUID,
+    update: RunGroundingUpdate,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict[str, str]:
+    repository = RunRepository(db)
+    run = await repository.get_by_id(run_id)
+    if run is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+    await repository.set_grounding(run, update.grounding_valid, update.grounding_unsupported_claims)
     await db.commit()
     return {"status": "ok"}
 

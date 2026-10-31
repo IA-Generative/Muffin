@@ -93,6 +93,14 @@ class RunResultUpdate(BaseModel):
     questions: list[Question] | None = None
 
 
+class RunGroundingUpdate(BaseModel):
+    """The verdict of the check made once the answer is out (worker/agent_execution ground_check): the run is already
+    completed, only these fields are written."""
+
+    grounding_valid: bool
+    grounding_unsupported_claims: list[str] = []
+
+
 class RunErrorUpdate(BaseModel):
     error: str
 

@@ -128,6 +128,10 @@ class RunRepository:
         run.grounding_unsupported_claims = grounding_unsupported_claims
         run.grounding_research_count = grounding_research_count
 
+    async def set_grounding(self, run: Run, valid: bool, unsupported_claims: list[str]) -> None:
+        run.grounding_valid = valid
+        run.grounding_unsupported_claims = unsupported_claims
+
     async def get_previous_in_conversation(self, run: Run) -> Run | None:
         """The run that answered the message just before this one in the same conversation -
         what a "go further" follow-up resumes from (#219)."""
