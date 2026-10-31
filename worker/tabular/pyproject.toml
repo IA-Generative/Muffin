@@ -1,6 +1,6 @@
 [project]
 name = "muffin-worker-tabular"
-version = "0.39.0"
+version = "0.40.0-rc"
 description = "Celery worker that runs read-only SQL over the Parquet copies of tabular files (DuckDB, locked down)"
 requires-python = ">=3.12"
 dependencies = [
