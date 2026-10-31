@@ -36,7 +36,6 @@ jobs:
       frontend: ${{ steps.filter.outputs.frontend }}
       backend: ${{ steps.filter.outputs.backend }}
       worker_document_process: ${{ steps.filter.outputs.worker_document_process }}
-      worker_agent_execution: ${{ steps.filter.outputs.worker_agent_execution }}
       worker_evaluation: ${{ steps.filter.outputs.worker_evaluation }}
       worker_document_edit: ${{ steps.filter.outputs.worker_document_edit }}
       worker_ocr_layout: ${{ steps.filter.outputs.worker_ocr_layout }}
@@ -63,8 +62,6 @@ jobs:
               - 'backend/**'
             worker_document_process:
               - 'worker/document_process/**'
-            worker_agent_execution:
-              - 'worker/agent_execution/**'
             worker_evaluation:
               - 'worker/evaluation/**'
             worker_document_edit:
@@ -93,7 +90,6 @@ jobs:
           FRONTEND: ${{ steps.filter.outputs.frontend }}
           BACKEND: ${{ steps.filter.outputs.backend }}
           WORKER_DOCUMENT_PROCESS: ${{ steps.filter.outputs.worker_document_process }}
-          WORKER_AGENT_EXECUTION: ${{ steps.filter.outputs.worker_agent_execution }}
           WORKER_EVALUATION: ${{ steps.filter.outputs.worker_evaluation }}
           WORKER_DOCUMENT_EDIT: ${{ steps.filter.outputs.worker_document_edit }}
           WORKER_OCR_LAYOUT: ${{ steps.filter.outputs.worker_ocr_layout }}
@@ -117,9 +113,6 @@ jobs:
           fi
           if [ "$WORKER_DOCUMENT_PROCESS" = "true" ] || [ "$CI" = "true" ]; then
             add '{"name":"worker-document-process","context":"worker/document_process","dockerfile":"worker/document_process/Dockerfile","target":"runtime"}'
-          fi
-          if [ "$WORKER_AGENT_EXECUTION" = "true" ] || [ "$CI" = "true" ]; then
-            add '{"name":"worker-agent-execution","context":"worker/agent_execution","dockerfile":"worker/agent_execution/Dockerfile","target":"runtime"}'
           fi
           if [ "$WORKER_EVALUATION" = "true" ] || [ "$CI" = "true" ]; then
             add '{"name":"worker-evaluation","context":"worker/evaluation","dockerfile":"worker/evaluation/Dockerfile","target":"runtime"}'
@@ -195,7 +188,7 @@ jobs:
     uses: ./.github/workflows/lint.yml
     needs:
       - path-filter
-    if: ${{ needs.path-filter.outputs.frontend == 'true' || needs.path-filter.outputs.backend == 'true' || needs.path-filter.outputs.worker_document_process == 'true' || needs.path-filter.outputs.worker_agent_execution == 'true' || needs.path-filter.outputs.worker_evaluation == 'true' || needs.path-filter.outputs.worker_document_edit == 'true' || needs.path-filter.outputs.worker_ocr_layout == 'true' || needs.path-filter.outputs.worker_ocr == 'true' || needs.path-filter.outputs.worker_ocr_table == 'true' || needs.path-filter.outputs.worker_ocr_vision == 'true' || needs.path-filter.outputs.worker_owui_sync == 'true' || needs.path-filter.outputs.worker_tabular == 'true' || needs.path-filter.outputs.ci == 'true' }}
+    if: ${{ needs.path-filter.outputs.frontend == 'true' || needs.path-filter.outputs.backend == 'true' || needs.path-filter.outputs.worker_document_process == 'true' || needs.path-filter.outputs.worker_evaluation == 'true' || needs.path-filter.outputs.worker_document_edit == 'true' || needs.path-filter.outputs.worker_ocr_layout == 'true' || needs.path-filter.outputs.worker_ocr == 'true' || needs.path-filter.outputs.worker_ocr_table == 'true' || needs.path-filter.outputs.worker_ocr_vision == 'true' || needs.path-filter.outputs.worker_owui_sync == 'true' || needs.path-filter.outputs.worker_tabular == 'true' || needs.path-filter.outputs.ci == 'true' }}
     permissions:
       contents: read
 
@@ -203,7 +196,7 @@ jobs:
     uses: ./.github/workflows/unit-tests.yml
     needs:
       - path-filter
-    if: ${{ needs.path-filter.outputs.backend == 'true' || needs.path-filter.outputs.worker_document_process == 'true' || needs.path-filter.outputs.worker_agent_execution == 'true' || needs.path-filter.outputs.worker_evaluation == 'true' || needs.path-filter.outputs.worker_document_edit == 'true' || needs.path-filter.outputs.worker_ocr_layout == 'true' || needs.path-filter.outputs.worker_ocr == 'true' || needs.path-filter.outputs.worker_ocr_table == 'true' || needs.path-filter.outputs.worker_ocr_vision == 'true' || needs.path-filter.outputs.worker_owui_sync == 'true' || needs.path-filter.outputs.worker_tabular == 'true' || needs.path-filter.outputs.ci == 'true' }}
+    if: ${{ needs.path-filter.outputs.backend == 'true' || needs.path-filter.outputs.worker_document_process == 'true' || needs.path-filter.outputs.worker_evaluation == 'true' || needs.path-filter.outputs.worker_document_edit == 'true' || needs.path-filter.outputs.worker_ocr_layout == 'true' || needs.path-filter.outputs.worker_ocr == 'true' || needs.path-filter.outputs.worker_ocr_table == 'true' || needs.path-filter.outputs.worker_ocr_vision == 'true' || needs.path-filter.outputs.worker_owui_sync == 'true' || needs.path-filter.outputs.worker_tabular == 'true' || needs.path-filter.outputs.ci == 'true' }}
     permissions:
       contents: read
 

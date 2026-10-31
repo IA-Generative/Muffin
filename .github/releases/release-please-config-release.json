@@ -25,16 +25,6 @@
         },
         {
           "type": "toml",
-          "path": "worker/agent_execution/pyproject.toml",
-          "jsonpath": "project.version"
-        },
-        {
-          "type": "toml",
-          "path": "worker/agent_execution/uv.lock",
-          "jsonpath": "$.package[?(@.name.value=='muffin-worker-agent-execution')].version"
-        },
-        {
-          "type": "toml",
           "path": "worker/document_edit/pyproject.toml",
           "jsonpath": "project.version"
         },

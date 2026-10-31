@@ -4,7 +4,7 @@
 #
 # Only `config.settings.data` needs overriding: it's the chart's default settings.yml, and the
 # defaults ship with the JSON API disabled and a public, chart-baked secret_key - both unsafe to
-# run with as-is (worker/agent_execution/app/searxng_client.py needs the JSON API, and reusing a
+# run with as-is (backend/app/agent/searxng_client.py needs the JSON API, and reusing a
 # secret_key that ships in a public chart defeats its point). Everything else (limiter, uwsgi,
 # resources, ingress...) is left to the chart's own defaults for now; enrich this file as those
 # needs come up rather than guessing them ahead of time.

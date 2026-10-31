@@ -103,12 +103,12 @@ step below completes — see "Méthode d'implémentation" for the step list.
 - `POST /api/runs`, `GET /api/runs/{id}` (+ SSE/polling for events).
 - Server-controlled tools (`list_accessible_vdbs`, `search_knowledge_base`, ...) that re-validate
   permissions on every call — never trust the LLM.
-- The LangGraph graph itself, in `worker/agent_execution/app/`.
+- The LangGraph graph itself, in `backend/app/agent/`.
 
 ## Étape 2 — Architecture (done, LangGraph scope only)
 
 Boundaries: Celery/A2A/API/frontend/infra are untouched this iteration - only
-`worker/agent_execution/app/graph/` changed. Layout: `state.py` (AgentState +
+`backend/app/agent/graph/` changed. Layout: `state.py` (AgentState +
 ResearchTask/Evidence/CoverageResult/GroundingResult), `graph.py` (wiring), `nodes/` (one
 per orchestration step, §35 - no node per internal service call), `routing/conditions.py`
 (all conditional-edge functions, including the dynamic `Send`-based fan-out), `services/`
@@ -147,7 +147,7 @@ validate_grounding → (invalid → targeted_research → merge_evidence again) 
   through `AgentState` so that swap is a one-line change in `graph.py` later.
 - `AgentService.resume(run_id, answer)` exists as the future entry point for continuing a
   paused run once an API route exists to call it - not wired to Celery/HTTP yet.
-- Tests: `worker/agent_execution/tests/test_graph.py`, all 10 scenarios from the brief's
+- Tests: `backend/tests/agent/test_graph.py`, all 10 scenarios from the brief's
   §36 (simple query, parallel decomposition, dependency ordering, VDB permission barrier,
   multi-VDB fan-out, failure isolation, targeted replan, grounding-triggered targeted
   research, HITL interrupt/resume, cancellation) against a fake `backend_client`.
@@ -217,7 +217,7 @@ document Z" - without ever letting an LLM-chosen id escape the permission barrie
   RustFS screenshot URL, `storage.get_presigned_url`) - both 404 if the collection isn't owned
   by `user_id`, same barrier as `accessible-collections`.
 - Tests: `backend/tests/routers/test_internal_runs.py` (document_count, both new endpoints,
-  ownership rejection) and `worker/agent_execution/tests/test_graph.py` (one test per tool,
+  ownership rejection) and `backend/tests/agent/test_graph.py` (one test per tool,
   verifying no `search` call happens for the non-search tools and that evidence carries the
   right `source_id`/`vdb_id`).
 

@@ -15,13 +15,12 @@ SearXNG) :
 | Service | Rôle | README |
 |---|---|---|
 | [`frontend/`](frontend/README.md) | Interface Vue 3 (DSFR) : chat, gestion des collections/documents, administration | [frontend/README.md](frontend/README.md) |
-| [`backend/`](backend/README.md) | API FastAPI (BFF) : auth Keycloak, CRUD collections/documents/runs, seul service à parler à Postgres/Qdrant/RustFS/au hub LLM | [backend/README.md](backend/README.md) |
+| [`backend/`](backend/README.md) | API FastAPI (BFF) : auth Keycloak, CRUD collections/documents/runs, seul service à parler à Postgres/Qdrant/RustFS/au hub LLM. **Il exécute aussi l'agent de recherche** (graphe LangGraph, `backend/app/agent/`), en tâche de fond, avec le jeton de l'utilisateur à portée de main pour les outils qui en auront besoin | [backend/README.md](backend/README.md) |
 | [`worker/document_process/`](worker/document_process/README.md) | Worker Celery : ingère un document (parsing, OCR, chunking, résumé, QA, embeddings) | [worker/document_process/README.md](worker/document_process/README.md) |
-| [`worker/agent_execution/`](worker/agent_execution/README.md) | Worker Celery : exécute le graphe LangGraph de l'agent de recherche pour un run donné | [worker/agent_execution/README.md](worker/agent_execution/README.md) |
 | [`worker/evaluation/`](worker/evaluation/README.md) | Worker Celery : évalue le retrieval d'une collection contre ses paires QA validées (issue #11) | [worker/evaluation/README.md](worker/evaluation/README.md) |
 | [`worker/document_edit/`](worker/document_edit/README.md) | Worker Celery : produit un brouillon d'un document vivant (ODT/Markdown) à partir d'un prompt, soumis à validation (issue #167) | [worker/document_edit/README.md](worker/document_edit/README.md) |
 
-Les quatre workers ne parlent jamais directement à Postgres/Qdrant/RustFS : ils passent
+Les trois workers ne parlent jamais directement à Postgres/Qdrant/RustFS : ils passent
 uniquement par les endpoints internes du backend (`/internal/*`, authentifiés par un secret
 partagé `WORKER_API_KEY`). Le backend reste le seul point d'accès aux données.
 
@@ -33,13 +32,12 @@ frontend ──HTTP──▶ backend ──┬──▶ Postgres
                               └──▶ hub LLM (OpenAI-compatible)
 
 backend ──Celery/Redis──▶ worker/document_process  (ingestion)
-backend ──Celery/Redis──▶ worker/agent_execution    (recherche)
 backend ──Celery/Redis──▶ worker/evaluation         (évaluation retrieval, queue dédiée)
 backend ──Celery/Redis──▶ worker/document_edit      (édition d'un document vivant, queue dédiée)
 
-les quatre workers ──HTTP──▶ backend (/internal/*)
-worker/agent_execution ──HTTP──▶ SearXNG (outil web_search, seule exception au point ci-dessus -
-                                  jamais via le backend, aucune donnée utilisateur stockée là)
+les trois workers ──HTTP──▶ backend (/internal/*)
+backend (agent) ──HTTP──▶ SearXNG (outil web_search : aucune donnée utilisateur stockée là)
+backend (agent) ──Celery/Redis──▶ worker/tabular (outil tabular_query : le SQL des fichiers tabulaires)
 ```
 
 ## Démarrer

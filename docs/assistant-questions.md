@@ -8,7 +8,7 @@ description courte), à choix unique ou multiple, et l'utilisateur répond en un
 Rien n'attend la réponse. Une question n'est pas une pause du graphe mais la fin d'un run :
 
 1. `analyze_query` juge la demande ambiguë et propose des `questions`. Le nœud `request_clarification` les nettoie
-   (`worker/agent_execution/app/ask_user.py`), met leur texte en réponse du run, et le run se termine (`completed`).
+   (`backend/app/agent/ask_user.py`), met leur texte en réponse du run, et le run se termine (`completed`).
 2. Le backend enregistre les questions avec le message de l'assistant (`messages.questions`, la même chose en texte dans
    `content`). L'interface les affiche en carte.
 3. L'utilisateur répond quand il veut, même des jours plus tard : sa réponse est un **nouveau message** (`POST /api/runs`

@@ -119,6 +119,11 @@ backend:
     # Same OpenAI-compatible LLM hub used by ocr's worker.
     # OPENAI_API_BASE_URL: ""
     LOG_LEVEL: "INFO"
+    # The research agent runs in the backend. Web search goes to the internal ClusterIP service (sub-chart `searxng`)
+    # and is opt-in per run (off by default - see backend/app/agent/config.py SEARXNG_URL).
+    # Named `muffin-searxng` (not `searxng`) to avoid ArgoCD conflict: open-webui also deploys
+    # a `searxng` Deployment, and ArgoCD tracks resources by name across apps.
+    SEARXNG_URL: "http://muffin-searxng:8080"
 
 # worker/document_process runs as three pods from the same image (#291), one per kind of work - see
 # app/celery_app.py there for which task goes where.
@@ -574,46 +579,6 @@ index_rebuild:
     BACKEND_API_URL: "http://muffin-backend:8000"
     AWS_ENDPOINT_URL: "https://s3.fr-par.scw.cloud"
 
-# Celery worker - agentic research/chat execution (worker/agent_execution).
-# NOTE: this worker's LangGraph checkpointer needs RediSearch (redis-stack), which is why
-# `redis.image` below is overridden away from the chart's plain redis default - see comment there.
-agent_execution:
-  image:
-    registry: "harbor.sdid.cpin.numerique-interieur.com"
-    repository: "{{ .Values.global.project }}/muffin-worker-agent-execution"
-    pullPolicy: "Always"
-  serviceAccount:
-    enabled: true
-    create: true
-  # ScaledObject for agent_execution (queue: agent_execution)
-  kedaAutoscaler:
-    enabled: true
-    minReplicaCount: 2
-    maxReplicaCount: 4
-    pollingInterval: 30
-    listLength: 5
-    queues:
-    - "agent_execution"
-  # Probes disabled - see document_process above for rationale.
-  probes:
-    startupProbe: null
-    readinessProbe: null
-    livenessProbe: null
-  # No S3 secret: the agent reads no file, its SQL runs in the tabular pod (#433).
-  envFrom:
-  - secretRef:
-      name: "muffin-worker"
-  - secretRef:
-      name: "muffin-redis"
-  env:
-    CELERY_QUEUE_NAME: "agent_execution"
-    BACKEND_API_URL: "http://muffin-backend:8000"
-    # Internal ClusterIP service (sub-chart `searxng`). Web search is opt-in per run (off by
-    # default - see worker/agent_execution/app/config.py SEARXNG_URL).
-    # Named `muffin-searxng` (not `searxng`) to avoid ArgoCD conflict: open-webui also deploys
-    # a `searxng` Deployment, and ArgoCD tracks resources by name across apps.
-    SEARXNG_URL: "http://muffin-searxng:8080"
-
 # Celery worker - evaluation pipeline (worker/evaluation).
 worker_evaluation:
   image:
@@ -904,9 +869,9 @@ frontend:
   # frontend/src/composables/*.ts). See muffin/VARIABLES.md for the follow-up needed before prod.
 
 redis:
-  # RediSearch is required by the agent_execution worker's Redis-backed LangGraph checkpointer
-  # (see worker/agent_execution - a HITL pause must survive being resumed by a different Celery
-  # prefork child). Swap the plain redis image for redis-stack-server, which is a superset.
+  # RediSearch is required by the agent's Redis-backed LangGraph checkpointer
+  # (see backend/app/agent/service.py - a run that waited for an answer must survive being resumed by another
+  # process). Swap the plain redis image for redis-stack-server, which is a superset.
   fullnameOverride: muffin-redis
   image:
     registry: "docker.io"
@@ -974,8 +939,8 @@ qdrant:
       cpu: "1"
       memory: "2Gi"
 
-# SearxNG - meta-search engine used opt-in by agent_execution's web-search tool
-# (worker/agent_execution/app/searxng_client.py). Off by default per run.
+# SearxNG - meta-search engine used opt-in by the agent's web-search tool
+# (backend/app/agent/searxng_client.py). Off by default per run.
 # Uses the unknowniq/searxng chart (same as open-webui) which supports fullnameOverride.
 # The embedded valkey subchart is disabled - SearXNG points to the existing muffin-redis
 # (broker Celery + RediSearch) for its cache/bot-protection rate limiter instead.
