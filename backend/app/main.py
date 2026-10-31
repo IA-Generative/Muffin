@@ -1,8 +1,11 @@
+import contextlib
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app import __version__
+from app.agent.runner import agent_runner
 from app.config import KeycloakSettings
 from app.mcp_server import mcp_app, mcp_lifespan
 from app.routers.admin_cgu import router as admin_cgu_router
@@ -53,8 +56,21 @@ from app.services.copied_collections import CopiedCollectionError
 
 _keycloak_settings = KeycloakSettings()
 
+
+@contextlib.asynccontextmanager
+async def lifespan(application: FastAPI):
+    """What runs for as long as the API does: the MCP server's sessions, and the agent's runs (which are tasks of this
+    process: they are started here, and the ones still going are failed cleanly when it stops)."""
+    async with mcp_lifespan(application):
+        await agent_runner.start_up()
+        try:
+            yield
+        finally:
+            await agent_runner.shut_down()
+
+
 app = FastAPI(
-    lifespan=mcp_lifespan,
+    lifespan=lifespan,
     title="Muffin API",
     version=__version__,
     docs_url="/api/docs",

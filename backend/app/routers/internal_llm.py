@@ -158,14 +158,9 @@ async def chat(request: LlmChatRequest, db: Annotated[AsyncSession, Depends(get_
     )
 
 
-@router.post(
-    "/llm/chat-stream",
-    summary="Run a chat completion on the worker's behalf, streamed as it is written (one JSON object per line)",
-)
-async def chat_stream(request: LlmChatRequest) -> StreamingResponse:
-    """Same call as `chat`, but the worker gets the text as the model writes it - {"delta": "..."} lines,
-    then a last {"done": true, "prompt_tokens", "completion_tokens"} line. What the worker does with the
-    partial text (showing it to the user while the answer is still being written) is its business."""
+async def open_chat_stream(request: LlmChatRequest) -> AsyncIterator[str]:
+    """The lines of a chat completion as the model writes it - {"delta": "..."}, then a last {"done": true, ...} line -
+    what the route sends, and what the agent (which runs in this process) reads without going through a response."""
     if _openai_client is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -194,7 +189,18 @@ async def chat_stream(request: LlmChatRequest) -> StreamingResponse:
             )
         yield json.dumps({"done": True, "prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens}) + "\n"
 
-    return StreamingResponse(lines(), media_type="application/x-ndjson")
+    return lines()
+
+
+@router.post(
+    "/llm/chat-stream",
+    summary="Run a chat completion on the worker's behalf, streamed as it is written (one JSON object per line)",
+)
+async def chat_stream(request: LlmChatRequest) -> StreamingResponse:
+    """Same call as `chat`, but the worker gets the text as the model writes it - {"delta": "..."} lines,
+    then a last {"done": true, "prompt_tokens", "completion_tokens"} line. What the worker does with the
+    partial text (showing it to the user while the answer is still being written) is its business."""
+    return StreamingResponse(await open_chat_stream(request), media_type="application/x-ndjson")
 
 
 @router.get(

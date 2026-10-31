@@ -43,7 +43,7 @@ def _as_user(user_id: str, email: str):
 
 
 async def _create_run(client, query: str = "What is the telework policy?"):
-    with patch("app.services.run_service.enqueue_run_agent", return_value="celery-run-1"):
+    with patch("app.services.run_service.agent_runner.start"):
         response = await client.post("/api/runs", json={"query": query})
     return response.json()
 
@@ -65,7 +65,7 @@ async def test_list_conversations_empty_initially(client):
 
 async def test_list_conversations_returns_owned_conversations_most_recent_first(client):
     older = await _create_run(client, "What is the leave policy?")
-    with patch("app.services.run_service.enqueue_run_agent", return_value="celery-run-2"):
+    with patch("app.services.run_service.agent_runner.start"):
         newer_response = await client.post("/api/runs", json={"query": "And telework?"})
     newer = newer_response.json()
 
@@ -123,7 +123,7 @@ async def test_list_conversation_messages_accumulates_across_multiple_runs(clien
     first = await _create_run(client, "What is the telework policy?")
     await _complete_run(client, first["id"], "Two days a week [x].")
 
-    with patch("app.services.run_service.enqueue_run_agent", return_value="celery-run-2"):
+    with patch("app.services.run_service.agent_runner.start"):
         second_response = await client.post(
             "/api/runs", json={"query": "And leave?", "conversation_id": first["conversation_id"]}
         )

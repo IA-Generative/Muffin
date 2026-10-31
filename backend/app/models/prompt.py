@@ -8,7 +8,7 @@ from app.models.base import Base, TimestampMixin, UUIDMixin
 
 class PromptVersion(UUIDMixin, TimestampMixin, Base):
     """One version of one of the agent's system prompts (see the `_SYSTEM_PROMPT` constants in
-    worker/agent_execution/app/graph/nodes/*.py, which this table replaces as the source of
+    backend/app/agent/graph/nodes/*.py, which this table replaces as the source of
     truth). `name` is the node's own prompt slug (e.g. "generate_answer") - never a display
     title. Only one row per name may have is_active=True at a time (enforced in
     PromptRepository.activate, not a DB constraint: a partial unique index would need a raw

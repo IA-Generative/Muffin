@@ -42,7 +42,7 @@ async def _create_conversation_file(client, *, celery_task_id: str = "celery-upl
     with (
         patch("app.services.document_upload_service.storage.upload_fileobj"),
         patch("app.services.document_upload_service.enqueue_process_document", return_value=celery_task_id),
-        patch("app.services.run_service.enqueue_run_agent", return_value="celery-run-1"),
+        patch("app.services.run_service.agent_runner.start"),
     ):
         run = await client.post("/api/runs", json={"query": "hi"})
         conversation_id = run.json()["conversation_id"]
