@@ -196,6 +196,7 @@ async def _run(monkeypatch, row):
     fake = AsyncMock()
     fake.get_run.return_value = row
     fake.get_default_chat_model.return_value = "test-model"
+    fake.llm_chat.return_value = "Un titre"
     graph = MagicMock()
     graph.ainvoke = AsyncMock(
         return_value={"conversation_id": "conv-1", "answer": "ok", "citations": [], "original_query": "q"}
@@ -289,3 +290,36 @@ async def test_a_check_that_fails_never_fails_a_completed_run(monkeypatch):
     await AgentService()._finalize("run-1", _completed_state(needs_grounding=True))  # must not raise
 
     fake.update_run_status.assert_called_once_with("run-1", "completed")
+
+
+async def test_a_run_that_ends_records_its_answer_and_completes(monkeypatch):
+    """The result is written by `_finalize`, which `run` must wait for: a coroutine that is only called never runs, and
+    the answer would be lost with the run left in progress."""
+    fake, _state = await _run(monkeypatch, _run_row([]))
+
+    fake.set_run_result.assert_awaited_once()
+    assert fake.set_run_result.await_args.args[:2] == ("run-1", "ok")
+    fake.update_run_status.assert_awaited_with("run-1", "completed")
+
+
+async def test_a_resumed_run_records_its_answer_and_completes_too(monkeypatch):
+    fake = AsyncMock()
+    fake.get_default_chat_model.return_value = "test-model"
+    fake.llm_chat.return_value = "Un titre"
+    graph = MagicMock()
+    graph.ainvoke = AsyncMock(
+        return_value={"conversation_id": "conv-1", "answer": "ok", "citations": [], "original_query": "q"}
+    )
+    monkeypatch.setattr("app.agent.service.backend_client", fake)
+    monkeypatch.setattr("app.agent.service._graph", graph)
+
+    await AgentService().resume("run-1", "HR")
+
+    fake.set_run_result.assert_awaited_once()
+    fake.update_run_status.assert_awaited_with("run-1", "completed")
+
+
+async def test_no_coroutine_of_the_agent_is_left_unawaited(monkeypatch, recwarn):
+    await _run(monkeypatch, _run_row([]))
+
+    assert not [w for w in recwarn if "was never awaited" in str(w.message)]
