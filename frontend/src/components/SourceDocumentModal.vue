@@ -64,8 +64,12 @@ const shownNumber = computed(() => current.value?.page.page_number ?? props.page
 
 const fileAvailable = computed(() => hasFile(props.documentName))
 const downloadUrl = computed(() => documentFileUrl(API_BASE_URL, props.collectionId, props.documentId))
+// Opened on the page being read - or on the file itself when no page is (a source with none of its own).
 const openUrl = computed(() =>
-  documentFileUrl(API_BASE_URL, props.collectionId, props.documentId, { inline: true, page: shownNumber.value }),
+  documentFileUrl(API_BASE_URL, props.collectionId, props.documentId, {
+    inline: true,
+    page: current.value ? shownNumber.value : undefined,
+  }),
 )
 
 // The passage in a page's text: at its interval when it is known and it is in the page, else by its text.
@@ -211,7 +215,7 @@ onMounted(async () => {
             target="_blank"
             rel="noopener noreferrer"
           >
-            Ouvrir à la page {{ shownNumber }}
+            {{ current ? `Ouvrir à la page ${shownNumber}` : 'Ouvrir le fichier' }}
           </a>
         </div>
         <button type="button" class="source-document-modal__close" aria-label="Fermer" @click="emit('close')">
@@ -254,6 +258,7 @@ onMounted(async () => {
               min="1"
               :max="total"
               inputmode="numeric"
+              placeholder="n°"
               class="fr-input source-document-modal__goto-input"
               @keydown.enter.prevent="goToTyped"
             />
@@ -409,6 +414,7 @@ onMounted(async () => {
 
 .source-document-modal__header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
@@ -416,6 +422,8 @@ onMounted(async () => {
 }
 
 .source-document-modal__title {
+  flex: 1 1 12rem;
+  min-width: 0;
   margin: 0;
   font-size: 1.0625rem;
   overflow: hidden;
