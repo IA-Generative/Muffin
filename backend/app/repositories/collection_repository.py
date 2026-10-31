@@ -256,6 +256,19 @@ class CollectionRepository:
         )
         return result.scalar_one_or_none()
 
+    async def list_undescribed_ids(self) -> list[uuid.UUID]:
+        """Muffin's own collections - not a copy of another system's (#462) - that have files and no description."""
+        result = await self.db.scalars(
+            select(Collection.id)
+            .where(
+                (Collection.source == "muffin") | Collection.adopted_at.is_not(None),
+                func.trim(Collection.description) == "",
+                exists().where(Document.collection_id == Collection.id),
+            )
+            .order_by(Collection.created_at)
+        )
+        return list(result)
+
     async def get_by_id(self, collection_id: uuid.UUID) -> Collection | None:
         """No owner check - internal/worker use only, never exposed on a
         user-facing route."""
