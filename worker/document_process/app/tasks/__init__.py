@@ -46,7 +46,7 @@ from app.tasks.collection import (  # noqa: F401
 
 # --- Task modules (order matters for circular imports) ---
 from app.tasks.copied import summarize_copied_document  # noqa: F401
-from app.tasks.describe import describe_collection  # noqa: F401
+from app.tasks.describe import describe_collection, scan_undescribed_collections  # noqa: F401
 from app.tasks.extract import extract_entities_window  # noqa: F401
 from app.tasks.import_queue import release_import_queue  # noqa: F401
 from app.tasks.import_zip import import_zip, import_zip_batch  # noqa: F401
@@ -96,6 +96,7 @@ __all__ = [
     "generate_collection_qa",
     "summarize_copied_document",
     "describe_collection",
+    "scan_undescribed_collections",
     "scan_url_refresh",
     "refresh_url_document",
     "purge_task_logs",
