@@ -1,7 +1,7 @@
 import asyncio
 import os
 import uuid
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from datetime import UTC, datetime
 from typing import BinaryIO
 
@@ -12,7 +12,7 @@ from app.core import storage
 from app.core.file_hash import sha256_stream
 from app.core.security.factory import RequestContext
 from app.core.tasks import PROCESS_DOCUMENT_TASK, active_task_ids, enqueue_process_document, revoke_tasks
-from app.models.document import Document, DocumentStatus
+from app.models.document import Document, DocumentStatus, DocumentType
 from app.repositories.collection_hierarchy_repository import CollectionHierarchyRepository
 from app.repositories.collection_repository import CollectionRepository
 from app.repositories.document_repository import DocumentRepository
@@ -486,6 +486,19 @@ class DocumentUploadService:
         if page is None or page.screenshot is None:
             raise DocumentNotFoundError(f"page {page_number} of document {document_id}")
         return storage.get_object(page.screenshot)
+
+    async def open_file(
+        self, collection_id: uuid.UUID, user: RequestContext, document_id: uuid.UUID
+    ) -> tuple[Document, Iterator[bytes], str, int | None]:
+        """The file a document was made from, as a stream - what a reader downloads, or opens at a page. Read through
+        the backend like the page screenshots, never a storage link that would go on working by itself. A document that
+        is not a file (a web page) has none."""
+        await self._get_readable_collection(collection_id, user)
+        document = await self._get_owned_document(collection_id, document_id)
+        if document.type != DocumentType.FILE or not document.storage_key:
+            raise DocumentNotFoundError(f"file of document {document_id}")
+        stream, content_type, length = storage.open_object(document.storage_key)
+        return document, stream, content_type, length
 
     async def page_highlights(
         self,

@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from typing import BinaryIO
 
 import boto3
@@ -94,6 +95,22 @@ def get_object(key: str) -> tuple[bytes, str]:
         result["Body"].read(),
         result.get("ContentType") or "application/octet-stream",
     )
+
+
+def open_object(key: str, chunk_size: int = 64 * 1024) -> tuple[Iterator[bytes], str, int | None]:
+    """An object as a stream of chunks, with its content type and its size - for a file that may be large, which
+    `get_object` would read whole into memory. The caller iterates it to the end (or closes it)."""
+    bucket, name = _location(key)
+    result = _client.get_object(Bucket=bucket, Key=name)
+    body = result["Body"]
+
+    def chunks() -> Iterator[bytes]:
+        try:
+            yield from body.iter_chunks(chunk_size)
+        finally:
+            body.close()
+
+    return chunks(), result.get("ContentType") or "application/octet-stream", result.get("ContentLength")
 
 
 def delete_objects(keys: list[str]) -> None:
