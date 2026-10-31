@@ -461,7 +461,7 @@ function updateDescription(id: string, description: string) {
   patchCollection(id, { description })
 }
 
-// Collections whose description an administrator has asked to be written from a sample of their files (#457).
+// Collections whose description has been asked to be written from a sample of their files (#457).
 const describingCollectionIds = ref<Set<string>>(new Set())
 const describeError = ref<string | null>(null)
 

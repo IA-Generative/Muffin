@@ -384,7 +384,7 @@ function confirmDelete() {
             {{ collection.description }}
           </p>
           <p v-else class="collection-detail__description collection-detail__description--empty">Aucune description.</p>
-          <template v-if="collection.copied && user?.isAdmin">
+          <template v-if="collection.canManage">
             <button
               type="button"
               class="collection-detail__describe"
