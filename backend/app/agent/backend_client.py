@@ -1,10 +1,9 @@
 import json
-from collections.abc import Iterator
+from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
 
-from app.agent.runtime import InProcessClient, iterate_on_loop, run_on_loop
 from app.agent.usage_context import current_usage
 from app.config import WorkerSettings
 
@@ -43,25 +42,38 @@ def _refusal(error: httpx.HTTPStatusError) -> EditRequestRefused:
 
 
 class BackendClient:
-    """Talks to the backend's /api/internal/* routes - its own, in the same process (see runtime.InProcessClient) -
-    authenticated with the shared WORKER_API_KEY instead of a Keycloak session."""
+    """Talks to the backend's /api/internal/* routes - its own, in the same process (in memory, through the application
+    itself) - authenticated with the shared WORKER_API_KEY instead of a Keycloak session."""
 
     def __init__(self) -> None:
-        self._client = InProcessClient(WorkerSettings().WORKER_API_KEY)
+        self._api_key = WorkerSettings().WORKER_API_KEY
+        self._http: httpx.AsyncClient | None = None
 
-    def get_run(self, run_id: str) -> dict[str, Any]:
-        response = self._client.get(f"/api/internal/runs/{run_id}")
+    @property
+    def _client(self) -> httpx.AsyncClient:
+        if self._http is None:
+            from app.main import app  # imported late: the application imports the runner that imports this
+
+            self._http = httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url="http://backend.internal",
+                headers={"X-API-Key": self._api_key},
+            )
+        return self._http
+
+    async def get_run(self, run_id: str) -> dict[str, Any]:
+        response = await self._client.get(f"/api/internal/runs/{run_id}")
         response.raise_for_status()
         return response.json()
 
-    def update_run_status(
+    async def update_run_status(
         self,
         run_id: str,
         status: str,
         current_node: str | None = None,
         current_activity: str | None = None,
     ) -> None:
-        response = self._client.patch(
+        response = await self._client.patch(
             f"/api/internal/runs/{run_id}/status",
             json={
                 "status": status,
@@ -71,7 +83,7 @@ class BackendClient:
         )
         response.raise_for_status()
 
-    def update_run_state(
+    async def update_run_state(
         self,
         run_id: str,
         research_plan: dict[str, Any] | None = None,
@@ -80,7 +92,7 @@ class BackendClient:
         plan_version: int | None = None,
         replan_count: int | None = None,
     ) -> None:
-        response = self._client.patch(
+        response = await self._client.patch(
             f"/api/internal/runs/{run_id}/state",
             json={
                 "research_plan": research_plan,
@@ -92,7 +104,7 @@ class BackendClient:
         )
         response.raise_for_status()
 
-    def set_run_result(
+    async def set_run_result(
         self,
         run_id: str,
         answer: str,
@@ -107,7 +119,7 @@ class BackendClient:
         unexplored_collection_ids: list[str] | None = None,
         questions: list[dict[str, Any]] | None = None,
     ) -> None:
-        response = self._client.patch(
+        response = await self._client.patch(
             f"/api/internal/runs/{run_id}/result",
             json={
                 "answer": answer,
@@ -125,34 +137,34 @@ class BackendClient:
         )
         response.raise_for_status()
 
-    def set_run_grounding(self, run_id: str, grounding_valid: bool, unsupported_claims: list[str]) -> None:
+    async def set_run_grounding(self, run_id: str, grounding_valid: bool, unsupported_claims: list[str]) -> None:
         """The verdict of the check made once the answer is out (see ground_check)."""
-        response = self._client.patch(
+        response = await self._client.patch(
             f"/api/internal/runs/{run_id}/grounding",
             json={"grounding_valid": grounding_valid, "grounding_unsupported_claims": unsupported_claims},
         )
         response.raise_for_status()
 
-    def list_editable_documents(self, run_id: str) -> list[dict[str, Any]]:
+    async def list_editable_documents(self, run_id: str) -> list[dict[str, Any]]:
         """The living documents the run's user may change - computed backend-side from the run's own
         snapshot (user, groups, administrator flag), never from anything this worker supplies."""
-        response = self._client.get(f"/api/internal/runs/{run_id}/editable-documents")
+        response = await self._client.get(f"/api/internal/runs/{run_id}/editable-documents")
         response.raise_for_status()
         return response.json()
 
-    def list_editable_collections(self, run_id: str) -> list[dict[str, Any]]:
+    async def list_editable_collections(self, run_id: str) -> list[dict[str, Any]]:
         """The collections the run's user may add a document to - computed backend-side from the run's
         own snapshot, like list_editable_documents."""
-        response = self._client.get(f"/api/internal/runs/{run_id}/editable-collections")
+        response = await self._client.get(f"/api/internal/runs/{run_id}/editable-collections")
         response.raise_for_status()
         return response.json()
 
-    def create_edit_request(self, run_id: str, document_id: str, prompt: str) -> dict[str, Any]:
+    async def create_edit_request(self, run_id: str, document_id: str, prompt: str) -> dict[str, Any]:
         """Delegates an edit to the editing agent: the backend creates the draft (and the document
         lock) and sends the job. Returns the draft's state; raises EditRequestRefused when it
         declines (not allowed, locked by someone, a proposal already pending...)."""
         try:
-            response = self._client.post(
+            response = await self._client.post(
                 f"/api/internal/runs/{run_id}/edit-requests", json={"document_id": document_id, "prompt": prompt}
             )
             response.raise_for_status()
@@ -160,56 +172,56 @@ class BackendClient:
             raise _refusal(error) from error
         return response.json()
 
-    def get_edit_request(self, run_id: str, document_id: str) -> dict[str, Any]:
+    async def get_edit_request(self, run_id: str, document_id: str) -> dict[str, Any]:
         """Where the delegated edit stands. Reading it also keeps the draft (and its lock) alive."""
         try:
-            response = self._client.get(f"/api/internal/runs/{run_id}/edit-requests/{document_id}")
+            response = await self._client.get(f"/api/internal/runs/{run_id}/edit-requests/{document_id}")
             response.raise_for_status()
         except httpx.HTTPStatusError as error:
             raise _refusal(error) from error
         return response.json()
 
-    def set_run_error(self, run_id: str, error: str) -> None:
-        response = self._client.patch(f"/api/internal/runs/{run_id}/error", json={"error": error})
+    async def set_run_error(self, run_id: str, error: str) -> None:
+        response = await self._client.patch(f"/api/internal/runs/{run_id}/error", json={"error": error})
         response.raise_for_status()
 
-    def create_chart(self, run_id: str, body: dict[str, Any]) -> dict[str, Any]:
+    async def create_chart(self, run_id: str, body: dict[str, Any]) -> dict[str, Any]:
         """Stores a chart the SQL worker drew (#434). The backend keeps the PNG and serves it with the rights of the
         conversation; it answers the URL and the Markdown that shows it."""
-        response = self._client.post(f"/api/internal/runs/{run_id}/charts", json=body)
+        response = await self._client.post(f"/api/internal/runs/{run_id}/charts", json=body)
         response.raise_for_status()
         return response.json()
 
-    def add_run_event(
+    async def add_run_event(
         self,
         run_id: str,
         type_: str,
         data: dict[str, Any] | None = None,
         task_id: str | None = None,
     ) -> None:
-        response = self._client.post(
+        response = await self._client.post(
             f"/api/internal/runs/{run_id}/events",
             json={"type": type_, "data": data, "task_id": task_id},
         )
         response.raise_for_status()
 
-    def list_accessible_collections(self, user_id: str, groups: list[str] | None = None) -> list[dict[str, Any]]:
+    async def list_accessible_collections(self, user_id: str, groups: list[str] | None = None) -> list[dict[str, Any]]:
         # groups: this user's Keycloak groups at run creation time (Run.user_groups) - without
         # it, a collection shared to a group the user belongs to (see CollectionRepository.
         # list_all_accessible) would be invisible to the agent's VDB routing.
-        response = self._client.get(
+        response = await self._client.get(
             f"/api/internal/users/{user_id}/accessible-collections",
             params={"groups": groups or []},
         )
         response.raise_for_status()
         return response.json()
 
-    def search(
+    async def search(
         self, collection_ids: list[str], query: str, limit: int, include_descendants: bool = False
     ) -> list[dict[str, Any]]:
         """`include_descendants`: also the sub-collections below the given ones - read access is inherited down the
         tree, so the whole subtree is as readable as the collections the user can read."""
-        response = self._client.post(
+        response = await self._client.post(
             "/api/internal/search",
             json={
                 "collection_ids": collection_ids,
@@ -221,10 +233,10 @@ class BackendClient:
         response.raise_for_status()
         return response.json()
 
-    def search_qa(
+    async def search_qa(
         self, collection_ids: list[str], query: str, limit: int, include_descendants: bool = False
     ) -> list[dict[str, Any]]:
-        response = self._client.post(
+        response = await self._client.post(
             "/api/internal/qa-search",
             json={
                 "collection_ids": collection_ids,
@@ -236,10 +248,10 @@ class BackendClient:
         response.raise_for_status()
         return response.json()
 
-    def search_summaries(
+    async def search_summaries(
         self, collection_ids: list[str], query: str, limit: int, include_descendants: bool = False
     ) -> list[dict[str, Any]]:
-        response = self._client.post(
+        response = await self._client.post(
             "/api/internal/summary-search",
             json={
                 "collection_ids": collection_ids,
@@ -251,32 +263,32 @@ class BackendClient:
         response.raise_for_status()
         return response.json()
 
-    def search_collections(self, collection_ids: list[str], query: str, limit: int) -> list[dict[str, Any]]:
+    async def search_collections(self, collection_ids: list[str], query: str, limit: int) -> list[dict[str, Any]]:
         """Vector search over collection *descriptions* (§ VDB routing pre-filter, #124) -
         restricted to `collection_ids`, so the backend never returns a collection the caller
         didn't already establish the user can access."""
-        response = self._client.post(
+        response = await self._client.post(
             "/api/internal/collections/search",
             json={"collection_ids": collection_ids, "query": query, "limit": limit},
         )
         response.raise_for_status()
         return response.json()
 
-    def llm_chat(self, model: str, messages: list[dict[str, str]], max_tokens: int | None = None) -> str:
-        response = self._client.post(
+    async def llm_chat(self, model: str, messages: list[dict[str, str]], max_tokens: int | None = None) -> str:
+        response = await self._client.post(
             "/api/internal/llm/chat",
             json={"model": model, "messages": messages, "max_tokens": max_tokens, "usage": current_usage()},
         )
         response.raise_for_status()
         return response.json()["content"]
 
-    def llm_chat_with_usage(
+    async def llm_chat_with_usage(
         self, model: str, messages: list[dict[str, str]], max_tokens: int | None = None
     ) -> dict[str, Any]:
         """Same as llm_chat but also returns token usage (prompt_tokens, completion_tokens).
         Used by generate_answer to record per-message token stats on the assistant message.
         """
-        response = self._client.post(
+        response = await self._client.post(
             "/api/internal/llm/chat",
             json={"model": model, "messages": messages, "max_tokens": max_tokens, "usage": current_usage()},
         )
@@ -288,9 +300,9 @@ class BackendClient:
             "completion_tokens": data.get("completion_tokens"),
         }
 
-    def llm_chat_stream(
+    async def llm_chat_stream(
         self, model: str, messages: list[dict[str, str]], max_tokens: int | None = None
-    ) -> Iterator[dict[str, Any]]:
+    ) -> AsyncIterator[dict[str, Any]]:
         """Same call as llm_chat_with_usage, but yields what the model writes as it writes it:
         {"delta": "..."} items, then a last {"done": True, "prompt_tokens", "completion_tokens"}."""
         # Not through the route: a streamed response is only handed over once it is whole in process, and the chat
@@ -301,74 +313,78 @@ class BackendClient:
         request = LlmChatRequest.model_validate(
             {"model": model, "messages": messages, "max_tokens": max_tokens, "usage": current_usage()}
         )
-        for line in iterate_on_loop(run_on_loop(open_chat_stream(request))):
+        async for line in await open_chat_stream(request):
             if line.strip():
                 yield json.loads(line)
 
-    def set_partial_answer(self, run_id: str, text: str) -> None:
+    async def set_partial_answer(self, run_id: str, text: str) -> None:
         """Publishes the part of the answer written so far, for the chat to show while it is still being
         written. Best effort: a missed update only means the text shows up a little later."""
         try:
-            self._client.put(f"/api/internal/runs/{run_id}/partial-answer", json={"text": text}).raise_for_status()
+            await self._client.put(
+                f"/api/internal/runs/{run_id}/partial-answer", json={"text": text}
+            ).raise_for_status()
         except httpx.HTTPError:
             pass
 
-    def get_default_chat_model(self) -> str | None:
-        response = self._client.get("/api/internal/llm/default-chat-model")
+    async def get_default_chat_model(self) -> str | None:
+        response = await self._client.get("/api/internal/llm/default-chat-model")
         response.raise_for_status()
         return response.json()["model"]
 
-    def list_collection_documents(self, user_id: str, collection_id: str) -> list[dict[str, Any]]:
-        response = self._client.get(f"/api/internal/users/{user_id}/collections/{collection_id}/documents")
+    async def list_collection_documents(self, user_id: str, collection_id: str) -> list[dict[str, Any]]:
+        response = await self._client.get(f"/api/internal/users/{user_id}/collections/{collection_id}/documents")
         response.raise_for_status()
         return response.json()
 
-    def list_tabular_documents(self, user_id: str, collection_id: str) -> list[dict[str, Any]]:
+    async def list_tabular_documents(self, user_id: str, collection_id: str) -> list[dict[str, Any]]:
         """Lists tabular documents in a collection that the agent can query with DuckDB.
         Returns id/name/storage_key/format + the full tabular profile (columns, classification)
         so the SQL generator has the schema without an extra round-trip."""
-        response = self._client.get(f"/api/internal/users/{user_id}/collections/{collection_id}/tabular-documents")
+        response = await self._client.get(
+            f"/api/internal/users/{user_id}/collections/{collection_id}/tabular-documents"
+        )
         response.raise_for_status()
         return response.json()
 
-    def get_document_page(self, user_id: str, document_id: str, page_number: int) -> dict[str, Any]:
-        response = self._client.get(f"/api/internal/users/{user_id}/documents/{document_id}/pages/{page_number}")
+    async def get_document_page(self, user_id: str, document_id: str, page_number: int) -> dict[str, Any]:
+        response = await self._client.get(f"/api/internal/users/{user_id}/documents/{document_id}/pages/{page_number}")
         response.raise_for_status()
         return response.json()
 
-    def update_conversation_title(self, conversation_id: str, title: str) -> None:
-        response = self._client.patch(
+    async def update_conversation_title(self, conversation_id: str, title: str) -> None:
+        response = await self._client.patch(
             f"/api/internal/conversations/{conversation_id}/title",
             json={"title": title},
         )
         response.raise_for_status()
 
-    def get_active_prompt(self, name: str) -> dict[str, Any] | None:
+    async def get_active_prompt(self, name: str) -> dict[str, Any] | None:
         """None on a 404 (no active version yet for this name) as well as any other failure -
         callers fall back to their own hardcoded default rather than crash the run over the
         prompt-versioning service being unavailable."""
         try:
-            response = self._client.get(f"/api/internal/prompts/{name}/active")
+            response = await self._client.get(f"/api/internal/prompts/{name}/active")
             response.raise_for_status()
             return response.json()
         except httpx.HTTPError:
             return None
 
-    def add_prompt_usages(self, run_id: str, prompt_version_ids: list[str]) -> None:
-        response = self._client.post(
+    async def add_prompt_usages(self, run_id: str, prompt_version_ids: list[str]) -> None:
+        response = await self._client.post(
             f"/api/internal/prompts/runs/{run_id}/usages",
             json={"prompt_version_ids": prompt_version_ids},
         )
         response.raise_for_status()
 
-    def add_task_logs(self, lines: list[dict]) -> None:
+    async def add_task_logs(self, lines: list[dict]) -> None:
         """A short timeout: the lines are sent again with the next batch, a task never waits on them."""
-        response = self._client.post("/api/internal/task-logs", json={"entries": lines}, timeout=5.0)
+        response = await self._client.post("/api/internal/task-logs", json={"entries": lines}, timeout=5.0)
         response.raise_for_status()
 
-    def add_execution_metric(self, metric: dict) -> None:
+    async def add_execution_metric(self, metric: dict) -> None:
         """A short timeout: it is sent from a thread of its own and dropped if it fails, a task never waits on it."""
-        response = self._client.post("/api/internal/execution-metrics", json=metric, timeout=5.0)
+        response = await self._client.post("/api/internal/execution-metrics", json=metric, timeout=5.0)
         response.raise_for_status()
 
 

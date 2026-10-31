@@ -81,7 +81,7 @@ def _miscited(value: Any, valid_ids: set[str], limit: int = 5) -> list[dict[str,
     return found[:limit]
 
 
-def ground_check(state: AgentState) -> GroundingResult | None:
+async def ground_check(state: AgentState) -> GroundingResult | None:
     """Claim-by-claim check after generation (§23), not just the structural "citations exist" check generate_answer
     already enforces: it catches an answer that cites real excerpts but still asserts something they don't say, and
     (#402) claims that cite an excerpt which does not support them or cite none. None when there is nothing to check."""
@@ -94,13 +94,13 @@ def ground_check(state: AgentState) -> GroundingResult | None:
 
     # Made after the graph, so no node named the step: the call is the check's, not the answer's.
     set_usage(run_id=run_id, step="ground_check")
-    emit(run_id, "grounding_validation_started")
+    await emit(run_id, "grounding_validation_started")
     valid_ids = {e["id"] for e in excerpts}
     # A citation whose passage the excerpt does not have: found without a model, whatever the check says.
     unverified = [c["evidence_id"] for c in state.get("citations") or [] if c.get("cited") and not c.get("quote")]
     evidence_block = "\n\n".join(_evidence_line(e) for e in excerpts)
-    system_prompt, _prompt_version_id = get_prompt("validate_grounding", fallback=_SYSTEM_PROMPT)
-    raw = json_chat(
+    system_prompt, _prompt_version_id = await get_prompt("validate_grounding", fallback=_SYSTEM_PROMPT)
+    raw = await json_chat(
         model,
         system_prompt + _CITATION_CHECK,
         f"Answer:\n{answer}\n\nEvidence:\n{evidence_block}",
@@ -115,5 +115,5 @@ def ground_check(state: AgentState) -> GroundingResult | None:
         uncited_claims=_strings(raw.get("uncited_claims")),
     )
     result["unverified_citations"] = unverified
-    emit(run_id, "grounding_validation_completed", dict(result))
+    await emit(run_id, "grounding_validation_completed", dict(result))
     return result

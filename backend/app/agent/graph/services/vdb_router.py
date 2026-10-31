@@ -16,7 +16,7 @@ _VECTOR_PREFILTER_TOP_K = 20
 _PATH_SEPARATOR = " › "
 
 
-def vector_prefilter(query: str, accessible_vdbs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+async def vector_prefilter(query: str, accessible_vdbs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Narrows a large accessible set down to `_VECTOR_PREFILTER_TOP_K` candidates by comparing
     the query's embedding to each collection's description embedding (§124) - never the security
     boundary itself (that's `accessible_vdbs`, already filtered by the backend), just a relevance
@@ -24,7 +24,7 @@ def vector_prefilter(query: str, accessible_vdbs: list[dict[str, Any]]) -> list[
     collection count. Falls back to the full set on any failure (no embedding model configured,
     Qdrant unreachable, etc.) - same fail-open philosophy as the LLM call below."""
     try:
-        scored = backend_client.search_collections(
+        scored = await backend_client.search_collections(
             [str(v["id"]) for v in accessible_vdbs], query, _VECTOR_PREFILTER_TOP_K
         )
     except Exception:

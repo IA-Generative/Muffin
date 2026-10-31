@@ -83,27 +83,27 @@ def _bounded_wait(monkeypatch):
     monkeypatch.setattr(settings, "EDIT_WAIT_SECONDS", 2)
 
 
-def _run(make_run, query: str, verdict: dict | None, *, docs=DOCS, states=None):
+async def _run(make_run, query: str, verdict: dict | None, *, docs=DOCS, states=None):
     graph, fake = make_run(_vdbs(), _router(verdict))
     fake.editable_documents = docs
     fake.edit_states = states or [_draft("ready", edited=True, operations_summary="- Paragraphe ajouté.")]
     state = initial_state(query)
-    return graph.invoke(state, config=_config(state)), fake, state
+    return (await graph.ainvoke(state, config=_config(state))), fake, state
 
 
 # -- when it is (not) an edit -------------------------------------------------------------------
 
 
-def test_a_question_without_an_edit_verb_never_touches_the_edit_machinery(make_run):
-    result, fake, _ = _run(make_run, "Quelle est la procédure d'arrivée ?", _edit())
+async def test_a_question_without_an_edit_verb_never_touches_the_edit_machinery(make_run):
+    result, fake, _ = await _run(make_run, "Quelle est la procédure d'arrivée ?", _edit())
 
     assert fake.editable_calls == []
     assert result["answer"] == "Réponse de recherche."
     assert not any("Documents the user can edit" in call[1]["content"] for call in fake.llm_calls)
 
 
-def test_a_message_that_looks_like_an_edit_but_has_nothing_editable_goes_on_as_a_question(make_run):
-    result, fake, state = _run(make_run, "Ajoute le numéro 15 dans la procédure", _edit(), docs=[])
+async def test_a_message_that_looks_like_an_edit_but_has_nothing_editable_goes_on_as_a_question(make_run):
+    result, fake, state = await _run(make_run, "Ajoute le numéro 15 dans la procédure", _edit(), docs=[])
 
     assert fake.editable_calls == [state["run_id"]]
     assert fake.edit_creates == []
@@ -111,22 +111,22 @@ def test_a_message_that_looks_like_an_edit_but_has_nothing_editable_goes_on_as_a
     assert not any("Documents the user can edit" in call[1]["content"] for call in fake.llm_calls)
 
 
-def test_the_model_saying_it_is_not_an_edit_leaves_the_run_to_the_research_pipeline(make_run):
-    result, fake, _ = _run(make_run, "Peux-tu changer de sujet ? Parle-moi de la procédure", {"edit": False})
+async def test_the_model_saying_it_is_not_an_edit_leaves_the_run_to_the_research_pipeline(make_run):
+    result, fake, _ = await _run(make_run, "Peux-tu changer de sujet ? Parle-moi de la procédure", {"edit": False})
 
     assert fake.edit_creates == []
     assert result["answer"] == "Réponse de recherche."
 
 
 @pytest.mark.parametrize("verdict", [_edit(document_id="doc-999"), _edit(document_id=None), {"edit": True}])
-def test_an_id_the_user_was_not_offered_is_never_acted_on(make_run, verdict):
-    result, fake, _ = _run(make_run, "Ajoute le numéro 15 dans la procédure", verdict)
+async def test_an_id_the_user_was_not_offered_is_never_acted_on(make_run, verdict):
+    result, fake, _ = await _run(make_run, "Ajoute le numéro 15 dans la procédure", verdict)
 
     assert fake.edit_creates == []
     assert result["answer"] == "Réponse de recherche."
 
 
-def test_an_unusable_reply_from_the_model_falls_back_to_the_research_pipeline(make_run):
+async def test_an_unusable_reply_from_the_model_falls_back_to_the_research_pipeline(make_run):
     def router(system_prompt: str) -> str:
         if "may be asking to CHANGE" in system_prompt:
             return "pas du JSON"
@@ -136,14 +136,14 @@ def test_an_unusable_reply_from_the_model_falls_back_to_the_research_pipeline(ma
     fake.editable_documents = DOCS
     state = initial_state("Ajoute le numéro 15 dans la procédure")
 
-    result = graph.invoke(state, config=_config(state))
+    result = await graph.ainvoke(state, config=_config(state))
 
     assert fake.edit_creates == []
     assert result["answer"] == "Réponse de recherche."
 
 
-def test_the_model_is_only_shown_documents_the_backend_listed_and_the_conversation(make_run):
-    _, fake, _ = _run(make_run, "Ajoute le numéro 15", _edit())
+async def test_the_model_is_only_shown_documents_the_backend_listed_and_the_conversation(make_run):
+    _, fake, _ = await _run(make_run, "Ajoute le numéro 15", _edit())
 
     prompt = next(c for c in fake.llm_calls if "You are the planner" in c[0]["content"])[1]["content"]
     assert f"id={DOC_ID} | « procedure.odt » (collection « Procédures RH ») - Les étapes d'arrivée" in prompt
@@ -154,7 +154,7 @@ def test_the_model_is_only_shown_documents_the_backend_listed_and_the_conversati
 # -- delegating ---------------------------------------------------------------------------------
 
 
-def test_an_edit_is_delegated_to_the_backend_with_the_run_identity_and_waits_for_the_result(make_run):
+async def test_an_edit_is_delegated_to_the_backend_with_the_run_identity_and_waits_for_the_result(make_run):
     states = [
         _draft("pending"),
         _draft("pending"),
@@ -168,7 +168,7 @@ def test_an_edit_is_delegated_to_the_backend_with_the_run_identity_and_waits_for
         ),
     ]
 
-    result, fake, state = _run(make_run, "Ajoute le numéro 15 dans la procédure", _edit(), states=states)
+    result, fake, state = await _run(make_run, "Ajoute le numéro 15 dans la procédure", _edit(), states=states)
 
     # What it asked for - the instruction the model restated, for the document it picked.
     assert fake.edit_creates == [(state["run_id"], DOC_ID, "Ajoute le numéro 15")]
@@ -183,7 +183,7 @@ def test_an_edit_is_delegated_to_the_backend_with_the_run_identity_and_waits_for
     assert result["completed_task_ids"] == []
 
 
-def test_each_wait_checks_for_a_cancellation_and_stops_cleanly(make_run):
+async def test_each_wait_checks_for_a_cancellation_and_stops_cleanly(make_run):
     graph, fake = make_run(_vdbs(), _router(_edit()))
     fake.editable_documents = DOCS
     fake.edit_states = [_draft("pending")]
@@ -198,17 +198,17 @@ def test_each_wait_checks_for_a_cancellation_and_stops_cleanly(make_run):
     fake.get_edit_request = cancelling
     state = initial_state("Ajoute le numéro 15 dans la procédure")
 
-    result = graph.invoke(state, config=_config(state))
+    result = await graph.ainvoke(state, config=_config(state))
 
     assert result.get("cancelled") is True
     assert result["answer"] is None
     assert polls["count"] == 1  # noticed on the very next round: no second question to the backend
 
 
-def test_a_draft_the_editing_agent_could_not_make_is_reported_with_the_card_kept(make_run):
+async def test_a_draft_the_editing_agent_could_not_make_is_reported_with_the_card_kept(make_run):
     states = [_draft("pending"), _draft("failed", error="Aucun modèle de chat n'est configuré.")]
 
-    result, _, _ = _run(make_run, "Ajoute le numéro 15 dans la procédure", _edit(), states=states)
+    result, _, _ = await _run(make_run, "Ajoute le numéro 15 dans la procédure", _edit(), states=states)
 
     assert (
         result["answer"]
@@ -217,36 +217,38 @@ def test_a_draft_the_editing_agent_could_not_make_is_reported_with_the_card_kept
     assert result["edit_proposal"] == PROPOSAL
 
 
-def test_an_agent_that_declines_has_its_explanation_relayed(make_run):
+async def test_an_agent_that_declines_has_its_explanation_relayed(make_run):
     states = [
         _draft("pending"),
         _draft("ready", edited=False, operations_summary="La liste des étapes n'est pas modifiable."),
     ]
 
-    result, _, _ = _run(make_run, "Ajoute une étape à la liste", _edit(instruction="Ajoute une étape"), states=states)
+    result, _, _ = await _run(
+        make_run, "Ajoute une étape à la liste", _edit(instruction="Ajoute une étape"), states=states
+    )
 
     assert result["answer"] == "Je n'ai pas modifié « procedure.odt » : La liste des étapes n'est pas modifiable."
     assert result["edit_proposal"] == PROPOSAL
 
 
-def test_a_wait_that_runs_out_says_the_proposal_will_appear(make_run, monkeypatch):
+async def test_a_wait_that_runs_out_says_the_proposal_will_appear(make_run, monkeypatch):
     monkeypatch.setattr(settings, "EDIT_WAIT_SECONDS", 0)
 
-    result, fake, _ = _run(make_run, "Ajoute le numéro 15 dans la procédure", _edit(), states=[_draft("pending")])
+    result, fake, _ = await _run(make_run, "Ajoute le numéro 15 dans la procédure", _edit(), states=[_draft("pending")])
 
     assert fake.edit_polls == 0
     assert "travaille encore" in result["answer"]
     assert result["edit_proposal"] == PROPOSAL
 
 
-def test_a_draft_that_disappears_while_waiting_is_reported(make_run):
+async def test_a_draft_that_disappears_while_waiting_is_reported(make_run):
     graph, fake = make_run(_vdbs(), _router(_edit()))
     fake.editable_documents = DOCS
     fake.edit_states = [_draft("pending")]
     fake.edit_gone = EditRequestRefused(404, None, "Ce document est introuvable.")
     state = initial_state("Ajoute le numéro 15 dans la procédure")
 
-    result = graph.invoke(state, config=_config(state))
+    result = await graph.ainvoke(state, config=_config(state))
 
     assert result["answer"] == "Ce document est introuvable."
     assert result["edit_proposal"] is None
@@ -255,7 +257,7 @@ def test_a_draft_that_disappears_while_waiting_is_reported(make_run):
 # -- when the backend says no -------------------------------------------------------------------
 
 
-def test_a_proposal_already_waiting_is_pointed_to_rather_than_hidden(make_run):
+async def test_a_proposal_already_waiting_is_pointed_to_rather_than_hidden(make_run):
     graph, fake = make_run(_vdbs(), _router(_edit()))
     fake.editable_documents = DOCS
     fake.edit_refusal = EditRequestRefused(
@@ -263,7 +265,7 @@ def test_a_proposal_already_waiting_is_pointed_to_rather_than_hidden(make_run):
     )
     state = initial_state("Ajoute le numéro 15 dans la procédure")
 
-    result = graph.invoke(state, config=_config(state))
+    result = await graph.ainvoke(state, config=_config(state))
 
     assert result["answer"] == "Ce document a déjà un brouillon : validez-le ou refusez-le d'abord."
     assert result["edit_proposal"] == PROPOSAL  # the card to go and deal with it
@@ -276,23 +278,23 @@ def test_a_proposal_already_waiting_is_pointed_to_rather_than_hidden(make_run):
         EditRequestRefused(409, "document_locked", "Ce document est en cours de modification par Marie L."),
     ],
 )
-def test_other_refusals_are_told_to_the_user_without_a_card(make_run, refusal):
+async def test_other_refusals_are_told_to_the_user_without_a_card(make_run, refusal):
     graph, fake = make_run(_vdbs(), _router(_edit()))
     fake.editable_documents = DOCS
     fake.edit_refusal = refusal
     state = initial_state("Ajoute le numéro 15 dans la procédure")
 
-    result = graph.invoke(state, config=_config(state))
+    result = await graph.ainvoke(state, config=_config(state))
 
     assert result["answer"] == refusal.message
     assert result["edit_proposal"] is None
     assert fake.edit_polls == 0
 
 
-def test_several_possible_documents_make_the_agent_ask_instead_of_guessing(make_run):
+async def test_several_possible_documents_make_the_agent_ask_instead_of_guessing(make_run):
     verdict = {"edit": True, "document_id": None, "candidates": [DOC_ID, "doc-2"], "instruction": "Ajoute le numéro 15"}
 
-    result, fake, _ = _run(make_run, "Ajoute le numéro 15 dans le document", verdict)
+    result, fake, _ = await _run(make_run, "Ajoute le numéro 15 dans le document", verdict)
 
     assert fake.edit_creates == []
     assert result["answer"].startswith("Plusieurs documents modifiables pourraient correspondre")
@@ -301,10 +303,10 @@ def test_several_possible_documents_make_the_agent_ask_instead_of_guessing(make_
     assert result["edit_proposal"] is None
 
 
-def test_candidates_are_only_the_documents_it_was_offered(make_run):
+async def test_candidates_are_only_the_documents_it_was_offered(make_run):
     verdict = {"edit": True, "document_id": None, "candidates": [DOC_ID, "doc-999"], "instruction": "x"}
 
-    result, fake, _ = _run(make_run, "Ajoute le numéro 15 dans le document", verdict)
+    result, fake, _ = await _run(make_run, "Ajoute le numéro 15 dans le document", verdict)
 
     # Only one real candidate: not ambiguous, and not an id to act on - an ordinary question.
     assert fake.edit_creates == []

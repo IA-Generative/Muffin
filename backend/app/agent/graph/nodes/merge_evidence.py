@@ -19,14 +19,14 @@ def _dedupe(evidence: list[Evidence]) -> list[Evidence]:
     return deduped
 
 
-def merge_evidence(state: AgentState) -> dict[str, Any]:
+async def merge_evidence(state: AgentState) -> dict[str, Any]:
     run_id = state["run_id"]
-    if is_cancelled(run_id):
+    if await is_cancelled(run_id):
         return {"cancelled": True}
 
-    set_activity(run_id, "merge_evidence", "Merging the research results")
+    await set_activity(run_id, "merge_evidence", "Merging the research results")
     deduped = _dedupe(state["evidence"])
-    emit(
+    await emit(
         run_id,
         "evidence_updated",
         {

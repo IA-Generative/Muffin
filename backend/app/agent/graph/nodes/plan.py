@@ -211,33 +211,33 @@ def _tasks(plan: dict[str, Any]) -> list[ResearchTask]:
     ]
 
 
-def plan(state: AgentState) -> dict[str, Any]:
+async def plan(state: AgentState) -> dict[str, Any]:
     """The one call that decides what happens (the replacement of detect_edit, detect_create, analyze_query,
     decompose_query and the choice of collections of each task): answer now, ask, explain the application, edit or
     create a document, or search - with which queries, tools and collections. Everything after it is code."""
     run_id = state["run_id"]
-    if is_cancelled(run_id):
+    if await is_cancelled(run_id):
         return {"cancelled": True}
 
-    set_activity(run_id, "plan", "Analyzing your question")
-    emit(run_id, "query_analysis_started", {"query": state["original_query"]})
+    await set_activity(run_id, "plan", "Analyzing your question")
+    await emit(run_id, "query_analysis_started", {"query": state["original_query"]})
 
     model = state["chat_model"]
     prompt_usages: list[str] = []
     if model is None:
         raw: Any = None
     else:
-        template, prompt_version_id = get_prompt("plan", fallback=_SYSTEM_PROMPT)
+        template, prompt_version_id = await get_prompt("plan", fallback=_SYSTEM_PROMPT)
         if prompt_version_id:
             prompt_usages.append(prompt_version_id)
         guide = BASE_TOOL_GUIDE + (WEB_SEARCH_TOOL_GUIDE if state["web_search_enabled"] else "")
         system_prompt = template.replace("{guide}", guide).replace("{capabilities}", AUTHORING_CAPABILITIES)
-        raw = json_chat(model, system_prompt + _QUESTIONS_INSTRUCTION, _user_content(state), fallback=None)
+        raw = await json_chat(model, system_prompt + _QUESTIONS_INSTRUCTION, _user_content(state), fallback=None)
 
     plan_ = normalize_plan(raw, state)
     mode = plan_["mode"]
     standalone = plan_.get("standalone_query") or state["original_query"]
-    emit(run_id, "query_analysis_completed", {"analysis": {k: v for k, v in plan_.items() if k != "answer"}})
+    await emit(run_id, "query_analysis_completed", {"analysis": {k: v for k, v in plan_.items() if k != "answer"}})
 
     updates: dict[str, Any] = {
         "plan": plan_,
@@ -256,25 +256,27 @@ def plan(state: AgentState) -> dict[str, Any]:
         updates |= {"answer": plan_["answer"], "citations": []}
     elif mode == "clarify":
         text = render_questions(plan_["questions"])
-        emit(run_id, "clarification_requested", {"question": text, "questions": plan_["questions"]})
+        await emit(run_id, "clarification_requested", {"question": text, "questions": plan_["questions"]})
         updates |= {"answer": text, "citations": [], "questions": plan_["questions"]}
     elif mode == "edit":
-        updates["edit_target"] = _edit_target(plan_, state)
+        updates["edit_target"] = await _edit_target(plan_, state)
     elif mode == "create":
-        updates["create_target"] = _create_target(plan_, state)
+        updates["create_target"] = await _create_target(plan_, state)
     elif mode == "search":
         updates["research_tasks"] = _tasks(plan_)
         updates["scope_ids"] = scope_ids(plan_["collections"], state["pinned_vdb_ids"], state["accessible_vdbs"])
     return updates
 
 
-def _edit_target(plan_: dict[str, Any], state: AgentState) -> dict[str, Any]:
+async def _edit_target(plan_: dict[str, Any], state: AgentState) -> dict[str, Any]:
     documents = state["edit_candidates"]
     if "document_id" not in plan_:
-        emit(state["run_id"], "edit_target_ambiguous", {"candidates": plan_["candidates"]})
+        await emit(state["run_id"], "edit_target_ambiguous", {"candidates": plan_["candidates"]})
         return {"clarification": edit_clarification(documents, plan_["candidates"])}
     chosen = next(d for d in documents if d["document_id"] == plan_["document_id"])
-    emit(state["run_id"], "edit_target_detected", {"document_id": chosen["document_id"], "document": chosen["name"]})
+    await emit(
+        state["run_id"], "edit_target_detected", {"document_id": chosen["document_id"], "document": chosen["name"]}
+    )
     return {
         "document_id": chosen["document_id"],
         "document_name": chosen["name"],
@@ -283,9 +285,9 @@ def _edit_target(plan_: dict[str, Any], state: AgentState) -> dict[str, Any]:
     }
 
 
-def _create_target(plan_: dict[str, Any], state: AgentState) -> dict[str, Any]:
+async def _create_target(plan_: dict[str, Any], state: AgentState) -> dict[str, Any]:
     if "refused" in plan_:
-        emit(
+        await emit(
             state["run_id"],
             "create_refused",
             {"reason": "not_markdown" if plan_["refused"] == NOT_MARKDOWN else "no_collection"},
@@ -293,10 +295,10 @@ def _create_target(plan_: dict[str, Any], state: AgentState) -> dict[str, Any]:
         return {"clarification": plan_["refused"]}
     collections = state["create_candidates"]
     if "collection_id" not in plan_:
-        emit(state["run_id"], "create_target_ambiguous", {"candidates": plan_["candidates"]})
+        await emit(state["run_id"], "create_target_ambiguous", {"candidates": plan_["candidates"]})
         return {"clarification": create_clarification(collections, plan_["candidates"])}
     chosen = next(c for c in collections if c["collection_id"] == plan_["collection_id"])
-    emit(
+    await emit(
         state["run_id"],
         "create_target_detected",
         {"collection_id": chosen["collection_id"], "collection": chosen["name"]},
