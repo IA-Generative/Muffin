@@ -136,6 +136,12 @@ class WorkerSettings(BaseSettings):
     # A file copied from another system (#457) has its text on one page, and the summary reads by pages: it is cut,
     # in memory only, into pages of this many words.
     SYNC_SUMMARY_WORDS_PER_PAGE: int = 500
+    # The description of a collection copied from another system is made from a sample of its files (#457): this many,
+    # of different names, the first DESCRIBE_SAMPLE_CHARS characters of each. A file with less than
+    # DESCRIBE_MIN_CHARS characters of text says nothing of the collection and is passed over.
+    DESCRIBE_SAMPLE_FILES: int = 5
+    DESCRIBE_SAMPLE_CHARS: int = 3000
+    DESCRIBE_MIN_CHARS: int = 500
     URL_FETCH_TIMEOUT_SECONDS: int = 30 * 60
     # RustFS/S3: connecting, and waiting for the next bytes of a transfer.
     STORAGE_CONNECT_TIMEOUT_SECONDS: int = 10

@@ -420,6 +420,11 @@ class BackendClient:
         response.raise_for_status()
         return response.json()["model"]
 
+    def list_collection_documents(self, collection_id: str) -> list[dict[str, Any]]:
+        response = self._client.get(f"/api/internal/collections/{collection_id}/documents")
+        response.raise_for_status()
+        return response.json()
+
     def get_collection_metadata(self, collection_id: str) -> dict[str, Any]:
         response = self._client.get(f"/api/internal/collections/{collection_id}/metadata")
         response.raise_for_status()

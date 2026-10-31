@@ -39,12 +39,9 @@ def _index_description(collection_id: str, description: str) -> None:
         logger.exception(f"Failed to embed the new description for collection {collection_id}")
 
 
-def _maintain_description(document_id: str, collection_id: str, *, index_unchanged: bool = False) -> str | None:
+def _maintain_description(document_id: str, collection_id: str) -> str | None:
     """Brings the description of the collection up to date with the summary of this document, see
-    update_collection_description. Returns the new description, None when it stays as it was (or cannot be made).
-
-    `index_unchanged`: a description that stays is still put in the index of the descriptions if it is not there -
-    the one a collection copied from another system starts with was never written there (#457)."""
+    update_collection_description. Returns the new description, None when it stays as it was (or cannot be made)."""
     settings = _shared.backend_client.get_collection_settings(collection_id)
     model = _shared._model_for(settings, "summary")
     if model is None:
@@ -81,8 +78,6 @@ def _maintain_description(document_id: str, collection_id: str, *, index_unchang
         _publish_description(collection_id, new_description)
         return new_description
     logger.info(f"Description for collection {collection_id} left unchanged")
-    if index_unchanged and metadata["description"] and not metadata.get("description_indexed", True):
-        _index_description(collection_id, metadata["description"])
     return None
 
 
