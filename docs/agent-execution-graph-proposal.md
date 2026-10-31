@@ -1,7 +1,20 @@
 # Proposition : un agent à 1 à 3 appels LLM
 
-Proposition, rien n'est implémenté. Elle part de [l'audit et du graphe actuel](agent-execution-graph.md), qui fait 4 à 5 appels LLM
-en série pour une question simple et jusqu'à une dizaine pour une complexe.
+Cette proposition est **implémentée** : le graphe en place est décrit dans [agent-execution-graph.md](agent-execution-graph.md). Elle
+partait d'un graphe qui faisait 4 à 5 appels LLM en série pour une question simple et jusqu'à une dizaine pour une complexe.
+
+## Ce qui a été fait autrement que prévu
+
+| Prévu | Fait |
+|---|---|
+| Nœuds `direct` et `ask` | Pas de nœud : le plan écrit la réponse ou les questions, et le run s'arrête (arête vers la fin). |
+| Nœud `check_citations` | Le contrôle (ids inventés retirés, passage cité retrouvé dans l'extrait) est dans `generate_answer`, qui le faisait déjà ; la redemande de la réponse est supprimée. |
+| `ground_check` dans le graphe, « sans bloquer » | Hors du graphe : `AgentService` le lance une fois le run `completed`, puis enregistre le verdict (`PATCH /internal/runs/{id}/grounding`, nouvelle route). |
+| `hybrid_search` : une route backend à étages, un seul embedding | Trois appels parallèles aux routes existantes (QA, résumés, passages) avec `include_descendants`, que le backend savait déjà faire. La route unique reste à faire ; elle réduirait les trois embeddings à un. |
+| Recherche spéculative pendant le plan | Non faite. |
+| Sous-graphe de création en trois nœuds | Deux : `create_resolve`, `create_write` (qui propose aussi le brouillon). |
+| `gate` sur les scores | Le `gate` compte les passages au-dessus de `GATE_MIN_SCORE`, qui vaut 0 : il ne rejette donc que l'absence de résultat. Le seuil est à calibrer sur de vraies questions. |
+| Résumés : jugés suffisants par un modèle | Les 5 meilleurs résumés sont donnés tels quels comme preuves de type `summary`, sans appel. |
 
 ## Principes
 
