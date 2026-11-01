@@ -24,13 +24,16 @@ de plus au modèle** pour décider, ni pour exécuter (un appel d'outil n'est pa
 
 ## Les outils de Muffin
 
-Dans le code (`app/services/tools/internal_catalog.py`) : un identifiant stable, un nom, une description, un schéma, et la fonction qui l'exécute. Aucun ne touche
-au réseau, aucun ne modifie de données.
+Dans le code (`app/services/tools/internal_catalog.py`) : un identifiant stable, un nom, une description, un schéma, et la fonction qui l'exécute. Aucun ne modifie de
+données ; les deux premiers ne touchent pas au réseau.
 
 - **`calculatrice`** : calcul exact d'une expression (`+ - * / // % **`, `sqrt abs round min max`). Calculée **depuis l'arbre syntaxique, jamais avec `eval`** :
   un nom, un attribut, un autre appel, une chaîne ou un exposant démesuré sont refusés. La virgule décimale (`3,5`) est lue comme un point, sauf dans une
   expression avec fonction (`max(3, 9)`).
 - **`calcul_dates`** : jour de la semaine, date après N jours, écart entre deux dates, bornes d'un mois. Sans date, on part d'aujourd'hui (fuseau Europe/Paris).
+- **`generer_image`** (#518) : génère une image à partir d'une description et l'affiche sous la réponse. **Offert seulement si la génération d'images est activée** et
+  ouverte à la personne ; c'est le seul outil interne qui sort du réseau (vers le fournisseur choisi par l'administrateur) et qui a un coût, borné par le quota du
+  jour et `IMAGES_PER_RUN`. Voir `docs/image-generation.md`.
 
 ## Les serveurs MCP des utilisateurs
 
