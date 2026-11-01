@@ -7,6 +7,8 @@ interface SumsOut {
   input_tokens: number
   output_tokens: number
   total_tokens: number
+  images: number
+  pixels: number
   calls: number
 }
 
@@ -40,6 +42,8 @@ function toSums(raw: SumsOut): UsageSums {
     inputTokens: raw.input_tokens,
     outputTokens: raw.output_tokens,
     totalTokens: raw.total_tokens,
+    images: raw.images ?? 0,
+    pixels: raw.pixels ?? 0,
     calls: raw.calls,
   }
 }

@@ -20,6 +20,7 @@ export const STEP_LABELS: Record<string, string> = {
   validate_grounding: 'Chat · vérification de la réponse',
   research_task: 'Chat · recherche',
   run_agent: 'Chat',
+  image_generation: 'Chat · génération d’image',
   resume_agent: 'Chat',
   process_document: 'Documents · extraction du contenu',
   process_tabular_document: 'Documents · données tabulaires',

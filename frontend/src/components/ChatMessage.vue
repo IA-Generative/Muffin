@@ -9,6 +9,7 @@ import { answerHtml } from '../utils/answerHtml'
 import { toPlainText } from '../utils/plainText'
 import ChatCreateProposal from './ChatCreateProposal.vue'
 import ChatEditProposal from './ChatEditProposal.vue'
+import ChatImages from './ChatImages.vue'
 import ChatQuestions from './ChatQuestions.vue'
 import ChatToolCalls from './ChatToolCalls.vue'
 import FeedbackModal from './FeedbackModal.vue'
@@ -290,7 +291,7 @@ onBeforeUnmount(() => {
       </button>
 
       <div
-        v-if="message.role === 'assistant' && !message.pending && !message.error && !message.questions?.length"
+        v-if="message.role === 'assistant' && !message.pending && !message.error && !message.questions?.length && !message.images?.length"
         class="chat-message__actions"
       >
         <button type="button" class="chat-message__action" title="Copier" @click="copyContent">
@@ -451,6 +452,9 @@ onBeforeUnmount(() => {
       </p>
       <button type="button" class="fr-btn fr-btn--sm fr-btn--secondary" @click="goFurther()">Aller plus loin</button>
     </div>
+
+    <!-- Images made in the chat (#518): each says on itself that a model made it. -->
+    <ChatImages v-if="message.role === 'assistant' && message.images?.length && !message.pending" :images="message.images" />
 
     <!-- Tools that change data (#343): nothing ran; the person authorises or refuses. -->
     <ChatToolCalls

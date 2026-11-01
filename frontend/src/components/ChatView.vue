@@ -19,6 +19,7 @@ const {
   activeExecutionError,
   selectConversation,
   sendMessage,
+  generateImage,
   askSuggestion,
   regenerateMessage,
   sendFeedback,
@@ -49,6 +50,7 @@ watch(
   <ChatWindow
     :messages="messages"
     @send="sendMessage"
+    @generate-image="generateImage"
     @ask-suggestion="askSuggestion"
     @regenerate="regenerateMessage"
     @feedback="sendFeedback"

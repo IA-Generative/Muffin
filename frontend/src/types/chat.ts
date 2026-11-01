@@ -132,6 +132,20 @@ export interface ChatMessage {
   // Les outils qui modifient des données que le run de ce message a demandé à lancer (#343) : en attente de la
   // décision de la personne, ou déjà décidés.
   toolCalls?: ToolCallRequest[]
+  // Les images faites dans le chat (#518), chacune étiquetée « générée par IA » à l'écran.
+  images?: GeneratedImage[]
+}
+
+export interface GeneratedImage {
+  id: string
+  prompt: string
+  model: string
+  contentType: string
+  width: number
+  height: number
+  sizeBytes: number
+  // Où la lire : l'API, avec les droits de la conversation - jamais un lien du stockage ni du fournisseur.
+  url: string
 }
 
 export type ToolCallStatus = 'pending' | 'approved' | 'refused' | 'executed' | 'failed' | 'superseded' | 'expired'
