@@ -247,6 +247,26 @@ async def get_chart_image(
     )
 
 
+@router.get(
+    "/conversations/{conversation_id}/images/{image_id}",
+    summary="An image made in the chat (#518), streamed by the backend to the owner of its conversation only",
+    responses={200: {"content": {"image/png": {}, "image/jpeg": {}, "image/webp": {}}}},
+)
+async def get_generated_image(
+    conversation_id: uuid.UUID, image_id: uuid.UUID, user: UserDep, service: ConversationServiceDep
+) -> Response:
+    try:
+        content, content_type = await service.get_generated_image(conversation_id, image_id, user)
+    except ConversationNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found") from error
+    # The type was read from the bytes when the image was kept, and is a raster one: never anything a browser runs.
+    return Response(
+        content=content,
+        media_type=content_type,
+        headers={"Cache-Control": "private, max-age=3600", "X-Content-Type-Options": "nosniff"},
+    )
+
+
 @router.post(
     "/conversations/{conversation_id}/documents/file",
     summary="Upload a file directly into a conversation (§ conv-files) - indexed and searchable "

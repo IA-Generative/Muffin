@@ -12,11 +12,13 @@ from app.repositories.conversation_repository import ConversationRepository
 from app.repositories.discussion_feedback_repository import DiscussionFeedbackRepository
 from app.repositories.discussion_score_repository import DiscussionScoreRepository
 from app.repositories.feedback_repository import FeedbackRepository
+from app.repositories.generated_image_repository import GeneratedImageRepository
 from app.repositories.task_repository import TaskRepository
 from app.schemas.conversation import ConversationOut, ConversationSearchHit, MessageOut
 from app.schemas.discussion_feedback import DiscussionFeedbackOut
 from app.schemas.discussion_score import DiscussionScoreOut
 from app.schemas.pagination import Page, PaginationParams
+from app.services.image_generation_service import ImageGenerationService
 from app.services.tool_service import ToolService
 
 
@@ -29,6 +31,7 @@ class ConversationService:
         self.db = db
         self.conversations = ConversationRepository(db)
         self.charts = ChartRepository(db)
+        self.generated_images = GeneratedImageRepository(db)
         self.discussion_scores = DiscussionScoreRepository(db)
         self.discussion_feedbacks = DiscussionFeedbackRepository(db)
         self.tasks = TaskRepository(db)
@@ -73,6 +76,11 @@ class ConversationService:
         rows = await self.conversations.list_messages(conversation.id)
         message_ids = [message.id for message, *_run_fields in rows]
         feedback_map = await self.feedbacks.get_user_feedback_for_messages(message_ids, user.user_id)
+        # The images made in the chat (#518) are shown with the message that holds them.
+        images = {
+            message_id: [ImageGenerationService.present_image(image) for image in found]
+            for message_id, found in (await self.generated_images.for_messages(message_ids)).items()
+        }
         # The requests to run a tool that changes data are shown with the message of the run that made them (#343).
         proposals: dict[uuid.UUID, list] = {}
         for proposal in await ToolService(self.db).proposals_for_conversation(conversation.id, user.user_id):
@@ -98,6 +106,7 @@ class ConversationService:
                 feedback=feedback_map.get(message.id),
                 assistant_name=assistant_name,
                 tool_calls=proposals.get(message.run_id, []) if message.role == "assistant" and message.run_id else [],
+                images=images.get(message.id, []),
             )
             for message, citations, edit_proposal, unexplored_collection_ids, assistant_name in rows
         ]
@@ -119,8 +128,12 @@ class ConversationService:
 
     async def delete_conversation(self, conversation_id: uuid.UUID, user: RequestContext) -> None:
         conversation = await self._get_owned(conversation_id, user)
-        # The rows of the charts go with the conversation; their images are in the bucket, which has no cascade.
-        chart_keys = list(await self.charts.keys_for_conversation(conversation.id))
+        # The rows of the charts and of the images made in the chat (#518) go with the conversation; their files are in
+        # the bucket, which has no cascade.
+        chart_keys = [
+            *await self.charts.keys_for_conversation(conversation.id),
+            *await self.generated_images.keys_for_conversation(conversation.id),
+        ]
         await self.conversations.delete(conversation)
         await self.db.commit()
         if chart_keys:
@@ -140,6 +153,18 @@ class ConversationService:
         if chart is None:
             raise ConversationNotFoundError
         return await asyncio.to_thread(storage.get_object, chart.s3_key)
+
+    async def get_generated_image(
+        self, conversation_id: uuid.UUID, image_id: uuid.UUID, user: RequestContext
+    ) -> tuple[bytes, str]:
+        """An image made in the chat (#518) and its type as it was checked on the way in, for the owner of its
+        conversation only."""
+        conversation = await self._get_owned(conversation_id, user)
+        image = await self.generated_images.get_in_conversation(image_id, conversation.id)
+        if image is None:
+            raise ConversationNotFoundError
+        content, _ = await asyncio.to_thread(storage.get_object, image.s3_key)
+        return content, image.content_type
 
     async def trigger_discussion_score(self, conversation_id: uuid.UUID, user: RequestContext) -> str:
         conversation = await self._get_owned(conversation_id, user)

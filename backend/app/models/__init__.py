@@ -51,6 +51,7 @@ from app.models.feedback import (
     FeedbackValue,
 )
 from app.models.group import Group, GroupMember, MemberStatus, ResourceSource
+from app.models.image_generation import GeneratedImage, ImageGenerationSettings
 from app.models.import_document import ImportDocument
 from app.models.index_rebuild import IndexRebuild, IndexRebuildStatus
 from app.models.message import Message, MessageRole
@@ -101,6 +102,8 @@ __all__ = [
     "DocumentTag",
     "DocumentTabularProfile",
     "DocumentTabularSheet",
+    "GeneratedImage",
+    "ImageGenerationSettings",
     "ImportDocument",
     "DocumentType",
     "DraftStatus",
