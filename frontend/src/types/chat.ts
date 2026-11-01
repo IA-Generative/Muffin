@@ -132,19 +132,25 @@ export interface ChatMessage {
   // Les outils qui modifient des données que le run de ce message a demandé à lancer (#343) : en attente de la
   // décision de la personne, ou déjà décidés.
   toolCalls?: ToolCallRequest[]
-  // Les images faites dans le chat (#518), chacune étiquetée « générée par IA » à l'écran.
-  images?: GeneratedImage[]
+  // Les images du message : celles qu'un modèle a faites (#518), étiquetées « générée par IA » à l'écran, ou celles que la
+  // personne a jointes à son message pour que le modèle les lise (#512).
+  images?: MessageImage[]
 }
 
-export interface GeneratedImage {
+export interface MessageImage {
   id: string
-  prompt: string
-  model: string
+  origin: 'generated' | 'attached'
+  // Ce qu'on a demandé de dessiner et avec quel modèle : seulement pour une image générée.
+  prompt: string | null
+  model: string | null
+  // Vrai pour toute image faite par un modèle : l'étiquette est sur l'image.
+  aiGenerated: boolean
   contentType: string
   width: number
   height: number
   sizeBytes: number
-  // Où la lire : l'API, avec les droits de la conversation - jamais un lien du stockage ni du fournisseur.
+  // Où la lire : l'API, avec les droits de la conversation - jamais un lien du stockage ni du fournisseur. Pour une image
+  // pas encore envoyée, l'aperçu local.
   url: string
 }
 

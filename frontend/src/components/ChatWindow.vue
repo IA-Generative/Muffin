@@ -7,9 +7,12 @@ import { type QaSuggestion, useQaSuggestions } from '../composables/useQaSuggest
 import { type CollectionImport, isZip, useCollectionImports } from '../composables/useCollectionImports'
 import { useFiling } from '../composables/useFiling'
 import { useImageGeneration } from '../composables/useImageGeneration'
+import { useImageAttachments } from '../composables/useImageAttachments'
+import { imagesOf } from '../utils/imageResize'
 import { useVoiceInput } from '../composables/useVoiceInput'
 import { useVoiceOutput } from '../composables/useVoiceOutput'
 import type { ChatMessage, ConversationFile, FeedbackDetails } from '../types/chat'
+import type { StagedImage } from '../composables/useImageAttachments'
 import { toPlainText } from '../utils/plainText'
 import ChatMessageItem from './ChatMessage.vue'
 import CollectionPicker from './CollectionPicker.vue'
@@ -24,7 +27,13 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  send: [content: string, collectionIds: string[], webSearchEnabled: boolean, includeDescendants: boolean]
+  send: [
+    content: string,
+    collectionIds: string[],
+    webSearchEnabled: boolean,
+    includeDescendants: boolean,
+    images: StagedImage[],
+  ]
   generateImage: [prompt: string]
   askSuggestion: [suggestion: QaSuggestion]
   regenerate: [id: string]
@@ -244,13 +253,52 @@ watch(
 )
 const scrollAnchor = ref<HTMLElement>()
 
+// The images chosen for the message (#512): a thumbnail at once, the upload behind it. A message goes out once they are all
+// kept; with images and nothing written, the question is the obvious one.
+const { attachmentStatus, staged, uploading, loadAttachmentStatus, addImages, removeStagedImage, takeStagedImages } =
+  useImageAttachments()
+const imageInput = ref<HTMLInputElement>()
+onMounted(loadAttachmentStatus)
+const imageButtonTitle = computed(() =>
+  attachmentStatus.value.available
+    ? 'Joindre une image : le modèle la lira pour répondre'
+    : 'Aucun modèle capable de lire les images n’est disponible : les images ne peuvent pas être jointes.',
+)
+
+function handleImagesSelected(event: Event) {
+  const target = event.target as HTMLInputElement
+  addImages(target.files)
+  target.value = '' // lets the same image be chosen again
+}
+
+// An image pasted into the message (a screenshot, say) is attached; any other paste is left as it is.
+function handlePaste(event: ClipboardEvent) {
+  const images = imagesOf(event.clipboardData?.files)
+  if (!images.length || !attachmentStatus.value.available) return
+  event.preventDefault()
+  addImages(images)
+}
+
+// Files dropped on the composer: images go with the message when a model reads them, anything else is attached as a file,
+// a ZIP as a collection, as with the paperclip.
+function handleDrop(event: DragEvent) {
+  const files = Array.from(event.dataTransfer?.files ?? [])
+  for (const file of files) {
+    if (attachmentStatus.value.available && imagesOf([file]).length) addImages([file])
+    else if (isZip(file)) attachZip(activeId.value, file)
+    else attachFile(activeId.value, file)
+  }
+}
+
 function submit() {
-  const content = draft.value.trim()
+  if (uploading.value) return
+  const ready = staged.value.some((image) => image.status === 'ready')
+  const content = draft.value.trim() || (ready && !imageMode.value ? 'Que montre cette image ?' : '')
   if (!content) return
   if (imageMode.value && imageStatus.value.available) {
     emit('generateImage', content)
   } else {
-    emit('send', content, pinnedCollectionIds.value, webSearchEnabled.value, includeDescendants.value)
+    emit('send', content, pinnedCollectionIds.value, webSearchEnabled.value, includeDescendants.value, takeStagedImages())
   }
   draft.value = ''
   resizeTextarea()
@@ -328,7 +376,7 @@ watch(
           </p>
           <ul v-if="selectedAssistant.suggestions.length" class="chat-window__suggestions" aria-label="Questions suggérées">
             <li v-for="question in selectedAssistant.suggestions" :key="question">
-              <button type="button" class="chat-window__suggestion" @click="emit('send', question, [], webSearchEnabled, true)">
+              <button type="button" class="chat-window__suggestion" @click="emit('send', question, [], webSearchEnabled, true, [])">
                 <span class="chat-window__suggestion-question">{{ question }}</span>
               </button>
             </li>
@@ -440,7 +488,19 @@ watch(
           Mode image : votre message décrit l’image à créer. Il est envoyé au fournisseur d’images choisi par
           l’administrateur, et l’image est étiquetée « générée par IA ». {{ imageQuotaLabel }}
         </p>
-        <div class="chat-window__composer">
+        <ul v-if="staged.length" class="chat-window__staged" aria-label="Images jointes au message">
+          <li v-for="(image, index) in staged" :key="image.tempId" class="chat-window__staged-item">
+            <img :src="image.previewUrl" :alt="`Aperçu de l’image jointe ${index + 1}`" class="chat-window__staged-image" />
+            <span v-if="image.status === 'uploading'" class="chat-window__staged-state" role="status">Envoi…</span>
+            <span v-else-if="image.status === 'error'" class="chat-window__staged-state chat-window__staged-state--error" role="alert">
+              {{ image.message }}
+            </span>
+            <button type="button" class="chat-window__staged-remove" :aria-label="`Retirer l’image jointe ${index + 1}`" @click="removeStagedImage(image.tempId)">
+              ✕
+            </button>
+          </li>
+        </ul>
+        <div class="chat-window__composer" @dragover.prevent @drop.prevent="handleDrop">
           <CollectionPicker
             v-if="!selectedAssistant"
             v-model="pinnedCollectionIds"
@@ -474,6 +534,31 @@ watch(
               />
             </svg>
           </button>
+          <input
+            ref="imageInput"
+            type="file"
+            multiple
+            accept="image/png,image/jpeg,image/webp"
+            class="chat-window__file-input"
+            aria-label="Choisir des images à joindre au message"
+            @change="handleImagesSelected"
+          />
+          <button
+            type="button"
+            class="chat-window__attach"
+            :disabled="!attachmentStatus.available || staged.length >= attachmentStatus.maxImages"
+            aria-label="Joindre une image"
+            :title="imageButtonTitle"
+            @click="imageInput?.click()"
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M2.25 15.75 7.41 10.59a2.25 2.25 0 0 1 3.18 0l5.16 5.16m-1.5-1.5 1.41-1.41a2.25 2.25 0 0 1 3.18 0l2.41 2.41M18 7.5h.01M3.75 19.5h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Z"
+              />
+            </svg>
+          </button>
           <button
             v-if="imageStatus.available"
             type="button"
@@ -500,6 +585,7 @@ watch(
             :maxlength="imageMode ? (imageStatus.maxPromptChars ?? undefined) : undefined"
             rows="1"
             @input="resizeTextarea"
+            @paste="handlePaste"
             @keydown.enter.exact.prevent="submit"
           />
           <button
@@ -524,7 +610,8 @@ watch(
           <button
             type="submit"
             class="chat-window__send"
-            :disabled="!draft.trim()"
+            :disabled="uploading || (!draft.trim() && !(staged.some((image) => image.status === 'ready') && !imageMode))"
+            :title="uploading ? 'Les images sont en cours d’envoi…' : undefined"
             aria-label="Envoyer"
           >
             <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
@@ -690,6 +777,59 @@ watch(
   gap: 0.375rem;
   list-style: none;
   margin-bottom: 0.5rem;
+}
+
+.chat-window__staged {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0 0 0.5rem;
+  padding: 0;
+  list-style: none;
+}
+
+.chat-window__staged-item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.125rem;
+}
+
+.chat-window__staged-image {
+  display: block;
+  width: 4.5rem;
+  height: 4.5rem;
+  object-fit: cover;
+  border: 1px solid var(--border-default-grey);
+  border-radius: 0.5rem;
+}
+
+.chat-window__staged-state {
+  max-width: 6rem;
+  font-size: 0.6875rem;
+  color: var(--text-mention-grey);
+  text-align: center;
+}
+
+.chat-window__staged-state--error {
+  color: var(--text-default-error);
+}
+
+.chat-window__staged-remove {
+  position: absolute;
+  top: -0.375rem;
+  right: -0.375rem;
+  width: 1.25rem;
+  height: 1.25rem;
+  padding: 0;
+  border: 1px solid var(--border-default-grey);
+  border-radius: 50%;
+  background: var(--background-default-grey);
+  color: var(--text-default-grey);
+  font-size: 0.6875rem;
+  line-height: 1;
+  cursor: pointer;
 }
 
 .chat-window__chip {
