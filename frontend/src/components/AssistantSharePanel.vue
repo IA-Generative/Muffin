@@ -158,6 +158,13 @@ async function togglePublic(event: Event) {
 .assistant-share__row .fr-input {
   flex: 1;
   min-width: 10rem;
+  margin-top: 0;
+}
+
+.assistant-share__row .fr-select {
+  width: auto;
+  flex: 0 0 auto;
+  margin-top: 0;
 }
 
 .assistant-share__list {
