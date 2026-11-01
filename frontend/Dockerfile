@@ -1,9 +1,10 @@
 # syntax=docker/dockerfile:1
 
-FROM node:22-alpine AS build
+FROM node:26-alpine AS build
 WORKDIR /app
-RUN corepack enable
 COPY package.json pnpm-lock.yaml* ./
+# Node no longer ships Corepack (since 25): pnpm is installed at the version package.json pins, so the two never drift.
+RUN npm install --global "pnpm@$(node -p "require('./package.json').packageManager.split('@')[1].split('+')[0]")"
 RUN pnpm install --frozen-lockfile
 COPY . .
 RUN pnpm build
