@@ -5,6 +5,7 @@ from typing import Any
 from loguru import logger
 
 from app.agent.backend_client import backend_client
+from app.core.habits import MAX_ROUTING_BONUS
 
 # Below this many accessible collections, the whole catalogue is small enough to give to the plan as it is; the vector
 # pre-filter exists to bound it for a user with many more.
@@ -16,23 +17,38 @@ _VECTOR_PREFILTER_TOP_K = 20
 _PATH_SEPARATOR = " › "
 
 
-async def vector_prefilter(query: str, accessible_vdbs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+async def vector_prefilter(
+    query: str, accessible_vdbs: list[dict[str, Any]], habits: dict[str, float] | None = None
+) -> list[dict[str, Any]]:
     """Narrows a large accessible set down to `_VECTOR_PREFILTER_TOP_K` candidates by comparing
     the query's embedding to each collection's description embedding (§124) - never the security
     boundary itself (that's `accessible_vdbs`, already filtered by the backend), just a relevance
     pre-filter so the LLM catalogue below doesn't grow unbounded with the user's total accessible
     collection count. Falls back to the full set on any failure (no embedding model configured,
-    Qdrant unreachable, etc.) - same fail-open philosophy as the LLM call below."""
+    Qdrant unreachable, etc.) - same fail-open philosophy as the LLM call below.
+
+    The collections the person is used to (#286) count a few per cent more (`habits`: id -> weight, 0 to 1): a prior
+    that turns only a comparable relevance - never one that leaves out a collection that fits clearly better, and never
+    one the person cannot read, since only `accessible_vdbs` is ever searched."""
+    habits = habits or {}
     try:
         scored = await backend_client.search_collections(
-            [str(v["id"]) for v in accessible_vdbs], query, _VECTOR_PREFILTER_TOP_K
+            [str(v["id"]) for v in accessible_vdbs], query, _VECTOR_PREFILTER_TOP_K + min(len(habits), 5)
         )
     except Exception:
         logger.exception("Collection-description vector pre-filter failed, falling back to every accessible VDB")
         return accessible_vdbs
     if not scored:
         return accessible_vdbs
-    kept_ids = {str(item["collection_id"]) for item in scored}
+    if habits:
+        scored = sorted(
+            scored,
+            key=lambda item: (
+                float(item.get("score") or 0.0) * (1 + MAX_ROUTING_BONUS * habits.get(str(item["collection_id"]), 0.0))
+            ),
+            reverse=True,
+        )
+    kept_ids = {str(item["collection_id"]) for item in scored[:_VECTOR_PREFILTER_TOP_K]}
     return [v for v in accessible_vdbs if str(v["id"]) in kept_ids]
 
 

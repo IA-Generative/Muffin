@@ -3,6 +3,7 @@ from typing import Any
 from app.agent.backend_client import backend_client
 from app.agent.graph.services.authoring import CREATE_VERBS, EDIT_VERBS
 from app.agent.graph.services.events import emit, is_cancelled, set_activity
+from app.agent.graph.services.memory import habit_weights, habitual_first
 from app.agent.graph.services.scope import within_pinned
 from app.agent.graph.services.tool_guide import CALL_TOOL
 from app.agent.graph.services.vdb_router import VECTOR_PREFILTER_THRESHOLD, vector_prefilter
@@ -11,13 +12,17 @@ from app.agent.graph.state import AgentState
 
 async def _catalogue(state: AgentState, accessible: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """The collections the plan is shown. All of them when there are few; otherwise the ones whose description is the
-    closest to the question (a vector search, no model), and always the ones the user attached."""
+    closest to the question (a vector search, no model), and always the ones the user attached. The ones the person is
+    used to (#286) come first, and weigh a little more in that search - a prior, never a filter."""
+    habits = habit_weights(state)
     if len(accessible) <= VECTOR_PREFILTER_THRESHOLD:
-        return accessible
-    close = await vector_prefilter(state["original_query"], accessible)
+        return habitual_first(accessible, habits)
+    close = await vector_prefilter(state["original_query"], accessible, habits)
     pinned = set(state["pinned_vdb_ids"])
     shown = {str(vdb["id"]) for vdb in close}
-    return close + [vdb for vdb in accessible if str(vdb["id"]) in pinned and str(vdb["id"]) not in shown]
+    return habitual_first(
+        close + [vdb for vdb in accessible if str(vdb["id"]) in pinned and str(vdb["id"]) not in shown], habits
+    )
 
 
 async def prepare(state: AgentState) -> dict[str, Any]:

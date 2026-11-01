@@ -20,6 +20,16 @@ class MemoryRepository:
         )
         return list(result.scalars())
 
+    async def habit_items(self, user_id: str) -> list[UserMemory]:
+        """The collections the person is found to use (#286): the items that carry a collection rather than a sentence
+        to hand to a model."""
+        result = await self.db.execute(
+            select(UserMemory).where(
+                UserMemory.user_id == user_id, UserMemory.data["collection_id"].astext.is_not(None)
+            )
+        )
+        return list(result.scalars())
+
     async def count(self, user_id: str) -> int:
         return int(
             await self.db.scalar(select(func.count()).select_from(UserMemory).where(UserMemory.user_id == user_id)) or 0

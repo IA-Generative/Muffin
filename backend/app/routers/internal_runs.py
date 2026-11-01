@@ -50,6 +50,7 @@ from app.schemas.internal_run import (
 )
 from app.services import run_stream
 from app.services.guardrail_service import text_for_models
+from app.services.habit_service import HabitService
 from app.services.run_service import PARTIAL_ANSWER_TTL_SECONDS, partial_answer_key
 from app.services.search_service import SearchService
 from app.services.table_views import table_out
@@ -276,6 +277,8 @@ async def update_run_result(
         unexplored_collection_ids=update.unexplored_collection_ids,
     )
     await db.commit()
+    # What this answer used - the collections it cited, those the person attached - counts toward their habits (#286).
+    await HabitService(db).record_run(run_id)
     return {"status": "ok"}
 
 
