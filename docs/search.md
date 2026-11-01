@@ -7,7 +7,8 @@ Sauvegarde et restauration : [qdrant-backup.md](qdrant-backup.md).
 ## Modèle de données
 
 - Une collection Qdrant par collection Muffin (les modèles d'embedding et les dimensions diffèrent d'une collection à l'autre ;
-  la supprimer reste triviale), plus une collection `collections` pour les descriptions (routage, suggestion de rangement).
+  la supprimer reste triviale), plus une collection `collections` pour les descriptions (routage, suggestion de rangement), `assistants`
+  (#531) et `tools` (#530) pour ce que disent les assistants et les outils d'eux-mêmes.
 - Chaque point a deux **vecteurs nommés** : `dense` (cosinus, dimension du modèle de la collection) et `sparse` (BM25, avec le
   **modificateur IDF** de Qdrant : le serveur calcule l'IDF depuis les statistiques de la collection, le client n'envoie que la
   fréquence saturée de chaque terme).
@@ -194,6 +195,35 @@ Les assistants (`docs/assistants.md`) ont leur propre index Qdrant, `assistants`
 - **Un cache pour l'embedding d'une question** (`search_service.embed_query`) : la même question est cherchée dans les passages, les
   questions-réponses, les résumés, les descriptions de collections et d'assistants, souvent en même temps. Elle est embarquée **une
   fois** : les recherches simultanées partagent l'appel, et la suivante la trouve en Redis (`SEARCH_EMBEDDING_CACHE_SECONDS`).
+
+## Descriptions des outils (#530)
+
+Les outils du chat (`docs/tools.md`) ont leur index Qdrant, `tools`, un point par outil, avec les deux vecteurs et la même recherche
+hybride (`vector_store.search_tools`, `_hybrid`) : il sert à ne donner au modèle que les outils **utiles à la question**, et à chercher un
+outil par ce qu'il *fait* dans l'interface. Le service est `ToolSearchService` (`app/services/tool_search_service.py`).
+
+- **Ce qui est indexé** : le nom, la description et les **noms** des paramètres de l'outil, coupés à 1000 caractères. La description est
+  écrite par un tiers (le serveur) et lue par un modèle : on la borne, on n'exécute jamais rien de ce texte, et **jamais** une valeur
+  d'argument, une réponse ou un jeton n'entre dans l'index. Le point d'un outil de serveur a l'identifiant de l'outil.
+- **Embarqué quand ça change** : à l'import d'un serveur et à chaque synchronisation (`tools/list`), seuls les outils dont le texte a
+  changé sont embarqués (hachage du texte et modèle, comme les assistants) ; un outil que le serveur ne liste plus, ou un serveur
+  supprimé, sort de l'index. Un point manquant (index ou embedding en panne à l'écriture, autre modèle) est refait **à la recherche
+  suivante**, en un seul appel groupé.
+- **Les droits d'abord** : `ToolService.available` calcule les outils que la personne peut utiliser (serveur à elle, partagé avec ses
+  groupes ou avec tous, **activé**, non supprimé), et la recherche **ne fait que les classer** : un outil d'un serveur qu'elle ne voit
+  pas n'est jamais renvoyé, et sa présence n'est pas révélée. Retirer un partage, désactiver un serveur le fait disparaître tout de suite,
+  sans toucher à l'index.
+- **Le modèle reçoit peu d'outils** : les outils de Muffin (calcul, dates) **toujours** ; des outils de serveurs, tous tant qu'il y en a au
+  plus `TOOLS_SELECTED_MAX` (8), sinon les `TOOLS_SELECTED_MAX` plus proches de la question du run, dans la limite de `TOOLS_OFFERED_MAX`.
+  Ça ne réduit que ce qui est *décrit* : un appel est toujours vérifié contre tout ce que la personne peut utiliser. Une question qui ne dit
+  rien d'aucun outil (« fais-le ») garde la liste, bornée, comme avant. Le modèle décide toujours de l'appel : la recherche présélectionne.
+- **Peu d'appels** : sous `TOOLS_SEARCH_INDEX_MIN` outils (8), les mots sont comparés sur place (les termes de la branche BM25 : racines, sans
+  mots vides), sans embedding ni Qdrant. Embedding ou Qdrant en panne : même repli, **sans erreur** côté chat ni interface, avec une
+  alerte dans le journal ; l'interface trie alors sur les mots (`match: "lexical"`) et la liste complète reste disponible par nom.
+- **API** : `GET /api/tools/search?q=&limit=&conversation_id=` renvoie les outils de la personne, le plus proche d'abord, chacun avec son
+  serveur, son `score` (cosinus) et `match` (`hybrid` ou `lexical`). `limit` est plafonné par `TOOLS_SEARCH_LIMIT` (20). Une requête vide ne
+  cherche rien. Avec `conversation_id`, un outil retiré pour cette conversation reste trouvable, `available: false`, pour pouvoir le remettre ;
+  il n'est jamais donné au modèle.
 
 ## Écriture, lecture, suppression
 
