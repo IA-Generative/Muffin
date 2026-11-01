@@ -55,6 +55,12 @@ updates:
       interval: weekly
     commit-message:
       prefix: chore(deps)
+    # TypeScript 7 is the native (Go) compiler: it no longer exposes the JavaScript API (`typescript/lib/tsc`) that
+    # vue-tsc, which type-checks the .vue files, loads - `vue-tsc` fails at start (ERR_PACKAGE_PATH_NOT_EXPORTED), up to
+    # 3.3.14. Left out until vue-tsc supports it; remove this once it does.
+    ignore:
+      - dependency-name: typescript
+        versions: ["7.x"]
     groups:
       npm-minor-and-patch:
         update-types: [minor, patch]
