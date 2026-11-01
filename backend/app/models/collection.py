@@ -265,5 +265,8 @@ class CollectionSettings(Base):
     # "openai" a multimodal chat model of the hub (caption_model, or the hub's first chat model when unset).
     caption_engine: Mapped[str] = mapped_column(String(16), nullable=False, default="local", server_default="local")
     caption_model: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Whether a search over this collection has its passages read again with the question by the reranking model
+    # (#511). Off by default; has no effect while no reranking service is configured.
+    rerank_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
 
     collection: Mapped["Collection"] = relationship(back_populates="settings")
