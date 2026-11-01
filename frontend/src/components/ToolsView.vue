@@ -57,7 +57,8 @@ async function saved() {
       <button type="button" class="fr-btn" @click="editing = { id: null }">Ajouter un serveur</button>
     </header>
     <p class="tools-view__intro">
-      Le chat peut appeler des <strong>outils</strong> : ceux de Muffin (calcul, dates) et ceux des <strong>serveurs MCP</strong> que
+      Le chat peut appeler des <strong>outils</strong> : ceux de Muffin (calcul, dates, et la génération d’images quand
+      l’administrateur l’a activée) et ceux des <strong>serveurs MCP</strong> que
       vous ajoutez. Il les appelle <strong>en votre nom</strong>, avec un quota, et chaque appel est journalisé sans ses arguments ni sa
       réponse. Un outil qui <strong>modifie des données</strong> n’est jamais appelé sans votre accord : l’assistant le <strong>propose</strong>
       dans la discussion, avec ses arguments, et ne le lance que si vous l’autorisez.
