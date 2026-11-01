@@ -67,11 +67,25 @@ class RunMemoryItem(BaseModel):
     value: str
 
 
+class RunHabit(BaseModel):
+    """A collection the person is used to (#286), for the routing: its weight is 0 to 1."""
+
+    collection_id: uuid.UUID
+    weight: float
+
+
 class RunMemoryOut(BaseModel):
     # `on`: used and may be written. Otherwise why not: `temporary` (this conversation), `unavailable` (an assistant, a
     # routine, the API), `disabled` (the person turned it off) or `suspended` (the administrator did).
     state: str
     items: list[RunMemoryItem] = []
+    habits: list[RunHabit] = []
+
+
+class HabitsOut(BaseModel):
+    """The collections to propose first to a person, the most used first (#286)."""
+
+    collection_ids: list[uuid.UUID]
 
 
 class RunMemoryCommand(BaseModel):

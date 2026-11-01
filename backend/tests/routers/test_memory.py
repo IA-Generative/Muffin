@@ -257,7 +257,7 @@ async def test_with_my_memory_off_nothing_is_read_and_the_data_stays(client):
     await client.put("/api/memory/settings", json={"enabled": False})
 
     read = await what_a_run_reads(client, run_id)
-    assert read == {"state": "disabled", "items": []}
+    assert read == {"state": "disabled", "items": [], "habits": []}
     assert len((await client.get("/api/memory")).json()["items"]) == 1
     assert (await client.get("/api/memory")).json()["enabled"] is False
     await client.put("/api/memory/settings", json={"enabled": True})
@@ -269,7 +269,7 @@ async def test_the_administrator_can_suspend_the_memory_everywhere(client, monke
     run_id = await make_run()
     monkeypatch.setattr(memory_service._settings, "MEMORY_ENABLED", False)
 
-    assert await what_a_run_reads(client, run_id) == {"state": "suspended", "items": []}
+    assert await what_a_run_reads(client, run_id) == {"state": "suspended", "items": [], "habits": []}
     assert (await client.get("/api/memory")).json()["available"] is False
     refused = await command(client, run_id, "remember", "Je suis analyste")
     assert refused["outcome"] == "suspended"

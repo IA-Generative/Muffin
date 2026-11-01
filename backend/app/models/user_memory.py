@@ -2,6 +2,7 @@ import enum
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, Enum, Float, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin, UUIDMixin
@@ -38,6 +39,9 @@ class UserMemory(UUIDMixin, TimestampMixin, Base):
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # What a learned habit is about and how much it weighs (#286): {"collection_id", "score", "at"}. None for everything
+    # that is a sentence - what a habit says to the person is `value`; what the routing reads is here, never a prompt.
+    data: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
 
 class UserMemorySettings(Base):

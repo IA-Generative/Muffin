@@ -176,6 +176,13 @@ class CollectionRepository:
         )
         return result.scalars().all(), total or 0
 
+    async def names_by_id(self, collection_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, str]:
+        """The names of these collections - for a caller that already established the person may read them."""
+        if not collection_ids:
+            return {}
+        rows = await self.db.execute(select(Collection.id, Collection.name).where(Collection.id.in_(collection_ids)))
+        return {row.id: row.name for row in rows}
+
     async def accessible_ids(self, user_id: str, group_ids: Sequence[str]) -> set[uuid.UUID]:
         """Just the ids of the collections the user can read, never a conversation's temporary one -
         for a query that only needs to filter by them, without loading every collection."""

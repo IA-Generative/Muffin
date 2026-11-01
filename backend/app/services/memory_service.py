@@ -11,16 +11,19 @@ from app.models.user_memory import MemoryKind, MemoryOrigin, UserMemory
 from app.repositories.memory_repository import MemoryRepository
 from app.repositories.run_repository import RunRepository
 from app.schemas.memory import (
+    HabitsOut,
     MemoryExportOut,
     MemoryItemOut,
     MemoryOut,
     MemoryStatsOut,
+    RunHabit,
     RunMemoryCommand,
     RunMemoryCommandOut,
     RunMemoryItem,
     RunMemoryOut,
 )
 from app.services.guardrail_service import GuardrailService
+from app.services.habit_service import HabitService, is_visible
 
 _settings = MemorySettings()
 
@@ -70,13 +73,26 @@ class MemoryService:
     # -- the person's own view --
 
     async def overview(self, user: RequestContext) -> MemoryOut:
+        # A collection the person can no longer read is forgotten before it is shown, and a habit of one use is not one
+        # yet (#286).
+        await HabitService(self.db).tidy(user.user_id, user.groups)
+        now = datetime.now(UTC)
         return MemoryOut(
             enabled=await self.memories.enabled(user.user_id),
             available=available(),
             max_items=_settings.MEMORY_MAX_ITEMS,
             value_max_chars=_settings.MEMORY_VALUE_MAX_CHARS,
-            items=[MemoryItemOut.model_validate(item) for item in await self.memories.items(user.user_id)],
+            items=[
+                MemoryItemOut.model_validate(item)
+                for item in await self.memories.items(user.user_id)
+                if is_visible(item, now)
+            ],
         )
+
+    async def habits(self, user: RequestContext) -> HabitsOut:
+        """The collections to propose first to this person: nothing when their memory is off."""
+        found = await HabitService(self.db).habits(user.user_id, user.groups)
+        return HabitsOut(collection_ids=[habit.collection_id for habit in found])
 
     async def export(self, user: RequestContext) -> MemoryExportOut:
         overview = await self.overview(user)
@@ -183,11 +199,17 @@ class MemoryService:
         items: list[RunMemoryItem] = []
         used = 0
         for item in await self.memories.usable(run.user_id):
-            if used + len(item.value) > _settings.MEMORY_PROMPT_MAX_CHARS:
+            # A habit is for the routing, not for a model to read: it is not in the prompt.
+            if item.data or used + len(item.value) > _settings.MEMORY_PROMPT_MAX_CHARS:
                 continue
             used += len(item.value)
             items.append(RunMemoryItem(id=item.id, kind=item.kind, value=item.value))
-        return RunMemoryOut(state="on", items=items)
+        found = await HabitService(self.db).habits(run.user_id, run.user_groups or [])
+        return RunMemoryOut(
+            state="on",
+            items=items,
+            habits=[RunHabit(collection_id=h.collection_id, weight=h.weight) for h in found],
+        )
 
     async def record_use(self, run_id: uuid.UUID, ids: list[uuid.UUID]) -> bool:
         """The items that shaped the answer of a run: counted on the run - the person is told - and dated."""
@@ -232,11 +254,7 @@ class MemoryService:
     async def _forget(self, user: RequestContext, text: str) -> RunMemoryCommandOut:
         words = [word for word in fold(text).split() if len(word) >= 3]
         found = (
-            [
-                item
-                for item in await self.memories.items(user.user_id)
-                if all(word in fold(item.value) for word in words)
-            ]
+            [item for item in await self._shown(user.user_id) if all(word in fold(item.value) for word in words)]
             if words
             else []
         )
@@ -253,12 +271,19 @@ class MemoryService:
                 "Précisez lequel, ou supprimez-le dans « Ma mémoire ».",
             )
         value = found[0].value
+        if found[0].origin == MemoryOrigin.INFERRED:
+            await self.memories.forget_learning_before_now(user.user_id)
         await self.memories.delete(found[0])
         await self.db.commit()
         return RunMemoryCommandOut(outcome="deleted", message=f"C'est oublié : « {value} ».")
 
+    async def _shown(self, user_id: str) -> list[UserMemory]:
+        """What the person sees of their memory: not a habit that is only one use so far (#286)."""
+        now = datetime.now(UTC)
+        return [item for item in await self.memories.items(user_id) if is_visible(item, now)]
+
     async def _show(self, user: RequestContext) -> RunMemoryCommandOut:
-        items = await self.memories.items(user.user_id)
+        items = await self._shown(user.user_id)
         if not items:
             return RunMemoryCommandOut(
                 outcome="listed",

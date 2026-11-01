@@ -17,5 +17,8 @@ class MemorySettings(BaseSettings):
     MEMORY_LEARNING_ENABLED: bool = True
     MEMORY_LEARNING_HALF_LIFE_DAYS: int = 30
     MEMORY_LEARNED_TTL_DAYS: int = 45
+    # The collections a person uses most (#286): how many are kept, and how long one is kept without being used again.
+    MEMORY_HABITS_MAX: int = 10
+    MEMORY_HABITS_TTL_DAYS: int = 90
 
     model_config = SettingsConfigDict(case_sensitive=True, env_file=(".env", ".env.local"), extra="ignore")

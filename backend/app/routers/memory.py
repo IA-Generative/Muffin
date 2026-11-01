@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.security.factory import RequestContext, get_current_user
 from app.db import get_db
 from app.schemas.memory import (
+    HabitsOut,
     MemoryExportOut,
     MemoryItemCreate,
     MemoryItemOut,
@@ -40,6 +41,11 @@ def _not_found() -> HTTPException:
 @router.get("/memory", summary="What the assistant remembers of me (#283)")
 async def get_memory(user: UserDep, service: ServiceDep) -> MemoryOut:
     return await service.overview(user)
+
+
+@router.get("/memory/habits", summary="The collections I use most, to propose first (#286)")
+async def get_habits(user: UserDep, service: ServiceDep) -> HabitsOut:
+    return await service.habits(user)
 
 
 @router.get("/memory/export", summary="Everything remembered of me, as JSON")
