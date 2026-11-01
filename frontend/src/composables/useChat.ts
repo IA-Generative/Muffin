@@ -17,11 +17,13 @@ import type {
   AssistantQuestion,
   QuestionAnswer,
   ToolCallRequest,
+  GeneratedImage,
   Source,
 } from '../types/chat'
 import { answerHasNoSource } from '../utils/answerSources'
 import { formatAnswers, toRequestAnswers } from '../utils/questionAnswers'
 import { type AnswerDelta, applyDelta, isEndingStatus } from '../utils/runStream'
+import { useImageGeneration } from './useImageGeneration'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
 
@@ -93,6 +95,37 @@ interface MessageOut {
   feedback: 'up' | 'down' | null
   assistant_name?: string | null
   tool_calls?: ToolCallOut[] | null
+  images?: ImageOut[] | null
+}
+
+// Backend shape (snake_case) of an image made in the chat (#518).
+interface ImageOut {
+  id: string
+  prompt: string
+  model: string
+  content_type: string
+  width: number
+  height: number
+  size_bytes: number
+}
+
+function imageUrl(conversationId: string, imageId: string): string {
+  return `${API_BASE_URL}/api/conversations/${conversationId}/images/${imageId}`
+}
+
+function toImages(conversationId: string, raw: ImageOut[] | null | undefined): GeneratedImage[] | undefined {
+  return raw?.length
+    ? raw.map((item) => ({
+        id: item.id,
+        prompt: item.prompt,
+        model: item.model,
+        contentType: item.content_type,
+        width: item.width,
+        height: item.height,
+        sizeBytes: item.size_bytes,
+        url: imageUrl(conversationId, item.id),
+      }))
+    : undefined
 }
 
 // Backend shape (snake_case) of a request to run a tool that changes data (#343).
@@ -441,6 +474,7 @@ async function ensureMessagesLoaded(conversationId: string) {
         questionsAnswer: toQuestionsAnswer(item.questions_answer),
         questionsAbandoned: item.questions_abandoned ?? false,
         toolCalls: toToolCalls(item.tool_calls),
+        images: toImages(conversationId, item.images),
         assistantName: item.assistant_name ?? undefined,
       }
     })
@@ -1340,6 +1374,62 @@ function sendMessage(
   })
 }
 
+// An image asked for in the chat (#518), on the person's explicit request - never started by the model. The
+// backend makes it, keeps it with the conversation and answers with both messages: nothing to poll, but a few
+// seconds to wait, which the pending message says. A refusal (quota, policy, provider) is shown as the answer.
+async function generateImage(prompt: string) {
+  const conversationId = activeId.value
+  abandonOpenQuestions(conversationId)
+  const messageId = crypto.randomUUID()
+  messagesByConversation.value[conversationId].push(
+    { id: crypto.randomUUID(), role: 'user', content: prompt },
+    { id: messageId, role: 'assistant', content: 'Génération de l’image en cours', pending: true },
+  )
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/images/generations`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompt,
+        conversation_id: confirmedConversationIds.has(conversationId) ? conversationId : undefined,
+      }),
+    })
+    if (!response.ok) throw new Error(await imageErrorMessage(response))
+    const made: {
+      conversation_id: string
+      message: { id: string; content: string; images: ImageOut[] }
+    } = await response.json()
+    const resolvedId = migrateConversationId(conversationId, made.conversation_id)
+    replaceMessage(resolvedId, messageId, {
+      id: made.message.id,
+      role: 'assistant',
+      content: made.message.content,
+      images: toImages(resolvedId, made.message.images),
+    })
+  } catch (error) {
+    replaceMessage(conversationId, messageId, {
+      id: messageId,
+      role: 'assistant',
+      content: error instanceof Error && error.message ? error.message : 'Impossible de générer l’image. Veuillez réessayer.',
+      error: true,
+    })
+  }
+  useImageGeneration().loadImageStatus()
+}
+
+// What the API says when it refuses a generation, in words for the person: its own message (a code and a sentence
+// that show nothing of the provider), or a general one when there is none.
+async function imageErrorMessage(response: Response): Promise<string> {
+  try {
+    const body = await response.json()
+    if (typeof body?.detail?.message === 'string') return body.detail.message
+  } catch {
+    // No body to read.
+  }
+  return 'Impossible de générer l’image. Veuillez réessayer.'
+}
+
 // A starter question of the empty chat (#126): the backend puts the pair's stored answer and source
 // into the conversation - no agent run, so nothing to wait for or poll - and it is then shown like
 // any other completed answer.
@@ -1683,6 +1773,7 @@ export function useChat() {
     isConversationSaved: (id: string) => confirmedConversationIds.has(id),
     answerQuestions,
     decideToolCalls,
+    generateImage,
     askSuggestion,
     goFurther,
     regenerateMessage,

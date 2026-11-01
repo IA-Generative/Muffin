@@ -2,6 +2,9 @@ export interface UsageSums {
   inputTokens: number
   outputTokens: number
   totalTokens: number
+  // Les images faites par un fournisseur (#518) et leur taille en pixels : leur coût n'est pas en jetons.
+  images: number
+  pixels: number
   calls: number
 }
 

@@ -25,6 +25,7 @@ export const router = createRouter({
     { path: '/usage', name: 'usage', component: () => import('../components/UsageView.vue') },
     { path: '/admin', name: 'admin', component: () => import('../components/AdminIndexView.vue') },
     { path: '/admin/settings', name: 'admin-settings', component: () => import('../components/AdminSettingsView.vue') },
+    { path: '/admin/images', name: 'admin-images', component: () => import('../components/AdminImagesView.vue') },
     { path: '/admin/prompts', name: 'admin-prompts', component: () => import('../components/AdminPromptsView.vue') },
     { path: '/admin/cgu', name: 'admin-cgu', component: () => import('../components/AdminCguView.vue') },
     { path: '/admin/reports', name: 'admin-reports', component: () => import('../components/AdminReportsView.vue') },

@@ -42,7 +42,7 @@ const days = computed(() => {
   return Array.from({ length: props.usage.days }, (_, index) => {
     const date = new Date(today.getFullYear(), today.getMonth(), today.getDate() - (props.usage.days - 1 - index))
     const day = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
-    return byDay.get(day) ?? { day, inputTokens: 0, outputTokens: 0, totalTokens: 0, calls: 0 }
+    return byDay.get(day) ?? { day, inputTokens: 0, outputTokens: 0, totalTokens: 0, images: 0, pixels: 0, calls: 0 }
   })
 })
 const dayMax = computed(() => Math.max(1, ...days.value.map((row) => row.totalTokens)))
@@ -90,6 +90,10 @@ function barWidth(row: UsageSums, rows: UsageSums[]) {
       <div class="usage-charts__stat">
         <span class="usage-charts__stat-label">Appels au modèle</span>
         <span class="usage-charts__stat-value">{{ count(usage.totals.calls) }}</span>
+      </div>
+      <div v-if="usage.totals.images > 0" class="usage-charts__stat">
+        <span class="usage-charts__stat-label">Images générées</span>
+        <span class="usage-charts__stat-value">{{ count(usage.totals.images) }}</span>
       </div>
     </div>
 
