@@ -314,6 +314,7 @@ class CollectionOut(BaseModel):
     pipeline_windows: PipelineWindowsOut
     caption_engine: Literal["local", "openai"] = "local"
     caption_model: str | None = None
+    rerank_enabled: bool = False
 
     @classmethod
     def from_model(
@@ -383,6 +384,7 @@ class CollectionOut(BaseModel):
             generation_models=GenerationModels(**(settings.generation_models or {})),
             pipeline_windows=PipelineWindowsOut(**(settings.pipeline_windows or {})),
             caption_engine=settings.caption_engine,
+            rerank_enabled=settings.rerank_enabled,
             caption_model=settings.caption_model,
         )
 
@@ -419,6 +421,7 @@ class CollectionSettingsUpdate(BaseModel):
     caption_engine: Literal["local", "openai"] | None = None
     # An empty string clears it (the hub's first chat model is then used).
     caption_model: str | None = None
+    rerank_enabled: bool | None = None
 
 
 class VisibilityUpdate(BaseModel):

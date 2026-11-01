@@ -295,6 +295,17 @@ class CollectionRepository:
         )
         return dict(result.all())
 
+    async def rerank_enabled_ids(self, collection_ids: Sequence[uuid.UUID]) -> set[uuid.UUID]:
+        """Those of these collections whose searches are reranked (#511)."""
+        if not collection_ids:
+            return set()
+        result = await self.db.scalars(
+            select(CollectionSettings.collection_id).where(
+                CollectionSettings.collection_id.in_(collection_ids), CollectionSettings.rerank_enabled.is_(True)
+            )
+        )
+        return set(result.all())
+
     async def get_embedding_models(self, collection_ids: list[uuid.UUID]) -> dict[uuid.UUID, str]:
         """Which embedding model each collection's chunks were embedded with (§12: VDB routing
         picks collections, but the query itself must be embedded once per distinct model among
@@ -447,6 +458,7 @@ class CollectionRepository:
         pipeline_windows: dict[str, Any] | None,
         caption_engine: str | None = None,
         caption_model: str | None = None,
+        rerank_enabled: bool | None = None,
     ) -> bool:
         """Returns whether the embedding model actually changed - the caller
         uses that to flip reindex_required."""
@@ -480,6 +492,8 @@ class CollectionRepository:
             settings.caption_engine = caption_engine
         if caption_model is not None:
             settings.caption_model = caption_model or None
+        if rerank_enabled is not None:
+            settings.rerank_enabled = rerank_enabled
 
         return embedding_model_changed
 
