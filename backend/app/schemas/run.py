@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.schemas.image_generation import ImageOut
 from app.schemas.question import Question, QuestionAnswer
@@ -37,6 +37,9 @@ class RunCreate(BaseModel):
     # The assistant the chat is started with (#514): its collections (among those the caller may read) replace
     # `collection_ids`, its instructions are added to the answer's, and the run keeps its name and version.
     assistant_id: uuid.UUID | None = None
+    # The images attached to this message for the model to read (#512): chosen in the composer beforehand
+    # (`POST /api/images/attachments`), theirs, and sent with this one message only.
+    image_ids: list[uuid.UUID] = Field(default_factory=list, max_length=20)
 
 
 class RunResumeRequest(BaseModel):

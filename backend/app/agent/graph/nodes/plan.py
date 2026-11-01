@@ -86,6 +86,14 @@ _MAX_QUERIES = 4
 _HISTORY_TURNS = 6
 _HISTORY_CHARS = 1500
 
+# Added only when the message carries images (#512). The plan is made by a model that does not see them - only the model
+# that writes the answer does - so it is told how many there are, and that a question about them needs no search.
+_IMAGES_INSTRUCTION = (
+    "\n\nThe user attached image(s) to this message. You cannot see them: the model that writes the answer will. Never "
+    'answer yourself ("direct") nor ask what the image shows. If the question is about the image alone, choose '
+    '"search" with no query at all. Add queries only for what must also be looked up in the knowledge bases.'
+)
+
 
 def _fallback(query: str) -> dict[str, Any]:
     return {
@@ -111,6 +119,15 @@ def _user_content(state: AgentState) -> str:
     if history:
         parts.append(f"Conversation so far:\n{history}")
     parts.append(f"Current message: {state['original_query']}")
+    if state.get("images"):
+        current = [image for image in state["images"] if image["current"]]
+        if current:
+            parts.append(f"The user attached {len(current)} image(s) to this message.")
+        else:
+            parts.append(
+                f"The user attached {len(state['images'])} image(s) to the previous message: this message may be a "
+                "follow-up about them."
+            )
     parts.append(f"Knowledge bases:\n{knowledge_bases}")
     if state.get("consultable_assistants"):
         listed = "\n".join(
@@ -244,7 +261,11 @@ def normalize_plan(raw: Any, state: AgentState) -> dict[str, Any]:
 
     plan |= {
         "standalone_query": standalone,
-        "queries": _queries(
+        # A question about an image alone looks nothing up: the plan said so with no query at all (#512). Without an
+        # image an empty list is not a plan, and the question itself is searched.
+        "queries": []
+        if state.get("images") and raw.get("queries") == []
+        else _queries(
             raw.get("queries"),
             standalone,
             state["web_search_enabled"],
@@ -312,9 +333,15 @@ async def plan(state: AgentState) -> dict[str, Any]:
         ) + external_tools_guide(state.get("available_tools") or [])
         system_prompt = template.replace("{guide}", guide).replace("{capabilities}", AUTHORING_CAPABILITIES)
         instructions = _QUESTIONS_INSTRUCTION + (_CONSULT_INSTRUCTION if state.get("consultable_assistants") else "")
+        if state.get("images"):
+            instructions += _IMAGES_INSTRUCTION
         raw = await json_chat(model, system_prompt + instructions, _user_content(state), fallback=None)
 
     plan_ = normalize_plan(raw, state)
+    # A plan that answers or asks without the images would answer without having seen them: the run goes on to the model
+    # that reads them, with whatever search the plan asked for - none, for a question about the image alone (#512).
+    if state.get("images") and plan_["mode"] in ("direct", "clarify"):
+        plan_ = {**plan_, "mode": "search", "queries": [], "collections": plan_.get("collections", [])}
     mode = plan_["mode"]
     standalone = plan_.get("standalone_query") or state["original_query"]
     await emit(run_id, "query_analysis_completed", {"analysis": {k: v for k, v in plan_.items() if k != "answer"}})
@@ -330,7 +357,9 @@ async def plan(state: AgentState) -> dict[str, Any]:
             "requires_multiple_sources": len(plan_.get("queries", [])) > 1,
             "standalone_query": standalone,
         },
-        "needs_grounding": plan_.get("complexity") == "complex" or len(plan_.get("queries", [])) > 1,
+        "needs_grounding": (plan_.get("complexity") == "complex" or len(plan_.get("queries", [])) > 1)
+        # What the model says of an image is not in the evidence the check reads (#512).
+        and not state.get("images"),
     }
     if mode == "direct":
         updates |= {"answer": plan_["answer"], "citations": []}

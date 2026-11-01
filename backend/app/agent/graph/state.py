@@ -118,6 +118,11 @@ class AgentState(TypedDict):
     # Resolved once by AgentService.run() and threaded through every node from here on.
     chat_model: str | None
 
+    # The images the answer is written from (#512): {id, content_type, current} - the bytes are fetched only by the
+    # model
+    # that writes the answer. `current` is False for those of the previous message, which a follow-up is still about.
+    images: list[dict[str, Any]]
+
     # Collections the user explicitly attached to this message (the chat composer's "+" picker) - always searched,
     # on top of what the plan chooses.
     pinned_vdb_ids: list[str]

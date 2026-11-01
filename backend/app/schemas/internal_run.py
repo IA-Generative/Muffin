@@ -7,6 +7,16 @@ from app.schemas.collection import CollectionPathItem
 from app.schemas.question import Question
 
 
+class RunImageRef(BaseModel):
+    id: uuid.UUID
+    content_type: str
+    width: int
+    height: int
+    size_bytes: int
+    # True: attached to this message. False: to the previous one, still what a follow-up question is about.
+    current: bool
+
+
 class InternalRunOut(BaseModel):
     id: uuid.UUID
     user_id: str
@@ -57,6 +67,11 @@ class InternalRunOut(BaseModel):
     # pinned collection couldn't bring along within PINNED_DESCENDANTS_LIMIT. The run's own
     # exploration adds to them, and the union is reported back with the answer.
     unexplored_collection_ids: list[str] | None = None
+    # The images the answer reads (#512): the ones the person attached to this message, or - when they attached none -
+    # to
+    # the message before it. The worker fetches each by `GET /internal/runs/{id}/images/{image_id}`, only for the model
+    # that writes the answer: the planner is told how many there are.
+    images: list[RunImageRef] = []
 
 
 class RunStatusUpdate(BaseModel):

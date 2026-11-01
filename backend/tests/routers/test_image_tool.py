@@ -11,7 +11,7 @@ from sqlalchemy import delete, func, select
 
 from app.core.security import worker_auth
 from app.db import async_session_factory
-from app.models.image_generation import GeneratedImage
+from app.models.message_image import MessageImage
 from app.models.run import Run
 from app.models.token_usage import TokenUsage
 from app.schemas.image_generation import ImageOut  # noqa: E402,F401  (the shape the run answers with)
@@ -59,9 +59,9 @@ async def offered(client, run_id) -> list[str]:
     return [tool["name"] for tool in response.json()]
 
 
-async def images_of_run(run_id) -> list[GeneratedImage]:
+async def images_of_run(run_id) -> list[MessageImage]:
     async with async_session_factory() as session:
-        rows = await session.execute(select(GeneratedImage).where(GeneratedImage.run_id == run_id))
+        rows = await session.execute(select(MessageImage).where(MessageImage.run_id == run_id))
         return list(rows.scalars())
 
 
@@ -262,7 +262,7 @@ async def test_what_a_run_made_is_the_persons_and_counted_in_their_usage(client,
 
     async with async_session_factory() as session:
         rows = (await session.execute(select(TokenUsage).where(TokenUsage.step == "image_generation"))).scalars().all()
-        count = (await session.execute(select(func.count()).select_from(GeneratedImage))).scalar_one()
+        count = (await session.execute(select(func.count()).select_from(MessageImage))).scalar_one()
 
     assert [(row.user_id, row.images, row.pixels) for row in rows] == [(ALICE, 1, 48)] and count == 1
     become(BOB)

@@ -391,7 +391,7 @@ class ToolService:
             code="ok",
             text=(
                 "Image générée par IA et affichée à l'utilisateur sous ta réponse. "
-                f"Description envoyée au fournisseur : « {image.prompt[:500]} ». "
+                f"Description envoyée au fournisseur : « {(image.prompt or '')[:500]} ». "
                 "Ne mets aucun lien ni aucune image dans ta réponse : dis simplement ce qui a "
                 "été fait."
             ),
