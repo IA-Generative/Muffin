@@ -60,7 +60,8 @@ Légende : **➕** Muffin devant · **🟰** équivalent · **🔻** Muffin en r
 | Thème sombre | oui | oui | 🟰 |
 | Langues | nombreuses | français seulement (pas de bibliothèque d'i18n) | 🔻 |
 | Application installable (PWA) | oui (manifeste) | non | 🔻 |
-| Canaux d'équipe, calendriers, automatisations | oui | non | ❌ |
+| Canaux d'équipe, calendriers | oui | non | ❌ |
+| Automatisations | oui (généralistes) | **routines** : une question posée à l'agent à intervalles réguliers, pour surveiller sa base documentaire (`docs/routines.md`), et centre de notifications (`docs/notifications.md`) | 🟰 |
 
 ## 2. RAG et connaissances (le cœur)
 
