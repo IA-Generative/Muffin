@@ -28,6 +28,7 @@ def upgrade() -> None:
         sa.Column("base_url", sa.String(length=2048), nullable=True),
         sa.Column("secret_id", sa.UUID(), nullable=True),
         sa.Column("model", sa.String(length=200), nullable=True),
+        sa.Column("edit_model", sa.String(length=200), nullable=True),
         sa.Column("size", sa.String(length=20), server_default="1024x1024", nullable=False),
         sa.Column("quality", sa.String(length=20), nullable=True),
         sa.Column("daily_limit", sa.Integer(), server_default="20", nullable=False),

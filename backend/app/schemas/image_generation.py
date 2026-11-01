@@ -20,6 +20,8 @@ class ImageSettingsOut(BaseModel):
     # Whether the hub's own address and key can be used, for an administrator who types neither.
     hub_available: bool
     model: str | None
+    # The model that retouches an image; None: the same as the one that draws.
+    edit_model: str | None
     size: str
     quality: str | None
     daily_limit: int
@@ -38,6 +40,7 @@ class ImageSettingsUpdate(BaseModel):
     api_key: str | None = Field(default=None, max_length=500)
     clear_key: bool = False
     model: str | None = Field(default=None, max_length=200)
+    edit_model: str | None = Field(default=None, max_length=200)
     size: str | None = Field(default=None, max_length=20)
     quality: str | None = Field(default=None, max_length=20)
     daily_limit: int | None = Field(default=None, ge=1, le=1000)
@@ -99,6 +102,8 @@ class ImageStatusOut(BaseModel):
 class ImageGenerationIn(BaseModel):
     prompt: str = Field(min_length=1, max_length=20000)
     conversation_id: uuid.UUID | None = None
+    # Images attached in the composer (#512): with them, the request is a retouching of those images.
+    image_ids: list[uuid.UUID] = Field(default_factory=list, max_length=20)
 
 
 class ImageOut(BaseModel):

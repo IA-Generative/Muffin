@@ -125,7 +125,18 @@ async def get_run(run_id: uuid.UUID, db: Annotated[AsyncSession, Depends(get_db)
         previous = await RunRepository(db).get_previous_in_conversation(run)
         resume_from = previous.unexplored_collection_ids if previous is not None else None
     out = _to_out(run, history, resume_from)
-    out.images = _images_to_read(run.message_id, [message for message, *_rest in messages], images)
+    to_read, current = await MessageImageRepository(db).attached_to_read(run.conversation_id, run.message_id)
+    out.images = [
+        RunImageRef(
+            id=image.id,
+            content_type=image.content_type,
+            width=image.width,
+            height=image.height,
+            size_bytes=image.size_bytes,
+            current=current,
+        )
+        for image in to_read
+    ]
     return out
 
 
@@ -145,38 +156,6 @@ def _image_notes(message, images: list[MessageImage]) -> str:  # noqa: ANN001
         for image in images
         if image.origin == ORIGIN_GENERATED
     )
-
-
-def _images_to_read(
-    message_id: uuid.UUID,
-    messages: list,
-    images: dict[uuid.UUID, list[MessageImage]],  # noqa: ANN001
-) -> list[RunImageRef]:
-    """The images the answer is written from: those attached to this message or, when there are none, to the user
-    message just before it - a follow-up ("and the second column?") is about the same screenshot."""
-    mine = [image for image in images.get(message_id, []) if image.origin == ORIGIN_ATTACHED]
-    current = True
-    if not mine:
-        current = False
-        previous_user = None
-        for message in messages:
-            if message.id == message_id:
-                break
-            if message.role == MessageRole.USER:
-                previous_user = message
-        if previous_user is not None:
-            mine = [image for image in images.get(previous_user.id, []) if image.origin == ORIGIN_ATTACHED]
-    return [
-        RunImageRef(
-            id=image.id,
-            content_type=image.content_type,
-            width=image.width,
-            height=image.height,
-            size_bytes=image.size_bytes,
-            current=current,
-        )
-        for image in mine
-    ]
 
 
 @router.get(

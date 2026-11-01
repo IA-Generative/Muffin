@@ -68,6 +68,7 @@ class Provider:
 
     def __init__(self) -> None:
         self.calls: list[dict] = []
+        self.edits: list[dict] = []
         self.image = png(8, 6)
         self.url: str | None = None
         self.error: Exception | None = None
@@ -82,6 +83,14 @@ class Provider:
                     raise provider.error
                 if provider.url:
                     return SimpleNamespace(data=[SimpleNamespace(b64_json=None, url=provider.url)])
+                return SimpleNamespace(
+                    data=[SimpleNamespace(b64_json=base64.b64encode(provider.image).decode(), url=None)]
+                )
+
+            async def edit(self, **kwargs):
+                provider.edits.append({"base_url": base_url, "api_key": api_key, **kwargs})
+                if provider.error:
+                    raise provider.error
                 return SimpleNamespace(
                     data=[SimpleNamespace(b64_json=base64.b64encode(provider.image).decode(), url=None)]
                 )

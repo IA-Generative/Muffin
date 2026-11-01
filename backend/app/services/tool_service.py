@@ -28,6 +28,7 @@ from app.core.security.factory import RequestContext
 from app.core.url_guard import UrlRefusedError, ensure_public
 from app.models.conversation import Conversation
 from app.models.message import MessageRole
+from app.models.run import Run
 from app.models.tool import (
     AUTH_BEARER,
     AUTH_NONE,
@@ -124,9 +125,13 @@ class ToolService:
         changing data. Muffin's own first."""
         removed = await self._disabled_refs(conversation_id, user_id)
         out = [self._internal_out(tool, removed) for tool in internal_catalog.INTERNAL_TOOLS if tool.implemented]
-        # Making an image is offered to the assistant only while the function is on and open to the person (#518).
-        if await ImageGenerationService(self.db).offered_to(groups):
+        # Making an image is offered to the assistant only while the function is on and open to the person (#518), and
+        # retouching one only when the conversation has an image to retouch.
+        images = ImageGenerationService(self.db)
+        if await images.offered_to(groups):
             out.append(self._internal_out(internal_catalog.IMAGE_TOOL, removed))
+            if conversation_id is not None and await images.has_images(conversation_id):
+                out.append(self._internal_out(internal_catalog.IMAGE_EDIT_TOOL, removed))
         for server in await self._servers_for(user_id, groups):
             out += [self._remote_out(server, tool, removed) for tool in server.tools]
         return out
@@ -363,37 +368,51 @@ class ToolService:
         if tool.side_effect and not approved:
             return await self._propose(request, tool)
         if internal_catalog.is_internal(request.ref):
-            if request.ref == internal_catalog.IMAGE_TOOL.ref:
-                return await self._run_image(request, tool)
+            if request.ref in (internal_catalog.IMAGE_TOOL.ref, internal_catalog.IMAGE_EDIT_TOOL.ref):
+                return await self._run_image(request, tool, edit=request.ref == internal_catalog.IMAGE_EDIT_TOOL.ref)
             return self._run_internal(request, tool)
         return await self._run_remote(request, tool)
 
-    async def _run_image(self, request: ToolCallRequest, tool: ToolOut) -> ToolCallResult:
-        """The assistant asks for an image (#518). The same service, rights and quota as the person's own request; the
-        image goes to the run's answer. What it says to the model: that it is shown, and with what description."""
+    async def _run_image(self, request: ToolCallRequest, tool: ToolOut, *, edit: bool = False) -> ToolCallResult:
+        """The assistant asks for an image (#518), or for one that is retouched (`edit`). The same service, rights and
+        quota as the person's own request; the image goes to the run's answer. What it says to the model: that it is
+        shown, and with what description."""
         if request.conversation_id is None or request.run_id is None:
             return self._failed("outil_indisponible", "Cet outil ne marche que dans une conversation.", tool)
+        service = ImageGenerationService(self.db)
+        sources = None
+        if edit:
+            run = await self.db.get(Run, request.run_id)
+            sources = (
+                await service.source_images(request.conversation_id, run.message_id, request.arguments.get("source"))
+                if run
+                else []
+            )
+            if not sources:
+                return self._failed("aucune_image", "Il n'y a aucune image à retoucher dans cette conversation.", tool)
         try:
-            image = await ImageGenerationService(self.db).generate_for_run(
+            image = await service.generate_for_run(
                 user_id=request.user_id,
                 groups=request.groups,
                 conversation_id=request.conversation_id,
                 run_id=request.run_id,
                 prompt=str(request.arguments.get("prompt", "")),
+                source_images=sources,
             )
         except ImageGenerationError as error:
             return self._failed(error.code, error.message, tool)
         except Exception:
             logger.exception("The image asked for by the assistant could not be made")
             return self._failed("erreur_outil", "L'image n'a pas pu être générée.", tool)
+        made = "retouchée" if edit else "générée"
         return ToolCallResult(
             ok=True,
             code="ok",
             text=(
-                "Image générée par IA et affichée à l'utilisateur sous ta réponse. "
-                f"Description envoyée au fournisseur : « {(image.prompt or '')[:500]} ». "
-                "Ne mets aucun lien ni aucune image dans ta réponse : dis simplement ce qui a "
-                "été fait."
+                f"Image {made} par IA et affichée à l'utilisateur sous ta réponse. "
+                f"Description envoyée au fournisseur{' avec l’image' if edit else ''} : "
+                f"« {(image.prompt or '')[:500]} ». "
+                "Ne mets aucun lien ni aucune image dans ta réponse : dis simplement ce qui a été fait."
             ),
             tool_name=tool.name,
         )

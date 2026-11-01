@@ -237,7 +237,45 @@ IMAGE_TOOL = InternalTool(
     run=_runs_in_the_service,
 )
 
-BY_ID = {tool.id: tool for tool in (*INTERNAL_TOOLS, IMAGE_TOOL)}
+IMAGE_EDIT_TOOL = InternalTool(
+    id="retoucher_image",
+    name="retoucher_image",
+    description=(
+        "Retouche une image déjà présente dans la conversation - celle que l'utilisateur vient de joindre, ou la "
+        "dernière "
+        "image générée - selon une consigne (changer une couleur, ajouter ou retirer un élément, changer de style) et "
+        "l'affiche sous ta réponse. À n'utiliser que lorsque l'utilisateur demande explicitement de modifier ou de "
+        "transformer une image. L'image et la consigne partent chez un fournisseur tiers : n'y mets que ce que "
+        "l'utilisateur a demandé. Pour une image faite de zéro, utilise generer_image. Ne mets ni lien ni image dans "
+        "ta "
+        "réponse : dis ce que tu as fait."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "prompt": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4000,
+                "description": "Ce qu'il faut changer, et ce qui doit rester tel quel.",
+            },
+            "source": {
+                "type": "string",
+                "enum": ["jointe", "generee"],
+                "description": (
+                    "jointe : l'image jointe au message de l'utilisateur (ou au précédent) ; generee : la dernière "
+                    "image "
+                    "générée dans la conversation. Par défaut, la jointe s'il y en a une."
+                ),
+            },
+        },
+        "required": ["prompt"],
+        "additionalProperties": False,
+    },
+    run=_runs_in_the_service,
+)
+
+BY_ID = {tool.id: tool for tool in (*INTERNAL_TOOLS, IMAGE_TOOL, IMAGE_EDIT_TOOL)}
 
 
 def is_internal(ref: str) -> bool:
