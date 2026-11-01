@@ -1,6 +1,7 @@
 import { applyEvents, type LiveStep } from '../utils/runSteps'
 import { computed, ref } from 'vue'
 import { router } from '../router'
+import { useAssistants } from './useAssistants'
 import { useCollectionImports } from './useCollectionImports'
 import type { QaSuggestion } from './useQaSuggestions'
 import type {
@@ -89,6 +90,7 @@ interface MessageOut {
   questions_answer?: { selected: string[]; text: string | null }[] | null
   questions_abandoned?: boolean
   feedback: 'up' | 'down' | null
+  assistant_name?: string | null
 }
 
 // Backend shape (snake_case) of the questions with options the assistant asked (#344).
@@ -179,6 +181,8 @@ interface RunOut {
   edit_proposal: ProposalOut | null
   unexplored_collection_ids?: string[] | null
   questions?: QuestionOut[] | null
+  assistant_name?: string | null
+  assistant_inaccessible_collections?: number
   error: string | null
 }
 
@@ -410,6 +414,7 @@ async function ensureMessagesLoaded(conversationId: string) {
         questions: toQuestions(item.questions),
         questionsAnswer: toQuestionsAnswer(item.questions_answer),
         questionsAbandoned: item.questions_abandoned ?? false,
+        assistantName: item.assistant_name ?? undefined,
       }
     })
     confirmedConversationIds.add(conversationId)
@@ -827,6 +832,9 @@ async function createRun(
   // placeholder id would 404 (ConversationNotFoundError), so a brand-new conversation's first
   // run omits it and lets the backend create one instead.
   const known = confirmedConversationIds.has(conversationId) ? conversationId : undefined
+  // The assistant picked in the chat (#514): the server uses its collections instead of the ones picked by hand, and adds
+  // its instructions. An assistant that was removed since is answered with a 404 and the choice is dropped.
+  const { selectedAssistantId } = useAssistants()
   const response = await fetch(`${API_BASE_URL}/api/runs`, {
     method: 'POST',
     credentials: 'include',
@@ -834,7 +842,8 @@ async function createRun(
     body: JSON.stringify({
       query,
       conversation_id: known,
-      collection_ids: collectionIds.length > 0 ? collectionIds : undefined,
+      assistant_id: selectedAssistantId.value ?? undefined,
+      collection_ids: collectionIds.length > 0 && !selectedAssistantId.value ? collectionIds : undefined,
       web_search_enabled: webSearchEnabled,
       include_descendants: options.includeDescendants ?? true,
       continue_exploration: options.continueExploration ?? false,
@@ -1046,6 +1055,7 @@ function assistantMessageFor(id: string, run: RunOut): ChatMessage {
       creationProposal: toCreationProposal(run.edit_proposal),
       unexploredCollectionIds: run.unexplored_collection_ids ?? undefined,
       questions: toQuestions(run.questions),
+      assistantName: run.assistant_name ?? undefined,
     }
   }
   return {
@@ -1264,13 +1274,19 @@ async function runQuery(
     const run = await createRun(conversationId, query, collectionIds, webSearchEnabled, options)
     const resolvedId = run.conversation_id ? migrateConversationId(conversationId, run.conversation_id) : conversationId
     trackRun(resolvedId, messageId, run)
-  } catch {
-    replaceMessage(conversationId, messageId, {
-      id: messageId,
-      role: 'assistant',
-      content: 'Impossible de lancer cette recherche. Veuillez réessayer.',
-      error: true,
-    })
+  } catch (failure) {
+    const status = (failure as Error).message
+    const { selectedAssistantId, select, refreshAssistants } = useAssistants()
+    let content = 'Impossible de lancer cette recherche. Veuillez réessayer.'
+    if (selectedAssistantId.value && status === '404') {
+      // Removed, or no longer shared with this person: the chat goes back to no assistant, said plainly.
+      select(null)
+      refreshAssistants()
+      content = "Cet assistant n'existe plus ou ne vous est plus partagé : le chat est revenu sans assistant. Posez à nouveau votre question."
+    } else if (selectedAssistantId.value && status === '409') {
+      content = "Vous ne pouvez lire aucune des collections de cet assistant, il n'a donc rien où chercher. Demandez à son auteur de vous les partager."
+    }
+    replaceMessage(conversationId, messageId, { id: messageId, role: 'assistant', content, error: true })
   }
 }
 

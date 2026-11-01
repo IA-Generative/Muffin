@@ -22,7 +22,7 @@ defineProps<{
   conversationsHasMore: boolean
   loadingMoreConversations: boolean
   activeId: string
-  activeView: 'chat' | 'collections' | 'groups' | 'tasks' | 'quality' | 'usage' | 'admin' | 'filing'
+  activeView: 'chat' | 'collections' | 'assistants' | 'groups' | 'tasks' | 'quality' | 'usage' | 'admin' | 'filing'
   user: User | null
 }>()
 
@@ -34,6 +34,7 @@ const emit = defineEmits<{
   rename: [id: string, title: string]
   delete: [id: string]
   openCollections: []
+  openAssistants: []
   openGroups: []
   openTasks: []
   openQuality: []
@@ -283,6 +284,18 @@ function initials(name: string) {
           />
         </svg>
         <span v-if="!collapsed">Collections</span>
+      </button>
+      <button
+        type="button"
+        class="chat-sidebar__nav-item"
+        :class="{ 'chat-sidebar__nav-item--active': activeView === 'assistants' }"
+        :title="collapsed ? 'Assistants' : undefined"
+        @click="emit('openAssistants')"
+      >
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8L12 3zM18 15l.8 2.2L21 18l-2.2.8L18 21l-.8-2.2L15 18l2.2-.8L18 15z" />
+        </svg>
+        <span v-if="!collapsed">Assistants</span>
       </button>
     </nav>
 
