@@ -1,4 +1,5 @@
 from sqlalchemy import Boolean, String
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDMixin
@@ -17,6 +18,9 @@ class Conversation(UUIDMixin, TimestampMixin, Base):
     title_generated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     # What made it when it was not the user in the chat: "api" for the OpenAI-compatible API (#513). Such a
     # conversation is not in the sidebar nor in the search, and is purged after a while.
+    # The tools (see app/models/tool.py, `ToolService.ref`) the person removed for this conversation (#343): the model
+    # is not given them. They only ever remove: a conversation never gains a tool its person may not use.
+    disabled_tool_refs: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
     source: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
 
     messages: Mapped[list["Message"]] = relationship(  # noqa: F821
