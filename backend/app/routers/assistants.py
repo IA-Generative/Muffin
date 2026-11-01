@@ -1,13 +1,19 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security.factory import RequestContext, get_current_user
 from app.core.sharing import SharingNotConfiguredError
 from app.db import get_db
-from app.schemas.assistant import AssistantCreate, AssistantOut, AssistantUpdate, AssistantVisibilityUpdate
+from app.schemas.assistant import (
+    AssistantCreate,
+    AssistantHitOut,
+    AssistantOut,
+    AssistantUpdate,
+    AssistantVisibilityUpdate,
+)
 from app.schemas.collection import ShareCreate, ShareOut, ShareUpdate
 from app.services.assistant_service import AssistantService
 from app.services.group_service import GroupNotFoundError
@@ -30,6 +36,38 @@ UserDep = Annotated[RequestContext, Depends(get_current_user)]
 )
 async def list_assistants(user: UserDep, service: ServiceDep) -> list[AssistantOut]:
     return await service.list_assistants(user)
+
+
+@router.get(
+    "/assistants/search",
+    summary="Find an assistant by what it says it does, among every one the caller may read. A handful of "
+    "assistants is "
+    "matched on its words with no call to a model; from a few more, by the hybrid search of their descriptions.",
+    response_model=list[AssistantHitOut],
+)
+async def search_assistants(
+    user: UserDep,
+    service: ServiceDep,
+    q: Annotated[str, Query(min_length=1, max_length=500)],
+    limit: Annotated[int, Query(ge=1, le=50)] = 20,
+) -> list[AssistantHitOut]:
+    return await service.search(user, q, limit)
+
+
+@router.get(
+    "/assistants/suggest",
+    summary="The assistants whose description fits a question well enough to be proposed - possibly none. "
+    "Proposed only: "
+    "nothing applies an assistant.",
+    response_model=list[AssistantHitOut],
+)
+async def suggest_assistants(
+    user: UserDep,
+    service: ServiceDep,
+    q: Annotated[str, Query(min_length=1, max_length=2000)],
+    limit: Annotated[int, Query(ge=1, le=10)] = 3,
+) -> list[AssistantHitOut]:
+    return await service.suggest(user, q, limit)
 
 
 @router.post("/assistants", status_code=status.HTTP_201_CREATED, response_model=AssistantOut)

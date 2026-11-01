@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -10,6 +11,8 @@ MAX_INSTRUCTIONS_CHARS = 4000
 MAX_COLLECTIONS = 50
 MAX_SUGGESTIONS = 6
 MAX_SUGGESTION_CHARS = 200
+MAX_CONSULTED = 20
+ConsultMode = Literal["none", "all", "list"]
 
 
 def _known_tools(values: list[str] | None) -> list[str] | None:
@@ -39,6 +42,9 @@ class AssistantCreate(BaseModel):
     web_search_allowed: bool = False
     # Optional tools of the agent this assistant does not use. The graph is the same one.
     disabled_tools: list[str] = Field(default_factory=list)
+    # Whether it may consult other assistants for a question, and which (#531).
+    consult_mode: ConsultMode = "none"
+    consult_assistant_ids: list[uuid.UUID] = Field(default_factory=list, max_length=MAX_CONSULTED)
     # Typed by hand: never generated from what the collections hold.
     suggestions: list[str] = Field(default_factory=list, max_length=MAX_SUGGESTIONS)
 
@@ -75,6 +81,8 @@ class AssistantUpdate(BaseModel):
     include_descendants: bool | None = None
     web_search_allowed: bool | None = None
     disabled_tools: list[str] | None = None
+    consult_mode: ConsultMode | None = None
+    consult_assistant_ids: list[uuid.UUID] | None = Field(default=None, max_length=MAX_CONSULTED)
     suggestions: list[str] | None = Field(default=None, max_length=MAX_SUGGESTIONS)
 
     @field_validator("name")
@@ -106,6 +114,11 @@ class AssistantCollectionOut(BaseModel):
     name: str
 
 
+class AssistantRefOut(BaseModel):
+    id: uuid.UUID
+    name: str
+
+
 class AssistantOut(BaseModel):
     id: uuid.UUID
     name: str
@@ -122,6 +135,10 @@ class AssistantOut(BaseModel):
     include_descendants: bool
     web_search_allowed: bool
     disabled_tools: list[str]
+    consult_mode: ConsultMode
+    # The assistants it is set to consult that the caller may read, named; the others are only counted (#531).
+    consulted: list[AssistantRefOut]
+    inaccessible_consulted_count: int
     suggestions: list[str]
     visibility: CollectionVisibility
     version: int
@@ -131,3 +148,12 @@ class AssistantOut(BaseModel):
     share_count: int = 0
     created_at: datetime
     updated_at: datetime
+
+
+class AssistantHitOut(AssistantOut):
+    """An assistant a search found, with how close it is: the cosine of its description for a hybrid search, the
+    share of the
+    words found for a lexical one (`score_kind`) - two scales that are not compared."""
+
+    score: float
+    score_kind: Literal["hybrid", "lexical"]

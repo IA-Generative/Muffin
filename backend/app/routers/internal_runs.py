@@ -90,6 +90,7 @@ def _to_out(run, history: list[dict[str, str]], resume_from: list[str] | None = 
         assistant_instructions=run.assistant_instructions,
         scope_locked=run.scope_locked,
         disabled_tools=run.assistant_disabled_tools,
+        consultable_assistants=run.consultable_assistants,
     )
 
 

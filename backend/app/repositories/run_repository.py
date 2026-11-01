@@ -31,6 +31,7 @@ class RunRepository:
         assistant_version: int | None = None,
         assistant_instructions: str | None = None,
         assistant_disabled_tools: list[str] | None = None,
+        consultable_assistants: list[dict] | None = None,
         scope_locked: bool = False,
     ) -> Run:
         run = Run(
@@ -52,6 +53,7 @@ class RunRepository:
             assistant_version=assistant_version,
             assistant_instructions=assistant_instructions or None,
             assistant_disabled_tools=assistant_disabled_tools or None,
+            consultable_assistants=consultable_assistants or None,
             scope_locked=scope_locked,
         )
         self.db.add(run)

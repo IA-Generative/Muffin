@@ -2,10 +2,12 @@
 person using them cannot read."""
 
 import uuid
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from qdrant_client import QdrantClient
 from sqlalchemy import delete, select
 
 from app.core.security.factory import RequestContext, get_current_user
@@ -17,7 +19,7 @@ from app.models.collection import Collection, CollectionVisibility
 from app.models.conversation import Conversation
 from app.models.run import Run
 from app.repositories.assistant_repository import AssistantRepository
-from app.services import assistant_service
+from app.services import assistant_search_service, assistant_service, search_service, vector_store
 
 ALICE, BOB, CARL = "alice", "bob", "carl"
 ADMIN = "root"
@@ -532,3 +534,264 @@ async def test_an_administrator_takes_a_public_assistant_down_and_only_a_public_
 
     assert (await client.delete(f"/api/assistants/{private['id']}")).status_code == 404
     assert (await client.delete(f"/api/assistants/{public['id']}")).status_code == 204
+
+
+# --- finding an assistant by its description, and consulting others (#531) ---
+
+
+@pytest.fixture
+def embeddings(monkeypatch):
+    """The embedding model, counted, and an in-memory index: what searches and writes call is what is asserted."""
+    from tests.services.test_assistant_search import FakeEmbeddings, FakeRedis
+
+    fake, redis = FakeEmbeddings(), FakeRedis()
+    monkeypatch.setattr(search_service, "_openai_client", SimpleNamespace(embeddings=fake))
+    monkeypatch.setattr(search_service, "async_redis", lambda: redis)
+    monkeypatch.setattr(vector_store, "_client", QdrantClient(":memory:"))
+    search_service._in_flight.clear()
+
+    async def model(_db):
+        return "emb-1"
+
+    monkeypatch.setattr(assistant_search_service, "default_embedding_model", model)
+    return fake
+
+
+async def search(client, text: str) -> list[dict]:
+    response = await client.get("/api/assistants/search", params={"q": text})
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+async def test_the_search_covers_every_assistant_the_person_may_read_and_only_those(client):
+    mine = await make(client, name="RH – congés", description="Répond sur les congés payés")
+    await share_with(client, mine, email="bob@example.com")
+    await make(client, name="Privé d'Alice", description="Congés aussi, mais pas partagé")
+    await logs_in(BOB, email="bob@example.com")
+    become(BOB)
+    own = await make(client, name="Mon congé", description="Les congés de Bob")
+
+    found = await search(client, "congés")
+
+    assert {hit["id"] for hit in found} == {mine["id"], own["id"]}
+    assert all(hit["score_kind"] == "lexical" for hit in found)  # a handful: no model, no index
+
+
+async def test_nothing_of_what_an_author_hides_can_be_guessed_from_the_search(client):
+    secret = await collection("Accords - confidentiel")
+    mine = await make(
+        client,
+        name="RH",
+        description="Congés",
+        instructions="MOT-SECRET-DE-FABRICATION",
+        hide_instructions=True,
+        collection_ids=[str(secret)],
+    )
+    await share_with(client, mine, email="bob@example.com")
+    await logs_in(BOB, email="bob@example.com")
+    become(BOB)
+
+    assert await search(client, "MOT-SECRET-DE-FABRICATION") == []
+    assert await search(client, "confidentiel") == []
+    assert [hit["id"] for hit in await search(client, "congés")] == [mine["id"]]
+
+
+async def test_an_assistant_shared_then_unshared_leaves_the_search_at_once(client):
+    mine = await make(client, name="RH", description="Congés")
+    share = await share_with(client, mine, email="bob@example.com")
+    await logs_in(BOB, email="bob@example.com")
+    become(BOB)
+    assert len(await search(client, "congés")) == 1
+    become(ALICE)
+    await client.delete(f"/api/assistants/{mine['id']}/shares/{share['id']}")
+    become(BOB)
+
+    assert await search(client, "congés") == []
+
+
+async def test_an_assistant_is_embedded_as_it_is_made_and_again_only_when_what_it_says_changes(client, embeddings):
+    created = await make(client, name="RH", description="Congés payés")
+    url = f"/api/assistants/{created['id']}"
+    assert len(embeddings.calls) == 1
+
+    await client.patch(url, json={"instructions": "Ton chaleureux."})  # not part of what is indexed
+    await client.patch(url, json={"collection_ids": []})
+    assert len(embeddings.calls) == 1
+    await client.patch(url, json={"description": "Congés payés et RTT"})
+
+    assert len(embeddings.calls) == 2
+    assert "RTT" in embeddings.calls[1][0] and "Ton chaleureux" not in embeddings.calls[1][0]
+
+
+async def test_deleting_an_assistant_takes_it_out_of_the_index(client, embeddings):
+    created = await make(client, name="RH", description="Congés payés")
+    assert vector_store.get_assistant_points([uuid.UUID(created["id"])])
+
+    await client.delete(f"/api/assistants/{created['id']}")
+
+    assert vector_store.get_assistant_points([uuid.UUID(created["id"])]) == {}
+
+
+async def test_the_suggestion_proposes_and_applies_nothing(client):
+    await make(client, name="RH – congés", description="Congés payés et RTT")
+
+    fits = await client.get("/api/assistants/suggest", params={"q": "combien de congés payés ?"})
+    nothing = await client.get("/api/assistants/suggest", params={"q": "météo demain"})
+
+    assert [hit["name"] for hit in fits.json()] == ["RH – congés"] and nothing.json() == []
+    assert (await client.get("/api/assistants")).json()[0]["name"] == "RH – congés"  # nothing was chosen
+
+
+async def consulted_by_bob(client, consulting: dict) -> list[dict]:
+    """What Bob's run, with the assistant `consulting`, may consult."""
+    become(BOB)
+    assert (await run_with(client, consulting["id"], query="vacances")).status_code == 202
+    return (await stored_run()).consultable_assistants or []
+
+
+async def shared_with_bob(client, assistant: dict) -> None:
+    await share_with(client, assistant, email="bob@example.com")
+
+
+async def test_by_default_an_assistant_consults_nobody(client):
+    open_one = await collection("Congés", public=True)
+    consulting = await make(client, name="Principal", collection_ids=[str(open_one)])
+    other = await make(client, name="Autre", description="Vacances", collection_ids=[str(open_one)])
+    await shared_with_bob(client, consulting)
+    await shared_with_bob(client, other)
+    await logs_in(BOB, email="bob@example.com")
+
+    assert consulting["consult_mode"] == "none"
+    assert await consulted_by_bob(client, consulting) == []
+
+
+async def test_an_assistant_set_to_consult_all_consults_those_the_person_may_read_and_only_through_what_they_may_read(
+    client,
+):
+    open_one, closed = await collection("Congés", public=True), await collection("Accords")
+    consulting = await make(client, name="Principal", collection_ids=[str(open_one)], consult_mode="all")
+    mixed = await make(client, name="Mixte", description="Vacances", collection_ids=[str(open_one), str(closed)])
+    only_closed = await make(client, name="Fermé", collection_ids=[str(closed)])
+    no_collection = await make(client, name="Sans collection", instructions="Ton chaleureux.")
+    await make(client, name="Privé d'Alice", collection_ids=[str(open_one)])  # never shared with Bob
+    for shared in (consulting, mixed, only_closed, no_collection):
+        await shared_with_bob(client, shared)
+    await logs_in(BOB, email="bob@example.com")
+
+    consultable = await consulted_by_bob(client, consulting)
+
+    # Only the shared one that has something Bob may read - and only that part of it. Not itself, not the private one.
+    assert [(a["name"], a["collection_ids"]) for a in consultable] == [("Mixte", [str(open_one)])]
+    assert "Accords" not in str(consultable) and str(closed) not in str(consultable)
+    assert "instructions" not in consultable[0]
+
+
+async def test_an_assistant_set_to_a_list_consults_only_those_listed(client):
+    open_one = await collection("Congés", public=True)
+    listed = await make(client, name="Listé", collection_ids=[str(open_one)])
+    unlisted = await make(client, name="Non listé", collection_ids=[str(open_one)])
+    consulting = await make(
+        client,
+        name="Principal",
+        collection_ids=[str(open_one)],
+        consult_mode="list",
+        consult_assistant_ids=[listed["id"]],
+    )
+    for shared in (consulting, listed, unlisted):
+        await shared_with_bob(client, shared)
+    await logs_in(BOB, email="bob@example.com")
+
+    assert [a["name"] for a in await consulted_by_bob(client, consulting)] == ["Listé"]
+
+
+async def test_nobody_lists_an_assistant_they_cannot_read_and_an_editor_does_not_lose_the_ones_they_do_not_see(client):
+    open_one = await collection("Congés", public=True)
+    visible = await make(client, name="Visible", collection_ids=[str(open_one)])
+    hidden = await make(client, name="Caché", collection_ids=[str(open_one)])
+    consulting = await make(
+        client,
+        name="Principal",
+        consult_mode="list",
+        consult_assistant_ids=[visible["id"], hidden["id"]],
+    )
+    await share_with(client, consulting, email="bob@example.com", permission="write")
+    await share_with(client, visible, email="bob@example.com")
+    await logs_in(BOB, email="bob@example.com")
+    become(BOB)
+    url = f"/api/assistants/{consulting['id']}"
+
+    seen = (await client.get(url)).json()
+    saved = await client.patch(
+        url, json={"consult_assistant_ids": [a["id"] for a in seen["consulted"]], "name": "Nôtre"}
+    )
+
+    assert [a["name"] for a in seen["consulted"]] == ["Visible"] and seen["inaccessible_consulted_count"] == 1
+    assert "Caché" not in (await client.get("/api/assistants")).text
+    assert saved.status_code == 200
+    async with async_session_factory() as session:
+        stored = (await session.execute(select(Assistant).where(Assistant.name == "Nôtre"))).scalar_one()
+    assert set(stored.consult_assistant_ids) == {visible["id"], hidden["id"]}
+
+
+async def test_nobody_names_themselves_or_an_assistant_they_cannot_read_as_one_to_consult(client):
+    mine = await make(client, name="Moi")
+    become(BOB)
+    theirs = await make(client, name="À Bob")
+    become(ALICE)
+
+    updated = await client.patch(
+        f"/api/assistants/{mine['id']}",
+        json={"consult_mode": "list", "consult_assistant_ids": [mine["id"], theirs["id"]]},
+    )
+
+    assert updated.json()["consulted"] == []
+    async with async_session_factory() as session:
+        stored = (await session.execute(select(Assistant).where(Assistant.name == "Moi"))).scalar_one()
+    assert stored.consult_assistant_ids == []
+
+
+async def test_more_candidates_than_the_maximum_keep_the_closest_to_the_question(client, monkeypatch):
+    monkeypatch.setattr(assistant_service._settings, "ASSISTANTS_CONSULT_MAX", 1)
+    open_one = await collection("Congés", public=True)
+    consulting = await make(client, name="Principal", collection_ids=[str(open_one)], consult_mode="all")
+    rh = await make(client, name="RH", description="Vacances et congés", collection_ids=[str(open_one)])
+    achats = await make(client, name="Achats", description="Marchés publics", collection_ids=[str(open_one)])
+    for shared in (consulting, rh, achats):
+        await shared_with_bob(client, shared)
+    await logs_in(BOB, email="bob@example.com")
+
+    assert [a["name"] for a in await consulted_by_bob(client, consulting)] == ["RH"]
+
+
+async def test_consulting_assistants_that_fit_under_the_maximum_makes_no_call_to_the_embedding_model(
+    client, embeddings
+):
+    open_one = await collection("Congés", public=True)
+    consulting = await make(client, name="Principal", collection_ids=[str(open_one)], consult_mode="all")
+    others = [await make(client, name=f"Autre {i}", collection_ids=[str(open_one)]) for i in range(3)]
+    for shared in (consulting, *others):
+        await shared_with_bob(client, shared)
+    await logs_in(BOB, email="bob@example.com")
+    embeddings.calls.clear()
+
+    consultable = await consulted_by_bob(client, consulting)
+
+    assert len(consultable) == 3 and embeddings.calls == []
+
+
+async def test_a_copy_keeps_the_assistants_it_consults_that_the_copier_may_read(client):
+    open_one = await collection("Congés", public=True)
+    visible = await make(client, name="Visible", collection_ids=[str(open_one)])
+    hidden = await make(client, name="Caché", collection_ids=[str(open_one)])
+    consulting = await make(
+        client, name="Principal", consult_mode="list", consult_assistant_ids=[visible["id"], hidden["id"]]
+    )
+    await share_with(client, consulting, email="bob@example.com")
+    await share_with(client, visible, email="bob@example.com")
+    await logs_in(BOB, email="bob@example.com")
+    become(BOB)
+
+    copy = (await client.post(f"/api/assistants/{consulting['id']}/duplicate")).json()
+
+    assert copy["consult_mode"] == "list" and [a["name"] for a in copy["consulted"]] == ["Visible"]
+    assert copy["inaccessible_consulted_count"] == 0
