@@ -18,6 +18,7 @@ const collection = {
   embeddingModel: 'embedder',
   captionEngine: 'local',
   captionModel: null,
+  rerankEnabled: false,
   instructions: { qa: 'q', extraction: 'e', chunking: 'c', tagging: 't', summary: 's' },
   generationModels: { qa: 'gpt', extraction: null, chunking: null, tagging: null, summary: 'gpt' },
   pipelineWindows: {
@@ -133,4 +134,18 @@ test('le moteur de description suit le brouillon, et le modèle est vidé quand 
   assert.ok(changedSections(draft, fresh()).includes('captions'))
   draft.captions.engine = 'local'
   assert.equal(toPatch(draft, fresh()).caption_model, '')
+})
+
+test('le reclassement est désactivé par défaut, se coche, et part dans la sauvegarde', () => {
+  const saved = draftFromCollection(collection as never)
+  const draft = cloneDraft(saved)
+
+  assert.equal(saved.rerank, false)
+  assert.equal(toPatch(saved, saved).rerank_enabled, false)
+  assert.deepEqual(changedSections(draft, saved), [])
+
+  draft.rerank = true
+
+  assert.deepEqual(changedSections(draft, saved), ['rerank'])
+  assert.equal(toPatch(draft, saved).rerank_enabled, true)
 })
