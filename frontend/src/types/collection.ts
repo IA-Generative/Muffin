@@ -270,6 +270,8 @@ export interface Collection {
   // Who describes the images and tables of a scanned page (#411): the vision pod, or a multimodal model of the hub.
   captionEngine: CaptionEngine
   captionModel: string | null
+  // Les recherches dans cette collection sont reclassées par le modèle de reclassement, s'il est configuré (#511).
+  rerankEnabled: boolean
   evaluationRuns: EvaluationRun[]
   // Fetched on demand (owner-only endpoint), like qaPairs/entities - empty until
   // refreshShares/useCollections has run once for this collection.

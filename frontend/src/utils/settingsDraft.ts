@@ -35,18 +35,21 @@ export interface SettingsDraft {
   chunking: { strategy: ChunkingSettings['strategy']; chunkSize: NumberField; chunkOverlap: NumberField }
   embeddingModel: string
   captions: { engine: CaptionEngine; model: string }
+  // Les passages de la recherche relus avec la question par le modèle de reclassement (#511).
+  rerank: boolean
   instructions: PipelineInstructions
   models: StepModels
   windows: WindowFields
   longDocs: LongDocumentsDraft
 }
 
-export type SettingsSection = 'embedding' | 'chunking' | 'captions' | 'summary' | 'qa' | 'extraction' | 'tagging' | 'longDocs'
+export type SettingsSection = 'embedding' | 'chunking' | 'captions' | 'rerank' | 'summary' | 'qa' | 'extraction' | 'tagging' | 'longDocs'
 
 export const SECTION_LABELS: Record<SettingsSection, string> = {
   embedding: "Modèle d'embedding",
   chunking: 'Découpage',
   captions: 'Description des images',
+  rerank: 'Reclassement des résultats',
   summary: 'Résumé',
   qa: 'Questions-réponses',
   extraction: 'Entités et relations',
@@ -56,7 +59,7 @@ export const SECTION_LABELS: Record<SettingsSection, string> = {
 
 type CollectionSettingsSource = Pick<
   Collection,
-  'chunkingSettings' | 'embeddingModel' | 'instructions' | 'generationModels' | 'pipelineWindows' | 'captionEngine' | 'captionModel'
+  'chunkingSettings' | 'embeddingModel' | 'instructions' | 'generationModels' | 'pipelineWindows' | 'captionEngine' | 'captionModel' | 'rerankEnabled'
 >
 
 export function draftFromCollection(collection: CollectionSettingsSource): SettingsDraft {
@@ -70,6 +73,7 @@ export function draftFromCollection(collection: CollectionSettingsSource): Setti
     },
     embeddingModel: collection.embeddingModel,
     captions: { engine: collection.captionEngine, model: collection.captionModel ?? '' },
+    rerank: collection.rerankEnabled,
     instructions: { ...collection.instructions },
     models: {
       qa: models.qa ?? '',
@@ -103,6 +107,7 @@ export function assignDraft(target: SettingsDraft, source: SettingsDraft): void 
   target.chunking = copy.chunking
   target.embeddingModel = copy.embeddingModel
   target.captions = copy.captions
+  target.rerank = copy.rerank
   target.instructions = copy.instructions
   target.models = copy.models
   target.windows = copy.windows
@@ -130,6 +135,7 @@ export function changedSections(draft: SettingsDraft, saved: SettingsDraft): Set
       pick(d.windows, ['chunkingWindowPages', 'chunkingSlidePages']),
     ],
     captions: d.captions,
+    rerank: d.rerank,
     summary: [d.instructions.summary, d.models.summary, d.windows.summaryPagesPerMap],
     qa: [
       d.instructions.qa,
@@ -212,6 +218,7 @@ export interface SettingsPatch {
   pipeline_windows: Record<string, number | string | null>
   caption_engine: CaptionEngine
   caption_model: string
+  rerank_enabled: boolean
 }
 
 // Valable seulement quand le brouillon est valide (voir validateSettings).
@@ -230,6 +237,7 @@ export function toPatch(draft: SettingsDraft, saved: SettingsDraft): SettingsPat
     pipeline_windows: { ...windows, ...toPayload(draft.longDocs) },
     caption_engine: draft.captions.engine,
     caption_model: draft.captions.engine === 'openai' ? draft.captions.model : '',
+    rerank_enabled: draft.rerank,
   }
 }
 
