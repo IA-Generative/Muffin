@@ -155,6 +155,10 @@ function status(assistant: Assistant): string {
   gap: 1rem;
 }
 
+.assistants-view h2 {
+  margin-top: 2rem;
+}
+
 .assistants-view__list {
   list-style: none;
   margin: 0.75rem auto 0;
