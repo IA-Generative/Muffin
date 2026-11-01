@@ -244,6 +244,7 @@ class CollectionService:
             pipeline_windows=windows_update,
             caption_engine=update.caption_engine,
             caption_model=update.caption_model,
+            rerank_enabled=update.rerank_enabled,
         )
 
         # No refresh needed: only collection_settings columns changed (none

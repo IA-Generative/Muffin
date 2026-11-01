@@ -276,6 +276,19 @@ async def test_caption_engine_is_local_until_chosen_then_follows_the_collection(
     assert rejected.status_code == 422
 
 
+async def test_reranking_is_off_until_the_collection_asks_for_it(client):
+    created = (await client.post("/api/collections")).json()
+    assert created["rerank_enabled"] is False
+
+    on = await client.patch(f"/api/collections/{created['id']}/settings", json={"rerank_enabled": True})
+    assert on.status_code == 200 and on.json()["rerank_enabled"] is True
+
+    kept = await client.patch(f"/api/collections/{created['id']}/settings", json={"chunk_size": 700})
+    assert kept.json()["rerank_enabled"] is True
+    off = await client.patch(f"/api/collections/{created['id']}/settings", json={"rerank_enabled": False})
+    assert off.json()["rerank_enabled"] is False
+
+
 async def test_pipeline_windows_default_when_never_saved(client):
     created = (await client.post("/api/collections")).json()
 
