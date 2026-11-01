@@ -56,6 +56,8 @@ async function refusal(response: Response, fallback: string): Promise<string> {
 const memory = ref<MemoryState | null>(null)
 const isLoading = ref(false)
 const error = ref<string | null>(null)
+// Les collections que la personne consulte le plus (#286), la plus consultée d'abord : le sélecteur les propose en premier.
+const habitualCollectionIds = ref<string[]>([])
 // La mémoire sert-elle dans la conversation en cours ? Se coupe depuis « + » : une conversation sans mémoire ne lit rien
 // de ce qui est retenu, et n'y ajoute rien. Reste comme réglé d'un message à l'autre, comme la recherche web.
 const memoryInChat = ref(true)
@@ -80,6 +82,17 @@ async function load() {
     error.value = 'Impossible de récupérer votre mémoire.'
   } finally {
     isLoading.value = false
+  }
+}
+
+// Sans effet si cela échoue : le sélecteur garde son ordre.
+async function loadHabits() {
+  try {
+    const response = await call('/habits')
+    if (!response.ok) return
+    habitualCollectionIds.value = (await response.json()).collection_ids ?? []
+  } catch {
+    // Pas d'habitudes : l'ordre habituel.
   }
 }
 
@@ -133,5 +146,19 @@ async function exportAll(): Promise<string | null> {
 }
 
 export function useMemory() {
-  return { memory, isLoading, error, memoryInChat, load, add, change, remove, removeAll, setEnabled, exportAll }
+  return {
+    memory,
+    isLoading,
+    error,
+    memoryInChat,
+    habitualCollectionIds,
+    load,
+    loadHabits,
+    add,
+    change,
+    remove,
+    removeAll,
+    setEnabled,
+    exportAll,
+  }
 }
