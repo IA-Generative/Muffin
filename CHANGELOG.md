@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.44.0-rc.1](https://github.com/IA-Generative/Muffin/compare/v0.44.0-rc...v0.44.0-rc.1) (2026-11-01)
+
+
+### Features
+
+* **garde-fous:** contrôler la saisie avant l'agent, règles, modèle ou service HTTP ([#516](https://github.com/IA-Generative/Muffin/issues/516)) ([cd1ef7d](https://github.com/IA-Generative/Muffin/commit/cd1ef7d796df6f6a3dccf82bc3ef4d281a57fab8))
+* **garde-fous:** page d'administration et indication dans le chat ([#516](https://github.com/IA-Generative/Muffin/issues/516)) ([4f06516](https://github.com/IA-Generative/Muffin/commit/4f06516dbefebc82c8657ec4a94ef8b26bcf9b87))
+
 ## [0.44.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.43.0...v0.44.0-rc) (2026-11-01)
 
 
