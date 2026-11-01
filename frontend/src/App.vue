@@ -54,6 +54,7 @@ const activeView = computed(() => {
   if (route.path.startsWith('/collections')) return 'collections'
   if (route.path.startsWith('/assistants')) return 'assistants'
   if (route.path.startsWith('/tools')) return 'tools'
+  if (route.path.startsWith('/routines')) return 'routines'
   if (route.path.startsWith('/groups')) return 'groups'
   if (route.path.startsWith('/tasks')) return 'tasks'
   if (route.path.startsWith('/quality')) return 'quality'
@@ -84,6 +85,7 @@ const activeView = computed(() => {
       @open-collections="router.push('/collections')"
       @open-assistants="router.push('/assistants')"
       @open-tools="router.push('/tools')"
+      @open-routines="router.push('/routines')"
       @open-groups="router.push('/groups')"
       @open-tasks="router.push('/tasks')"
       @open-quality="router.push('/quality')"
