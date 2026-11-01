@@ -84,6 +84,19 @@ class MemoryRepository:
             .on_conflict_do_update(index_elements=["user_id"], set_={"enabled": enabled, "updated_at": func.now()})
         )
 
+    async def learning_from(self, user_id: str) -> datetime | None:
+        row = await self.db.get(UserMemorySettings, user_id)
+        return None if row is None else row.learning_from
+
+    async def forget_learning_before_now(self, user_id: str) -> None:
+        """What the person did until now is no longer learned from: they removed what it had taught."""
+        now = datetime.now(UTC)
+        await self.db.execute(
+            insert(UserMemorySettings)
+            .values(user_id=user_id, learning_from=now)
+            .on_conflict_do_update(index_elements=["user_id"], set_={"learning_from": now, "updated_at": func.now()})
+        )
+
     async def counts(self) -> dict[str, int]:
         """The only thing an administrator sees of the memories: how many, and of whom - never what."""
         people = await self.db.scalar(select(func.count(func.distinct(UserMemory.user_id))))
