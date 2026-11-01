@@ -62,4 +62,6 @@ export interface Usage {
   // Administrators only - always empty on a user's own report.
   byUser: UserUsage[]
   execution: Execution
+  // Ce que les routines ont demandé à l'agent (#524), à part du reste : exécutions faites et leurs jetons.
+  routines: { runs: number; totalTokens: number }
 }

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { onMounted } from 'vue'
+import { useNotifications } from '../composables/useNotifications'
 import { useTheme } from '../composables/useTheme'
 
 defineEmits<{
@@ -6,6 +8,9 @@ defineEmits<{
 }>()
 
 const { mode } = useTheme()
+const { preferences, preferencesError, loadPreferences, setPreference } = useNotifications()
+
+onMounted(loadPreferences)
 
 const options: { value: 'light' | 'dark' | 'system'; label: string }[] = [
   { value: 'light', label: 'Clair' },
@@ -39,6 +44,24 @@ const options: { value: 'light' | 'dark' | 'system'; label: string }[] = [
           </button>
         </div>
       </fieldset>
+
+      <fieldset class="settings-modal__field">
+        <legend>Me prévenir dans l’application</legend>
+        <p v-if="preferencesError" class="settings-modal__error" role="alert">{{ preferencesError }}</p>
+        <div v-for="preference in preferences" :key="preference.type" class="fr-checkbox-group settings-modal__preference">
+          <input
+            :id="`notification-${preference.type}`"
+            type="checkbox"
+            :checked="preference.app"
+            :aria-describedby="`notification-${preference.type}-hint`"
+            @change="setPreference(preference.type, ($event.target as HTMLInputElement).checked)"
+          />
+          <label class="fr-label" :for="`notification-${preference.type}`">
+            {{ preference.label }}
+            <span :id="`notification-${preference.type}-hint`" class="fr-hint-text">{{ preference.description }}</span>
+          </label>
+        </div>
+      </fieldset>
     </div>
   </div>
 </template>
@@ -56,12 +79,24 @@ const options: { value: 'light' | 'dark' | 'system'; label: string }[] = [
 
 .settings-modal {
   width: 100%;
-  max-width: 24rem;
+  max-width: 28rem;
+  max-height: 90vh;
+  overflow-y: auto;
   background: var(--background-default-grey);
   color: var(--text-default-grey);
   border-radius: 0.5rem;
   padding: 1.5rem;
   box-sizing: border-box;
+}
+
+.settings-modal__preference {
+  margin-bottom: 0.75rem;
+}
+
+.settings-modal__error {
+  margin: 0 0 0.5rem;
+  font-size: 0.875rem;
+  color: var(--text-default-error);
 }
 
 .settings-modal__header {

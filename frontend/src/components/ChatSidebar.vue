@@ -3,16 +3,21 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useAppVersion } from '../composables/useAppVersion'
 import { type ConversationSearchHit, useConversationSearch } from '../composables/useConversationSearch'
 import { useOnboarding } from '../composables/useOnboarding'
+import { useNotifications } from '../composables/useNotifications'
 import type { Conversation } from '../types/chat'
 import type { User } from '../types/user'
 import { MIN_QUERY_LENGTH, snippetParts } from '../utils/conversationSearch'
 import ConversationMenu from './ConversationMenu.vue'
 import CguViewerModal from './CguViewerModal.vue'
+import NotificationPanel from './NotificationPanel.vue'
 import ReleaseNotesModal from './ReleaseNotesModal.vue'
 import ReportModal from './ReportModal.vue'
 
 const { version } = useAppVersion()
 const { openTutorial } = useOnboarding()
+// Le compteur de la cloche : relevé toutes les minutes tant que la barre latérale est là (voir useNotifications).
+const { unread, startWatching, stopWatching } = useNotifications()
+const showNotifications = ref(false)
 const showReleaseNotes = ref(false)
 const showCgu = ref(false)
 const showReport = ref(false)
@@ -22,7 +27,7 @@ defineProps<{
   conversationsHasMore: boolean
   loadingMoreConversations: boolean
   activeId: string
-  activeView: 'chat' | 'collections' | 'assistants' | 'tools' | 'groups' | 'tasks' | 'quality' | 'usage' | 'admin' | 'filing'
+  activeView: 'chat' | 'collections' | 'assistants' | 'tools' | 'routines' | 'groups' | 'tasks' | 'quality' | 'usage' | 'admin' | 'filing'
   user: User | null
 }>()
 
@@ -36,6 +41,7 @@ const emit = defineEmits<{
   openCollections: []
   openAssistants: []
   openTools: []
+  openRoutines: []
   openGroups: []
   openTasks: []
   openQuality: []
@@ -227,10 +233,12 @@ function handleOutsideClick(event: MouseEvent) {
 onMounted(() => {
   document.addEventListener('click', handleOutsideClick)
   document.addEventListener('keydown', onShortcut)
+  startWatching()
 })
 onBeforeUnmount(() => {
   document.removeEventListener('click', handleOutsideClick)
   document.removeEventListener('keydown', onShortcut)
+  stopWatching()
 })
 
 function initials(name: string) {
@@ -310,7 +318,37 @@ function initials(name: string) {
         </svg>
         <span v-if="!collapsed">Outils</span>
       </button>
+      <button
+        type="button"
+        class="chat-sidebar__nav-item"
+        :class="{ 'chat-sidebar__nav-item--active': activeView === 'routines' }"
+        :title="collapsed ? 'Routines' : undefined"
+        @click="emit('openRoutines')"
+      >
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6l4 2m5-2a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" />
+        </svg>
+        <span v-if="!collapsed">Routines</span>
+      </button>
+      <button
+        type="button"
+        class="chat-sidebar__nav-item chat-sidebar__bell"
+        :title="collapsed ? 'Notifications' : undefined"
+        :aria-expanded="showNotifications"
+        aria-haspopup="dialog"
+        @click.stop="showNotifications = !showNotifications"
+      >
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M14.9 17.8a23 23 0 0 0 5.4-1.3A8.9 8.9 0 0 1 18 9.8V9a6 6 0 1 0-12 0v.8a8.9 8.9 0 0 1-2.3 6.7 23 23 0 0 0 5.4 1.3m5.8 0a24 24 0 0 1-5.8 0m5.8 0a3 3 0 1 1-5.8 0" />
+        </svg>
+        <span v-if="!collapsed">Notifications</span>
+        <span v-if="unread" class="chat-sidebar__badge" aria-hidden="true">{{ unread > 99 ? '99+' : unread }}</span>
+        <span class="fr-sr-only" role="status" aria-live="polite">
+          {{ unread ? `${unread} notification${unread > 1 ? 's' : ''} non lue${unread > 1 ? 's' : ''}` : 'Aucune notification non lue' }}
+        </span>
+      </button>
     </nav>
+    <NotificationPanel v-if="showNotifications" :collapsed="collapsed" @close="showNotifications = false" />
 
     <form v-if="!collapsed" class="chat-sidebar__search" role="search" @submit.prevent>
       <label class="chat-sidebar__search-label" for="conversation-search">Rechercher dans les conversations</label>
@@ -623,6 +661,34 @@ function initials(name: string) {
 .chat-sidebar__nav-item--active {
   background: var(--background-alt-blue-france);
   font-weight: 600;
+}
+
+.chat-sidebar__bell {
+  position: relative;
+}
+
+.chat-sidebar__badge {
+  margin-left: auto;
+  min-width: 1.25rem;
+  padding: 0 0.375rem;
+  border-radius: 999px;
+  background: var(--background-action-high-blue-france);
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.25rem;
+  text-align: center;
+}
+
+.chat-sidebar--collapsed .chat-sidebar__badge {
+  position: absolute;
+  top: 0.125rem;
+  right: 0.25rem;
+  margin: 0;
+  min-width: 1rem;
+  padding: 0 0.25rem;
+  font-size: 0.6875rem;
+  line-height: 1rem;
 }
 
 .chat-sidebar__nav {

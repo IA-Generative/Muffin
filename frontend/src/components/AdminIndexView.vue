@@ -20,6 +20,12 @@ const items: AdminItem[] = [
     path: '/admin/images',
   },
   {
+    key: 'routines',
+    label: 'Routines',
+    description: 'Facultatives, désactivées par défaut : limites, suspension automatique, liste de toutes les routines et leur coût.',
+    path: '/admin/routines',
+  },
+  {
     key: 'prompts',
     label: "Prompts de l'agent",
     description: 'Historique et publication des prompts système utilisés par le graphe de recherche.',
