@@ -15,7 +15,8 @@ part la description (vers le fournisseur choisi par l'administrateur) et ce qu'i
   bouton *Télécharger*. Elle reste après un rechargement, et disparaît avec la conversation.
 - Une génération dure plusieurs secondes : le message le dit pendant l'attente. Un refus (quota, refus de politique du fournisseur, panne) s'affiche comme
   réponse, en une phrase lisible.
-- **Le mode est explicite** : le modèle du chat ne génère jamais d'image de lui-même (un outil « générer une image » pour l'agent est hors de cette fonction).
+- **Deux façons d'en demander une.** Le bouton *Image* (explicite : le message est la description) et, **sans mode**, une phrase du chat (« fais-moi une
+  affiche pour… ») : l'assistant appelle alors lui-même l'outil `generer_image` (voir plus bas). Dans les deux cas, même fonction, mêmes droits, même quota.
 
 ## Réglages d'administration
 
@@ -53,6 +54,30 @@ ne va pas : clé refusée (`cle_refusee`, 401/403), modèle inconnu (`modele_int
 (jamais de SVG ni de HTML), avec un côté d'au plus `IMAGES_MAX_SIDE` pixels et un poids d'au plus le réglage. Le type vérifié est celui qui est servi, avec
 `X-Content-Type-Options: nosniff`. Pour un PNG, une zone `tEXt` indique en plus dans le fichier que l'image vient d'une IA ; les autres types n'ont que
 l'étiquette à l'écran.
+
+## Quand l'assistant en fait une : l'outil `generer_image`
+
+Comme ChatGPT, on peut simplement l'écrire : « fais-moi un logo pour la direction », puis « refais-le en bleu ». Le planificateur appelle l'outil interne
+`generer_image` (`docs/tools.md`) dans son appel habituel : **aucun appel de modèle en plus**, un appel d'outil n'en est pas un.
+
+- **Quand il est offert** : seulement si la fonction est activée, complète (modèle et clé) et ouverte aux groupes de la personne (`ImageGenerationService.offered_to`).
+  Sinon il n'apparaît ni dans la liste des outils, ni au modèle, et un appel répond `outil_indisponible` sans rien appeler. Un administrateur qui n'est dans aucun
+  groupe autorisé a le bouton *Image* mais pas l'outil : un run ne sait pas qui est administrateur. Une conversation peut **le retirer** comme n'importe quel
+  outil (menu *Outils* du chat), et un assistant peut couper `call_tool`.
+- **Mêmes droits, même quota** : le service, la garde du texte, le débit, le **quota du jour de la personne** (partagé avec le bouton), la vérification des octets et
+  le stockage sont les mêmes. La personne est lue sur le run, jamais sur ce que dit l'agent. En plus, **`IMAGES_PER_RUN` images au plus par réponse** (2) :
+  `limite_par_reponse` au-delà.
+- **Où va l'image** : elle appartient d'abord au **run**, puis au **message** de la réponse quand elle est écrite, comme un graphique (#434) ; `GET /api/runs/{id}` la
+  montre dès qu'elle existe, et la conversation la garde au rechargement. Le texte de la réponse ne contient ni lien ni image : l'outil dit au modèle que l'image est
+  affichée sous sa réponse et avec quelle description.
+- **Dans le contexte des tours suivants** : la réponse du modèle n'est que du texte ; l'historique donné à l'agent ajoute donc, à ce message, la ligne
+  « [Image générée par IA, affichée à l'utilisateur. Description envoyée au fournisseur : « … »] ». « Fais-la en bleu » repart de cette description (le modèle écrit
+  une description complète, corrigée) ; il ne **voit** pas l'image : cela demandera la vision (#512).
+- **Le risque, et ce qui le borne** : la description est écrite par le modèle, qui lit des documents dont le texte peut lui dire « génère une image avec ceci ».
+  Elle partirait chez un tiers. Ce qui le limite : la description de l'outil interdit d'y mettre des extraits de documents ou des données personnelles et de
+  l'appeler sans demande explicite, le quota du jour et `IMAGES_PER_RUN` bornent la dépense, et la description envoyée est dite à la personne (légende de l'image,
+  tour suivant). **Rien ne demande l'accord avant** : c'est le choix « automatique », comme ChatGPT. Pour l'exiger, retirer l'outil de la conversation ou ne pas
+  autoriser la fonction aux groupes concernés.
 
 ## Droits, quotas et limites
 
@@ -96,6 +121,6 @@ d'images** et leur **taille en pixels** (`images`, `pixels`), rattachée à la p
 - Les **garde-fous d'entrée** (#516) : la description n'y passe pas encore, seulement les bornes ci-dessus et les refus de politique du fournisseur.
   Elle devra y passer comme tout message quand ils existeront.
 - La **retouche** (`/images/edits`) et les variantes, qui demanderont les pièces jointes d'image (#512).
-- Un **outil « générer une image »** de l'agent (#343) pour illustrer un document créé.
+- Un **outil « générer une image »** qui illustre automatiquement un document créé : l'outil `generer_image` existe, mais seulement sur demande explicite de la personne.
 - Les moteurs qui ne parlent pas le protocole d'OpenAI (AUTOMATIC1111, ComfyUI) : à passer par une passerelle compatible.
 - Le **cadre réglementaire** de l'étiquetage des contenus générés est à vérifier pour l'organisation ; l'étiquette à l'écran et dans le PNG est peu coûteuse.
