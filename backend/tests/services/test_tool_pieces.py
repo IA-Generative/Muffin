@@ -89,9 +89,15 @@ def test_dates_are_worked_out():
 
 
 def test_a_date_left_out_is_today():
-    from datetime import date
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
 
-    assert date.today().isoformat() in run_dates(operation="jour_de_la_semaine")
+    from app.agent.graph.services.time_tool import DEFAULT_TIMEZONE
+
+    # Today where the tool counts it: the machine's own day differs from it for an hour or two each night.
+    today = datetime.now(ZoneInfo(DEFAULT_TIMEZONE)).date()
+
+    assert today.isoformat() in run_dates(operation="jour_de_la_semaine")
 
 
 @pytest.mark.parametrize(
