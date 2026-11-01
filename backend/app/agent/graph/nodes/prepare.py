@@ -4,6 +4,7 @@ from app.agent.backend_client import backend_client
 from app.agent.graph.services.authoring import CREATE_VERBS, EDIT_VERBS
 from app.agent.graph.services.events import emit, is_cancelled, set_activity
 from app.agent.graph.services.scope import within_pinned
+from app.agent.graph.services.tool_guide import CALL_TOOL
 from app.agent.graph.services.vdb_router import VECTOR_PREFILTER_THRESHOLD, vector_prefilter
 from app.agent.graph.state import AgentState
 
@@ -48,7 +49,15 @@ async def prepare(state: AgentState) -> dict[str, Any]:
     create_candidates = (
         (await backend_client.list_editable_collections(run_id)) if can_plan and CREATE_VERBS.search(query) else []
     )
+    # The tools the person may use, unless this assistant turns them off: one call to the backend, made once per run and
+    # only for a run that has a model to choose among them (#343).
+    tools = (
+        await backend_client.tool_definitions(run_id)
+        if can_plan and CALL_TOOL not in (state.get("disabled_tools") or [])
+        else []
+    )
     return {
+        "available_tools": tools,
         "accessible_vdbs": accessible,
         "catalogue": (await _catalogue(state, accessible)),
         "edit_candidates": edit_candidates,
