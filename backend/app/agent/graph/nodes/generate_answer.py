@@ -8,6 +8,7 @@ from app.agent.backend_client import backend_client
 from app.agent.graph.services.citations import (
     CITATION_RULE,
     OUTPUT_FORMAT,
+    assistant_rules,
     cited_ids,
     parse_answer,
     partial_answer,
@@ -136,7 +137,7 @@ async def generate_answer(state: AgentState) -> dict[str, Any]:
 
     system_prompt, prompt_version_id = await get_prompt("generate_answer", fallback=_SYSTEM_PROMPT)
     # Appended here, not in the prompt (administrable, see get_prompt): an overridden prompt keeps the rule (#402).
-    system_prompt += CITATION_RULE + OUTPUT_FORMAT
+    system_prompt += CITATION_RULE + OUTPUT_FORMAT + assistant_rules(state.get("assistant_instructions", ""))
     evidence_block = "\n\n".join(
         f"[{e['id']}] (source: {e['source'] or e['tool']})\n{e['content']}" for e in context["excerpts"]
     )

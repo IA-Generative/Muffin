@@ -121,6 +121,13 @@ class AgentState(TypedDict):
     # Opt-in per message (chat composer toggle, off by default) - see Run.web_search_enabled.
     web_search_enabled: bool
 
+    # The chat was started with an assistant (#514): its instructions, added after the rules of the answer, and whether
+    # the search stays within the collections pinned for it (Run.scope_locked) instead of going on to the others.
+    assistant_instructions: str
+    scope_locked: bool
+    # The optional tools the assistant turns off (tool_guide.OPTIONAL_TOOLS): the plan is not offered them.
+    disabled_tools: list[str]
+
     # --- questions to the user (#344) ---
     interactive: bool
     question_rounds: int
