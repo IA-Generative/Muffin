@@ -12,6 +12,7 @@ import app.agent.graph.nodes.edit as edit_module
 import app.agent.graph.nodes.generate_answer as generate_answer_module
 import app.agent.graph.nodes.ground_check as ground_check_module
 import app.agent.graph.nodes.guardrails as guardrails_module
+import app.agent.graph.nodes.memory_command as memory_command_module
 import app.agent.graph.nodes.prepare as prepare_module
 import app.agent.graph.nodes.research_task as research_task_module
 import app.agent.graph.services.events as events_module
@@ -127,6 +128,17 @@ class FakeBackend:
         if decision is None:
             return {"outcome": "continue", "query": "", "message": None, "checked": 0, "flagged": 0}
         return decision
+
+    async def read_memory(self, run_id: str) -> dict[str, Any]:
+        """The memory of the person (#284): suspended - so not offered at all - unless a test seeds it."""
+        return getattr(self, "memory", {"state": "suspended", "items": []})
+
+    async def memory_command(self, run_id: str, action: str, kind: str, text: str) -> dict[str, Any]:
+        self.memory_commands = [*getattr(self, "memory_commands", []), (action, kind, text)]
+        return getattr(self, "memory_outcome", {"outcome": "saved", "message": "C'est noté."})
+
+    async def memory_used(self, run_id: str, ids: list[str]) -> None:
+        self.memory_uses = [*getattr(self, "memory_uses", []), ids]
 
     async def add_run_event(
         self,
@@ -321,6 +333,7 @@ _PATCHED_MODULES = (
     llm_module,
     prepare_module,
     guardrails_module,
+    memory_command_module,
     edit_module,
     create_module,
     research_task_module,

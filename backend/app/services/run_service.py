@@ -153,6 +153,11 @@ class RunService:
             ),
             consultable_assistants=assistant.consultable if assistant else None,
             scope_locked=locked,
+            memory_mode=(
+                "unavailable"
+                if assistant is not None or automated or scope_locked
+                else ("on" if body.use_memory else "temporary")
+            ),
         )
         await self.db.commit()
         # Started after the first commit: the agent's very first read of this run (its idempotency check) must never
@@ -370,6 +375,7 @@ class RunService:
             assistant_version=run.assistant_version,
             guardrail_outcome=run.guardrail_outcome,
             guardrail_notice=run.guardrail_notice,
+            memory_used=run.memory_used,
             error=run.error,
             created_at=run.created_at,
             updated_at=run.updated_at,

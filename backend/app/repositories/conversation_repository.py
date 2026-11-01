@@ -115,12 +115,14 @@ class ConversationRepository:
 
     async def list_messages(
         self, conversation_id: uuid.UUID
-    ) -> Sequence[tuple[Message, list[dict] | None, dict | None, list[str] | None, str | None, str | None, str | None]]:
+    ) -> Sequence[
+        tuple[Message, list[dict] | None, dict | None, list[str] | None, str | None, str | None, str | None, int | None]
+    ]:
         """Joined to Run rather than storing citations on Message too - Run is already the
         source of truth for them (§ conversation persistence), and a message never outlives the
         run that produced it in any way that would make them diverge. Same for the edit proposal
-        a run may have delegated (#171), the sub-collections it left unexplored (#219), and what the guardrails on
-        the input did to its request (#516)."""
+        a run may have delegated (#171), the sub-collections it left unexplored (#219), what the guardrails on
+        the input did to its request (#516), and how many items of the person's memory shaped its answer (#283)."""
         result = await self.db.execute(
             select(
                 Message,
@@ -130,6 +132,7 @@ class ConversationRepository:
                 Run.assistant_name,
                 Run.guardrail_outcome,
                 Run.guardrail_notice,
+                Run.memory_used,
             )
             .outerjoin(Run, Message.run_id == Run.id)
             .where(Message.conversation_id == conversation_id)

@@ -109,6 +109,7 @@ class ConversationService:
                 images=images.get(message.id, []),
                 guardrail_outcome=guardrail_outcome,
                 guardrail_notice=guardrail_notice,
+                memory_used=(memory_used or 0) if message.role == "assistant" else 0,
             )
             for (
                 message,
@@ -118,6 +119,7 @@ class ConversationService:
                 assistant_name,
                 guardrail_outcome,
                 guardrail_notice,
+                memory_used,
             ) in rows
         ]
 

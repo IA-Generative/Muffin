@@ -23,6 +23,9 @@ class RunCreate(BaseModel):
     # implied by anything else. Gates both whether the planner is even told a "web_search" tool
     # exists and whether research_task will actually run it (see worker/agent_execution).
     web_search_enabled: bool = False
+    # False for a conversation without memory (the composer's switch): nothing of the person's memory is read for the
+    # message, and nothing is kept. An assistant, a routine and the API never use it (#282).
+    use_memory: bool = True
     # "Go further" (#219): resume the sub-collection exploration where the previous answer of
     # this conversation stopped (its RunOut.unexplored_collection_ids), instead of starting
     # again from the top-level collections.
@@ -91,6 +94,8 @@ class RunOut(BaseModel):
     # `redacted` (sensitive parts were masked before the models read it), `warned`, or None - and the words shown.
     guardrail_outcome: str | None = None
     guardrail_notice: str | None = None
+    # How many items of the person's memory shaped the answer (#283), and not what they say.
+    memory_used: int = 0
     error: str | None
     created_at: datetime
     updated_at: datetime
