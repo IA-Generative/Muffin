@@ -88,7 +88,9 @@ async function exportMemory() {
     <p class="memory-view__intro">
       Ce que l’assistant retient de vous pour adapter la <strong>forme</strong> de ses réponses : votre format préféré, votre
       contexte. Ce n’est jamais une source : il ne remplace aucune citation, et ce que vous demandez dans un message passe
-      toujours avant. Seul vous le voyez ; vous pouvez tout corriger, désactiver, supprimer ou exporter.
+      toujours avant. Seul vous le voyez ; vous pouvez tout corriger, désactiver, supprimer ou exporter. Les éléments
+      « Appris » viennent de vos 👍 et 👎 (une consigne dite dans un commentaire, plusieurs votes qui concordent) : un seul
+      vote ne retient rien, et ce qui n’est plus confirmé disparaît de lui-même.
     </p>
 
     <p v-if="error" class="memory-view__error" role="alert">{{ error }}</p>
