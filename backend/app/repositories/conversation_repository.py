@@ -1,8 +1,9 @@
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime
 
-from sqlalchemy import func, literal_column, or_, select
+from sqlalchemy import delete, func, literal_column, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.conversation import Conversation
@@ -43,7 +44,7 @@ class ConversationRepository:
         """Most recently active first - "active" meaning its last message, not just when the
         conversation row itself was last touched (title generation, say), since that's what a
         chat sidebar means by "recent"."""
-        where = Conversation.user_id == user_id
+        where = (Conversation.user_id == user_id) & Conversation.source.is_(None)
         total = await self.db.scalar(select(func.count()).select_from(Conversation).where(where))
 
         last_message_at = (
@@ -73,7 +74,7 @@ class ConversationRepository:
         best = (
             select(Message.conversation_id, Message.id.label("message_id"), rank.label("rank"))
             .join(Conversation, Conversation.id == Message.conversation_id)
-            .where(Conversation.user_id == user_id, vector.op("@@")(tsquery))
+            .where(Conversation.user_id == user_id, Conversation.source.is_(None), vector.op("@@")(tsquery))
             .distinct(Message.conversation_id)
             .order_by(Message.conversation_id, rank.desc(), Message.created_at.desc())
             .subquery("best")
@@ -82,7 +83,11 @@ class ConversationRepository:
         found = (
             select(Conversation, in_title.label("in_title"), best.c.message_id, best.c.rank)
             .outerjoin(best, best.c.conversation_id == Conversation.id)
-            .where(Conversation.user_id == user_id, or_(best.c.message_id.is_not(None), in_title))
+            .where(
+                Conversation.user_id == user_id,
+                Conversation.source.is_(None),
+                or_(best.c.message_id.is_not(None), in_title),
+            )
         )
         total = await self.db.scalar(select(func.count()).select_from(found.subquery()))
         rows = (
@@ -141,11 +146,19 @@ class ConversationRepository:
         conversation.title = title
         conversation.title_generated = True
 
+    async def purge_from_source(self, source: str, older_than: datetime) -> int:
+        """Deletes the conversations a program made (see Conversation.source) that were last touched before
+        `older_than`, with their messages and runs. Returns how many."""
+        result = await self.db.execute(
+            delete(Conversation).where(Conversation.source == source, Conversation.updated_at < older_than)
+        )
+        return result.rowcount
+
     async def delete(self, conversation: Conversation) -> None:
         await self.db.delete(conversation)
 
-    async def create(self, user_id: str, title: str | None = None) -> Conversation:
-        conversation = Conversation(user_id=user_id, title=title)
+    async def create(self, user_id: str, title: str | None = None, source: str | None = None) -> Conversation:
+        conversation = Conversation(user_id=user_id, title=title, source=source)
         self.db.add(conversation)
         await self.db.flush()
         return conversation
@@ -160,6 +173,7 @@ class ConversationRepository:
         prompt_tokens: int | None = None,
         completion_tokens: int | None = None,
         questions: list[dict] | None = None,
+        created_at: datetime | None = None,
     ) -> Message:
         message = Message(
             conversation_id=conversation_id,
@@ -170,6 +184,7 @@ class ConversationRepository:
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             questions=questions,
+            **({} if created_at is None else {"created_at": created_at}),
         )
         self.db.add(message)
         await self.db.flush()
