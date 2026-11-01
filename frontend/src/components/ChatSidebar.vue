@@ -27,7 +27,7 @@ defineProps<{
   conversationsHasMore: boolean
   loadingMoreConversations: boolean
   activeId: string
-  activeView: 'chat' | 'collections' | 'assistants' | 'tools' | 'routines' | 'groups' | 'tasks' | 'quality' | 'usage' | 'admin' | 'filing'
+  activeView: 'chat' | 'collections' | 'assistants' | 'tools' | 'routines' | 'groups' | 'tasks' | 'quality' | 'usage' | 'memory' | 'admin' | 'filing'
   user: User | null
 }>()
 
@@ -46,6 +46,7 @@ const emit = defineEmits<{
   openTasks: []
   openQuality: []
   openUsage: []
+  openMemory: []
   openAdmin: []
   openSettings: []
   openApiKeys: []
@@ -183,6 +184,11 @@ function openQuality() {
 function openUsage() {
   showUserMenu.value = false
   emit('openUsage')
+}
+
+function openMemory() {
+  showUserMenu.value = false
+  emit('openMemory')
 }
 
 function openAdmin() {
@@ -488,6 +494,16 @@ function initials(name: string) {
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 3c3 4 6 7.5 6 11a6 6 0 0 1-12 0c0-3.5 3-7 6-11z" />
           </svg>
           Ma consommation
+        </button>
+        <button type="button" class="user-menu__item" role="menuitem" @click="openMemory">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M9.75 3.5a3.25 3.25 0 0 0-3.2 2.7A3.5 3.5 0 0 0 4 9.5a3.5 3.5 0 0 0 1.2 2.6 3.5 3.5 0 0 0 .8 5.9 3.25 3.25 0 0 0 6 .9V5a2.5 2.5 0 0 0-2.25-1.5zM14.25 3.5a3.25 3.25 0 0 1 3.2 2.7A3.5 3.5 0 0 1 20 9.5a3.5 3.5 0 0 1-1.2 2.6 3.5 3.5 0 0 1-.8 5.9 3.25 3.25 0 0 1-6 .9V5a2.5 2.5 0 0 1 2.25-1.5z"
+            />
+          </svg>
+          Ma mémoire
         </button>
         <button v-if="user?.isAdmin" type="button" class="user-menu__item" role="menuitem" @click="openQuality">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">

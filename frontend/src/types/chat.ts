@@ -127,6 +127,8 @@ export interface ChatMessage {
   // éléments sensibles masqués avant le modèle, ou un avertissement - et la phrase à montrer.
   guardrailOutcome?: 'blocked' | 'redacted' | 'warned'
   guardrailNotice?: string
+  // Combien d'éléments de la mémoire de la personne ont servi à cette réponse (#283) : le chat le dit, sans dire lesquels.
+  memoryUsed?: number
   // The questions this message asks instead of answering (#344) - shown as a card to answer. Once the
   // user answered, `questionsAnswer` holds the answer (the card stays in the thread with it); if they
   // wrote something else instead, the questions are `questionsAbandoned`.
