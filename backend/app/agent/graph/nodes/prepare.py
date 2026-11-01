@@ -34,7 +34,10 @@ async def prepare(state: AgentState) -> dict[str, Any]:
     if state.get("scope_locked"):
         # An assistant's collections are the only ones searched: nothing past them is shown to the plan, so nothing
         # later can reach it (#514).
-        accessible = within_pinned(state["pinned_vdb_ids"], accessible)
+        consulted = [
+            cid for assistant in state.get("consultable_assistants") or [] for cid in assistant["collection_ids"]
+        ]
+        accessible = within_pinned([*state["pinned_vdb_ids"], *consulted], accessible)
     await emit(run_id, "vdb_discovery_completed", {"accessible_count": len(accessible)})
 
     query = state["original_query"]

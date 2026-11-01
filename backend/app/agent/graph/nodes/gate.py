@@ -52,7 +52,8 @@ async def widen_search(state: AgentState) -> dict[str, Any]:
     run_id = state["run_id"]
     await set_activity(run_id, "widen_search", "Searching all your knowledge bases")
     await emit(run_id, "search_widened", {"from": state["scope_ids"]})
-    searches = [t for t in state["research_tasks"] if t["tool"] in _CONTENT_TOOLS]
+    # What was put to a consulted assistant is not widened: it was asked of that assistant, whatever it held.
+    searches = [t for t in state["research_tasks"] if t["tool"] in _CONTENT_TOOLS and not t.get("scope_ids")]
     wider = [
         ResearchTask(
             **{**task, "id": f"wide-{task['id']}", "status": "ready", "results": [], "selected_vdbs": [], "error": None}
@@ -70,7 +71,8 @@ def fan_out(state: AgentState, tasks: list[ResearchTask]) -> list[Send]:
                 "run_id": state["run_id"],
                 "user_id": state["user_id"],
                 "accessible_vdbs": state["accessible_vdbs"],
-                "scope_ids": state["scope_ids"],
+                # A query put to a consulted assistant stays in that assistant's collections (#531).
+                "scope_ids": task.get("scope_ids") or state["scope_ids"],
                 "task": task,
                 "chat_model": state["chat_model"],
                 "web_search_enabled": state["web_search_enabled"],
