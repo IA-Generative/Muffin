@@ -72,8 +72,8 @@ Ce qui reste vrai de ce côté :
 - Le résultat arrive au modèle comme du **texte** (le JSON), pas comme des sources d'Open WebUI : son panneau « Sources » reste
   vide, et les appels d'outils s'affichent dans les blocs repliables du message. C'est au modèle de citer les sources, d'où le lien
   `url` de chaque source.
-- Le jeton est un jeton Keycloak, **valable quelques minutes** : un jeton saisi une fois dans Open WebUI cesse de marcher. Un usage
-  durable demande qu'Open WebUI obtienne lui-même son jeton (OAuth) ou un compte de service ; notre serveur n'annonce pas encore de
+- Avec un jeton Keycloak, **valable quelques minutes**, un jeton saisi une fois dans Open WebUI cesse de marcher : une **clé d'API**
+  personnelle (`api-keys.md`) règle ce problème. Sans clé, un usage durable demande qu'Open WebUI obtienne lui-même son jeton (OAuth) ou un compte de service ; notre serveur n'annonce pas encore de
   métadonnées OAuth pour qu'il le découvre.
 - L'appel par l'API `POST /api/chat/completions` seule n'exécute pas les outils : il rend l'appel au client. Ils s'exécutent dans le
   fil d'un chat, comme le fait l'interface.
