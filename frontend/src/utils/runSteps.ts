@@ -150,6 +150,23 @@ export function describeEvent(event: RunEvent): Line | undefined {
         state: 'done',
       }
     }
+    case 'image_reading_started': {
+      const count = asNumber(data.count)
+      return {
+        key: 'images',
+        label: 'Lecture des images jointes',
+        detail: count === undefined ? undefined : plural(count, 'image', 'images'),
+        state: 'done',
+      }
+    }
+    case 'answer_model_switched':
+      // The model chosen does not read images (#512): the answer is written by one that does, and it is said here.
+      return {
+        key: 'model',
+        label: 'Réponse écrite par un modèle qui lit les images',
+        detail: typeof data.to === 'string' ? data.to : undefined,
+        state: 'done',
+      }
     case 'edit_delegated':
       return { key: 'edit', label: 'Modification confiée à l’agent d’édition', state: 'running' }
     case 'edit_delegation_finished':

@@ -67,6 +67,15 @@ test('the answer says how many sources it cites, only when it cites some', () =>
   assert.equal(describeEvent(event('answer_generation_completed', { citation_count: 0 }))!.detail, undefined)
 })
 
+test('the images read for the answer are said, and so is a model that was changed for them', () => {
+  const reading = describeEvent(event('image_reading_started', { count: 2 }))!
+  assert.equal(reading.label, 'Lecture des images jointes')
+  assert.equal(reading.detail, '2 images')
+  const switched = describeEvent(event('answer_model_switched', { from: 'a', to: 'vision-1', reason: 'images' }))!
+  assert.equal(switched.label, 'Réponse écrite par un modèle qui lit les images')
+  assert.equal(switched.detail, 'vision-1')
+})
+
 test('an event that adds nothing for the user makes no line, and the list given is never changed', () => {
   assert.equal(describeEvent(event('something_internal')), undefined)
   const before = applyEvents([], [event('run_started')])
