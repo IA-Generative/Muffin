@@ -97,6 +97,8 @@ interface MessageOut {
   assistant_name?: string | null
   tool_calls?: ToolCallOut[] | null
   images?: ImageOut[] | null
+  guardrail_outcome?: string | null
+  guardrail_notice?: string | null
 }
 
 // Backend shape (snake_case) of an image of the chat: made by a model (#518) or attached by the person (#512).
@@ -114,6 +116,15 @@ interface ImageOut {
 
 function imageUrl(conversationId: string, imageId: string): string {
   return `${API_BASE_URL}/api/conversations/${conversationId}/images/${imageId}`
+}
+
+// Ce que les garde-fous d'entrée ont fait de la demande (#516), tel que le chat le montre : rien quand ils n'ont rien fait.
+function toGuardrail(
+  outcome: string | null | undefined,
+  notice: string | null | undefined,
+): Pick<ChatMessage, 'guardrailOutcome' | 'guardrailNotice'> {
+  if (outcome !== 'blocked' && outcome !== 'redacted' && outcome !== 'warned') return {}
+  return { guardrailOutcome: outcome, guardrailNotice: notice ?? undefined }
 }
 
 function toImages(conversationId: string, raw: ImageOut[] | null | undefined): MessageImage[] | undefined {
@@ -248,6 +259,8 @@ interface RunOut {
   images?: ImageOut[] | null
   assistant_name?: string | null
   assistant_inaccessible_collections?: number
+  guardrail_outcome?: string | null
+  guardrail_notice?: string | null
   error: string | null
 }
 
@@ -383,6 +396,9 @@ function activityLabel(run: RunOut): string {
 // backend/app/agent/graph/services/events.py).
 const EVENT_LABELS: Record<string, string> = {
   run_started: 'Recherche démarrée',
+  guardrail_started: 'Vérification de la demande…',
+  guardrail_completed: 'Demande vérifiée',
+  guardrail_blocked: 'Demande non traitée',
   vdb_discovery_started: 'Recherche des bases de connaissances accessibles…',
   vdb_discovery_completed: 'Bases de connaissances accessibles identifiées',
   query_analysis_started: 'Analyse de la question…',
@@ -472,7 +488,7 @@ async function ensureMessagesLoaded(conversationId: string) {
         role: item.role,
         content,
         sources,
-        noSources: answerHasNoSource(item.citations, sources),
+        noSources: item.guardrail_outcome === 'blocked' ? false : answerHasNoSource(item.citations, sources),
         runId: item.run_id ?? undefined,
         feedback: item.feedback ?? null,
         editProposal: toEditProposal(item.edit_proposal),
@@ -483,6 +499,7 @@ async function ensureMessagesLoaded(conversationId: string) {
         questionsAbandoned: item.questions_abandoned ?? false,
         toolCalls: toToolCalls(item.tool_calls),
         images: toImages(conversationId, item.images),
+        ...toGuardrail(item.guardrail_outcome, item.guardrail_notice),
         assistantName: item.assistant_name ?? undefined,
       }
     })
@@ -1131,7 +1148,7 @@ function assistantMessageFor(id: string, run: RunOut): ChatMessage {
       role: 'assistant',
       content,
       sources,
-      noSources: answerHasNoSource(run.citations, sources),
+      noSources: run.guardrail_outcome === 'blocked' ? false : answerHasNoSource(run.citations, sources),
       runId: run.id,
       editProposal: toEditProposal(run.edit_proposal),
       creationProposal: toCreationProposal(run.edit_proposal),
@@ -1140,6 +1157,7 @@ function assistantMessageFor(id: string, run: RunOut): ChatMessage {
       toolCalls: toToolCalls(run.tool_calls),
       // The images the assistant made while answering (#518): the run's own conversation, not a placeholder's.
       images: run.conversation_id ? toImages(run.conversation_id, run.images) : undefined,
+      ...toGuardrail(run.guardrail_outcome, run.guardrail_notice),
       assistantName: run.assistant_name ?? undefined,
     }
   }

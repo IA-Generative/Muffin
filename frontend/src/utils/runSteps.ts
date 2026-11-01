@@ -150,6 +150,25 @@ export function describeEvent(event: RunEvent): Line | undefined {
         state: 'done',
       }
     }
+    case 'guardrail_started':
+      return { key: 'guardrails', label: 'Vérification de la demande', state: 'running' }
+    case 'guardrail_completed':
+      // Nothing of which guardrail or why: a count, and what became of the request.
+      return {
+        key: 'guardrails',
+        label: 'Vérification de la demande',
+        detail:
+          data.outcome === 'continue_with_redaction'
+            ? 'des éléments sensibles masqués'
+            : data.outcome === 'continue_with_warning'
+              ? 'avertissement'
+              : data.outcome === 'block'
+                ? 'demande non traitée'
+                : undefined,
+        state: 'done',
+      }
+    case 'guardrail_blocked':
+      return undefined
     case 'image_reading_started': {
       const count = asNumber(data.count)
       return {
