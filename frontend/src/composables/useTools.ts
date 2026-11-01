@@ -198,6 +198,21 @@ async function setConversationTools(conversationId: string, disabledRefs: string
   return true
 }
 
+// Les outils dont la description colle à une recherche, parmi ceux que la personne peut utiliser, le plus proche d'abord :
+// une requête au serveur, faite seulement quand le filtre local (utils/toolSearch.ts) ne suffit pas. `signal` annule la
+// requête d'une frappe dépassée. Null quand il n'a pas répondu : l'appelant filtre alors ici, sans erreur.
+async function searchTools(query: string, conversationId?: string, signal?: AbortSignal): Promise<Tool[] | null> {
+  const params = new URLSearchParams({ q: query })
+  if (conversationId) params.set('conversation_id', conversationId)
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/tools/search?${params}`, { credentials: 'include', signal })
+    if (!response.ok) return null
+    return ((await response.json()) as ToolOut[]).map(toTool)
+  } catch {
+    return null
+  }
+}
+
 export function useTools() {
   return {
     servers,
@@ -206,6 +221,7 @@ export function useTools() {
     toolError,
     refreshServers,
     refreshTools,
+    searchTools,
     saveServer,
     setEnabled,
     syncServer,
