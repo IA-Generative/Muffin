@@ -20,6 +20,7 @@ def normalize_results(task_id: str, retrieval_query: str, results: list[dict[str
                 "chunk_id": str(result["chunk_id"]),
                 "page_number": result.get("page_number"),
                 "evidence_kind": "document",
+                "rerank_score": result.get("rerank_score"),
             },
             relevance_score=result.get("rank"),
             retrieval_query=retrieval_query,

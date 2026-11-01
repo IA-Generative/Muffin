@@ -28,6 +28,11 @@ class SearchSource(BaseModel):
     )
     text: str = Field(description="The passage, the question with its answer, or the summary")
     score: float = Field(description="Cosine similarity with the question, comparable across collections")
+    rerank_score: float | None = Field(
+        default=None,
+        description="What the reranking model rated the passage for the question, when the search was reranked: the "
+        "sources are then in the order of this rating, `score` staying the cosine",
+    )
     document_id: uuid.UUID | None = Field(description="None for a question about the collection as a whole")
     document_name: str | None
     page: int | None = Field(description="The first page the passage is on, when it is known")
