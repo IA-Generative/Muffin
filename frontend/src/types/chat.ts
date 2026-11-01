@@ -123,6 +123,10 @@ export interface ChatMessage {
   noSources?: boolean
   // The assistant the chat was made with (#514), as it was named when this answer was written.
   assistantName?: string
+  // Ce que les garde-fous d'entrée ont fait de la demande de cette réponse (#516) : refusée (la réponse est le refus), ses
+  // éléments sensibles masqués avant le modèle, ou un avertissement - et la phrase à montrer.
+  guardrailOutcome?: 'blocked' | 'redacted' | 'warned'
+  guardrailNotice?: string
   // The questions this message asks instead of answering (#344) - shown as a card to answer. Once the
   // user answered, `questionsAnswer` holds the answer (the card stays in the thread with it); if they
   // wrote something else instead, the questions are `questionsAbandoned`.

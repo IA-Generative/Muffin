@@ -27,6 +27,11 @@ export const router = createRouter({
     { path: '/admin', name: 'admin', component: () => import('../components/AdminIndexView.vue') },
     { path: '/admin/settings', name: 'admin-settings', component: () => import('../components/AdminSettingsView.vue') },
     { path: '/admin/images', name: 'admin-images', component: () => import('../components/AdminImagesView.vue') },
+    {
+      path: '/admin/guardrails',
+      name: 'admin-guardrails',
+      component: () => import('../components/AdminGuardrailsView.vue'),
+    },
     { path: '/admin/routines', name: 'admin-routines', component: () => import('../components/AdminRoutinesView.vue') },
     { path: '/admin/prompts', name: 'admin-prompts', component: () => import('../components/AdminPromptsView.vue') },
     { path: '/admin/cgu', name: 'admin-cgu', component: () => import('../components/AdminCguView.vue') },
