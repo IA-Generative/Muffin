@@ -26,6 +26,7 @@ from app.schemas.routine import (
     ScheduleOut,
 )
 from app.services.assistant_service import AssistantNotFoundError, AssistantService, NoReadableCollectionError
+from app.services.guardrail_service import GuardrailService
 from app.services.routine_runner import RoutineExecutor, schedule_of, suspend
 
 PREVIEW_DATES = 5
@@ -306,7 +307,11 @@ class RoutineService:
         condition: RoutineCondition,
         question: str,
     ) -> None:
-        """What a routine is about must be readable by the person now. It is checked again at each run."""
+        """What a routine is about must be readable by the person now. It is checked again at each run. The question
+        must pass the guardrails on the input (#516), as it will at each run."""
+        decision = await GuardrailService(self.db).screen_text(user, question, assistant_id)
+        if decision.blocked:
+            raise RoutineError("question_refusee", decision.message or "Cette question n'est pas permise.")
         if condition == RoutineCondition.ONLY_IF_NEW and not collection_ids and assistant_id is None:
             raise RoutineError(
                 "portee_requise", "Pour « seulement s'il y a du nouveau », choisissez des collections ou un assistant."

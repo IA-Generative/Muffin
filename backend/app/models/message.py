@@ -2,7 +2,7 @@ import enum
 import uuid
 from typing import Any
 
-from sqlalchemy import Computed, Enum, ForeignKey, Index, Integer, Text
+from sqlalchemy import Computed, Enum, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -52,6 +52,10 @@ class Message(UUIDMixin, TimestampMixin, Base):
     # while unanswered - and for good when the user wrote something else instead, which abandons the
     # questions (see ConversationService.list_messages).
     questions_answer: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
+    # A user message the guardrails on the input masked (#516): what the models see of it, in this turn and in the next
+    # ones. `content` stays what the person wrote - it is theirs. `guardrail_action`: `redacted`, `blocked`, `warned`.
+    redacted_content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    guardrail_action: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
     conversation: Mapped["Conversation"] = relationship(back_populates="messages")  # noqa: F821
     sources: Mapped[list["Source"]] = relationship(  # noqa: F821

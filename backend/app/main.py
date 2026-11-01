@@ -11,6 +11,7 @@ from app.core.secret_store import check_configuration as check_secrets_configura
 from app.mcp_server import mcp_app, mcp_lifespan
 from app.openai_app import openai_app
 from app.routers.admin_cgu import router as admin_cgu_router
+from app.routers.admin_guardrails import router as admin_guardrails_router
 from app.routers.admin_owui_sync import router as admin_owui_sync_router
 from app.routers.admin_prompts import router as admin_prompts_router
 from app.routers.admin_reports import router as admin_reports_router
@@ -45,6 +46,7 @@ from app.routers.internal_documents import router as internal_documents_router
 from app.routers.internal_edit_requests import router as internal_edit_requests_router
 from app.routers.internal_evaluation import router as internal_evaluation_router
 from app.routers.internal_groups import router as internal_groups_router
+from app.routers.internal_guardrails import router as internal_guardrails_router
 from app.routers.internal_llm import router as internal_llm_router
 from app.routers.internal_owui_sync import router as internal_owui_sync_router
 from app.routers.internal_pipeline import router as internal_pipeline_router
@@ -235,10 +237,12 @@ app.include_router(admin_settings_router, prefix="/api")
 app.include_router(admin_prompts_router, prefix="/api")
 app.include_router(admin_owui_sync_router, prefix="/api")
 app.include_router(admin_cgu_router, prefix="/api")
+app.include_router(admin_guardrails_router, prefix="/api")
 app.include_router(admin_secrets_router, prefix="/api")
 app.include_router(cgu_router, prefix="/api")
 app.include_router(admin_reports_router, prefix="/api")
 app.include_router(internal_groups_router, prefix="/api")
+app.include_router(internal_guardrails_router, prefix="/api")
 app.include_router(internal_collection_sync_router, prefix="/api")
 app.include_router(internal_document_sync_router, prefix="/api")
 app.include_router(internal_owui_sync_router, prefix="/api")

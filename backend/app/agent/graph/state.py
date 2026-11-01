@@ -110,6 +110,9 @@ class AgentState(TypedDict):
     conversation_id: str
 
     original_query: str
+    # What the guardrails on the input decided (#516), written by the `guardrails` node alone: {"outcome", "message",
+    # "checked", "flagged"}. Absent until it ran.
+    guardrail: NotRequired[dict[str, Any]]
     # The user's message rewritten by the plan to stand on its own when it refers back to the conversation
     # ("elle" -> "the AgentControl collection"): what the research searches and the answer is written for.
     contextualized_query: str
