@@ -19,6 +19,7 @@ from app.services import vector_store
 from app.services.embedding_model_lookup import default_embedding_model
 from app.services.import_processing_queue import ImportProcessingQueue
 from app.services.index_vectors import vector_for_active_index
+from app.services.notification_service import DOCUMENT_FAILED, notify
 from app.services.search_service import embed_text
 
 
@@ -40,13 +41,30 @@ class DocumentService:
 
     async def update_status(self, document_id: uuid.UUID, update: DocumentStatusUpdate) -> Document:
         document = await self.get_document(document_id)
+        already_failed = document.status == DocumentStatus.ERROR
         await self.repository.update_status(document, DocumentStatus(update.status), update.progress, update.summary)
         await self.db.commit()
         await self.db.refresh(document)
         if document.status == DocumentStatus.ERROR:
             # The place it held in its import's window (#335) goes to the next document.
             await ImportProcessingQueue(self.db).finish(document_id)
+            if not already_failed:
+                await self._tell_failure(document)
         return document
+
+    async def _tell_failure(self, document: Document) -> None:
+        """The person who added it is told (#524): what they see otherwise only on the Tasks page. Its name and a link,
+        never the error, which can hold what the pipeline saw of the file."""
+        collection = await self.collections.get_by_id(document.collection_id)
+        recipient = document.added_by_user_id or (collection.owner_id if collection else None)
+        await notify(
+            recipient,
+            DOCUMENT_FAILED,
+            "Un document n'a pas pu être traité",
+            f"« {document.name} » n'a pas pu être indexé.",
+            f"/collections/{document.collection_id}/documents/{document.id}",
+            {"document_id": str(document.id), "collection_id": str(document.collection_id)},
+        )
 
     async def list_pages(self, document_id: uuid.UUID) -> list[DocumentPage]:
         await self.get_document(document_id)

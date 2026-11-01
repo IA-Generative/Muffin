@@ -2,6 +2,7 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agent.graph.services.tool_guide import CALL_TOOL
 from app.agent.runner import agent_runner
 from app.config import RunSettings
 from app.connectors import redis_connector
@@ -74,8 +75,11 @@ class RunService:
         self.feedbacks = FeedbackRepository(db)
         self.sources = SourceRepository(db)
 
-    async def create_run(self, user: RequestContext, body: RunCreate, *, scope_locked: bool = False) -> RunOut:
-        """`scope_locked`: the search stays within the collections given (a model of the OpenAI-compatible API)."""
+    async def create_run(
+        self, user: RequestContext, body: RunCreate, *, scope_locked: bool = False, automated: bool = False
+    ) -> RunOut:
+        """`scope_locked`: the search stays within the collections given (a model of the OpenAI-compatible API).
+        `automated`: started by a routine (#524), with nobody there and no token of the person - no tool is offered."""
         # Before anything is written: an assistant the caller may not use, or whose collections they may not read, makes
         # no conversation and no message.
         assistant = (
@@ -142,7 +146,11 @@ class RunService:
             assistant_name=assistant.name if assistant else None,
             assistant_version=assistant.version if assistant else None,
             assistant_instructions=assistant.instructions if assistant else None,
-            assistant_disabled_tools=assistant.disabled_tools if assistant else None,
+            assistant_disabled_tools=(
+                [*(assistant.disabled_tools if assistant else []), CALL_TOOL]
+                if automated
+                else (assistant.disabled_tools if assistant else None)
+            ),
             consultable_assistants=assistant.consultable if assistant else None,
             scope_locked=locked,
         )
