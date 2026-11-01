@@ -409,6 +409,21 @@ Délégation d'une modification de document vivant à l'agent d'édition (#171) 
 | `EDIT_WAIT_SECONDS` | Durée maximale pendant laquelle un run attend que l'agent d'édition ait fini une modification déléguée. Passé ce délai, la réponse dit que la proposition apparaîtra dans la carte du chat | `300` | idem (`graph/nodes/delegate_edit.py`) |
 | `EDIT_POLL_SECONDS` | Intervalle entre deux interrogations du backend sur l'état du brouillon pendant cette attente | `2.0` | idem |
 
+## backend — garde-fous sur la saisie (#516)
+
+Ce que définit l'administrateur (quels garde-fous, leur mode, leur étape, la politique) est stocké dans l'application (`/admin/guardrails`, voir `docs/guardrails.md`) ; ces variables sont les bornes qu'aucun réglage ne lève.
+
+| Variable | Définition | Défaut | Utilisée par |
+|---|---|---|---|
+| `GUARDRAILS_TEXT_MAX_CHARS` | Longueur maximale du texte présenté à un garde-fou (le reste n'est ni lu par un modèle ni envoyé à un service) | `20000` | **backend** (`app/config/guardrails.py`) |
+| `GUARDRAILS_PATTERN_MAX_CHARS` | Longueur maximale d'un motif d'un garde-fou de type `rules` | `500` | idem |
+| `GUARDRAILS_PATTERNS_MAX` | Nombre maximal de motifs d'un garde-fou | `50` | idem |
+| `GUARDRAILS_TERMS_MAX` | Nombre maximal de termes d'un garde-fou | `2000` | idem |
+| `GUARDRAILS_MAX` | Nombre maximal de garde-fous | `50` | idem |
+| `GUARDRAILS_TIMEOUT_LIMIT_MS` | Plus longue attente (ms) qu'un administrateur peut donner à un garde-fou ou à l'ensemble | `30000` | idem |
+| `GUARDRAILS_ALLOWED_PRIVATE_HOSTS` | Hôtes (séparés par des virgules) qu'un garde-fou `http` peut appeler bien qu'ils soient sur un réseau privé ; rien d'autre qui ne soit public n'est joint | vide | idem |
+| `GUARDRAILS_RESULTS_RETENTION_DAYS` | Durée de conservation (jours) des verdicts et des comptes — jamais du texte | `180` | idem (purge de la maintenance des routines) |
+
 ## worker/evaluation — évaluation du retrieval (issue #11)
 
 | Variable | Définition | Défaut | Utilisée par |

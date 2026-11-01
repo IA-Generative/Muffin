@@ -61,6 +61,7 @@ Légende : **➕** Muffin devant · **🟰** équivalent · **🔻** Muffin en r
 | Langues | nombreuses | français seulement (pas de bibliothèque d'i18n) | 🔻 |
 | Application installable (PWA) | oui (manifeste) | non | 🔻 |
 | Canaux d'équipe, calendriers | oui | non | ❌ |
+| Garde-fous sur la saisie | filtres (fonctions) à écrire soi-même | **garde-fous** administrables (règles, modèle, service HTTP), mode surveillance ou blocage, masquage, audit (`docs/guardrails.md`) | ✅ |
 | Automatisations | oui (généralistes) | **routines** : une question posée à l'agent à intervalles réguliers, pour surveiller sa base documentaire (`docs/routines.md`), et centre de notifications (`docs/notifications.md`) | 🟰 |
 
 ## 2. RAG et connaissances (le cœur)

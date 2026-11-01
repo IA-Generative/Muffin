@@ -88,6 +88,9 @@ La réponse porte aussi `muffin.run_id` et `muffin.conversation_id`.
 - Un run qui échoue répond `502` (`run_failed`) sans dire pourquoi : le détail est dans les journaux du serveur.
 - Un run lancé par une clé n'a pas de jeton Keycloak : les outils de l'agent qui appellent un service au nom de l'utilisateur avec ce
   jeton (`app/agent/user_token.py`) n'en disposent pas.
+- Les **garde-fous** (`docs/guardrails.md`) s'appliquent : la question passe par tous ceux qui la concernent, et les messages de
+  l'historique envoyé par le client par ceux de type *règles* seulement (un modèle ou un service HTTP ne juge que la question du run).
+  Une question bloquée reçoit la réponse de refus, comme dans le chat.
 
 ## Dans Open WebUI
 
