@@ -173,6 +173,28 @@ noté, la recherche garde l'ordre qu'elle avait, **n'échoue jamais**, et un ave
 - **Pas encore mesuré** : le gain de rappel@5 sur le jeu d'évaluation et la latence p95 pour 40 candidats demandent un service de
   reclassement réel. Tant que ce n'est pas fait, le reclassement reste désactivé partout par défaut ; les chiffres seront consignés ici.
 
+## Descriptions des assistants et cache d'embedding (#531)
+
+Les assistants (`docs/assistants.md`) ont leur propre index Qdrant, `assistants`, un point par assistant, avec les deux vecteurs
+(dense et BM25) et la même recherche hybride que les descriptions de collections (`vector_store.search_assistants`, `_hybrid`).
+
+- **Ce qui est indexé** : le nom, la description et les questions suggérées. **Jamais** les consignes (que l'auteur peut masquer) ni les
+  noms des collections (que tous les lecteurs ne peuvent pas lire).
+- **Le modèle d'embedding est celui de l'administrateur**, le même que pour les descriptions de collections (*Administration → Réglages
+  → Modèle d'embedding*, `app_settings.embedding_model`). Sans choix, le premier modèle d'embedding du hub.
+- **Embarqué quand ça change** : la description est embarquée à la création et à chaque modification du nom, de la description ou des
+  suggestions (`AssistantSearchService.index`). Le point garde le hachage du texte indexé et le modèle : un point à jour n'est jamais
+  ré-embarqué (modifier seulement les consignes, les collections ou le partage n'appelle pas le modèle). Si l'administrateur change de
+  modèle, ou si l'embedding était indisponible à l'écriture, les points périmés sont refaits **à la prochaine recherche**, tous
+  ensemble en un seul appel groupé.
+- **Les droits d'abord** : les candidats sont les assistants que la personne peut lire (`AssistantRepository`), recalculés à chaque
+  requête ; la recherche ne fait que les classer. Un partage retiré ou un assistant dépublié disparaît tout de suite.
+- **Peu d'appels** : sous `ASSISTANTS_SEARCH_INDEX_MIN` assistants, filtre sur les mots, sans embedding ni Qdrant ; embedding ou
+  Qdrant en panne : même repli, sans erreur ; aucun modèle de langage n'est jamais appelé.
+- **Un cache pour l'embedding d'une question** (`search_service.embed_query`) : la même question est cherchée dans les passages, les
+  questions-réponses, les résumés, les descriptions de collections et d'assistants, souvent en même temps. Elle est embarquée **une
+  fois** : les recherches simultanées partagent l'appel, et la suivante la trouve en Redis (`SEARCH_EMBEDDING_CACHE_SECONDS`).
+
 ## Écriture, lecture, suppression
 
 - Écritures par lots, avec `wait=true` : ce qu'on relit juste après est déjà là.
