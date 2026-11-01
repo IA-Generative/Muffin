@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.42.0-rc.1](https://github.com/IA-Generative/Muffin/compare/v0.42.0-rc...v0.42.0-rc.1) (2026-11-01)
+
+
+### Features
+
+* **agent:** le planificateur peut appeler un outil, sans appel de plus ([cfd302d](https://github.com/IA-Generative/Muffin/commit/cfd302d9b5a84e162c64954d5cccad261951a2c4))
+* **agent:** une requête du plan peut être confiée à un assistant consulté ([5106475](https://github.com/IA-Generative/Muffin/commit/510647554e4dffae08f3188bc65290f782732b86))
+* **assistants:** recherche, suggestion et consultation d'autres assistants ([a8e3329](https://github.com/IA-Generative/Muffin/commit/a8e332925fe66a986fe0873ad7a659590abae350))
+* **frontend:** chercher un outil par ce qu'il fait ([#530](https://github.com/IA-Generative/Muffin/issues/530)) ([b7350ee](https://github.com/IA-Generative/Muffin/commit/b7350ee05645ddb8acc3810d48e8ff5867f76a34))
+* **frontend:** page des outils, serveurs MCP et menu des outils du chat ([#343](https://github.com/IA-Generative/Muffin/issues/343)) ([757760d](https://github.com/IA-Generative/Muffin/commit/757760de3ada8be8f0eeb9733b9e146a2bc4456c))
+* **frontend:** recherche d'assistants et réglage de la consultation ([#531](https://github.com/IA-Generative/Muffin/issues/531)) ([82f7a9c](https://github.com/IA-Generative/Muffin/commit/82f7a9cf3edb4e3369f2b25aae43bc77d45cd75e))
+* **search:** index hybride des assistants et cache de l'embedding d'une question ([8dfbc2b](https://github.com/IA-Generative/Muffin/commit/8dfbc2b701450816d2c5230d0aee085b1da7478e))
+* **search:** recherche hybride des outils par leur description ([#530](https://github.com/IA-Generative/Muffin/issues/530)) ([2aa35c7](https://github.com/IA-Generative/Muffin/commit/2aa35c768fca4681a38691f370916e88bd37ea77))
+* **tools:** l'accord de la personne pour les outils qui modifient des données ([#343](https://github.com/IA-Generative/Muffin/issues/343)) ([bed56ec](https://github.com/IA-Generative/Muffin/commit/bed56ec442d9c92cc095aa989788ac1239ffe625))
+* **tools:** serveurs MCP d'utilisateurs et catalogue interne d'outils ([da3ff01](https://github.com/IA-Generative/Muffin/commit/da3ff010f187b786e4560dc5bc5636d13467afc0))
+
 ## [0.42.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.41.0...v0.42.0-rc) (2026-11-01)
 
 
