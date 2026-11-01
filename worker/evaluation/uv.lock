@@ -225,7 +225,7 @@ wheels = [
 
 [[package]]
 name = "muffin-worker-evaluation"
-version = "0.44.0-rc.1"
+version = "0.44.0-rc.2"
 source = { editable = "." }
 dependencies = [
     { name = "celery", extra = ["redis"] },
