@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.44.0](https://github.com/IA-Generative/Muffin/compare/v0.43.0...v0.44.0) (2026-11-01)
+
+
+### Features
+
+* **garde-fous:** contrôler la saisie avant l'agent, règles, modèle ou service HTTP ([#516](https://github.com/IA-Generative/Muffin/issues/516)) ([9bd8bc1](https://github.com/IA-Generative/Muffin/commit/9bd8bc103770a5ec4a047e3229e2cb1c5724d533))
+* **garde-fous:** page d'administration et indication dans le chat ([#516](https://github.com/IA-Generative/Muffin/issues/516)) ([a2412d4](https://github.com/IA-Generative/Muffin/commit/a2412d4ca71ab6cd10028fe53df4eba69b3be745))
+* **mémoire:** mémoire utilisateur, injection dans les réponses et commandes du chat ([#282](https://github.com/IA-Generative/Muffin/issues/282), [#284](https://github.com/IA-Generative/Muffin/issues/284)) ([67fac1d](https://github.com/IA-Generative/Muffin/commit/67fac1d03d30e8042986fd277275160276ae37d0))
+* **mémoire:** page « Ma mémoire », interrupteur du chat et mention sur les réponses ([#283](https://github.com/IA-Generative/Muffin/issues/283)) ([9e5a1a7](https://github.com/IA-Generative/Muffin/commit/9e5a1a701e87f5d1a3d087c642cbc863af7a6911))
+* **routines:** activées par défaut, compteur de notifications relevé toutes les heures ([#524](https://github.com/IA-Generative/Muffin/issues/524)) ([f5ef0d4](https://github.com/IA-Generative/Muffin/commit/f5ef0d49c71f0c3680ef96ced486be3a2088e466))
+* **routines:** page Routines, cloche de notifications et réglages d'administration ([#524](https://github.com/IA-Generative/Muffin/issues/524)) ([361fae1](https://github.com/IA-Generative/Muffin/commit/361fae148caf557b5c7e7252394c0eca8862840d))
+* **routines:** routines de l'agent et centre de notifications, côté serveur ([#524](https://github.com/IA-Generative/Muffin/issues/524)) ([c194059](https://github.com/IA-Generative/Muffin/commit/c19405912239b4e0f3ffc5808d81cd9b2558ee78))
+
 ## [0.44.0-rc.2](https://github.com/IA-Generative/Muffin/compare/v0.44.0-rc.1...v0.44.0-rc.2) (2026-11-01)
 
 

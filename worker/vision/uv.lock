@@ -601,7 +601,7 @@ wheels = [
 
 [[package]]
 name = "muffin-worker-ocr-vision"
-version = "0.44.0-rc.2"
+version = "0.44.0"
 source = { editable = "." }
 dependencies = [
     { name = "boto3" },
