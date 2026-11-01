@@ -54,3 +54,5 @@ class MessageOut(BaseModel):
     # The feedback value (up/down) the current user left on this message, if any - restored
     # after a page reload so the thumbs-up/down button stays highlighted.
     feedback: FeedbackValue | None = None
+    # The assistant the run behind this message was made with (#514), as it was named then.
+    assistant_name: str | None = None

@@ -46,6 +46,11 @@ class InternalRunOut(BaseModel):
     resume_from_collection_ids: list[str] | None = None
     # See Run.interactive (#344).
     interactive: bool = True
+    # The instructions of the assistant the chat was started with (#514), added to the rules of the answer, and whether
+    # the search stays within the collections the run was given (Run.scope_locked).
+    assistant_instructions: str | None = None
+    scope_locked: bool = False
+    disabled_tools: list[str] | None = None
     # Collections already left unexplored when the run was created (#220): the sub-collections a
     # pinned collection couldn't bring along within PINNED_DESCENDANTS_LIMIT. The run's own
     # exploration adds to them, and the union is reported back with the answer.

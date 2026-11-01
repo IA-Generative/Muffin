@@ -19,6 +19,7 @@ from app.repositories.source_repository import SourceRepository
 from app.schemas.feedback import FeedbackCreate, FeedbackOut
 from app.schemas.question import validate_answers
 from app.schemas.run import RunCreate, RunEventOut, RunOut
+from app.services.assistant_service import AssistantService
 from app.services.document_upload_service import _uploader_display
 
 # Module attribute (not closed over) so tests can change the limit with monkeypatch.setattr.
@@ -68,7 +69,11 @@ class RunService:
         self.feedbacks = FeedbackRepository(db)
         self.sources = SourceRepository(db)
 
-    async def create_run(self, user: RequestContext, body: RunCreate) -> RunOut:
+    async def create_run(self, user: RequestContext, body: RunCreate, *, scope_locked: bool = False) -> RunOut:
+        """`scope_locked`: the search stays within the collections given (a model of the OpenAI-compatible API)."""
+        # Before anything is written: an assistant the caller may not use, or whose collections they may not read, makes
+        # no conversation and no message.
+        assistant = await AssistantService(self.db).resolve(user, body.assistant_id) if body.assistant_id else None
         if body.conversation_id is not None:
             conversation = await self.conversations.get(body.conversation_id, user.user_id)
             if conversation is None:
@@ -93,8 +98,12 @@ class RunService:
         inherited_ids = (
             [uuid.UUID(collection_id) for collection_id in (asked.pinned_collection_ids or [])] if asked else []
         )
-        requested_ids = list(dict.fromkeys([*(body.collection_ids or inherited_ids), *imported_ids]))
-        collection_ids, unexplored_ids = await self._resolve_pinned(requested_ids, user, body.include_descendants)
+        # An assistant's collections replace the ones picked by hand, and are the only ones searched (#514).
+        chosen = assistant.collection_ids if assistant else (body.collection_ids or inherited_ids)
+        requested_ids = list(dict.fromkeys([*chosen, *imported_ids]))
+        include_descendants = assistant.include_descendants if assistant else body.include_descendants
+        collection_ids, unexplored_ids = await self._resolve_pinned(requested_ids, user, include_descendants)
+        locked = scope_locked or bool(assistant and assistant.collection_ids)
         temp_collection = await self.collections.get_temporary_for_conversation(conversation.id)
         if temp_collection is not None and temp_collection.id not in collection_ids:
             collection_ids.append(temp_collection.id)
@@ -106,12 +115,20 @@ class RunService:
             conversation.id,
             collection_ids,
             user.groups,
-            body.web_search_enabled or bool(asked and asked.web_search_enabled),
+            # An assistant says whether the search of the web may be turned on, never turns it on.
+            (body.web_search_enabled and (assistant is None or assistant.web_search_allowed))
+            or bool(asked and asked.web_search_enabled),
             user_is_admin=user.is_admin,
             user_display=_uploader_display(user),
             continue_exploration=body.continue_exploration,
             unexplored_collection_ids=unexplored_ids,
             interactive=body.interactive,
+            assistant_id=assistant.id if assistant else None,
+            assistant_name=assistant.name if assistant else None,
+            assistant_version=assistant.version if assistant else None,
+            assistant_instructions=assistant.instructions if assistant else None,
+            assistant_disabled_tools=assistant.disabled_tools if assistant else None,
+            scope_locked=locked,
         )
         await self.db.commit()
         # Started after the first commit: the agent's very first read of this run (its idempotency check) must never
@@ -121,7 +138,9 @@ class RunService:
         # expires them on every flush regardless of expire_on_commit - read
         # back the real value instead of lazy-loading outside a greenlet.
         await self.db.refresh(run, attribute_names=["created_at", "updated_at"])
-        return self._to_out(run)
+        out = self._to_out(run)
+        out.assistant_inaccessible_collections = assistant.inaccessible_collection_count if assistant else 0
+        return out
 
     async def _record_answers(self, user: RequestContext, conversation_id: uuid.UUID, body: RunCreate) -> Run:
         """Keeps the user's answers on the message of the run that asked the questions (#344), so the card shows them
@@ -318,6 +337,9 @@ class RunService:
             edit_proposal=run.edit_proposal,
             unexplored_collection_ids=run.unexplored_collection_ids,
             questions=questions,
+            assistant_id=run.assistant_id,
+            assistant_name=run.assistant_name,
+            assistant_version=run.assistant_version,
             error=run.error,
             created_at=run.created_at,
             updated_at=run.updated_at,

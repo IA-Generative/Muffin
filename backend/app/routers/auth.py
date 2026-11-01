@@ -16,6 +16,7 @@ from app.core.security.keycloak_client import keycloak_openid, session_store
 from app.core.security.session import PendingAuth
 from app.core.sharing import SharingNotConfiguredError, hash_identifier, normalize_email, normalize_group
 from app.db import get_db
+from app.repositories.assistant_repository import AssistantRepository
 from app.repositories.collection_repository import CollectionRepository
 from app.repositories.group_repository import GroupRepository
 from app.services.api_key_service import ApiKeyService
@@ -73,8 +74,11 @@ async def _resolve_pending_shares(db: AsyncSession, identity: dict) -> None:
             email_hash = hash_identifier(normalize_email(identity["email"]))
             await repository.resolve_pending_user_shares(email_hash, identity["user_id"])
             await GroupRepository(db).resolve_pending_members(email_hash, identity["user_id"])
+            await AssistantRepository(db).resolve_pending_user_shares(email_hash, identity["user_id"])
         for group in identity.get("groups") or []:
-            await repository.resolve_pending_group_shares(hash_identifier(normalize_group(group)), group)
+            group_hash = hash_identifier(normalize_group(group))
+            await repository.resolve_pending_group_shares(group_hash, group)
+            await AssistantRepository(db).resolve_pending_group_shares(group_hash, group)
         await db.commit()
     except SharingNotConfiguredError:
         pass
