@@ -87,6 +87,10 @@ class RunOut(BaseModel):
     tool_calls: list[ToolProposalOut] = []
     # The images this run made while answering (#518): shown with the answer, before it is a message the page reloads.
     images: list[ImageOut] = []
+    # What the guardrails on the input did to the request of this run (#516): `blocked` (the answer is the refusal),
+    # `redacted` (sensitive parts were masked before the models read it), `warned`, or None - and the words shown.
+    guardrail_outcome: str | None = None
+    guardrail_notice: str | None = None
     error: str | None
     created_at: datetime
     updated_at: datetime

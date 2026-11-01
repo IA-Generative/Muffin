@@ -11,6 +11,7 @@ import app.agent.graph.nodes.create as create_module
 import app.agent.graph.nodes.edit as edit_module
 import app.agent.graph.nodes.generate_answer as generate_answer_module
 import app.agent.graph.nodes.ground_check as ground_check_module
+import app.agent.graph.nodes.guardrails as guardrails_module
 import app.agent.graph.nodes.prepare as prepare_module
 import app.agent.graph.nodes.research_task as research_task_module
 import app.agent.graph.services.events as events_module
@@ -118,6 +119,14 @@ class FakeBackend:
 
     async def get_run(self, run_id: str) -> dict[str, Any]:
         return {"cancel_requested": self.cancel_requested}
+
+    async def check_guardrails(self, run_id: str) -> dict[str, Any]:
+        """What the guardrails on the input decide (#516): nothing to stop unless a test seeds a decision."""
+        self.guardrail_calls = [*getattr(self, "guardrail_calls", []), run_id]
+        decision = getattr(self, "guardrail_decision", None)
+        if decision is None:
+            return {"outcome": "continue", "query": "", "message": None, "checked": 0, "flagged": 0}
+        return decision
 
     async def add_run_event(
         self,
@@ -311,6 +320,7 @@ _PATCHED_MODULES = (
     events_module,
     llm_module,
     prepare_module,
+    guardrails_module,
     edit_module,
     create_module,
     research_task_module,

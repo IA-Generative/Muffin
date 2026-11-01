@@ -21,9 +21,9 @@ async def _catalogue(state: AgentState, accessible: list[dict[str, Any]]) -> lis
 
 
 async def prepare(state: AgentState) -> dict[str, Any]:
-    """Everything the plan needs, without a model. The accessible collections are computed backend-side from the
-    authenticated user alone, and nothing later may grow past them (§4/§12). What the user may edit, or add a document
-    to, is only loaded when the message looks like such a request."""
+    """The first half of what the plan needs, and the part that reads no text: the collections the person may reach,
+    computed backend-side from the authenticated user alone, and nothing later may grow past them (§4/§12). It runs
+    beside the guardrails on the input (#516); `prepare_request` is the second half, which reads the request."""
     run_id = state["run_id"]
     if await is_cancelled(run_id):
         return {"cancelled": True}
@@ -40,7 +40,21 @@ async def prepare(state: AgentState) -> dict[str, Any]:
         ]
         accessible = within_pinned([*state["pinned_vdb_ids"], *consulted], accessible)
     await emit(run_id, "vdb_discovery_completed", {"accessible_count": len(accessible)})
+    return {"accessible_vdbs": accessible}
 
+
+async def prepare_request(state: AgentState) -> dict[str, Any]:
+    """What the plan needs from the request, without a model: the collections to show it, what the person may edit or
+    add a document to (only loaded when the message looks like such a request), and the tools they may use. It waits
+    for the guardrails on the input (#516) and reads the request as they left it - masked when they masked it - and
+    does nothing at all when they stopped it: no embedding of the text, no call for the tools."""
+    run_id = state["run_id"]
+    if await is_cancelled(run_id):
+        return {"cancelled": True}
+    if (state.get("guardrail") or {}).get("outcome") == "block":
+        return {}
+
+    accessible = state["accessible_vdbs"]
     query = state["original_query"]
     can_plan = state["chat_model"] is not None
     edit_candidates = (
@@ -58,7 +72,6 @@ async def prepare(state: AgentState) -> dict[str, Any]:
     )
     return {
         "available_tools": tools,
-        "accessible_vdbs": accessible,
         "catalogue": (await _catalogue(state, accessible)),
         "edit_candidates": edit_candidates,
         "create_candidates": create_candidates,

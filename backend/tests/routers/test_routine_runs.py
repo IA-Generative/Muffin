@@ -8,7 +8,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 
 from app.agent.runner import agent_runner
 from app.db import async_session_factory
@@ -513,3 +513,66 @@ async def test_what_the_routines_cost_is_shown_apart_to_the_person_and_to_the_ad
 
     assert mine["routines"] == {"runs": 2, "total_tokens": 400} and bobs["routines"] == {"runs": 0, "total_tokens": 0}
     assert everyone["routines"] == {"runs": 2, "total_tokens": 400} and listed[0]["tokens_30_days"] == 400
+
+
+# --- the guardrails on the input ---
+
+
+async def with_guardrail(**fields):
+    from app.models.guardrail import Enforcement, Guardrail, GuardrailType
+
+    async with async_session_factory() as session:
+        session.add(
+            Guardrail(
+                name="Pas d'IBAN",
+                type=GuardrailType.RULES,
+                config={"builtins": ["iban"]},
+                enabled=True,
+                enforcement=Enforcement.BLOCK,
+                refusal_message="Pas de coordonnées bancaires.",
+                **fields,
+            )
+        )
+        await session.commit()
+
+
+async def without_guardrails():
+    from app.models.guardrail import Guardrail
+
+    async with async_session_factory() as session:
+        await session.execute(delete(Guardrail))
+        await session.commit()
+
+
+async def test_a_question_the_guardrails_would_stop_is_refused_when_the_routine_is_written_and_changed(client):
+    await enable()
+    await with_guardrail()
+    iban = "FR76 3000 6000 0112 3456 7890 189"
+    try:
+        refused = await client.post("/api/routines", json=body(question=f"Surveille le compte {iban}"))
+        made = await make(client, question="Quoi de neuf ?")
+        changed = await client.patch(f"/api/routines/{made['id']}", json={"question": f"Et le compte {iban} ?"})
+    finally:
+        await without_guardrails()
+
+    assert refused.status_code == 422 and refused.json()["detail"]["code"] == "question_refusee"
+    assert refused.json()["detail"]["message"] == "Pas de coordonnées bancaires."
+    assert changed.status_code == 422 and (await load(made["id"])).question == "Quoi de neuf ?"
+
+
+async def test_a_run_whose_question_the_guardrails_stopped_is_a_failure_and_the_person_is_told(client):
+    await enable()
+    made = await make(client)
+    await make_due(made["id"])
+    await routine_scheduler.sweep()
+    [entry] = await history(made["id"])
+    async with async_session_factory() as session:
+        run = await session.get(Run, entry.run_id)
+        run.guardrail_outcome = "blocked"  # what the guardrails wrote when they stopped the request
+        await session.commit()
+
+    done = await end(made["id"], RunStatus.COMPLETED)
+
+    [notification] = await notifications_of(ALICE)
+    assert done.status == RoutineRunStatus.FAILED and "politique d'usage" in done.error
+    assert notification.type == "routine.failed" and (await load(made["id"])).consecutive_failures == 1

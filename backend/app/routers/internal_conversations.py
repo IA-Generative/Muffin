@@ -12,6 +12,7 @@ from app.schemas.internal_discussion_score import (
     ConversationMessageOut,
     DiscussionScoreCreate,
 )
+from app.services.guardrail_service import text_for_models
 
 router = APIRouter(
     prefix="/internal",
@@ -32,7 +33,7 @@ async def list_conversation_messages(
     if await ConversationRepository(db).get_by_id(conversation_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
     rows = await ConversationRepository(db).list_messages(conversation_id)
-    return [ConversationMessageOut(role=message.role, content=message.content) for message, *_run_fields in rows]
+    return [ConversationMessageOut(role=message.role, content=text_for_models(message)) for message, *_rest in rows]
 
 
 @router.post(

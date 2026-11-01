@@ -368,6 +368,8 @@ class RunService:
             assistant_id=run.assistant_id,
             assistant_name=run.assistant_name,
             assistant_version=run.assistant_version,
+            guardrail_outcome=run.guardrail_outcome,
+            guardrail_notice=run.guardrail_notice,
             error=run.error,
             created_at=run.created_at,
             updated_at=run.updated_at,

@@ -49,6 +49,7 @@ from app.schemas.internal_run import (
     TabularSheetRef,
 )
 from app.services import run_stream
+from app.services.guardrail_service import text_for_models
 from app.services.run_service import PARTIAL_ANSWER_TTL_SECONDS, partial_answer_key
 from app.services.search_service import SearchService
 from app.services.table_views import table_out
@@ -114,7 +115,7 @@ async def get_run(run_id: uuid.UUID, db: Annotated[AsyncSession, Depends(get_db)
         # `asked`: questions with options were asked here (#344), which the worker counts to stop asking.
         {
             "role": message.role,
-            "content": message.content + _image_notes(message, images.get(message.id, [])),
+            "content": text_for_models(message) + _image_notes(message, images.get(message.id, [])),
             "asked": bool(message.questions),
         }
         for message, *_run_fields in messages

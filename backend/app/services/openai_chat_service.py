@@ -30,6 +30,7 @@ from app.repositories.run_repository import RunRepository
 from app.schemas.openai_api import ChatCompletionRequest, ChatMessage, ModelList, ModelOut
 from app.schemas.run import RunCreate
 from app.services import run_stream
+from app.services.guardrail_service import GuardrailService
 from app.services.mcp_search_service import document_url
 from app.services.run_service import ConversationNotFoundError, RunNotFoundError, RunService
 
@@ -308,11 +309,16 @@ class OpenAiChatService:
             # Dated one millisecond apart and before the question: the database dates what a transaction writes with the
             # time the transaction began, which would leave the order of the messages to chance.
             began = await self.db.scalar(select(func.now()))
+            stored = []
             for position, message in enumerate(history, start=-len(history)):
                 role = MessageRole.USER if message.role == "user" else MessageRole.ASSISTANT
-                await self.conversations.add_message(
-                    conversation.id, role, _text_of(message), created_at=began + timedelta(milliseconds=position)
+                stored.append(
+                    await self.conversations.add_message(
+                        conversation.id, role, _text_of(message), created_at=began + timedelta(milliseconds=position)
+                    )
                 )
+            # No run checks these: the guardrails that run without a model do (#516).
+            await GuardrailService(self.db).screen_history(user, stored)
         try:
             run = await RunService(self.db).create_run(
                 user,
