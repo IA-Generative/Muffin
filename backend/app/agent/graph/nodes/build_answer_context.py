@@ -34,6 +34,8 @@ async def build_answer_context(state: AgentState) -> dict[str, Any]:
                 # "search"/"page_content" evidence links to a real document page, everything else
                 # (list_collections, collection_summary, list_documents) is just input/output.
                 "tool": e["metadata"].get("tool", "search"),
+                # The other assistant this was found by consulting (#531), if any.
+                "consulted_assistant": e["metadata"].get("consulted_assistant"),
                 # evidence_kind is the precise provenance of this excerpt (document, qa, summary,
                 # collection, web) - stamped by each evidence producer in research_task.py. The
                 # frontend uses it to pick the right card variant + badge instead of guessing from

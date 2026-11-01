@@ -36,6 +36,11 @@ class ResearchTask(TypedDict):
     search_queries: list[str]
     results: list[dict[str, Any]]
     error: str | None
+    # A query put to another assistant the run may consult (#531): its name, and the collections it is searched in - the
+    # ones that assistant designates and the person may read, in place of the run's own scope.
+    assistant_id: NotRequired[str]
+    assistant_name: NotRequired[str]
+    scope_ids: NotRequired[list[str]]
 
 
 class Evidence(TypedDict):
@@ -125,6 +130,9 @@ class AgentState(TypedDict):
     # the search stays within the collections pinned for it (Run.scope_locked) instead of going on to the others.
     assistant_instructions: str
     scope_locked: bool
+    # The other assistants this run may consult, with the collections the person may read (Run.consultable_assistants):
+    # [{id, name, description, collection_ids, disabled_tools}]. The plan picks among them, never past them.
+    consultable_assistants: list[dict[str, Any]]
     # The optional tools the assistant turns off (tool_guide.OPTIONAL_TOOLS): the plan is not offered them.
     disabled_tools: list[str]
 

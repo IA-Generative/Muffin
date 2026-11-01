@@ -125,6 +125,7 @@ class AgentService:
                 "assistant_instructions": run.get("assistant_instructions") or "",
                 "scope_locked": bool(run.get("scope_locked", False)),
                 "disabled_tools": list(run.get("disabled_tools") or []),
+                "consultable_assistants": list(run.get("consultable_assistants") or []),
                 "question_rounds": question_rounds(raw_history),
                 "questions": None,
                 "must_assume": False,

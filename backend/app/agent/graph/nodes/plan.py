@@ -72,6 +72,14 @@ _SYSTEM_PROMPT = (
 # before the questions with options still gets them.
 _QUESTIONS_INSTRUCTION = f'\n\nFor "clarify", the questions follow these rules: {GUIDANCE}'
 
+# Added only when the run may consult other assistants (#531): part of the plan's own call, so it costs none.
+_CONSULT_INSTRUCTION = (
+    '\n\nOther assistants you may consult are listed below as "Assistants". Each one answers from its own knowledge '
+    'bases. For a query that clearly belongs to one of them, add "assistant": its id to that query: it is then '
+    "searched in that assistant's knowledge bases and not in yours. Do it only when it is clearly better placed "
+    "than your own knowledge bases; otherwise leave it out. Use only the ids listed."
+)
+
 _MAX_QUERIES = 4
 _HISTORY_TURNS = 6
 _HISTORY_CHARS = 1500
@@ -102,6 +110,12 @@ def _user_content(state: AgentState) -> str:
         parts.append(f"Conversation so far:\n{history}")
     parts.append(f"Current message: {state['original_query']}")
     parts.append(f"Knowledge bases:\n{knowledge_bases}")
+    if state.get("consultable_assistants"):
+        listed = "\n".join(
+            str({"id": a["id"], "name": a["name"], "description": a["description"]})
+            for a in state["consultable_assistants"]
+        )
+        parts.append(f"Assistants:\n{listed}")
     pinned = [by_id[i]["name"] for i in state["pinned_vdb_ids"] if i in by_id]
     if pinned:
         parts.append(f"The user attached these collections to the message: {', '.join(pinned)}")
@@ -115,15 +129,29 @@ def _user_content(state: AgentState) -> str:
 
 
 def _queries(
-    raw: Any, query: str, web_search_enabled: bool, disabled: frozenset[str] = frozenset()
-) -> list[dict[str, str]]:
-    allowed = valid_tools(web_search_enabled, disabled)
+    raw: Any,
+    query: str,
+    web_search_enabled: bool,
+    disabled: frozenset[str] = frozenset(),
+    consultable: dict[str, dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """The plan's queries, each with a tool that is allowed. A query may be put to an assistant the run may consult
+    (#531): only one of those listed counts - any other id is dropped, the query then being the run's own - and the
+    tools that assistant turns off are off for that query too."""
+    consultable = consultable or {}
     found = []
     for item in raw if isinstance(raw, list) else []:
         if not isinstance(item, dict) or not str(item.get("query") or "").strip():
             continue
+        consulted = consultable.get(str(item.get("assistant") or ""))
+        off = disabled | frozenset(consulted["disabled_tools"]) if consulted else disabled
+        allowed = valid_tools(web_search_enabled, off)
         tool = item.get("tool") if item.get("tool") in allowed else "search"
-        found.append({"query": str(item["query"]).strip(), "tool": tool})
+        entry: dict[str, Any] = {"query": str(item["query"]).strip(), "tool": tool}
+        # Only a search of content goes to an assistant: a tool that lists or summarises has no business in its scope.
+        if consulted and tool == "search":
+            entry["assistant"] = str(consulted["id"])
+        found.append(entry)
     return found[:_MAX_QUERIES] or [{"query": query, "tool": "search"}]
 
 
@@ -187,7 +215,11 @@ def normalize_plan(raw: Any, state: AgentState) -> dict[str, Any]:
     plan |= {
         "standalone_query": standalone,
         "queries": _queries(
-            raw.get("queries"), standalone, state["web_search_enabled"], frozenset(state.get("disabled_tools") or ())
+            raw.get("queries"),
+            standalone,
+            state["web_search_enabled"],
+            frozenset(state.get("disabled_tools") or ()),
+            {a["id"]: a for a in state.get("consultable_assistants") or []},
         ),
         "collections": _known(raw.get("collections"), dict.fromkeys(accessible_ids)),
         "complexity": "complex" if raw.get("complexity") == "complex" else "simple",
@@ -195,9 +227,11 @@ def normalize_plan(raw: Any, state: AgentState) -> dict[str, Any]:
     return plan
 
 
-def _tasks(plan: dict[str, Any]) -> list[ResearchTask]:
-    return [
-        ResearchTask(
+def _tasks(plan: dict[str, Any], consultable: dict[str, dict[str, Any]] | None = None) -> list[ResearchTask]:
+    consultable = consultable or {}
+    tasks = []
+    for index, item in enumerate(plan["queries"], start=1):
+        task = ResearchTask(
             id=f"task-{index}",
             query=item["query"],
             intent=None,
@@ -210,8 +244,15 @@ def _tasks(plan: dict[str, Any]) -> list[ResearchTask]:
             results=[],
             error=None,
         )
-        for index, item in enumerate(plan["queries"], start=1)
-    ]
+        consulted = consultable.get(item.get("assistant", ""))
+        if consulted:
+            task |= {
+                "assistant_id": consulted["id"],
+                "assistant_name": consulted["name"],
+                "scope_ids": list(consulted["collection_ids"]),
+            }
+        tasks.append(task)
+    return tasks
 
 
 async def plan(state: AgentState) -> dict[str, Any]:
@@ -235,7 +276,8 @@ async def plan(state: AgentState) -> dict[str, Any]:
             prompt_usages.append(prompt_version_id)
         guide = tool_guide(state["web_search_enabled"], frozenset(state.get("disabled_tools") or ()))
         system_prompt = template.replace("{guide}", guide).replace("{capabilities}", AUTHORING_CAPABILITIES)
-        raw = await json_chat(model, system_prompt + _QUESTIONS_INSTRUCTION, _user_content(state), fallback=None)
+        instructions = _QUESTIONS_INSTRUCTION + (_CONSULT_INSTRUCTION if state.get("consultable_assistants") else "")
+        raw = await json_chat(model, system_prompt + instructions, _user_content(state), fallback=None)
 
     plan_ = normalize_plan(raw, state)
     mode = plan_["mode"]
@@ -266,7 +308,7 @@ async def plan(state: AgentState) -> dict[str, Any]:
     elif mode == "create":
         updates["create_target"] = await _create_target(plan_, state)
     elif mode == "search":
-        updates["research_tasks"] = _tasks(plan_)
+        updates["research_tasks"] = _tasks(plan_, {a["id"]: a for a in state.get("consultable_assistants") or []})
         updates["scope_ids"] = scope_ids(plan_["collections"], state["pinned_vdb_ids"], state["accessible_vdbs"])
     return updates
 
