@@ -240,6 +240,7 @@ interface RunOut {
   unexplored_collection_ids?: string[] | null
   questions?: QuestionOut[] | null
   tool_calls?: ToolCallOut[] | null
+  images?: ImageOut[] | null
   assistant_name?: string | null
   assistant_inaccessible_collections?: number
   error: string | null
@@ -1117,6 +1118,8 @@ function assistantMessageFor(id: string, run: RunOut): ChatMessage {
       unexploredCollectionIds: run.unexplored_collection_ids ?? undefined,
       questions: toQuestions(run.questions),
       toolCalls: toToolCalls(run.tool_calls),
+      // The images the assistant made while answering (#518): the run's own conversation, not a placeholder's.
+      images: run.conversation_id ? toImages(run.conversation_id, run.images) : undefined,
       assistantName: run.assistant_name ?? undefined,
     }
   }
