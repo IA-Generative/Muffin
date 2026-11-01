@@ -6,6 +6,7 @@ from .keycloak import KeycloakSettings
 from .llm import LlmSettings
 from .logging import LoggingSettings
 from .mcp import McpSettings
+from .openai_api import OpenAiApiSettings
 from .qdrant import QdrantSettings, SearchSettings
 from .redis import RedisSettings
 from .runs import RunSettings
@@ -23,6 +24,7 @@ __all__ = [
     "LlmSettings",
     "LoggingSettings",
     "McpSettings",
+    "OpenAiApiSettings",
     "QdrantSettings",
     "RedisSettings",
     "RunSettings",

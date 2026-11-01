@@ -9,6 +9,7 @@ from app.agent.runner import agent_runner
 from app.config import KeycloakSettings, SecretsSettings
 from app.core.secret_store import check_configuration as check_secrets_configuration
 from app.mcp_server import mcp_app, mcp_lifespan
+from app.openai_app import openai_app
 from app.routers.admin_cgu import router as admin_cgu_router
 from app.routers.admin_owui_sync import router as admin_owui_sync_router
 from app.routers.admin_prompts import router as admin_prompts_router
@@ -193,3 +194,5 @@ app.include_router(internal_prompts_router, prefix="/api")
 
 # The MCP server (#467), under /api/mcp, with its own bearer-token check.
 app.mount("/api/mcp", mcp_app)
+# The OpenAI-compatible API (#513), at the root so that `base_url=https://muffin/v1` works as it is in the SDKs.
+app.mount("/v1", openai_app)
