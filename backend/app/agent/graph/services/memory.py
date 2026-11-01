@@ -28,6 +28,28 @@ MEMORY_PLAN_INSTRUCTION = (
 MEMORY_ACTIONS = ("remember", "forget", "show")
 MEMORY_KINDS = ("preference", "habit", "context", "fact")
 
+# Added to the plan when some of the collections it is shown are ones the person is used to (#286): a slight prior,
+# which the plan is told is never a reason by itself - the question decides.
+HABITS_PLAN_INSTRUCTION = (
+    '\n\nCollections marked "habitual": "yes" are ones the user often uses. When two or more collections could hold '
+    "the answer about equally well, prefer the habitual one. It is only a tie-breaker: never choose a collection "
+    "because it is habitual, never leave out one that fits the question better, and say nothing of it."
+)
+
+
+def habit_weights(state: dict[str, Any]) -> dict[str, float]:
+    """The collections the person is used to and how much each weighs (0 to 1): nothing when their memory is not in use
+    in this run. Ids as strings, as the collections of the state carry them."""
+    memory = state.get("memory") or {}
+    if memory.get("state") != "on":
+        return {}
+    return {str(habit["collection_id"]): float(habit["weight"]) for habit in memory.get("habits") or []}
+
+
+def habitual_first(vdbs: list[dict[str, Any]], weights: dict[str, float]) -> list[dict[str, Any]]:
+    """The same collections, the habitual ones first and the others as they were: never fewer, never others."""
+    return sorted(vdbs, key=lambda vdb: -weights.get(str(vdb["id"]), 0.0)) if weights else vdbs
+
 
 def memory_block(items: list[dict[str, Any]]) -> str:
     """What is appended to the data of the answer. The angle brackets of a value are removed so that nothing it says can

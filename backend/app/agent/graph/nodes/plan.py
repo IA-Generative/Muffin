@@ -13,7 +13,13 @@ from app.agent.graph.services.authoring import (
 )
 from app.agent.graph.services.events import emit, is_cancelled, set_activity
 from app.agent.graph.services.llm import json_chat
-from app.agent.graph.services.memory import MEMORY_ACTIONS, MEMORY_KINDS, MEMORY_PLAN_INSTRUCTION
+from app.agent.graph.services.memory import (
+    HABITS_PLAN_INSTRUCTION,
+    MEMORY_ACTIONS,
+    MEMORY_KINDS,
+    MEMORY_PLAN_INSTRUCTION,
+    habit_weights,
+)
 from app.agent.graph.services.prompts import get_prompt
 from app.agent.graph.services.scope import scope_ids
 from app.agent.graph.services.tool_guide import (
@@ -114,7 +120,14 @@ def _history(state: AgentState) -> str:
 
 def _user_content(state: AgentState) -> str:
     by_id = {str(vdb["id"]): vdb for vdb in state["accessible_vdbs"]}
-    knowledge_bases = "\n".join(str(catalogue_entry(vdb, by_id)) for vdb in state["catalogue"]) or "(none)"
+    habits = habit_weights(state)
+    knowledge_bases = (
+        "\n".join(
+            str({**catalogue_entry(vdb, by_id), **({"habitual": "yes"} if str(vdb["id"]) in habits else {})})
+            for vdb in state["catalogue"]
+        )
+        or "(none)"
+    )
     parts = []
     history = _history(state)
     if history:
@@ -348,6 +361,10 @@ async def plan(state: AgentState) -> dict[str, Any]:
             instructions += _IMAGES_INSTRUCTION
         if (state.get("memory") or {}).get("state", "suspended") != "suspended":
             instructions += MEMORY_PLAN_INSTRUCTION
+        # Only when a collection the plan is shown is one the person is used to: otherwise the prompt is what it was.
+        shown_habits = habit_weights(state).keys() & {str(vdb["id"]) for vdb in state["catalogue"]}
+        if shown_habits:
+            instructions += HABITS_PLAN_INSTRUCTION
         raw = await json_chat(model, system_prompt + instructions, _user_content(state), fallback=None)
 
     plan_ = normalize_plan(raw, state)
