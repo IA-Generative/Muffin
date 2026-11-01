@@ -46,7 +46,7 @@ Légende : **➕** Muffin devant · **🟰** équivalent · **🔻** Muffin en r
 | Choix du modèle | modèles personnalisés (« model builder ») avec prompt système, connaissances et outils attachés | sélecteur de modèle du hub | 🔻 |
 | Pièces jointes | fichiers, images (vision), pages web, Drive / OneDrive | fichiers (collection temporaire de la conversation) ; **pas d'image** | 🔻 |
 | Voix | STT / TTS à moteurs, appel vocal temps réel | dictée et lecture vocale (`useVoiceInput`, `useVoiceOutput`) | 🔻 |
-| Génération d'images | plusieurs moteurs | absent | ❌ |
+| Génération d'images | plusieurs moteurs | optionnelle, désactivée par défaut : adresse compatible OpenAI (`docs/image-generation.md`) | 🟰 |
 | Interpréteur de code, terminaux | oui | non ; à la place, SQL + graphiques sur les fichiers tabulaires | ❌ |
 | Mémoire de l'utilisateur | oui | non | ❌ |
 | Notes | oui | non (les documents modifiables jouent un rôle voisin) | ❌ |
