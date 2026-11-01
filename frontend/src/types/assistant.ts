@@ -1,6 +1,8 @@
 import type { Share, SharePermission, ShareSubjectType } from './collection'
 
 export type AssistantVisibility = 'private' | 'public'
+// Ce qu'un assistant peut consulter d'autre (#531) : rien (par défaut), tout ce que la personne peut lire, ou une liste.
+export type ConsultMode = 'none' | 'all' | 'list'
 
 // Les outils facultatifs de l'agent qu'un assistant peut couper. Le graphe de l'agent est le même pour tous : un assistant
 // n'en change que les consignes, les collections et ces outils. `search` n'en fait pas partie : une réponse en est faite.
@@ -29,6 +31,10 @@ export interface Assistant {
   includeDescendants: boolean
   webSearchAllowed: boolean
   disabledTools: string[]
+  consultMode: ConsultMode
+  // Ceux que vous pouvez lire, nommés ; les autres ne sont que comptés.
+  consulted: { id: string; name: string }[]
+  inaccessibleConsultedCount: number
   suggestions: string[]
   visibility: AssistantVisibility
   version: number
@@ -48,6 +54,8 @@ export interface AssistantDraft {
   includeDescendants: boolean
   webSearchAllowed: boolean
   disabledTools: string[]
+  consultMode: ConsultMode
+  consultAssistantIds: string[]
   // Une question par ligne.
   suggestions: string
 }

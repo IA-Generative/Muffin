@@ -44,9 +44,11 @@ async function save() {
     <form v-else class="admin-card" @submit.prevent="save">
       <h2 class="admin-card__title">Modèle d'embedding</h2>
       <p class="admin-card__intro">
-        Utilisé pour comparer une question à la description de chaque collection et déterminer laquelle cibler.
-        Ce modèle est le même pour toutes les collections : il ne peut pas être choisi par collection, sinon les
-        embeddings ne seraient plus comparables entre eux.
+        Utilisé pour comparer une question à la description de chaque collection et déterminer laquelle cibler, et pour
+        retrouver un assistant par sa description. La description d'un assistant est embarquée quand elle change ; si
+        vous changez de modèle, elle l'est de nouveau à la prochaine recherche. Ce modèle est le même pour toutes les
+        collections et tous les assistants : il ne peut pas être choisi par collection, sinon les embeddings ne seraient
+        plus comparables entre eux.
       </p>
 
       <div class="admin-card__field">
