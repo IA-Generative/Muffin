@@ -35,6 +35,7 @@ interface UsageOut {
   by_model: (SumsOut & { model: string })[]
   by_user: (SumsOut & { user_id: string | null; display: string | null })[]
   execution: ExecutionOut
+  routines?: { runs: number; total_tokens: number }
 }
 
 function toSums(raw: SumsOut): UsageSums {
@@ -80,6 +81,7 @@ function toUsage(raw: UsageOut): Usage {
     byModel: raw.by_model.map((row) => ({ model: row.model, ...toSums(row) })),
     byUser: raw.by_user.map((row) => ({ userId: row.user_id, display: row.display, ...toSums(row) })),
     execution: toExecution(raw.execution),
+    routines: { runs: raw.routines?.runs ?? 0, totalTokens: raw.routines?.total_tokens ?? 0 },
   }
 }
 

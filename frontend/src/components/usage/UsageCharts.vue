@@ -95,6 +95,10 @@ function barWidth(row: UsageSums, rows: UsageSums[]) {
         <span class="usage-charts__stat-label">Images générées</span>
         <span class="usage-charts__stat-value">{{ count(usage.totals.images) }}</span>
       </div>
+      <div v-if="usage.routines.runs > 0" class="usage-charts__stat">
+        <span class="usage-charts__stat-label">Routines : {{ count(usage.routines.runs) }} exécution{{ usage.routines.runs > 1 ? 's' : '' }}</span>
+        <span class="usage-charts__stat-value">{{ count(usage.routines.totalTokens) }} jetons</span>
+      </div>
     </div>
 
     <div class="usage-charts__impact">
