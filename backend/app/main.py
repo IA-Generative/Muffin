@@ -31,6 +31,7 @@ from app.routers.documents import router as documents_router
 from app.routers.filing import router as filing_router
 from app.routers.groups import router as groups_router
 from app.routers.health import router as health_router
+from app.routers.images import router as images_router
 from app.routers.index_rebuilds import internal_router as internal_index_rebuilds_router
 from app.routers.index_rebuilds import router as index_rebuilds_router
 from app.routers.internal_collection_sync import router as internal_collection_sync_router
@@ -249,6 +250,7 @@ app.include_router(internal_runs_router, prefix="/api")
 app.include_router(internal_prompts_router, prefix="/api")
 app.include_router(internal_tools_router, prefix="/api")
 app.include_router(tools_router, prefix="/api")
+app.include_router(images_router, prefix="/api")
 
 # The MCP server (#467), under /api/mcp, with its own bearer-token check.
 app.mount("/api/mcp", mcp_app)

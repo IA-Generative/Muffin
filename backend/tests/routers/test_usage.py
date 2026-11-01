@@ -55,7 +55,14 @@ async def test_a_call_for_a_collection_counts_for_its_owner(client):
     await _chat(client, {"step": "summarize_document", "collection_id": collection_id})
 
     mine = (await client.get("/api/usage/me")).json()
-    assert mine["totals"] == {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15, "calls": 1}
+    assert mine["totals"] == {
+        "input_tokens": 10,
+        "output_tokens": 5,
+        "total_tokens": 15,
+        "images": 0,
+        "pixels": 0,
+        "calls": 1,
+    }
     assert [(row["step"], row["total_tokens"]) for row in mine["by_step"]] == [("summarize_document", 15)]
     assert [(row["model"], row["calls"]) for row in mine["by_model"]] == [("gpt-4o", 1)]
     assert len(mine["by_day"]) == 1
@@ -71,7 +78,7 @@ async def test_embeddings_are_counted_as_input_tokens(client):
     assert response.status_code == 200
 
     totals = (await client.get("/api/usage/me")).json()["totals"]
-    assert totals == {"input_tokens": 7, "output_tokens": 0, "total_tokens": 7, "calls": 1}
+    assert totals == {"input_tokens": 7, "output_tokens": 0, "total_tokens": 7, "images": 0, "pixels": 0, "calls": 1}
 
 
 async def test_someone_else_s_consumption_is_not_in_mine(client):

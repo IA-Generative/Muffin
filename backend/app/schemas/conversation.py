@@ -5,6 +5,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from app.models.feedback import FeedbackValue
+from app.schemas.image_generation import ImageOut
 from app.schemas.question import Question, QuestionAnswer
 from app.schemas.tool import ToolProposalOut
 
@@ -59,3 +60,5 @@ class MessageOut(BaseModel):
     assistant_name: str | None = None
     # The requests to run a tool that changes data that the run behind this message made (#343).
     tool_calls: list[ToolProposalOut] = []
+    # The images made in the chat (#518) that this message shows, each as an image made by a model.
+    images: list[ImageOut] = []

@@ -35,6 +35,8 @@ def _sums(row) -> dict:  # noqa: ANN001
         "input_tokens": row.input_tokens,
         "output_tokens": row.output_tokens,
         "total_tokens": row.total_tokens,
+        "images": row.images,
+        "pixels": row.pixels,
         "calls": row.calls,
     }
 
@@ -70,6 +72,9 @@ class UsageService:
         model: str,
         input_tokens: int | None,
         output_tokens: int | None,
+        *,
+        images: int = 0,
+        pixels: int = 0,
     ) -> None:
         """Best-effort: an LLM call already succeeded by the time this runs, so a failure here is
         logged and swallowed rather than failing the worker's call."""
@@ -85,6 +90,8 @@ class UsageService:
                     input_tokens=input_tokens,
                     output_tokens=output_tokens,
                     total_tokens=input_tokens + output_tokens,
+                    images=images,
+                    pixels=pixels,
                     run_id=context.run_id,
                     document_id=context.document_id,
                     collection_id=context.collection_id,

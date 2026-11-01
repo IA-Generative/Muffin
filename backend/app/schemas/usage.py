@@ -7,6 +7,9 @@ class UsageSums(BaseModel):
     input_tokens: int = 0
     output_tokens: int = 0
     total_tokens: int = 0
+    # Images made by a provider (#518) and their size in pixels: what they cost is not in tokens.
+    images: int = 0
+    pixels: int = 0
     calls: int = 0
 
 
