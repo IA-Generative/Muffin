@@ -1,6 +1,6 @@
 [project]
 name = "muffin-worker-document-edit"
-version = "0.43.0"
+version = "0.44.0-rc"
 description = "Celery worker that edits a living document (ODT/Markdown) from a prompt and produces a draft for the user to validate"
 requires-python = ">=3.12"
 dependencies = [
