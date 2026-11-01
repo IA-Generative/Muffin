@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useCollections } from '../composables/useCollections'
 import { useMemory } from '../composables/useMemory'
 import { collectionPathLabel } from '../utils/collectionPath'
+import { habitualFirst } from '../utils/habitualFirst'
 
 const selected = defineModel<string[]>({ required: true })
 // Off by default (§ security: never search the web unless explicitly asked - see backend
@@ -16,7 +17,7 @@ const includeDescendants = defineModel<boolean>('includeDescendants', { default:
 const { collections } = useCollections()
 // La mémoire de la personne sert dans le chat tant qu'on ne la coupe pas ici : sans elle, la conversation ne lit ni ne
 // retient rien (partagé avec la page « Ma mémoire »).
-const { memoryInChat } = useMemory()
+const { memoryInChat, habitualCollectionIds, loadHabits } = useMemory()
 
 // "Outils" menu section: one-off toggles alongside the collection picker, grouped here so a
 // second tool later is just another entry, not a new top-level composer button.
@@ -40,6 +41,7 @@ function openCollectionsModal() {
   showActions.value = false
   search.value = ''
   showModal.value = true
+  void loadHabits()
 }
 
 function toggle(id: string) {
@@ -52,11 +54,16 @@ function toggle(id: string) {
 // under their parent like a tree; the search matches anywhere in the path.
 const filteredCollections = computed(() => {
   const query = search.value.trim().toLowerCase()
-  return collections.value
-    .map((collection) => ({ ...collection, label: collectionPathLabel(collection) }))
-    .filter((collection) => collection.label.toLowerCase().includes(query))
-    .sort((a, b) => a.label.localeCompare(b.label))
+  // Ce que la personne consulte le plus d'abord (#286) : un ordre de proposition, jamais un filtre.
+  return habitualFirst(
+    collections.value
+      .map((collection) => ({ ...collection, label: collectionPathLabel(collection) }))
+      .filter((collection) => collection.label.toLowerCase().includes(query))
+      .sort((a, b) => a.label.localeCompare(b.label)),
+    habitualCollectionIds.value,
+  )
 })
+const habitual = computed(() => new Set(habitualCollectionIds.value))
 const hasSubCollections = computed(() => collections.value.some((collection) => collection.childrenCount > 0))
 </script>
 
@@ -197,6 +204,7 @@ const hasSubCollections = computed(() => collections.value.some((collection) => 
                     {{ collection.path.map((item) => item.name).join(' › ') }} ›
                   </span>
                   {{ collection.name }}
+                  <span v-if="habitual.has(collection.id)" class="collection-picker-modal__habit">habituelle</span>
                 </span>
               </button>
             </li>
@@ -442,6 +450,15 @@ const hasSubCollections = computed(() => collections.value.some((collection) => 
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.collection-picker-modal__habit {
+  margin-left: 0.5rem;
+  padding: 0 0.375rem;
+  border-radius: 0.25rem;
+  background: var(--background-alt-grey);
+  color: var(--text-mention-grey);
+  font-size: 0.75rem;
 }
 
 .collection-picker-modal__path {
