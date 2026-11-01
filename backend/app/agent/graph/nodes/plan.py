@@ -17,6 +17,8 @@ from app.agent.graph.services.prompts import get_prompt
 from app.agent.graph.services.scope import scope_ids
 from app.agent.graph.services.tool_guide import (
     AUTHORING_CAPABILITIES,
+    CALL_TOOL,
+    external_tools_guide,
     tool_guide,
     valid_tools,
 )
@@ -134,25 +136,53 @@ def _queries(
     web_search_enabled: bool,
     disabled: frozenset[str] = frozenset(),
     consultable: dict[str, dict[str, Any]] | None = None,
+    available_tools: dict[str, dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """The plan's queries, each with a tool that is allowed. A query may be put to an assistant the run may consult
     (#531): only one of those listed counts - any other id is dropped, the query then being the run's own - and the
     tools that assistant turns off are off for that query too."""
     consultable = consultable or {}
+    available_tools = available_tools or {}
     found = []
     for item in raw if isinstance(raw, list) else []:
         if not isinstance(item, dict) or not str(item.get("query") or "").strip():
             continue
         consulted = consultable.get(str(item.get("assistant") or ""))
         off = disabled | frozenset(consulted["disabled_tools"]) if consulted else disabled
-        allowed = valid_tools(web_search_enabled, off)
+        allowed = valid_tools(web_search_enabled, off, external=bool(available_tools))
         tool = item.get("tool") if item.get("tool") in allowed else "search"
         entry: dict[str, Any] = {"query": str(item["query"]).strip(), "tool": tool}
+        if tool == CALL_TOOL:
+            # A call is only ever to a tool the person was offered, with arguments that fit its schema - checked
+            # here, in code, whatever the model wrote. Otherwise the query is a plain search.
+            arguments = _checked_call(item, available_tools)
+            if arguments is None:
+                entry["tool"] = "search"
+                found.append(entry)
+                continue
+            entry |= arguments
         # Only a search of content goes to an assistant: a tool that lists or summarises has no business in its scope.
         if consulted and tool == "search":
             entry["assistant"] = str(consulted["id"])
         found.append(entry)
     return found[:_MAX_QUERIES] or [{"query": query, "tool": "search"}]
+
+
+def _checked_call(item: dict[str, Any], available: dict[str, dict[str, Any]]) -> dict[str, Any] | None:
+    """{"tool_ref", "arguments"} if the model named a tool it was offered and gave arguments that fit its schema."""
+    import jsonschema
+
+    tool = available.get(str(item.get("ref") or ""))
+    arguments = item.get("arguments", {})
+    if tool is None or not isinstance(arguments, dict):
+        return None
+    try:
+        jsonschema.validate(arguments, tool["input_schema"])
+    except jsonschema.ValidationError:
+        return None
+    except jsonschema.SchemaError:
+        pass  # a schema written badly by a server: the server's own checks decide
+    return {"tool_ref": tool["ref"], "arguments": arguments}
 
 
 def _known(ids: Any, by_id: dict[str, Any]) -> list[str]:
@@ -220,6 +250,7 @@ def normalize_plan(raw: Any, state: AgentState) -> dict[str, Any]:
             state["web_search_enabled"],
             frozenset(state.get("disabled_tools") or ()),
             {a["id"]: a for a in state.get("consultable_assistants") or []},
+            {t["ref"]: t for t in state.get("available_tools") or []},
         ),
         "collections": _known(raw.get("collections"), dict.fromkeys(accessible_ids)),
         "complexity": "complex" if raw.get("complexity") == "complex" else "simple",
@@ -244,6 +275,8 @@ def _tasks(plan: dict[str, Any], consultable: dict[str, dict[str, Any]] | None =
             results=[],
             error=None,
         )
+        if item.get("tool_ref"):
+            task |= {"tool_ref": item["tool_ref"], "arguments": item.get("arguments") or {}}
         consulted = consultable.get(item.get("assistant", ""))
         if consulted:
             task |= {
@@ -274,7 +307,9 @@ async def plan(state: AgentState) -> dict[str, Any]:
         template, prompt_version_id = await get_prompt("plan", fallback=_SYSTEM_PROMPT)
         if prompt_version_id:
             prompt_usages.append(prompt_version_id)
-        guide = tool_guide(state["web_search_enabled"], frozenset(state.get("disabled_tools") or ()))
+        guide = tool_guide(
+            state["web_search_enabled"], frozenset(state.get("disabled_tools") or ())
+        ) + external_tools_guide(state.get("available_tools") or [])
         system_prompt = template.replace("{guide}", guide).replace("{capabilities}", AUTHORING_CAPABILITIES)
         instructions = _QUESTIONS_INSTRUCTION + (_CONSULT_INSTRUCTION if state.get("consultable_assistants") else "")
         raw = await json_chat(model, system_prompt + instructions, _user_content(state), fallback=None)
