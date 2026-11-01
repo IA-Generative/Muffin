@@ -17,8 +17,7 @@ from app.agent.graph.services.prompts import get_prompt
 from app.agent.graph.services.scope import scope_ids
 from app.agent.graph.services.tool_guide import (
     AUTHORING_CAPABILITIES,
-    BASE_TOOL_GUIDE,
-    WEB_SEARCH_TOOL_GUIDE,
+    tool_guide,
     valid_tools,
 )
 from app.agent.graph.services.vdb_router import catalogue_entry
@@ -115,8 +114,10 @@ def _user_content(state: AgentState) -> str:
     return "\n\n".join(parts)
 
 
-def _queries(raw: Any, query: str, web_search_enabled: bool) -> list[dict[str, str]]:
-    allowed = valid_tools(web_search_enabled)
+def _queries(
+    raw: Any, query: str, web_search_enabled: bool, disabled: frozenset[str] = frozenset()
+) -> list[dict[str, str]]:
+    allowed = valid_tools(web_search_enabled, disabled)
     found = []
     for item in raw if isinstance(raw, list) else []:
         if not isinstance(item, dict) or not str(item.get("query") or "").strip():
@@ -185,7 +186,9 @@ def normalize_plan(raw: Any, state: AgentState) -> dict[str, Any]:
 
     plan |= {
         "standalone_query": standalone,
-        "queries": _queries(raw.get("queries"), standalone, state["web_search_enabled"]),
+        "queries": _queries(
+            raw.get("queries"), standalone, state["web_search_enabled"], frozenset(state.get("disabled_tools") or ())
+        ),
         "collections": _known(raw.get("collections"), dict.fromkeys(accessible_ids)),
         "complexity": "complex" if raw.get("complexity") == "complex" else "simple",
     }
@@ -230,7 +233,7 @@ async def plan(state: AgentState) -> dict[str, Any]:
         template, prompt_version_id = await get_prompt("plan", fallback=_SYSTEM_PROMPT)
         if prompt_version_id:
             prompt_usages.append(prompt_version_id)
-        guide = BASE_TOOL_GUIDE + (WEB_SEARCH_TOOL_GUIDE if state["web_search_enabled"] else "")
+        guide = tool_guide(state["web_search_enabled"], frozenset(state.get("disabled_tools") or ()))
         system_prompt = template.replace("{guide}", guide).replace("{capabilities}", AUTHORING_CAPABILITIES)
         raw = await json_chat(model, system_prompt + _QUESTIONS_INSTRUCTION, _user_content(state), fallback=None)
 

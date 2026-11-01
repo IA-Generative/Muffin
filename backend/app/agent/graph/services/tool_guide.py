@@ -55,5 +55,22 @@ AUTHORING_CAPABILITIES = (
 )
 
 
-def valid_tools(web_search_enabled: bool) -> frozenset[str]:
-    return frozenset((*BASE_TOOLS, "web_search") if web_search_enabled else BASE_TOOLS)
+# The tools an assistant (#514) may turn off. `search` is what an answer is made of: it stays.
+OPTIONAL_TOOLS: frozenset[str] = frozenset(BASE_TOOLS) - {"search"}
+
+
+def valid_tools(web_search_enabled: bool, disabled: frozenset[str] | set[str] = frozenset()) -> frozenset[str]:
+    tools = frozenset((*BASE_TOOLS, "web_search") if web_search_enabled else BASE_TOOLS)
+    return tools - (frozenset(disabled) & OPTIONAL_TOOLS)
+
+
+def tool_guide(web_search_enabled: bool, disabled: frozenset[str] | set[str] = frozenset()) -> str:
+    """The guide of the tools the plan may pick: the planner is not told of a tool that is off, and what it picks is
+    checked against the same list (plan._queries) - the guide is not the barrier."""
+    off = frozenset(disabled) & OPTIONAL_TOOLS
+    lines = [
+        line
+        for line in BASE_TOOL_GUIDE.splitlines(keepends=True)
+        if not any(line.startswith(f'- "{name}":') for name in off)
+    ]
+    return "".join(lines) + (WEB_SEARCH_TOOL_GUIDE if web_search_enabled else "")

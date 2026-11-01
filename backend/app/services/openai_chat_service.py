@@ -322,6 +322,8 @@ class OpenAiChatService:
                     collection_ids=[scope] if scope else None,
                     interactive=False,
                 ),
+                # A model of one collection answers from it alone: the planner may not go on to the others.
+                scope_locked=scope is not None,
             )
         except ConversationNotFoundError:
             raise OpenAiError(
