@@ -350,6 +350,8 @@ def initial_state(
     interactive: bool = True,
     question_rounds: int = 0,
     history: list[dict[str, Any]] | None = None,
+    assistant_instructions: str = "",
+    scope_locked: bool = False,
 ) -> dict[str, Any]:
     return {
         "run_id": str(uuid.uuid4()),
@@ -365,6 +367,8 @@ def initial_state(
         "resume_from_vdb_ids": resume_from_vdb_ids or [],
         "unexplored_vdb_ids": [],
         "interactive": interactive,
+        "assistant_instructions": assistant_instructions,
+        "scope_locked": scope_locked,
         "question_rounds": question_rounds,
         "questions": None,
         "must_assume": False,
