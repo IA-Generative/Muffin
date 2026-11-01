@@ -44,7 +44,7 @@ Légende : **➕** Muffin devant · **🟰** équivalent · **🔻** Muffin en r
 | Réponse en flux | websocket / SSE, mot à mot | texte partiel et étapes interrogés toutes les 700 ms | 🔻 |
 | Étapes de la recherche visibles | traces dans l'analytique | étapes en direct dans le chat, panneau de détail | ➕ |
 | Choix du modèle | modèles personnalisés (« model builder ») avec prompt système, connaissances et outils attachés | sélecteur de modèle du hub | 🔻 |
-| Pièces jointes | fichiers, images (vision), pages web, Drive / OneDrive | fichiers (collection temporaire de la conversation) ; **pas d'image** | 🔻 |
+| Pièces jointes | fichiers, images (vision), pages web, Drive / OneDrive | fichiers (collection temporaire de la conversation) ; **images jointes au message, lues par un modèle de vision** (`docs/image-attachments.md`) | 🔻 |
 | Voix | STT / TTS à moteurs, appel vocal temps réel | dictée et lecture vocale (`useVoiceInput`, `useVoiceOutput`) | 🔻 |
 | Génération d'images | plusieurs moteurs | optionnelle, désactivée par défaut : adresse compatible OpenAI (`docs/image-generation.md`) | 🟰 |
 | Interpréteur de code, terminaux | oui | non ; à la place, SQL + graphiques sur les fichiers tabulaires | ❌ |
