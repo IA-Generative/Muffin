@@ -202,7 +202,42 @@ INTERNAL_TOOLS: tuple[InternalTool, ...] = (
     ),
 )
 
-BY_ID = {tool.id: tool for tool in INTERNAL_TOOLS}
+
+def _runs_in_the_service(_arguments: dict[str, Any]) -> str:
+    raise RuntimeError("This tool is run by the service that makes images, not by the catalogue.")
+
+
+# Offered only while the generation of images is on and open to the person (#518): it is not in INTERNAL_TOOLS, which
+# are always there. Run by `ToolService`, which gives it the person, the conversation and the run.
+IMAGE_TOOL = InternalTool(
+    id="generer_image",
+    name="generer_image",
+    description=(
+        "Génère une image à partir d'une description et l'affiche sous ta réponse. À n'utiliser que lorsque "
+        "l'utilisateur demande explicitement une image, un dessin, une illustration, un logo ou une affiche - "
+        "jamais de "
+        "ta propre initiative, ni pour illustrer une réponse. La description part chez un fournisseur tiers : n'y mets "
+        "que ce que l'utilisateur a demandé, jamais d'extraits de documents ni de données personnelles. Pour modifier "
+        "une image faite plus tôt, appelle l'outil avec une description complète (celle de l'image précédente, "
+        "corrigée). Ne mets ni lien ni image dans ta réponse : dis ce que tu as fait."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "prompt": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4000,
+                "description": "Description complète de l'image : sujet, style, ambiance, couleurs.",
+            }
+        },
+        "required": ["prompt"],
+        "additionalProperties": False,
+    },
+    run=_runs_in_the_service,
+)
+
+BY_ID = {tool.id: tool for tool in (*INTERNAL_TOOLS, IMAGE_TOOL)}
 
 
 def is_internal(ref: str) -> bool:

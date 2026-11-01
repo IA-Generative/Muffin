@@ -12,6 +12,8 @@ class ImageSettings(BaseSettings):
     # How long the provider has to make an image, and how long an image it gave by address has to be fetched (seconds).
     IMAGES_REQUEST_TIMEOUT_SECONDS: float = 120.0
     IMAGES_DOWNLOAD_TIMEOUT_SECONDS: float = 20.0
+    # The most images one run of the assistant may ask for (#518): a question that makes it draw a dozen is not one.
+    IMAGES_PER_RUN: int = 2
     # The most an administrator may allow for one image (bytes), and the largest side one may have (pixels).
     IMAGES_MAX_BYTES_LIMIT: int = 25 * 1024 * 1024
     IMAGES_MAX_SIDE: int = 8192

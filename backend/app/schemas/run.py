@@ -4,6 +4,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from app.schemas.image_generation import ImageOut
 from app.schemas.question import Question, QuestionAnswer
 from app.schemas.tool import ToolProposalOut
 
@@ -81,6 +82,8 @@ class RunOut(BaseModel):
     assistant_inaccessible_collections: int = 0
     # The requests to run a tool that changes data that this run made (#343): waiting for the person, or decided.
     tool_calls: list[ToolProposalOut] = []
+    # The images this run made while answering (#518): shown with the answer, before it is a message the page reloads.
+    images: list[ImageOut] = []
     error: str | None
     created_at: datetime
     updated_at: datetime

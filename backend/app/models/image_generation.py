@@ -56,6 +56,11 @@ class GeneratedImage(UUIDMixin, TimestampMixin, Base):
     message_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("messages.id", ondelete="CASCADE"), index=True, nullable=True
     )
+    # The run that asked for it, when the assistant did (the tool `generer_image`): the image belongs to the run first,
+    # and to the message once the run's answer is one - like a chart. None for an image asked for with the mode «Image».
+    run_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("runs.id", ondelete="SET NULL"), index=True, nullable=True
+    )
     user_id: Mapped[str] = mapped_column(String, index=True, nullable=False)
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
     model: Mapped[str] = mapped_column(String(200), nullable=False)
