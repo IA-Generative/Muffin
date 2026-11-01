@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useCollections } from '../composables/useCollections'
+import { useMemory } from '../composables/useMemory'
 import { collectionPathLabel } from '../utils/collectionPath'
 
 const selected = defineModel<string[]>({ required: true })
@@ -13,10 +14,13 @@ const webSearchEnabled = defineModel<boolean>('webSearchEnabled', { default: fal
 const includeDescendants = defineModel<boolean>('includeDescendants', { default: true })
 
 const { collections } = useCollections()
+// La mémoire de la personne sert dans le chat tant qu'on ne la coupe pas ici : sans elle, la conversation ne lit ni ne
+// retient rien (partagé avec la page « Ma mémoire »).
+const { memoryInChat } = useMemory()
 
 // "Outils" menu section: one-off toggles alongside the collection picker, grouped here so a
 // second tool later is just another entry, not a new top-level composer button.
-const hasActiveTool = computed(() => webSearchEnabled.value)
+const hasActiveTool = computed(() => webSearchEnabled.value || !memoryInChat.value)
 
 const showActions = ref(false)
 const showModal = ref(false)
@@ -106,6 +110,34 @@ const hasSubCollections = computed(() => collections.value.some((collection) => 
             <span>Recherche web</span>
             <svg
               v-if="webSearchEnabled"
+              class="collection-picker__item-check"
+              viewBox="0 0 24 24"
+              width="14"
+              height="14"
+              aria-hidden="true"
+            >
+              <path fill="currentColor" d="M9 16.2l-3.5-3.5L4 14.2l5 5 11-11-1.5-1.5z" />
+            </svg>
+          </button>
+        </li>
+        <li>
+          <button
+            type="button"
+            class="collection-picker__item"
+            role="menuitemcheckbox"
+            :aria-checked="memoryInChat"
+            @click="memoryInChat = !memoryInChat"
+          >
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M9.75 3.5a3.25 3.25 0 0 0-3.2 2.7A3.5 3.5 0 0 0 4 9.5a3.5 3.5 0 0 0 1.2 2.6 3.5 3.5 0 0 0 .8 5.9 3.25 3.25 0 0 0 6 .9V5a2.5 2.5 0 0 0-2.25-1.5zM14.25 3.5a3.25 3.25 0 0 1 3.2 2.7A3.5 3.5 0 0 1 20 9.5a3.5 3.5 0 0 1-1.2 2.6 3.5 3.5 0 0 1-.8 5.9 3.25 3.25 0 0 1-6 .9V5a2.5 2.5 0 0 1 2.25-1.5z"
+              />
+            </svg>
+            <span>Mémoire</span>
+            <svg
+              v-if="memoryInChat"
               class="collection-picker__item-check"
               viewBox="0 0 24 24"
               width="14"
