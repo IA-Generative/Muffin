@@ -1,6 +1,6 @@
 [project]
 name = "muffin-worker-owui-sync"
-version = "0.42.0-rc.1"
+version = "0.42.0"
 description = "Celery worker that synchronises Open WebUI (files, collections, groups, access) into Muffin"
 requires-python = ">=3.12"
 dependencies = [

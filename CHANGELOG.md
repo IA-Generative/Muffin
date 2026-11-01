@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.42.0](https://github.com/IA-Generative/Muffin/compare/v0.41.0...v0.42.0) (2026-11-01)
+
+
+### Features
+
+* **agent:** consignes, portée et outils d'un assistant sur le même graphe ([36cd1db](https://github.com/IA-Generative/Muffin/commit/36cd1db4387e5964550b71b931bc855a76ef5d71))
+* **agent:** le planificateur peut appeler un outil, sans appel de plus ([925cf4d](https://github.com/IA-Generative/Muffin/commit/925cf4db84a4fe3a5e1ceca04c5dd506c11903c2))
+* **agent:** une requête du plan peut être confiée à un assistant consulté ([77372f5](https://github.com/IA-Generative/Muffin/commit/77372f5ec4986fc60f691ae820edebd1421308e8))
+* **assistants:** assistants partageables comme les collections ([947a0d5](https://github.com/IA-Generative/Muffin/commit/947a0d5ab353b00ad72a8487928c7dc8eaede6b4))
+* **assistants:** recherche, suggestion et consultation d'autres assistants ([38cd0cc](https://github.com/IA-Generative/Muffin/commit/38cd0ccd48cd7c94d4a87692c478e02f73f1d5fb))
+* **frontend:** chercher un outil par ce qu'il fait ([#530](https://github.com/IA-Generative/Muffin/issues/530)) ([a8441c7](https://github.com/IA-Generative/Muffin/commit/a8441c76d833613d8fb0cb419d2d53087c68a5bb))
+* **frontend:** page des assistants et sélecteur dans le chat ([#514](https://github.com/IA-Generative/Muffin/issues/514)) ([f375cf4](https://github.com/IA-Generative/Muffin/commit/f375cf475af0777371d51ef7efce0176989b0603))
+* **frontend:** page des outils, serveurs MCP et menu des outils du chat ([#343](https://github.com/IA-Generative/Muffin/issues/343)) ([91804bc](https://github.com/IA-Generative/Muffin/commit/91804bc55a5836a41c0e695b94711f77d0817b27))
+* **frontend:** recherche d'assistants et réglage de la consultation ([#531](https://github.com/IA-Generative/Muffin/issues/531)) ([079cac1](https://github.com/IA-Generative/Muffin/commit/079cac1adb1a3fb42eba757745f4b84b89bf3214))
+* **search:** index hybride des assistants et cache de l'embedding d'une question ([57e45f5](https://github.com/IA-Generative/Muffin/commit/57e45f5c123fe640b6a1aaaeda3ad44a915384a8))
+* **search:** recherche hybride des outils par leur description ([#530](https://github.com/IA-Generative/Muffin/issues/530)) ([8817dad](https://github.com/IA-Generative/Muffin/commit/8817dadb0ff7738977ba26b998af292dca881d61))
+* **tools:** l'accord de la personne pour les outils qui modifient des données ([#343](https://github.com/IA-Generative/Muffin/issues/343)) ([dc61f97](https://github.com/IA-Generative/Muffin/commit/dc61f97dcf46b21d75ded7c7655f83fd8f103747))
+* **tools:** serveurs MCP d'utilisateurs et catalogue interne d'outils ([bbe0ac3](https://github.com/IA-Generative/Muffin/commit/bbe0ac30b38592a79766f6432582defc158e23e1))
+
+
+### Bug Fixes
+
+* **frontend:** mise en page du partage et des outils d'un assistant, captures ([#514](https://github.com/IA-Generative/Muffin/issues/514)) ([4c810e5](https://github.com/IA-Generative/Muffin/commit/4c810e5049cb90c24bd26dce3de900c9b9ac62e3))
+
 ## [0.42.0-rc.1](https://github.com/IA-Generative/Muffin/compare/v0.42.0-rc...v0.42.0-rc.1) (2026-11-01)
 
 
