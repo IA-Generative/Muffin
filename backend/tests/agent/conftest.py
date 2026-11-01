@@ -169,6 +169,15 @@ class FakeBackend:
     async def set_run_grounding(self, run_id: str, grounding_valid: bool, unsupported_claims: list[str]) -> None:
         self.groundings.append((run_id, grounding_valid, unsupported_claims))
 
+    async def tool_definitions(self, run_id: str) -> list[dict[str, Any]]:
+        # No tool by default: a run then goes through the plan exactly as before (#343).
+        self.tool_definitions_asked = getattr(self, "tool_definitions_asked", 0) + 1
+        return getattr(self, "tools", [])
+
+    async def call_tool(self, run_id: str, ref: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        self.tool_calls = [*getattr(self, "tool_calls", []), (ref, arguments)]
+        return getattr(self, "tool_result", {"ok": True, "code": "ok", "text": "42", "tool_name": "calculatrice"})
+
     async def list_accessible_collections(self, user_id: str, groups: list[str] | None = None) -> list[dict[str, Any]]:
         self.accessible_collections_groups_requested.append(groups or [])
         return self.accessible_vdbs
