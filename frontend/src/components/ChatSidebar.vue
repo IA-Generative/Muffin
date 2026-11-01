@@ -22,7 +22,7 @@ defineProps<{
   conversationsHasMore: boolean
   loadingMoreConversations: boolean
   activeId: string
-  activeView: 'chat' | 'collections' | 'assistants' | 'groups' | 'tasks' | 'quality' | 'usage' | 'admin' | 'filing'
+  activeView: 'chat' | 'collections' | 'assistants' | 'tools' | 'groups' | 'tasks' | 'quality' | 'usage' | 'admin' | 'filing'
   user: User | null
 }>()
 
@@ -35,6 +35,7 @@ const emit = defineEmits<{
   delete: [id: string]
   openCollections: []
   openAssistants: []
+  openTools: []
   openGroups: []
   openTasks: []
   openQuality: []
@@ -296,6 +297,18 @@ function initials(name: string) {
           <path stroke-linecap="round" stroke-linejoin="round" d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8L12 3zM18 15l.8 2.2L21 18l-2.2.8L18 21l-.8-2.2L15 18l2.2-.8L18 15z" />
         </svg>
         <span v-if="!collapsed">Assistants</span>
+      </button>
+      <button
+        type="button"
+        class="chat-sidebar__nav-item"
+        :class="{ 'chat-sidebar__nav-item--active': activeView === 'tools' }"
+        :title="collapsed ? 'Outils' : undefined"
+        @click="emit('openTools')"
+      >
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M11.4 15.2 3.7 22.9 1.1 20.3l7.7-7.7M14 2a5 5 0 0 0-4.4 7.3L8 11l5 5 1.7-1.6A5 5 0 1 0 14 2z" />
+        </svg>
+        <span v-if="!collapsed">Outils</span>
       </button>
     </nav>
 

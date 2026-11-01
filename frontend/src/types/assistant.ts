@@ -13,6 +13,7 @@ export const OPTIONAL_TOOLS = [
   { id: 'list_collections', label: 'Liste des collections', hint: 'quelles collections existent' },
   { id: 'collection_summary', label: 'Résumé d’une collection', hint: 'de quoi parle une collection' },
   { id: 'time', label: 'Date et périodes', hint: 'aujourd’hui, ce mois-ci, la semaine dernière' },
+  { id: 'call_tool', label: 'Outils (calculatrice, dates, serveurs MCP)', hint: 'ceux que la personne peut utiliser' },
 ] as const
 
 export interface Assistant {
