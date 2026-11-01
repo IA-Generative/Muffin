@@ -107,8 +107,18 @@ class ConversationService:
                 assistant_name=assistant_name,
                 tool_calls=proposals.get(message.run_id, []) if message.role == "assistant" and message.run_id else [],
                 images=images.get(message.id, []),
+                guardrail_outcome=guardrail_outcome,
+                guardrail_notice=guardrail_notice,
             )
-            for message, citations, edit_proposal, unexplored_collection_ids, assistant_name in rows
+            for (
+                message,
+                citations,
+                edit_proposal,
+                unexplored_collection_ids,
+                assistant_name,
+                guardrail_outcome,
+                guardrail_notice,
+            ) in rows
         ]
 
     async def rename_conversation(

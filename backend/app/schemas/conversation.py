@@ -62,3 +62,7 @@ class MessageOut(BaseModel):
     tool_calls: list[ToolProposalOut] = []
     # The images made in the chat (#518) that this message shows, each as an image made by a model.
     images: list[ImageOut] = []
+    # What the guardrails on the input did to the request this message carries or answers (#516): `blocked`, `redacted`,
+    # `warned`, and the words shown - restored with the message, so that they survive a reload.
+    guardrail_outcome: str | None = None
+    guardrail_notice: str | None = None

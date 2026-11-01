@@ -51,6 +51,7 @@ from app.models.feedback import (
     FeedbackValue,
 )
 from app.models.group import Group, GroupMember, MemberStatus, ResourceSource
+from app.models.guardrail import Guardrail, GuardrailAudit, GuardrailPolicy, GuardrailResult
 from app.models.image_generation import ImageGenerationSettings
 from app.models.import_document import ImportDocument
 from app.models.index_rebuild import IndexRebuild, IndexRebuildStatus
@@ -131,6 +132,10 @@ __all__ = [
     "FeedbackValue",
     "Group",
     "GroupMember",
+    "Guardrail",
+    "GuardrailAudit",
+    "GuardrailPolicy",
+    "GuardrailResult",
     "MemberStatus",
     "Message",
     "OwuiSyncRun",

@@ -81,6 +81,11 @@ class Run(UUIDMixin, TimestampMixin, Base):
     # Whether the search stays within the collections the run was given instead of going on to the others the person
     # may read (an assistant's, or a model of the OpenAI-compatible API). The planner can then narrow, never widen.
     scope_locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    # What the guardrails on the input did to this run (#516): `blocked`, `redacted`, `warned`, or None. The text of the
+    # request is not here: what the model saw instead of it is `Message.redacted_content`, and the words shown to the
+    # person (a refusal, a warning) are `guardrail_notice`.
+    guardrail_outcome: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    guardrail_notice: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Whether the requesting user was a platform administrator, and how to show them ("Jean D."),
     # snapshotted like user_groups: the research agent acts on the user's behalf from this row alone
     # (it has no session), e.g. to ask the backend to start an edit of a living document (#171) -

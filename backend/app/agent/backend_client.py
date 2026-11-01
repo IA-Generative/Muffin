@@ -386,6 +386,14 @@ class BackendClient:
         )
         response.raise_for_status()
 
+    async def check_guardrails(self, run_id: str) -> dict[str, Any]:
+        """What the guardrails on the input decide for the request of this run (#516): `outcome` (`continue`,
+        `continue_with_redaction`, `continue_with_warning`, `block`), the request as the models may read it, and the
+        words for the person. Not caught: a check that cannot be made is not a check that passed - the run fails."""
+        response = await self._client.post(f"/api/internal/runs/{run_id}/guardrails")
+        response.raise_for_status()
+        return response.json()
+
     async def tool_definitions(self, run_id: str) -> list[dict[str, Any]]:
         """The tools the person of this run may use now, as the model is given them. Empty when they cannot be
         had: a run goes on without tools rather than fail on them (#343)."""

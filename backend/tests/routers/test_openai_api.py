@@ -287,6 +287,71 @@ async def test_the_history_of_the_request_is_the_history_of_the_conversation(cli
     ]
 
 
+async def test_the_history_of_the_request_goes_through_the_guardrails_that_need_no_model(client, monkeypatch):
+    """No run checks the earlier messages a client sends along: the guardrails that run in code do (#516) - and the ones
+    that would call a model are for the question, not asked once for each message of a long history."""
+    from app.guardrails import llm as llm_guardrail
+    from app.models.guardrail import Enforcement, Guardrail, GuardrailType
+
+    async def forbidden(*args, **kwargs):
+        raise AssertionError("a model was asked for a message of the history")
+
+    monkeypatch.setattr(llm_guardrail, "_ask", forbidden)
+    _agent_answers(monkeypatch, "Fine.")
+    async with async_session_factory() as db:
+        db.add_all(
+            [
+                Guardrail(
+                    name="Masque",
+                    type=GuardrailType.RULES,
+                    config={"builtins": ["email"]},
+                    enabled=True,
+                    enforcement=Enforcement.REDACT,
+                ),
+                Guardrail(
+                    name="Bloque",
+                    type=GuardrailType.RULES,
+                    config={"builtins": ["iban"]},
+                    enabled=True,
+                    enforcement=Enforcement.BLOCK,
+                ),
+                Guardrail(name="Juge", type=GuardrailType.LLM, config={}, enabled=True, enforcement=Enforcement.BLOCK),
+            ]
+        )
+        await db.commit()
+    key = await _key()
+
+    try:
+        await client.post(
+            "/v1/chat/completions",
+            headers=_auth(key),
+            json={
+                "model": "muffin",
+                "messages": [
+                    {"role": "user", "content": "Écrire à jean@example.fr"},
+                    {"role": "assistant", "content": "D'accord"},
+                    {"role": "user", "content": "Mon IBAN : FR76 3000 6000 0112 3456 7890 189"},
+                    {"role": "assistant", "content": "Noté"},
+                    {"role": "user", "content": "Et maintenant ?"},
+                ],
+            },
+        )
+        async with async_session_factory() as db:
+            conversation = (await db.execute(select(Conversation))).scalar_one()
+            rows = await ConversationRepository(db).list_messages(conversation.id)
+            kept = [
+                (row[0].role.value, row[0].redacted_content, row[0].guardrail_action, row[0].content) for row in rows
+            ][:4]
+    finally:
+        async with async_session_factory() as db:
+            await db.execute(delete(Guardrail))
+            await db.commit()
+
+    assert kept[0][1:3] == ("Écrire à [EMAIL]", "redacted") and kept[0][3] == "Écrire à jean@example.fr"
+    assert kept[1][1:3] == (None, None)  # an answer of the assistant is not the person's text
+    assert kept[2][1:3] == (None, "blocked")
+
+
 async def test_a_conversation_of_muffin_can_be_gone_on_with(client, monkeypatch):
     _agent_answers(monkeypatch, "Fine.")
     async with async_session_factory() as db:

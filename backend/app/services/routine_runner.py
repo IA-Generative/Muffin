@@ -39,6 +39,7 @@ from app.repositories.group_repository import GroupRepository
 from app.repositories.routine_repository import RoutineRepository
 from app.schemas.run import RunCreate
 from app.services.assistant_service import AssistantNotFoundError, AssistantService, NoReadableCollectionError
+from app.services.guardrail_service import GuardrailService
 from app.services.notification_service import (
     ROUTINE_COMPLETED,
     ROUTINE_FAILED,
@@ -419,6 +420,8 @@ class RoutineScheduler:
                 await self._close_lost_runs(db, settings, now)
                 await self._suspend_inactive(db, settings, now)
                 await NotificationService(db).purge()
+                # What the guardrails recorded (#516) - verdicts, never text - is kept for a while, not for ever.
+                await GuardrailService(db).purge_results()
         except Exception:
             logger.exception("The housekeeping of the routines failed")
 
@@ -482,10 +485,18 @@ class RoutineScheduler:
             if entry is None or entry.status != RoutineRunStatus.RUNNING:
                 return
             succeeded = status == RunStatus.COMPLETED
+            run = await db.get(Run, run_id)
+            # A question the guardrails on the input stopped (#516) ends as a refusal in the conversation: the run is
+            # completed, but the routine did not get its answer - it fails, and the person is told.
+            refused = succeeded and run is not None and run.guardrail_outcome == "blocked"
+            if refused:
+                succeeded = False
             entry.status = RoutineRunStatus.SUCCEEDED if succeeded else RoutineRunStatus.FAILED
             entry.finished_at = datetime.now(UTC)
             entry.total_tokens = int(await repository.tokens_of(run_id))
-            if not succeeded:
+            if refused:
+                entry.error = "La question de cette routine a été refusée par la politique d'usage de l'application."
+            elif not succeeded:
                 entry.error = (
                     "Le délai est dépassé." if status is None else "L'agent n'a pas pu répondre à la question."
                 )
@@ -495,7 +506,7 @@ class RoutineScheduler:
                 entry.routine_id,
                 routine_run_id,
                 succeeded=succeeded,
-                reason="timeout" if status is None else "failed",
+                reason="refused" if refused else ("timeout" if status is None else "failed"),
             )
 
 
