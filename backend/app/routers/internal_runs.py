@@ -87,6 +87,9 @@ def _to_out(run, history: list[dict[str, str]], resume_from: list[str] | None = 
         resume_from_collection_ids=resume_from,
         unexplored_collection_ids=run.unexplored_collection_ids,
         interactive=run.interactive,
+        assistant_instructions=run.assistant_instructions,
+        scope_locked=run.scope_locked,
+        disabled_tools=run.assistant_disabled_tools,
     )
 
 

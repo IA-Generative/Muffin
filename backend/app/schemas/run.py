@@ -32,6 +32,9 @@ class RunCreate(BaseModel):
     answers: list[QuestionAnswer] | None = None
     # False for a run started by a program (MCP, A2A): no one is there to answer a question.
     interactive: bool = True
+    # The assistant the chat is started with (#514): its collections (among those the caller may read) replace
+    # `collection_ids`, its instructions are added to the answer's, and the run keeps its name and version.
+    assistant_id: uuid.UUID | None = None
 
 
 class RunResumeRequest(BaseModel):
@@ -69,6 +72,12 @@ class RunOut(BaseModel):
     unexplored_collection_ids: list[str] | None = None
     # The questions with options the run ended on instead of an answer (#344) - read from its message.
     questions: list[Question] | None = None
+    # The assistant the run was made with, as it was then (#514).
+    assistant_id: uuid.UUID | None = None
+    assistant_name: str | None = None
+    assistant_version: int | None = None
+    # How many of the assistant's collections the caller cannot read, so the chat can say so.
+    assistant_inaccessible_collections: int = 0
     error: str | None
     created_at: datetime
     updated_at: datetime

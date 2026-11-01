@@ -17,6 +17,7 @@ from app.routers.admin_reports import router as admin_reports_router
 from app.routers.admin_secrets import router as admin_secrets_router
 from app.routers.admin_settings import router as admin_settings_router
 from app.routers.api_keys import router as api_keys_router
+from app.routers.assistants import router as assistants_router
 from app.routers.auth import router as auth_router
 from app.routers.cgu import router as cgu_router
 from app.routers.collection_imports import internal_router as internal_collection_imports_router
@@ -56,6 +57,15 @@ from app.routers.reports import router as reports_router
 from app.routers.runs import router as runs_router
 from app.routers.tasks import router as tasks_router
 from app.routers.usage import router as usage_router
+from app.services.assistant_service import (
+    AssistantNotEditableError,
+    AssistantNotFoundError,
+    AssistantNotOwnedError,
+    NoReadableCollectionError,
+    PublicNotAllowedError,
+    TooManyAssistantsError,
+)
+from app.services.collection_service import AlreadyInvitedError, ShareNotFoundError
 from app.services.copied_collections import CopiedCollectionError
 
 _keycloak_settings = KeycloakSettings()
@@ -135,6 +145,30 @@ async def copied_collection_handler(_request: Request, _error: CopiedCollectionE
     )
 
 
+# What the assistants' routes (#514) raise, said the same way everywhere. The routes of the collections' shares catch
+# the two they share with them themselves.
+_ASSISTANT_ERRORS: dict[type[Exception], tuple[int, str]] = {
+    AssistantNotFoundError: (404, "Assistant not found"),
+    AssistantNotEditableError: (403, "You may use this assistant, not change it"),
+    AssistantNotOwnedError: (403, "Only the author of an assistant can do this"),
+    PublicNotAllowedError: (403, "Publishing an assistant to the whole organisation is not allowed"),
+    TooManyAssistantsError: (409, "Too many assistants"),
+    NoReadableCollectionError: (409, "You cannot read any of the collections of this assistant"),
+    AlreadyInvitedError: (409, "Already invited"),
+    ShareNotFoundError: (404, "Share not found"),
+}
+
+
+def _assistant_error_handler(status_code: int, detail: str):
+    async def handler(_request: Request, _error: Exception) -> JSONResponse:
+        return JSONResponse(status_code=status_code, content={"detail": detail})
+
+    return handler
+
+
+for _error_type, (_status, _detail) in _ASSISTANT_ERRORS.items():
+    app.add_exception_handler(_error_type, _assistant_error_handler(_status, _detail))
+
 # Explicit origin (not "*") required: credentialed cookie requests are
 # rejected by browsers if allow_origins is a wildcard.
 app.add_middleware(
@@ -147,6 +181,7 @@ app.add_middleware(
 
 app.include_router(auth_router, prefix="/api/auth")
 app.include_router(api_keys_router, prefix="/api")
+app.include_router(assistants_router, prefix="/api")
 app.include_router(health_router, prefix="/api")
 app.include_router(models_router, prefix="/api")
 app.include_router(collections_router, prefix="/api")

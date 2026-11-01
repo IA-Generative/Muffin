@@ -26,6 +26,12 @@ class RunRepository:
         continue_exploration: bool = False,
         unexplored_collection_ids: list[str] | None = None,
         interactive: bool = True,
+        assistant_id: uuid.UUID | None = None,
+        assistant_name: str | None = None,
+        assistant_version: int | None = None,
+        assistant_instructions: str | None = None,
+        assistant_disabled_tools: list[str] | None = None,
+        scope_locked: bool = False,
     ) -> Run:
         run = Run(
             user_id=user_id,
@@ -41,6 +47,12 @@ class RunRepository:
             continue_exploration=continue_exploration,
             unexplored_collection_ids=unexplored_collection_ids or None,
             interactive=interactive,
+            assistant_id=assistant_id,
+            assistant_name=assistant_name,
+            assistant_version=assistant_version,
+            assistant_instructions=assistant_instructions or None,
+            assistant_disabled_tools=assistant_disabled_tools or None,
+            scope_locked=scope_locked,
         )
         self.db.add(run)
         await self.db.flush()

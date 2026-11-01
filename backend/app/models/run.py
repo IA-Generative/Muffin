@@ -4,6 +4,7 @@ from typing import Any
 
 from sqlalchemy import Boolean, Enum, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDMixin
@@ -64,6 +65,17 @@ class Run(UUIDMixin, TimestampMixin, Base):
     # Whether someone reads the answer as it comes and can reply to a question (#344). False for a run
     # started by a program (MCP, A2A): it is never asked questions it could not answer.
     interactive: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    # The assistant the chat was started with (#514), kept as it was then so that a run can say which instructions
+    # produced its answer even after the assistant is changed or deleted: no foreign key on purpose.
+    assistant_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), nullable=True, index=True)
+    assistant_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    assistant_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    assistant_instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The optional tools that assistant turns off, as they were then.
+    assistant_disabled_tools: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
+    # Whether the search stays within the collections the run was given instead of going on to the others the person
+    # may read (an assistant's, or a model of the OpenAI-compatible API). The planner can then narrow, never widen.
+    scope_locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     # Whether the requesting user was a platform administrator, and how to show them ("Jean D."),
     # snapshotted like user_groups: the research agent acts on the user's behalf from this row alone
     # (it has no session), e.g. to ask the backend to start an edit of a living document (#171) -
