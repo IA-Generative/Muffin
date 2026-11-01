@@ -8,6 +8,8 @@ from app.core.security.factory import RequestContext
 from app.models.execution_metric import ExecutionMetric
 from app.models.token_usage import TokenUsage, TokenUsageKind
 from app.repositories.execution_metric_repository import ExecutionMetricRepository
+from app.repositories.group_repository import GroupRepository
+from app.repositories.routine_repository import RoutineRepository
 from app.repositories.token_usage_repository import TokenUsageRepository
 from app.schemas.internal_pipeline import ExecutionMetricIn, LlmUsageContext
 from app.schemas.usage import (
@@ -19,6 +21,7 @@ from app.schemas.usage import (
     ExecutionSums,
     ExecutionUser,
     ModelUsage,
+    RoutineUsage,
     StepUsage,
     UsageOut,
     UsageSums,
@@ -144,9 +147,12 @@ class UsageService:
         return None
 
     async def save_profile(self, user: RequestContext) -> None:
-        """Best-effort, same reasoning as record: who is logged in must never fail because of it."""
+        """Best-effort, same reasoning as record: who is logged in must never fail because of it. Also the date the
+        person was last seen and the groups of their token, which their routines run with (#524)."""
         try:
-            await self.usage.save_profile(user.user_id, _display(user), user.email or None)
+            muffin_groups = set(await GroupRepository(self.db).group_ids_of(user.user_id))
+            token_groups = [group for group in user.groups if group not in muffin_groups]
+            await self.usage.save_profile(user.user_id, _display(user), user.email or None, token_groups)
             await self.db.commit()
         except Exception:
             logger.exception("Failed to save the user profile")
@@ -177,6 +183,7 @@ class UsageService:
             if with_users
             else [],
             execution=await self._execution(since, user_id, with_users),
+            routines=RoutineUsage(**await RoutineRepository(self.db).usage(since, user_id)),
         )
 
     async def _execution(self, since: datetime, user_id: str | None, with_users: bool) -> ExecutionOut:

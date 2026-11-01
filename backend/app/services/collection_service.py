@@ -22,6 +22,7 @@ from app.repositories.collection_hierarchy_repository import CollectionHierarchy
 from app.repositories.collection_repository import CollectionRepository
 from app.repositories.entity_repository import EntityRepository
 from app.repositories.feedback_repository import FeedbackRepository
+from app.repositories.group_repository import GroupRepository
 from app.repositories.qa_pair_repository import QaPairRepository
 from app.repositories.run_repository import RunRepository
 from app.repositories.task_repository import TaskRepository
@@ -53,6 +54,7 @@ from app.services.collection_hierarchy_service import CollectionHierarchyService
 from app.services.copied_collections import ensure_not_copied
 from app.services.description_rollup_service import DescriptionRollupService
 from app.services.group_service import GroupService
+from app.services.notification_service import SHARE_RECEIVED, notify
 
 # Last resort only, when the hub is unreachable/unconfigured and there's nothing else to go on -
 # see create_collection, which otherwise resolves the admin-configured or hub-discovered model.
@@ -491,7 +493,25 @@ class CollectionService:
         except IntegrityError as error:
             await self.db.rollback()
             raise AlreadyInvitedError(str(collection_id)) from error
+        await self._tell_group(collection_id, group.id, group.name, user.user_id)
         return ShareOut.from_model(share)
+
+    async def _tell_group(self, collection_id: uuid.UUID, group_id: uuid.UUID, group_name: str, sharer: str) -> None:
+        """The members of a group the collection is now shared with are told (#524), but the person who shared it. Only
+        with a group made in Muffin: a share by address is made blind, and nobody is known to tell (see sharing.py)."""
+        collection = await self.repository.get_by_id(collection_id)
+        if collection is None:
+            return
+        for member_id in await GroupRepository(self.db).active_user_ids(group_id):
+            if member_id != sharer:
+                await notify(
+                    member_id,
+                    SHARE_RECEIVED,
+                    "Une collection est partagée avec vous",
+                    f"« {collection.name} » est partagée avec le groupe « {group_name} ».",
+                    f"/collections/{collection_id}",
+                    {"collection_id": str(collection_id), "group_id": str(group_id)},
+                )
 
     async def list_shares(self, collection_id: uuid.UUID, user: RequestContext) -> list[ShareOut]:
         """Its own shares first, then the ones inherited from its ancestors (#216), nearest

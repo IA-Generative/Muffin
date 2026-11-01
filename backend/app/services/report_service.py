@@ -6,6 +6,14 @@ from app.core import storage
 from app.core.security.factory import RequestContext
 from app.models.report import Report, ReportStatus, ReportType
 from app.repositories.report_repository import ReportRepository
+from app.services.notification_service import FEEDBACK_STATUS, notify
+
+_STATUS_LABELS = {
+    ReportStatus.NEW: "reçu",
+    ReportStatus.IN_PROGRESS: "pris en compte",
+    ReportStatus.RESOLVED: "traité",
+    ReportStatus.WONT_FIX: "classé sans suite",
+}
 
 
 class NotAdminError(Exception):
@@ -91,6 +99,7 @@ class ReportService:
         report = await self.repository.get(report_id)
         if report is None:
             raise ReportNotFoundError(str(report_id))
+        previous_status = report.status
         updated = await self.repository.update_status_and_response(
             report, status, admin_response, _reporter_display(user) if admin_response is not None else None
         )
@@ -99,6 +108,15 @@ class ReportService:
         # RETURNING automatically - SQLAlchemy just expires it, so it must be refreshed
         # explicitly or reading it right after commit fails outside an async context.
         await self.db.refresh(updated, attribute_names=["updated_at"])
+        if updated.status != previous_status:
+            await notify(
+                updated.user_id,
+                FEEDBACK_STATUS,
+                "Suite de votre signalement",
+                f"« {updated.title[:120]} » : {_STATUS_LABELS[updated.status]}.",
+                "/",
+                {"report_id": str(updated.id), "status": updated.status.value},
+            )
         return updated
 
     def screenshot_url(self, report: Report) -> str | None:
