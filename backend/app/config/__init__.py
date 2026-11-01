@@ -3,6 +3,7 @@ from .assistants import AssistantSettings
 from .database import DatabaseSettings
 from .documents import DocumentSettings
 from .energy import EnergySettings
+from .images import ImageSettings
 from .keycloak import KeycloakSettings
 from .llm import LlmSettings
 from .logging import LoggingSettings
@@ -24,6 +25,7 @@ __all__ = [
     "DatabaseSettings",
     "DocumentSettings",
     "EnergySettings",
+    "ImageSettings",
     "KeycloakSettings",
     "LlmSettings",
     "LoggingSettings",

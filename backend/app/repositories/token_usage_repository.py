@@ -16,6 +16,8 @@ def _sums():
         func.coalesce(func.sum(TokenUsage.input_tokens), 0).label("input_tokens"),
         func.coalesce(func.sum(TokenUsage.output_tokens), 0).label("output_tokens"),
         func.coalesce(func.sum(TokenUsage.total_tokens), 0).label("total_tokens"),
+        func.coalesce(func.sum(TokenUsage.images), 0).label("images"),
+        func.coalesce(func.sum(TokenUsage.pixels), 0).label("pixels"),
         func.count(TokenUsage.id).label("calls"),
     )
 

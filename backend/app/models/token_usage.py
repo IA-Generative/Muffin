@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, Integer, String, func
+from sqlalchemy import BigInteger, DateTime, Enum, Integer, String, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -12,6 +12,8 @@ from app.models.base import Base, TimestampMixin, UUIDMixin
 class TokenUsageKind(enum.StrEnum):
     CHAT = "chat"
     EMBEDDING = "embedding"
+    # An image made by a provider (#518): costs in images and pixels, not in tokens of text.
+    IMAGE = "image"
 
 
 class TokenUsage(UUIDMixin, TimestampMixin, Base):
@@ -35,7 +37,9 @@ class TokenUsage(UUIDMixin, TimestampMixin, Base):
     input_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     output_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     total_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-
+    # What an image generation cost (#518): how many images, and their size in pixels (all of them, added).
+    images: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    pixels: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default="0")
     run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     document_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     collection_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)

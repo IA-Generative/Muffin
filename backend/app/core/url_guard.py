@@ -39,7 +39,7 @@ def _is_public(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     )
 
 
-def check_form(url: str) -> str:
+def check_form(url: str, *, restrict_domains: bool = True) -> str:
     """The URL if its form is acceptable: http(s), a host, no credentials, an allowed domain."""
     if len(url) > 2048:
         raise UrlRefusedError("L'adresse est trop longue.")
@@ -52,15 +52,20 @@ def check_form(url: str) -> str:
     if not host:
         raise UrlRefusedError("L'adresse n'a pas de nom de serveur.")
     allowed = _settings.allowed_domains
-    if allowed and not any(host == domain or host.endswith("." + domain) for domain in allowed):
+    if restrict_domains and allowed and not any(host == domain or host.endswith("." + domain) for domain in allowed):
         raise UrlRefusedError("Ce domaine n'est pas autorisé pour un serveur d'outils.")
     return url.strip()
 
 
-async def ensure_public(url: str) -> str:
+async def ensure_public(url: str, *, restrict_domains: bool = True, https_only: bool = False) -> str:
     """The URL, once its form is right and every address its host resolves to is a public one. Resolution runs off the
-    event loop. An address that does not resolve is refused as well: there is nothing to call."""
-    url = check_form(url)
+    event loop. An address that does not resolve is refused as well: there is nothing to call.
+
+    `restrict_domains=False` leaves out the domains allowed for tool servers, which are not the business of another
+    caller (the address of an image a provider gives, #518); `https_only` refuses a plain http address."""
+    url = check_form(url, restrict_domains=restrict_domains)
+    if https_only and urlsplit(url).scheme != "https" and not _settings.TOOLS_ALLOW_PRIVATE_ADDRESSES:
+        raise UrlRefusedError("L'adresse doit commencer par https://.")
     if _settings.TOOLS_ALLOW_PRIVATE_ADDRESSES:
         return url
     parts = urlsplit(url)
