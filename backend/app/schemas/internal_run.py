@@ -51,6 +51,8 @@ class InternalRunOut(BaseModel):
     assistant_instructions: str | None = None
     scope_locked: bool = False
     disabled_tools: list[str] | None = None
+    # The assistants this run may consult, with the collections the person may read (Run.consultable_assistants, #531).
+    consultable_assistants: list[dict[str, Any]] | None = None
     # Collections already left unexplored when the run was created (#220): the sub-collections a
     # pinned collection couldn't bring along within PINNED_DESCENDANTS_LIMIT. The run's own
     # exploration adds to them, and the union is reported back with the answer.
