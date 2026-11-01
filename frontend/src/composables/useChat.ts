@@ -1615,6 +1615,8 @@ export function useChat() {
     renameConversation,
     deleteConversation,
     sendMessage,
+    // Whether the backend knows this conversation yet: what its tools can be changed for (#343).
+    isConversationSaved: (id: string) => confirmedConversationIds.has(id),
     answerQuestions,
     askSuggestion,
     goFurther,

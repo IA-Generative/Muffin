@@ -15,6 +15,7 @@ import CollectionPicker from './CollectionPicker.vue'
 import DiscussionFeedbackPrompt from './DiscussionFeedbackPrompt.vue'
 import FileFilingModal from './FileFilingModal.vue'
 import AssistantSelector from './AssistantSelector.vue'
+import ConversationTools from './ConversationTools.vue'
 import ModelSelector from './ModelSelector.vue'
 
 const props = defineProps<{
@@ -279,6 +280,7 @@ watch(
   <section class="chat-window">
     <header class="chat-window__header">
       <AssistantSelector />
+      <ConversationTools />
       <ModelSelector />
     </header>
 
