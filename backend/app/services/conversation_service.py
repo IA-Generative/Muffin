@@ -17,6 +17,7 @@ from app.schemas.conversation import ConversationOut, ConversationSearchHit, Mes
 from app.schemas.discussion_feedback import DiscussionFeedbackOut
 from app.schemas.discussion_score import DiscussionScoreOut
 from app.schemas.pagination import Page, PaginationParams
+from app.services.tool_service import ToolService
 
 
 class ConversationNotFoundError(Exception):
@@ -72,6 +73,11 @@ class ConversationService:
         rows = await self.conversations.list_messages(conversation.id)
         message_ids = [message.id for message, *_run_fields in rows]
         feedback_map = await self.feedbacks.get_user_feedback_for_messages(message_ids, user.user_id)
+        # The requests to run a tool that changes data are shown with the message of the run that made them (#343).
+        proposals: dict[uuid.UUID, list] = {}
+        for proposal in await ToolService(self.db).proposals_for_conversation(conversation.id, user.user_id):
+            if proposal.run_id is not None:
+                proposals.setdefault(proposal.run_id, []).append(proposal)
         # A message's questions are abandoned once anything follows it without having answered them (#344).
         last_id = rows[-1][0].id if rows else None
         return [
@@ -91,6 +97,7 @@ class ConversationService:
                 and message.id != last_id,
                 feedback=feedback_map.get(message.id),
                 assistant_name=assistant_name,
+                tool_calls=proposals.get(message.run_id, []) if message.role == "assistant" and message.run_id else [],
             )
             for message, citations, edit_proposal, unexplored_collection_ids, assistant_name in rows
         ]

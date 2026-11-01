@@ -73,3 +73,40 @@ class ToolCallLog(UUIDMixin, TimestampMixin, Base):
     # `ok`, or a stable code: quota_depasse, outil_indisponible, arguments_invalides, url_refusee, delai_depasse...
     outcome: Mapped[str] = mapped_column(String(32), nullable=False)
     duration_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
+STATUS_PENDING = "pending"
+STATUS_APPROVED = "approved"
+STATUS_REFUSED = "refused"
+STATUS_EXECUTED = "executed"
+STATUS_FAILED = "failed"
+STATUS_SUPERSEDED = "superseded"
+STATUS_EXPIRED = "expired"
+
+
+class ChatToolCall(UUIDMixin, TimestampMixin, Base):
+    """A request to run a tool that changes data (#343): the agent asked, nothing was run, and the person decides
+    when they like. The discussion is the state - there is no task waiting.
+
+    pending -> approved -> executed | failed, or pending -> refused | superseded (the person wrote something else
+    instead of deciding) | expired (nobody decided in time). Only `pending` can be decided, once: the decision takes
+    the row with a conditional update, so two clicks never run a tool twice."""
+
+    __tablename__ = "chat_tool_calls"
+
+    user_id: Mapped[str] = mapped_column(String, index=True, nullable=False)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    # The run that asked: the calls of one turn are decided together.
+    run_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True, index=True)
+    tool_ref: Mapped[str] = mapped_column(String(160), nullable=False)
+    tool_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    server_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # What the person is shown and agrees to - the arguments as the agent gave them, bounded and checked against the
+    # schema.
+    arguments: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    status: Mapped[str] = mapped_column(String(12), nullable=False, default=STATUS_PENDING, index=True)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # The code the run ended with (the codes of ToolCallResult) - never the answer, which goes to the discussion.
+    result_code: Mapped[str | None] = mapped_column(String(32), nullable=True)

@@ -45,9 +45,10 @@ class ToolOut(BaseModel):
     server_id: uuid.UUID | None = None
     server_name: str | None = None
     side_effect: bool = False
-    # False when the person removed it for this conversation, or when it cannot be called yet (it changes data).
+    # False when the person removed it for this conversation. A tool that changes data is available too: it is
+    # proposed to the person, who decides (`side_effect`), never run by itself.
     available: bool = True
-    # Why a tool is not available, in words: "retiré pour cette conversation", "modifie des données"...
+    # Why a tool is not available, in words: "retiré pour cette conversation".
     reason: str | None = None
 
 
@@ -80,12 +81,15 @@ class ToolCallRequest(BaseModel):
 class ToolCallResult(BaseModel):
     ok: bool
     # `ok`, or a code that does not change: quota_depasse, outil_indisponible, arguments_invalides,
-    # confirmation_requise, url_refusee, serveur_injoignable, delai_depasse, erreur_outil.
+    # confirmation_demandee, url_refusee, serveur_injoignable, delai_depasse, erreur_outil.
     code: str
     text: str
     truncated: bool = False
     tool_name: str = ""
     server_name: str | None = None
+    # Set when the call became a request waiting for the person's decision (code `confirmation_demandee`).
+    proposal_id: uuid.UUID | None = None
+    arguments: dict[str, Any] | None = None
 
 
 class ToolDefinitionsRequest(BaseModel):
@@ -111,3 +115,27 @@ class RunToolCallRequest(BaseModel):
     run_id: uuid.UUID
     ref: str = Field(max_length=160)
     arguments: dict[str, Any] = Field(default_factory=dict)
+
+
+ProposalStatus = Literal["pending", "approved", "refused", "executed", "failed", "superseded", "expired"]
+
+
+class ToolProposalOut(BaseModel):
+    """A tool the assistant asks to run, shown to the person who decides - with the arguments they agree to."""
+
+    id: uuid.UUID
+    run_id: uuid.UUID | None
+    conversation_id: uuid.UUID
+    tool_name: str
+    server_name: str | None
+    arguments: dict[str, Any]
+    status: ProposalStatus
+    created_at: datetime
+    decided_at: datetime | None
+    result_code: str | None
+
+
+class ToolDecision(BaseModel):
+    """The person's answer for the requests of one turn: all of them are authorised, or all refused."""
+
+    approve: bool

@@ -71,6 +71,8 @@ from app.services.collection_service import AlreadyInvitedError, ShareNotFoundEr
 from app.services.copied_collections import CopiedCollectionError
 from app.services.tool_service import (
     InvalidToolServerError,
+    NothingToDecideError,
+    ProposalNotFoundError,
     ToolServerNotFoundError,
     ToolServerNotOwnedError,
     TooManyToolServersError,
@@ -167,6 +169,8 @@ _ASSISTANT_ERRORS: dict[type[Exception], tuple[int, str]] = {
     ToolServerNotFoundError: (404, "Tool server not found"),
     ToolServerNotOwnedError: (403, "Only whoever added a tool server can do this"),
     TooManyToolServersError: (409, "Too many tool servers"),
+    NothingToDecideError: (409, "Nothing is waiting for your decision any more"),
+    ProposalNotFoundError: (404, "Request not found"),
 }
 
 

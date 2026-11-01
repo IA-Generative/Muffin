@@ -129,6 +129,20 @@ export interface ChatMessage {
   questions?: AssistantQuestion[]
   questionsAnswer?: QuestionAnswer[]
   questionsAbandoned?: boolean
+  // Les outils qui modifient des données que le run de ce message a demandé à lancer (#343) : en attente de la
+  // décision de la personne, ou déjà décidés.
+  toolCalls?: ToolCallRequest[]
+}
+
+export type ToolCallStatus = 'pending' | 'approved' | 'refused' | 'executed' | 'failed' | 'superseded' | 'expired'
+
+export interface ToolCallRequest {
+  id: string
+  toolName: string
+  serverName: string | null
+  arguments: Record<string, unknown>
+  status: ToolCallStatus
+  resultCode: string | null
 }
 
 export interface ExecutionEvent {

@@ -10,7 +10,7 @@ export interface Tool {
   serverId: string | null
   serverName: string | null
   sideEffect: boolean
-  // Faux quand l'outil est retiré pour cette conversation, ou ne peut pas encore être appelé (il modifie des données).
+  // Faux quand l'outil est retiré pour cette conversation. Un outil qui modifie des données reste disponible : il est proposé à la personne.
   available: boolean
   reason: string | null
 }
