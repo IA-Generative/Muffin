@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.42.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.41.0...v0.42.0-rc) (2026-11-01)
+
+
+### Features
+
+* **agent:** consignes, portée et outils d'un assistant sur le même graphe ([d44120b](https://github.com/IA-Generative/Muffin/commit/d44120b9d0d0e0d4ca82fed1f7ef533c4605f609))
+* **assistants:** assistants partageables comme les collections ([81d5eda](https://github.com/IA-Generative/Muffin/commit/81d5eda4aa45975f4f8285a42ee777ff04c02843))
+* **frontend:** page des assistants et sélecteur dans le chat ([#514](https://github.com/IA-Generative/Muffin/issues/514)) ([2020d12](https://github.com/IA-Generative/Muffin/commit/2020d123e6a8ca83c036715c69ecb77c7bc90aec))
+
+
+### Bug Fixes
+
+* **frontend:** mise en page du partage et des outils d'un assistant, captures ([#514](https://github.com/IA-Generative/Muffin/issues/514)) ([1e9b559](https://github.com/IA-Generative/Muffin/commit/1e9b5590593c6a2e5d423e7e3b2b06adb4fd5364))
+
 ## [0.41.0](https://github.com/IA-Generative/Muffin/compare/v0.40.1...v0.41.0) (2026-11-01)
 
 
