@@ -239,6 +239,8 @@ async def test_the_run_is_the_owner_s_limited_to_the_model_and_asks_no_question(
     assert run.user_id == ALICE
     assert run.pinned_collection_ids == [str(mine)]
     assert run.interactive is False
+    # The planner may not go on to the other collections of the owner.
+    assert run.scope_locked is True
 
 
 async def test_a_call_makes_a_conversation_apart_that_the_sidebar_and_search_do_not_show(client, monkeypatch):
