@@ -14,6 +14,7 @@ from app.repositories.collection_import_repository import CollectionImportReposi
 from app.repositories.collection_repository import CollectionRepository
 from app.repositories.conversation_repository import ConversationRepository
 from app.repositories.feedback_repository import FeedbackRepository
+from app.repositories.generated_image_repository import GeneratedImageRepository
 from app.repositories.run_repository import RunRepository
 from app.repositories.source_repository import SourceRepository
 from app.schemas.feedback import FeedbackCreate, FeedbackOut
@@ -21,6 +22,7 @@ from app.schemas.question import validate_answers
 from app.schemas.run import RunCreate, RunEventOut, RunOut
 from app.services.assistant_service import AssistantService
 from app.services.document_upload_service import _uploader_display
+from app.services.image_generation_service import ImageGenerationService
 from app.services.tool_service import ToolService
 
 # Module attribute (not closed over) so tests can change the limit with monkeypatch.setattr.
@@ -64,6 +66,7 @@ class RunService:
         self.db = db
         self.runs = RunRepository(db)
         self.conversations = ConversationRepository(db)
+        self.generated_images = GeneratedImageRepository(db)
         self.collections = CollectionRepository(db)
         self.hierarchy = CollectionHierarchyRepository(db)
         self.imports = CollectionImportRepository(db)
@@ -211,6 +214,9 @@ class RunService:
             questions = message.questions if message is not None else None
         out = self._to_out(run, questions)
         out.tool_calls = await ToolService(self.db).proposals_for_run(run.id, user.user_id)
+        out.images = [
+            ImageGenerationService.present_image(image) for image in await self.generated_images.for_run(run.id)
+        ]
         if run.status == RunStatus.RUNNING:
             out.partial_answer = redis_connector.client.get(partial_answer_key(run.id))
         return out

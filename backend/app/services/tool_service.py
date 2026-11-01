@@ -57,6 +57,7 @@ from app.schemas.tool import (
     ToolServerUpdate,
 )
 from app.services import vector_store
+from app.services.image_generation_service import ImageGenerationError, ImageGenerationService
 from app.services.secret_store_service import SecretNotFoundError, SecretStore
 from app.services.tool_search_service import ToolSearchService
 from app.services.tools import internal_catalog, mcp_client
@@ -123,6 +124,9 @@ class ToolService:
         changing data. Muffin's own first."""
         removed = await self._disabled_refs(conversation_id, user_id)
         out = [self._internal_out(tool, removed) for tool in internal_catalog.INTERNAL_TOOLS if tool.implemented]
+        # Making an image is offered to the assistant only while the function is on and open to the person (#518).
+        if await ImageGenerationService(self.db).offered_to(groups):
+            out.append(self._internal_out(internal_catalog.IMAGE_TOOL, removed))
         for server in await self._servers_for(user_id, groups):
             out += [self._remote_out(server, tool, removed) for tool in server.tools]
         return out
@@ -359,8 +363,40 @@ class ToolService:
         if tool.side_effect and not approved:
             return await self._propose(request, tool)
         if internal_catalog.is_internal(request.ref):
+            if request.ref == internal_catalog.IMAGE_TOOL.ref:
+                return await self._run_image(request, tool)
             return self._run_internal(request, tool)
         return await self._run_remote(request, tool)
+
+    async def _run_image(self, request: ToolCallRequest, tool: ToolOut) -> ToolCallResult:
+        """The assistant asks for an image (#518). The same service, rights and quota as the person's own request; the
+        image goes to the run's answer. What it says to the model: that it is shown, and with what description."""
+        if request.conversation_id is None or request.run_id is None:
+            return self._failed("outil_indisponible", "Cet outil ne marche que dans une conversation.", tool)
+        try:
+            image = await ImageGenerationService(self.db).generate_for_run(
+                user_id=request.user_id,
+                groups=request.groups,
+                conversation_id=request.conversation_id,
+                run_id=request.run_id,
+                prompt=str(request.arguments.get("prompt", "")),
+            )
+        except ImageGenerationError as error:
+            return self._failed(error.code, error.message, tool)
+        except Exception:
+            logger.exception("The image asked for by the assistant could not be made")
+            return self._failed("erreur_outil", "L'image n'a pas pu être générée.", tool)
+        return ToolCallResult(
+            ok=True,
+            code="ok",
+            text=(
+                "Image générée par IA et affichée à l'utilisateur sous ta réponse. "
+                f"Description envoyée au fournisseur : « {image.prompt[:500]} ». "
+                "Ne mets aucun lien ni aucune image dans ta réponse : dis simplement ce qui a "
+                "été fait."
+            ),
+            tool_name=tool.name,
+        )
 
     def _run_internal(self, request: ToolCallRequest, tool: ToolOut) -> ToolCallResult:
         internal = internal_catalog.find(request.ref)

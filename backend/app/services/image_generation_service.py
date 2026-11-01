@@ -229,9 +229,23 @@ class ImageGenerationService:
     # --- who may, and how many ---
 
     @staticmethod
-    def _allowed(row: ImageGenerationSettings, user: RequestContext) -> bool:
-        groups = list(row.allowed_groups or [])
-        return user.is_admin or not groups or bool(set(groups) & set(user.groups))
+    def _allowed_for(row: ImageGenerationSettings, groups: list[str], is_admin: bool) -> bool:
+        allowed = list(row.allowed_groups or [])
+        return is_admin or not allowed or bool(set(allowed) & set(groups))
+
+    def _allowed(self, row: ImageGenerationSettings, user: RequestContext) -> bool:
+        return self._allowed_for(row, user.groups, user.is_admin)
+
+    async def offered_to(self, groups: list[str]) -> bool:
+        """Whether the assistant may be given the tool `generer_image` for someone of these groups (#518): the function
+        is on, complete, and open to them. Nothing is revealed or called to tell: the key is not read. An
+        administrator who is in none of the allowed groups has the mode «Image» but not the tool - a run does not know
+        who is one."""
+        row = await self.settings.get()
+        if row is None or not row.enabled or not row.model or not self._allowed_for(row, groups, False):
+            return False
+        has_key = row.secret_id is not None or (not row.base_url and bool(_llm_settings.OPENAI_API_KEY))
+        return has_key and bool(row.base_url or _llm_settings.OPENAI_API_BASE_URL)
 
     @staticmethod
     def _day_key(user_id: str) -> str:
@@ -262,11 +276,23 @@ class ImageGenerationService:
             max_prompt_chars=_settings.IMAGES_PROMPT_MAX_CHARS,
         )
 
-    async def _take_quota(self, row: ImageGenerationSettings, user_id: str) -> None:
-        """One unit of the minute's rate and of the day's quota, taken **before** the provider is called. A quota that
-        cannot be checked stops the call: an image costs money, unlike the answer of a tool."""
+    async def _take_quota(self, row: ImageGenerationSettings, user_id: str, run_id: uuid.UUID | None = None) -> None:
+        """One unit of the minute's rate and of the day's quota, taken **before** the provider is called - and, for the
+        assistant, of what one run may ask for. A quota that cannot be checked stops the call: an image costs money,
+        unlike the answer of a tool."""
         try:
             redis = async_redis()
+            if run_id is not None:
+                run_key = f"images:run:{run_id}"
+                made = await redis.incr(run_key)
+                if made == 1:
+                    await redis.expire(run_key, 3600)
+                if made > _settings.IMAGES_PER_RUN:
+                    raise ImageGenerationError(
+                        "limite_par_reponse",
+                        f"Au plus {_settings.IMAGES_PER_RUN} images par réponse : pas d'autre pour cette demande.",
+                        429,
+                    )
             minute_key = f"images:min:{user_id}:{int(time.time() // 60)}"
             count = await redis.incr(minute_key)
             if count == 1:
@@ -446,13 +472,12 @@ class ImageGenerationService:
 
     # --- the person's image ---
 
-    async def generate(
-        self, user: RequestContext, prompt: str, conversation_id: uuid.UUID | None
-    ) -> ImageGenerationOut:
-        row = await self.settings.get()
+    def _guard(self, row: ImageGenerationSettings | None, groups: list[str], is_admin: bool, prompt: str) -> str:
+        """What must hold before anything is called: the function is on, the person is allowed, the description is in
+        bounds. The description, cleaned."""
         if row is None or not row.enabled:
             raise ImageGenerationError("fonction_desactivee", "La génération d'images n'est pas activée.", 404)
-        if not self._allowed(row, user):
+        if not self._allowed_for(row, groups, is_admin):
             raise ImageGenerationError("non_autorise", "Vous n'avez pas le droit de générer des images.", 403)
         prompt = prompt.strip()
         if not prompt:
@@ -463,23 +488,40 @@ class ImageGenerationService:
                 f"La description est trop longue ({_settings.IMAGES_PROMPT_MAX_CHARS} caractères au plus).",
                 422,
             )
-        base_url, key = await self._provider(row)
+        return prompt
+
+    async def _produce(
+        self,
+        row: ImageGenerationSettings,
+        address: tuple[str, str],
+        user_id: str,
+        prompt: str,
+        run_id: uuid.UUID | None = None,
+    ) -> tuple[bytes, image_bytes.ImageInfo]:
+        """The checked and labelled bytes of an image, once the quota is taken - and given back if there is none."""
+        await self._take_quota(row, user_id, run_id)
+        try:
+            data, _how = await self._ask_provider(row, *address, prompt)
+            info = self._checked(data, row)
+        except ImageGenerationError:
+            await self._give_back_quota(user_id)
+            raise
+        return image_bytes.label_png(data), info
+
+    async def generate(
+        self, user: RequestContext, prompt: str, conversation_id: uuid.UUID | None
+    ) -> ImageGenerationOut:
+        row = await self.settings.get()
+        prompt = self._guard(row, user.groups, user.is_admin, prompt)
+        address = await self._provider(row)
         conversation = None
         if conversation_id is not None:
             conversation = await self.conversations.get(conversation_id, user.user_id)
             if conversation is None:
                 raise ConversationNotFoundError(str(conversation_id))
 
-        await self._take_quota(row, user.user_id)
         started = time.monotonic()
-        try:
-            data, _how = await self._ask_provider(row, base_url, key, prompt)
-            info = self._checked(data, row)
-        except ImageGenerationError:
-            await self._give_back_quota(user.user_id)
-            raise
-        data = image_bytes.label_png(data)
-
+        data, info = await self._produce(row, address, user.user_id, prompt)
         image_id = uuid.uuid4()
         if conversation is None:
             conversation = await self.conversations.create(user.user_id, title=_remember(prompt)[:80])
@@ -531,17 +573,67 @@ class ImageGenerationService:
                 images=[self.present_image(image)],
             ),
         )
-        await self._record_usage(user, row.model or "", info)
+        await self._record_usage(user.user_id, row.model or "", info)
         logger.info(
             f"Image {image_id} generated for {user.user_id} in {int((time.monotonic() - started) * 1000)} ms "
             f"({info.width}x{info.height}, {len(data)} bytes)"
         )
         return result
 
-    async def _record_usage(self, user: RequestContext, model: str, info: image_bytes.ImageInfo) -> None:
+    async def generate_for_run(
+        self,
+        *,
+        user_id: str,
+        groups: list[str],
+        conversation_id: uuid.UUID,
+        run_id: uuid.UUID,
+        prompt: str,
+    ) -> GeneratedImage:
+        """An image the assistant asked for while answering (#518, the tool `generer_image`): the same checks, the same
+        quota and the same keeping as the person's own request - the quota is the person's, and a run may ask for at
+        most `IMAGES_PER_RUN`. Nothing is written in the conversation here: the image belongs to the run, and to its
+        answer when it is written."""
+        row = await self.settings.get()
+        prompt = self._guard(row, groups, False, prompt)
+        address = await self._provider(row)
+        started = time.monotonic()
+        data, info = await self._produce(row, address, user_id, prompt, run_id)
+        image_id = uuid.uuid4()
+        key_in_bucket = f"images/{conversation_id}/{image_id}.{info.extension}"
+        await asyncio.to_thread(storage.put_object, key_in_bucket, data, info.content_type)
+        try:
+            image = await self.images.add(
+                GeneratedImage(
+                    id=image_id,
+                    conversation_id=conversation_id,
+                    run_id=run_id,
+                    user_id=user_id,
+                    prompt=prompt,
+                    model=row.model or "",
+                    s3_key=key_in_bucket,
+                    content_type=info.content_type,
+                    width=info.width,
+                    height=info.height,
+                    size_bytes=len(data),
+                )
+            )
+            await self.db.commit()
+        except Exception:
+            await self.db.rollback()
+            await asyncio.to_thread(storage.delete_objects, [key_in_bucket])
+            await self._give_back_quota(user_id)
+            raise
+        await self._record_usage(user_id, row.model or "", info)
+        logger.info(
+            f"Image {image_id} generated for the run {run_id} of {user_id} in "
+            f"{int((time.monotonic() - started) * 1000)} ms ({info.width}x{info.height}, {len(data)} bytes)"
+        )
+        return image
+
+    async def _record_usage(self, user_id: str, model: str, info: image_bytes.ImageInfo) -> None:
         """What an image costs is its count and its size, not tokens: a row of the usage, step `image_generation`."""
         await UsageService(self.db).record(
-            LlmUsageContext(step="image_generation", user_id=user.user_id),
+            LlmUsageContext(step="image_generation", user_id=user_id),
             TokenUsageKind.IMAGE,
             model,
             0,
