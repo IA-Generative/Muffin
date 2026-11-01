@@ -21,6 +21,7 @@ from app.schemas.question import validate_answers
 from app.schemas.run import RunCreate, RunEventOut, RunOut
 from app.services.assistant_service import AssistantService
 from app.services.document_upload_service import _uploader_display
+from app.services.tool_service import ToolService
 
 # Module attribute (not closed over) so tests can change the limit with monkeypatch.setattr.
 _run_settings = RunSettings()
@@ -82,6 +83,9 @@ class RunService:
                 raise ConversationNotFoundError(str(body.conversation_id))
         else:
             conversation = await self.conversations.create(user.user_id, title=body.query[:80])
+
+        # Whatever was waiting for the person's decision is abandoned: they wrote something else (#343).
+        await ToolService(self.db).supersede_pending(conversation.id)
 
         # An answer goes on from the run that asked (#344): same collections, same web-search choice.
         asked = await self._record_answers(user, conversation.id, body) if body.answers_run_id is not None else None
@@ -206,6 +210,7 @@ class RunService:
             message = await self.conversations.get_assistant_message_by_run_id(run.id)
             questions = message.questions if message is not None else None
         out = self._to_out(run, questions)
+        out.tool_calls = await ToolService(self.db).proposals_for_run(run.id, user.user_id)
         if run.status == RunStatus.RUNNING:
             out.partial_answer = redis_connector.client.get(partial_answer_key(run.id))
         return out

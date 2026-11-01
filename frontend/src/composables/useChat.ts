@@ -16,6 +16,7 @@ import type {
   FeedbackDetails,
   AssistantQuestion,
   QuestionAnswer,
+  ToolCallRequest,
   Source,
 } from '../types/chat'
 import { answerHasNoSource } from '../utils/answerSources'
@@ -91,6 +92,30 @@ interface MessageOut {
   questions_abandoned?: boolean
   feedback: 'up' | 'down' | null
   assistant_name?: string | null
+  tool_calls?: ToolCallOut[] | null
+}
+
+// Backend shape (snake_case) of a request to run a tool that changes data (#343).
+interface ToolCallOut {
+  id: string
+  tool_name: string
+  server_name: string | null
+  arguments: Record<string, unknown>
+  status: ToolCallRequest['status']
+  result_code: string | null
+}
+
+function toToolCalls(raw: ToolCallOut[] | null | undefined): ToolCallRequest[] | undefined {
+  return raw?.length
+    ? raw.map((item) => ({
+        id: item.id,
+        toolName: item.tool_name,
+        serverName: item.server_name,
+        arguments: item.arguments,
+        status: item.status,
+        resultCode: item.result_code,
+      }))
+    : undefined
 }
 
 // Backend shape (snake_case) of the questions with options the assistant asked (#344).
@@ -181,6 +206,7 @@ interface RunOut {
   edit_proposal: ProposalOut | null
   unexplored_collection_ids?: string[] | null
   questions?: QuestionOut[] | null
+  tool_calls?: ToolCallOut[] | null
   assistant_name?: string | null
   assistant_inaccessible_collections?: number
   error: string | null
@@ -414,6 +440,7 @@ async function ensureMessagesLoaded(conversationId: string) {
         questions: toQuestions(item.questions),
         questionsAnswer: toQuestionsAnswer(item.questions_answer),
         questionsAbandoned: item.questions_abandoned ?? false,
+        toolCalls: toToolCalls(item.tool_calls),
         assistantName: item.assistant_name ?? undefined,
       }
     })
@@ -1055,6 +1082,7 @@ function assistantMessageFor(id: string, run: RunOut): ChatMessage {
       creationProposal: toCreationProposal(run.edit_proposal),
       unexploredCollectionIds: run.unexplored_collection_ids ?? undefined,
       questions: toQuestions(run.questions),
+      toolCalls: toToolCalls(run.tool_calls),
       assistantName: run.assistant_name ?? undefined,
     }
   }
@@ -1371,6 +1399,42 @@ async function answerQuestions(messageId: string, answers: QuestionAnswer[]) {
   await runQuery(conversationId, placeholderId, content, [], false, { answers: { runId: asked.runId, answers } })
 }
 
+// The person authorises or refuses, together, the tools that change data which a message asked to run (#343). The
+// backend runs what is authorised and writes the outcome as a message of the conversation, so the thread is read
+// again to show it. Returns false when the answer could not be taken (already decided elsewhere, expired, offline).
+async function decideToolCalls(messageId: string, approve: boolean): Promise<boolean> {
+  const conversationId = activeId.value
+  const asked = messagesByConversation.value[conversationId]?.find((message) => message.id === messageId)
+  if (!asked?.toolCalls?.length || !asked.runId) return false
+  let decided = false
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/runs/${asked.runId}/tool-calls/decision`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ approve }),
+    })
+    decided = response.ok
+    if (decided) asked.toolCalls = toToolCalls((await response.json()) as ToolCallOut[])
+  } catch {
+    return false
+  }
+  // A 409 means the request was decided in another tab or has expired: the thread tells the current state.
+  try {
+    const items = await fetchMessagesList(conversationId)
+    const current = items.find((item) => item.run_id === asked.runId && item.role === 'assistant')
+    if (current) asked.toolCalls = toToolCalls(current.tool_calls) ?? asked.toolCalls
+    // What was authorised or refused is told by the message the backend wrote last.
+    const outcome = items[items.length - 1]
+    if (decided && outcome?.role === 'assistant' && outcome.run_id !== asked.runId) {
+      messagesByConversation.value[conversationId].push({ id: outcome.id, role: 'assistant', content: outcome.content })
+    }
+  } catch {
+    // The decision is taken; the outcome shows at the next visit of the conversation.
+  }
+  return decided
+}
+
 // "Go further" on the latest answer (#219): a new message resuming the exploration where that
 // answer stopped - the backend hands the agent that answer's unexplored collections. The text is
 // what the user sees in the thread; the agent reads it against the conversation's history.
@@ -1618,6 +1682,7 @@ export function useChat() {
     // Whether the backend knows this conversation yet: what its tools can be changed for (#343).
     isConversationSaved: (id: string) => confirmedConversationIds.has(id),
     answerQuestions,
+    decideToolCalls,
     askSuggestion,
     goFurther,
     regenerateMessage,

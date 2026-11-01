@@ -12,11 +12,11 @@ What the journal holds is who, which tool, how long and how it ended - never the
 import json
 import time
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import jsonschema
 from loguru import logger
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import ToolSettings
@@ -25,11 +25,30 @@ from app.core.secret_store import SecretStoreError
 from app.core.security.factory import RequestContext
 from app.core.url_guard import UrlRefusedError, ensure_public
 from app.models.conversation import Conversation
-from app.models.tool import AUTH_BEARER, AUTH_NONE, VISIBILITY_ALL, VISIBILITY_GROUPS, Tool, ToolCallLog, ToolServer
+from app.models.message import MessageRole
+from app.models.tool import (
+    AUTH_BEARER,
+    AUTH_NONE,
+    STATUS_APPROVED,
+    STATUS_EXECUTED,
+    STATUS_EXPIRED,
+    STATUS_FAILED,
+    STATUS_PENDING,
+    STATUS_REFUSED,
+    STATUS_SUPERSEDED,
+    VISIBILITY_ALL,
+    VISIBILITY_GROUPS,
+    ChatToolCall,
+    Tool,
+    ToolCallLog,
+    ToolServer,
+)
+from app.repositories.conversation_repository import ConversationRepository
 from app.schemas.tool import (
     ToolCallRequest,
     ToolCallResult,
     ToolOut,
+    ToolProposalOut,
     ToolServerCreate,
     ToolServerOut,
     ToolServerUpdate,
@@ -55,6 +74,14 @@ class ToolServerNotOwnedError(Exception):
 
 class TooManyToolServersError(Exception):
     pass
+
+
+class ProposalNotFoundError(Exception):
+    """There is no such request for this person."""
+
+
+class NothingToDecideError(Exception):
+    """No request of this turn is waiting for the person any more: decided already, superseded or expired."""
 
 
 class InvalidToolServerError(Exception):
@@ -109,7 +136,7 @@ class ToolService:
             description=tool.description,
             input_schema=tool.input_schema,
             side_effect=tool.side_effect,
-            available=not gone and not tool.side_effect,
+            available=not gone,
             reason="retiré pour cette conversation" if gone else None,
         )
 
@@ -117,13 +144,7 @@ class ToolService:
     def _remote_out(server: ToolServer, tool: Tool, removed: set[str]) -> ToolOut:
         ref = str(tool.id)
         gone = ref in removed
-        reason = (
-            "retiré pour cette conversation"
-            if gone
-            else "modifie des données : il ne sera appelable qu'avec votre accord, pas encore disponible"
-            if tool.side_effect
-            else None
-        )
+        reason = "retiré pour cette conversation" if gone else None
         return ToolOut(
             ref=ref,
             name=tool.name,
@@ -265,28 +286,25 @@ class ToolService:
 
     # --- calling ---
 
-    async def call(self, request: ToolCallRequest) -> ToolCallResult:
+    async def call(self, request: ToolCallRequest, *, approved: bool = False) -> ToolCallResult:
         """One call for a person - never raises. The tool must be one the person is offered now; its arguments must
         fit its schema; the run and the person must be within their quota. The journal keeps who, which and how it
-        ended."""
+        ended.
+
+        A tool that changes data is not run: unless the person has `approved` it, the call becomes a request that
+        waits for their decision (see `_propose`)."""
         started = time.monotonic()
-        result = await self._call(request)
+        result = await self._call(request, approved)
         await self._journal(request, result, int((time.monotonic() - started) * 1000))
         return result
 
-    async def _call(self, request: ToolCallRequest) -> ToolCallResult:
+    async def _call(self, request: ToolCallRequest, approved: bool = False) -> ToolCallResult:
         offered = {
             tool.ref: tool for tool in await self.available(request.user_id, request.groups, request.conversation_id)
         }
         tool = offered.get(request.ref)
         if tool is None:
             return self._failed("outil_indisponible", "Cet outil n'existe pas ou vous ne pouvez pas l'utiliser.")
-        if tool.side_effect:
-            return self._failed(
-                "confirmation_requise",
-                "Cet outil modifie des données : il n'est pas appelable sans votre accord.",
-                tool,
-            )
         if not tool.available:
             return self._failed("outil_indisponible", "Cet outil est retiré pour cette conversation.", tool)
         if len(json.dumps(request.arguments, default=str)) > _ARGUMENTS_MAX_CHARS:
@@ -297,8 +315,10 @@ class ToolService:
             return self._failed("arguments_invalides", f"Arguments invalides : {error.message[:200]}", tool)
         except jsonschema.SchemaError:
             pass  # a schema this server wrote badly: its own checks then decide
-        if not await self._within_quota(request):
+        if not await self._within_quota(request, count_run=not approved):
             return self._failed("quota_depasse", "Trop d'appels d'outils : réessayez plus tard.", tool)
+        if tool.side_effect and not approved:
+            return await self._propose(request, tool)
         if internal_catalog.is_internal(request.ref):
             return self._run_internal(request, tool)
         return await self._run_remote(request, tool)
@@ -326,7 +346,7 @@ class ToolService:
             server_name=tool.server_name if tool else None,
         )
 
-    async def _within_quota(self, request: ToolCallRequest) -> bool:
+    async def _within_quota(self, request: ToolCallRequest, *, count_run: bool = True) -> bool:
         """Counters in Redis, one per run and one per person per minute. If Redis cannot be reached the call goes on:
         a quota is a protection, not a reason for the chat to break."""
         try:
@@ -338,7 +358,7 @@ class ToolService:
                     _settings.TOOLS_CALLS_PER_USER_PER_MINUTE,
                 )
             ]
-            if request.run_id is not None:
+            if request.run_id is not None and count_run:
                 checks.append((f"tools:run:{request.run_id}", 3600, _settings.TOOLS_CALLS_PER_RUN))
             for key, ttl, limit in checks:
                 count = await redis.incr(key)
@@ -373,6 +393,168 @@ class ToolService:
         except Exception:
             logger.warning("A tool call could not be journalised", exc_info=True)
             await self.db.rollback()
+
+    # --- the requests the person decides ---
+
+    async def _propose(self, request: ToolCallRequest, tool: ToolOut) -> ToolCallResult:
+        """A tool that changes data is not run: the call becomes a request that stays in the discussion, with the
+        arguments the person would agree to. Nothing is waiting - no task, no connection: the person decides when they
+        like, and the decision runs the tool (`decide`)."""
+        if request.conversation_id is None:
+            return self._failed("outil_indisponible", "Cet outil ne peut être proposé que dans une conversation.", tool)
+        waiting = (
+            await self.db.execute(
+                select(ChatToolCall.id).where(
+                    ChatToolCall.user_id == request.user_id, ChatToolCall.status == STATUS_PENDING
+                )
+            )
+        ).all()
+        if len(waiting) >= _settings.TOOLS_PENDING_PER_USER:
+            return self._failed("quota_depasse", "Trop de demandes en attente : décidez-en avant d'en faire.", tool)
+        proposal = ChatToolCall(
+            user_id=request.user_id,
+            conversation_id=request.conversation_id,
+            run_id=request.run_id,
+            tool_ref=request.ref[:160],
+            tool_name=tool.name,
+            server_name=tool.server_name,
+            arguments=request.arguments,
+        )
+        self.db.add(proposal)
+        await self.db.flush()
+        await self.db.commit()
+        return ToolCallResult(
+            ok=False,
+            code="confirmation_demandee",
+            text="Cet outil modifie des données : une demande d'autorisation a été présentée à l'utilisateur. "
+            "Rien n'a été exécuté.",
+            tool_name=tool.name,
+            server_name=tool.server_name,
+            proposal_id=proposal.id,
+            arguments=request.arguments,
+        )
+
+    async def proposals_for_conversation(self, conversation_id: uuid.UUID, user_id: str) -> list[ToolProposalOut]:
+        rows = (
+            (
+                await self.db.execute(
+                    select(ChatToolCall)
+                    .where(ChatToolCall.conversation_id == conversation_id, ChatToolCall.user_id == user_id)
+                    .order_by(ChatToolCall.created_at)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return [self._proposal_out(row) for row in rows]
+
+    async def proposals_for_run(self, run_id: uuid.UUID, user_id: str) -> list[ToolProposalOut]:
+        rows = (
+            (
+                await self.db.execute(
+                    select(ChatToolCall)
+                    .where(ChatToolCall.run_id == run_id, ChatToolCall.user_id == user_id)
+                    .order_by(ChatToolCall.created_at)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return [self._proposal_out(row) for row in rows]
+
+    async def supersede_pending(self, conversation_id: uuid.UUID) -> None:
+        """The person wrote something else instead of deciding: what was waiting is abandoned and can no longer be
+        authorised - an old request must not be run on a click made for another question."""
+        await self.db.execute(
+            update(ChatToolCall)
+            .where(ChatToolCall.conversation_id == conversation_id, ChatToolCall.status == STATUS_PENDING)
+            .values(status=STATUS_SUPERSEDED)
+        )
+
+    async def decide(self, user: RequestContext, run_id: uuid.UUID, approve: bool) -> list[ToolProposalOut]:
+        """The person's answer for the requests of one turn: all authorised, or all refused.
+
+        Each request is claimed with a conditional update, so a second click - or a second tab - finds nothing to decide
+        and runs nothing twice. What is authorised is run **with the rights the person has now**: a tool removed, a
+        server switched off or no longer shared since is not run, and is reported as failed. The outcome is written into
+        the conversation, where the next turn reads it."""
+        now = datetime.now(UTC)
+        mine = (ChatToolCall.run_id == run_id) & (ChatToolCall.user_id == user.user_id)
+        await self.db.execute(
+            update(ChatToolCall)
+            .where(mine, ChatToolCall.status == STATUS_PENDING)
+            .where(ChatToolCall.created_at <= now - timedelta(hours=_settings.TOOLS_PENDING_HOURS))
+            .values(status=STATUS_EXPIRED)
+        )
+        claimed = (
+            (
+                await self.db.execute(
+                    update(ChatToolCall)
+                    .where(mine, ChatToolCall.status == STATUS_PENDING)
+                    .values(status=STATUS_APPROVED if approve else STATUS_REFUSED, decided_at=now)
+                    .returning(ChatToolCall.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        await self.db.commit()
+        if not claimed:
+            raise (
+                NothingToDecideError if await self.proposals_for_run(run_id, user.user_id) else ProposalNotFoundError
+            )
+        rows = (
+            (
+                await self.db.execute(
+                    select(ChatToolCall).where(ChatToolCall.id.in_(claimed)).order_by(ChatToolCall.created_at)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        lines = []
+        for row in rows:
+            if not approve:
+                lines.append(
+                    f"Vous avez refusé l'outil « {row.tool_name} »{_where(row.server_name)} : rien n'a été exécuté."
+                )
+                continue
+            result = await self.call(
+                ToolCallRequest(
+                    user_id=user.user_id,
+                    groups=user.groups,
+                    conversation_id=row.conversation_id,
+                    run_id=row.run_id,
+                    ref=row.tool_ref,
+                    arguments=row.arguments,
+                ),
+                approved=True,
+            )
+            row.status = STATUS_EXECUTED if result.ok else STATUS_FAILED
+            row.result_code = result.code
+            lines.append(_outcome_line(row, result))
+        await ConversationRepository(self.db).add_message(
+            rows[0].conversation_id, MessageRole.ASSISTANT, "\n\n".join(lines)
+        )
+        await self.db.commit()
+        verdict = "authorised" if approve else "refused"
+        logger.info(f"{len(rows)} tool request(s) of run {run_id} {verdict} by {user.user_id}")
+        return [self._proposal_out(row) for row in rows]
+
+    @staticmethod
+    def _proposal_out(row: ChatToolCall) -> ToolProposalOut:
+        return ToolProposalOut(
+            id=row.id,
+            run_id=row.run_id,
+            conversation_id=row.conversation_id,
+            tool_name=row.tool_name,
+            server_name=row.server_name,
+            arguments=row.arguments,
+            status=row.status,  # type: ignore[arg-type]
+            created_at=row.created_at,
+            decided_at=row.decided_at,
+            result_code=row.result_code,
+        )
 
     # --- internals ---
 
@@ -478,3 +660,22 @@ def _origin(url: str) -> str:
 
     parts = urlsplit(url)
     return f"{parts.scheme}://{parts.netloc.rsplit('@', 1)[-1]}"
+
+
+def _where(server_name: str | None) -> str:
+    return f" (serveur {server_name})" if server_name else ""
+
+
+def _outcome_line(row: ChatToolCall, result: ToolCallResult) -> str:
+    """What the discussion says of a tool the person authorised. What the server answered is data from a third party: it
+    goes in a code block, which the chat shows as text and never as markup, with any fence of its own made harmless."""
+    if result.ok:
+        body = result.text.replace("```", "'''")
+        cut = "\n[résultat tronqué]" if result.truncated else ""
+        return (
+            f"L'outil « {row.tool_name} »{_where(row.server_name)} a été exécuté avec votre accord :"
+            f"\n\n```\n{body}{cut}\n```"
+        )
+    return (
+        f"L'outil « {row.tool_name} »{_where(row.server_name)} n'a pas pu être exécuté ({result.code}) : {result.text}"
+    )

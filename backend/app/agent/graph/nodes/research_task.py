@@ -481,7 +481,15 @@ async def _run_call_tool(
     result = await backend_client.call_tool(run_id, task["tool_ref"], task.get("arguments") or {})
     name = result.get("tool_name") or "outil"
     origin = f" (serveur {result['server_name']})" if result.get("server_name") else ""
-    if result.get("ok"):
+    if result.get("code") == "confirmation_demandee":
+        # A tool that changes data is never run by the agent: the person was asked (#343). Said plainly, so that the
+        # answer does not claim what was not done.
+        content = (
+            f"L'outil « {name} »{origin} modifie des données : une demande d'autorisation a été présentée à "
+            f"l'utilisateur, avec ces arguments : {result.get('arguments')}. RIEN N'A ÉTÉ EXÉCUTÉ. Dis-le "
+            "clairement, et invite l'utilisateur à autoriser ou refuser la demande affichée dans la conversation."
+        )
+    elif result.get("ok"):
         content = f"Résultat de l'outil « {name} »{origin} :\n{result.get('text', '')}"
         if result.get("truncated"):
             content += "\n[résultat tronqué]"

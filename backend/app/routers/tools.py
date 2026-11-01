@@ -6,7 +6,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security.factory import RequestContext, get_current_user
 from app.db import get_db
-from app.schemas.tool import ConversationToolsUpdate, ToolOut, ToolServerCreate, ToolServerOut, ToolServerUpdate
+from app.schemas.tool import (
+    ConversationToolsUpdate,
+    ToolDecision,
+    ToolOut,
+    ToolProposalOut,
+    ToolServerCreate,
+    ToolServerOut,
+    ToolServerUpdate,
+)
 from app.services.tool_service import ToolService
 
 router = APIRouter(tags=["Tools"])
@@ -82,3 +90,27 @@ async def delete_server(server_id: uuid.UUID, user: UserDep, service: ServiceDep
 )
 async def sync_server(server_id: uuid.UUID, user: UserDep, service: ServiceDep) -> ToolServerOut:
     return await service.sync_server(user, server_id)
+
+
+@router.get(
+    "/conversations/{conversation_id}/tool-calls",
+    summary="The requests to run a tool that changes data, made in this conversation - waiting or decided",
+    response_model=list[ToolProposalOut],
+)
+async def list_conversation_tool_calls(
+    conversation_id: uuid.UUID, user: UserDep, service: ServiceDep
+) -> list[ToolProposalOut]:
+    return await service.proposals_for_conversation(conversation_id, user.user_id)
+
+
+@router.post(
+    "/runs/{run_id}/tool-calls/decision",
+    summary="Authorise or refuse, together, the requests to run a tool that one turn made. What is authorised runs "
+    "with the rights the caller has now; the outcome is written into the conversation. A second answer finds "
+    "nothing to decide.",
+    response_model=list[ToolProposalOut],
+)
+async def decide_tool_calls(
+    run_id: uuid.UUID, body: ToolDecision, user: UserDep, service: ServiceDep
+) -> list[ToolProposalOut]:
+    return await service.decide(user, run_id, body.approve)

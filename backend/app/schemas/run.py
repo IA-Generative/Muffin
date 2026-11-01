@@ -5,6 +5,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from app.schemas.question import Question, QuestionAnswer
+from app.schemas.tool import ToolProposalOut
 
 
 class RunCreate(BaseModel):
@@ -78,6 +79,8 @@ class RunOut(BaseModel):
     assistant_version: int | None = None
     # How many of the assistant's collections the caller cannot read, so the chat can say so.
     assistant_inaccessible_collections: int = 0
+    # The requests to run a tool that changes data that this run made (#343): waiting for the person, or decided.
+    tool_calls: list[ToolProposalOut] = []
     error: str | None
     created_at: datetime
     updated_at: datetime

@@ -18,6 +18,10 @@ class ToolSettings(BaseSettings):
     # fails.
     TOOLS_CALLS_PER_RUN: int = 5
     TOOLS_CALLS_PER_USER_PER_MINUTE: int = 30
+    # A request to run a tool that changes data waits this long for the person's answer (hours), and a person may
+    # have at most this many waiting: past either, it is dropped / refused rather than piling up.
+    TOOLS_PENDING_HOURS: int = 24
+    TOOLS_PENDING_PER_USER: int = 20
     # How many tool servers a person may add, and how many tools are described to the model at once.
     TOOL_SERVERS_PER_USER: int = 10
     TOOLS_OFFERED_MAX: int = 12
