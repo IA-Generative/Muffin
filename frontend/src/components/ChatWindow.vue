@@ -6,6 +6,7 @@ import { useAssistants } from '../composables/useAssistants'
 import { type QaSuggestion, useQaSuggestions } from '../composables/useQaSuggestions'
 import { type CollectionImport, isZip, useCollectionImports } from '../composables/useCollectionImports'
 import { useFiling } from '../composables/useFiling'
+import { useImageGeneration } from '../composables/useImageGeneration'
 import { useVoiceInput } from '../composables/useVoiceInput'
 import { useVoiceOutput } from '../composables/useVoiceOutput'
 import type { ChatMessage, ConversationFile, FeedbackDetails } from '../types/chat'
@@ -24,6 +25,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   send: [content: string, collectionIds: string[], webSearchEnabled: boolean, includeDescendants: boolean]
+  generateImage: [prompt: string]
   askSuggestion: [suggestion: QaSuggestion]
   regenerate: [id: string]
   feedback: [id: string, value: 'up' | 'down', details?: FeedbackDetails]
@@ -201,6 +203,24 @@ function handleGlobalKeydown(event: KeyboardEvent) {
 onMounted(() => window.addEventListener('keydown', handleGlobalKeydown))
 onUnmounted(() => window.removeEventListener('keydown', handleGlobalKeydown))
 
+// The mode «Image» (#518): the next message is the description of an image, not a question. Offered only when the
+// function is on and this person may use it; explicit, and off again once it stops being available. Never chosen by
+// the model.
+const { imageStatus, loadImageStatus } = useImageGeneration()
+const imageMode = ref(false)
+onMounted(loadImageStatus)
+watch(
+  () => imageStatus.value.available,
+  (available) => {
+    if (!available) imageMode.value = false
+  },
+)
+const imageQuotaLabel = computed(() => {
+  const left = imageStatus.value.remainingToday
+  if (left === null) return ''
+  return left === 0 ? 'Plus aucune image aujourd’hui.' : `${left} image${left > 1 ? 's' : ''} restante${left > 1 ? 's' : ''} aujourd’hui.`
+})
+
 const pinnedCollectionIds = ref<string[]>([])
 // Off by default (§ security: never search the web unless explicitly asked - see backend
 // RunCreate.web_search_enabled) - stays on across messages once toggled, same as
@@ -227,7 +247,11 @@ const scrollAnchor = ref<HTMLElement>()
 function submit() {
   const content = draft.value.trim()
   if (!content) return
-  emit('send', content, pinnedCollectionIds.value, webSearchEnabled.value, includeDescendants.value)
+  if (imageMode.value && imageStatus.value.available) {
+    emit('generateImage', content)
+  } else {
+    emit('send', content, pinnedCollectionIds.value, webSearchEnabled.value, includeDescendants.value)
+  }
   draft.value = ''
   resizeTextarea()
 }
@@ -412,6 +436,10 @@ watch(
             </button>
           </li>
         </ul>
+        <p v-if="imageMode" class="chat-window__image-hint" role="status">
+          Mode image : votre message décrit l’image à créer. Il est envoyé au fournisseur d’images choisi par
+          l’administrateur, et l’image est étiquetée « générée par IA ». {{ imageQuotaLabel }}
+        </p>
         <div class="chat-window__composer">
           <CollectionPicker
             v-if="!selectedAssistant"
@@ -446,11 +474,30 @@ watch(
               />
             </svg>
           </button>
+          <button
+            v-if="imageStatus.available"
+            type="button"
+            class="chat-window__attach"
+            :class="{ 'chat-window__image--active': imageMode }"
+            :aria-pressed="imageMode"
+            aria-label="Générer une image"
+            title="Générer une image : votre message décrit l’image à créer"
+            @click="imageMode = !imageMode"
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="m2.25 15.75 5.16-5.16a2.25 2.25 0 0 1 3.18 0l5.16 5.16m-1.5-1.5 1.41-1.41a2.25 2.25 0 0 1 3.18 0l2.41 2.41m-18 3.75h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Zm10.5-11.25h.01v.01h-.01V8.25Z"
+              />
+            </svg>
+          </button>
           <textarea
             ref="textarea"
             v-model="draft"
             class="chat-window__textarea"
-            placeholder="Écrivez votre message…"
+            :placeholder="imageMode ? 'Décrivez l’image à générer…' : 'Écrivez votre message…'"
+            :maxlength="imageMode ? (imageStatus.maxPromptChars ?? undefined) : undefined"
             rows="1"
             @input="resizeTextarea"
             @keydown.enter.exact.prevent="submit"
@@ -757,6 +804,17 @@ watch(
 .chat-window__attach:hover {
   background: var(--background-alt-grey-hover);
   color: var(--text-default-grey);
+}
+
+.chat-window__image--active {
+  background: var(--background-action-high-blue-france);
+  color: var(--text-inverted-blue-france);
+}
+
+.chat-window__image-hint {
+  margin: 0 0 0.375rem;
+  font-size: 0.8125rem;
+  color: var(--text-mention-grey);
 }
 
 .chat-window__mic {

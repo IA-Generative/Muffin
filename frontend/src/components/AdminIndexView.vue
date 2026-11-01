@@ -14,6 +14,12 @@ const items: AdminItem[] = [
     path: '/admin/settings',
   },
   {
+    key: 'images',
+    label: 'Génération d\'images',
+    description: 'Facultative, désactivée par défaut : adresse compatible OpenAI, modèle, quotas, groupes autorisés et test.',
+    path: '/admin/images',
+  },
+  {
     key: 'prompts',
     label: "Prompts de l'agent",
     description: 'Historique et publication des prompts système utilisés par le graphe de recherche.',
