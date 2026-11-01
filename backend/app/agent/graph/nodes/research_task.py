@@ -523,7 +523,11 @@ async def research_task(state: ResearchTaskInput) -> dict[str, Any]:
         # itself the same way, once - lets a citation say which tool produced it (§ sources
         # panel: a "search" citation links to a real page/chunk, a meta-tool one is just
         # input/output, no page to link to).
-        evidence = [{**e, "metadata": {**e["metadata"], "tool": task["tool"]}} for e in evidence]
+        stamp = {
+            "tool": task["tool"],
+            **({"consulted_assistant": task["assistant_name"]} if task.get("assistant_name") else {}),
+        }
+        evidence = [{**e, "metadata": {**e["metadata"], **stamp}} for e in evidence]
         # Run-level, not part of the task itself - see AgentState.unexplored_vdb_ids.
         unexplored_vdb_ids = updates.pop("unexplored_vdb_ids", [])
         await emit(

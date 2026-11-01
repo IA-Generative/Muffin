@@ -68,3 +68,128 @@ def test_search_cannot_be_turned_off_and_the_web_search_stays_the_runs_own_choic
 
     assert "search" in valid_tools(False, {"search"})
     assert "web_search" not in valid_tools(False, set()) and "web_search" in valid_tools(True, {"web_search"})
+
+
+# --- consulting other assistants (#531) ---
+
+CONSULTABLE = {
+    "rh": {"id": "rh", "name": "RH", "description": "Congés", "collection_ids": ["leave"], "disabled_tools": ["time"]},
+    "achats": {
+        "id": "achats",
+        "name": "Achats",
+        "description": "Marchés",
+        "collection_ids": ["tenders"],
+        "disabled_tools": [],
+    },
+}
+
+
+def test_a_query_is_put_to_an_assistant_only_when_it_is_one_the_run_may_consult():
+    from app.agent.graph.nodes.plan import _queries
+
+    raw = [
+        {"query": "congés ?", "tool": "search", "assistant": "rh"},
+        {"query": "marchés ?", "tool": "search", "assistant": "inventé"},
+        {"query": "et ça ?", "tool": "search"},
+    ]
+
+    queries = _queries(raw, "q", False, frozenset(), CONSULTABLE)
+
+    assert [q.get("assistant") for q in queries] == ["rh", None, None]
+
+
+def test_only_a_search_of_content_goes_to_an_assistant_and_the_tools_it_turns_off_are_off_for_that_query():
+    from app.agent.graph.nodes.plan import _queries
+
+    raw = [
+        {"query": "quelle date ?", "tool": "time", "assistant": "rh"},
+        {"query": "liste", "tool": "list_documents", "assistant": "achats"},
+    ]
+
+    queries = _queries(raw, "q", False, frozenset(), CONSULTABLE)
+
+    # RH turns `time` off: the query falls back to a search, which RH may then answer. A listing is not put to Achats.
+    assert [(q["tool"], q.get("assistant")) for q in queries] == [("search", "rh"), ("list_documents", None)]
+
+
+def test_a_task_for_a_consulted_assistant_searches_only_its_collections_and_says_who_it_was_put_to():
+    from app.agent.graph.nodes.plan import _tasks
+
+    tasks = _tasks(
+        {"queries": [{"query": "a", "tool": "search", "assistant": "rh"}, {"query": "b", "tool": "search"}]},
+        CONSULTABLE,
+    )
+
+    assert (tasks[0]["assistant_name"], tasks[0]["scope_ids"]) == ("RH", ["leave"])
+    assert "scope_ids" not in tasks[1] and "assistant_id" not in tasks[1]
+
+
+def test_the_fan_out_gives_a_consulted_task_its_own_scope_and_the_others_the_runs():
+    from app.agent.graph.nodes.gate import fan_out
+
+    state = {
+        "run_id": "r",
+        "user_id": "u",
+        "accessible_vdbs": [],
+        "scope_ids": ["mine"],
+        "chat_model": "m",
+        "web_search_enabled": False,
+    }
+    consulted = {"id": "t1", "scope_ids": ["leave"]}
+    own = {"id": "t2"}
+
+    sends = fan_out(state, [consulted, own])  # type: ignore[arg-type]
+
+    assert [send.arg["scope_ids"] for send in sends] == [["leave"], ["mine"]]
+
+
+def test_widening_does_not_redo_what_was_put_to_a_consulted_assistant():
+    import asyncio
+
+    from app.agent.graph.nodes import gate
+
+    async def go():
+        async def noop(*a, **k):
+            return None
+
+        gate.set_activity, gate.emit = noop, noop
+        tasks = [
+            {"id": "t1", "tool": "search", "scope_ids": ["leave"], "status": "completed"},
+            {"id": "t2", "tool": "search", "status": "completed"},
+        ]
+        return await gate.widen_search({"run_id": "r", "scope_ids": ["mine"], "research_tasks": tasks})  # type: ignore[arg-type]
+
+    update = asyncio.run(go())
+
+    assert [t["id"] for t in update["research_tasks"]] == ["wide-t2"]
+
+
+def test_a_locked_search_can_reach_the_collections_of_the_assistants_it_consults_and_no_others():
+    tree = [
+        {"id": "mine", "parent_id": None},
+        {"id": "leave", "parent_id": None},
+        {"id": "leave-sub", "parent_id": "leave"},
+        {"id": "other", "parent_id": None},
+    ]
+
+    assert [v["id"] for v in within_pinned(["mine", "leave"], tree)] == ["mine", "leave", "leave-sub"]
+
+
+def test_the_plan_hears_of_the_assistants_it_may_consult_only_when_there_are_some():
+    from app.agent.graph.nodes.plan import _user_content
+
+    base = {
+        "accessible_vdbs": [],
+        "catalogue": [],
+        "messages": [{"role": "user", "content": "q"}],
+        "original_query": "q",
+        "pinned_vdb_ids": [],
+        "edit_candidates": [],
+        "create_candidates": [],
+    }
+
+    with_some = _user_content({**base, "consultable_assistants": list(CONSULTABLE.values())})  # type: ignore[arg-type]
+    without = _user_content({**base, "consultable_assistants": []})  # type: ignore[arg-type]
+
+    assert "Assistants:" in with_some and "'id': 'rh'" in with_some and "leave" not in with_some
+    assert "Assistants:" not in without

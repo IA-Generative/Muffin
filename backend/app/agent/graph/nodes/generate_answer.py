@@ -194,6 +194,8 @@ async def generate_answer(state: AgentState) -> dict[str, Any]:
             # user can read - empty for a citation not tied to one (web search, time).
             "vdb_path": collection_path_names(by_id[e["vdb_id"]], by_id) if e["vdb_id"] in by_id else [],
             "tool": e["tool"],
+            # The assistant that was consulted for this excerpt (#531), when it was not the run's own search.
+            "consulted_assistant": e.get("consulted_assistant"),
             "evidence_kind": e["evidence_kind"],
             "document_id": e["document_id"],
             "chunk_id": e["chunk_id"],
