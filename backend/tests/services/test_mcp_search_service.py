@@ -342,3 +342,34 @@ async def test_a_question_about_no_document_links_to_its_collection(llm, searche
 
     (source,) = result.sub_queries[0].sources
     assert (source.document_id, source.url) == (None, f"http://localhost:5173/collections/{collection.id}")
+
+
+async def test_the_sources_follow_the_reranking_model_with_the_cosine_kept_as_the_score(llm, searches, monkeypatch):
+    from app.services import reranker
+
+    monkeypatch.setattr(reranker._settings, "RERANK_API_URL", "http://rerank.test/rerank")
+    monkeypatch.setattr(reranker._settings, "RERANK_CANDIDATES", 10)
+    async with async_session_factory() as session:
+        collection = await _collection(session, "RH")
+        collection.settings.rerank_enabled = True
+        document = await _document(session, collection)
+        first = Chunk(id=uuid.uuid4(), document_id=document.id, index=0, text="close", token_count=1)
+        second = Chunk(id=uuid.uuid4(), document_id=document.id, index=1, text="relevant", token_count=1)
+        session.add_all([first, second])
+        await session.commit()
+        searches["points"]["q"] = [(first.id, collection.id, 0.9), (second.id, collection.id, 0.6)]
+        asked = []
+
+        async def rerank(query, passages):
+            asked.append((query, passages))
+            return [0.1, 0.8]
+
+        monkeypatch.setattr(reranker, "rerank", rerank)
+
+        result = await McpSearchService(session).search(USER, "q", [collection.id], None, 1, None, 1)
+
+    sources = result.sub_queries[0].sources
+    # Ten were fetched to keep one: the one the model rates best, though the second in cosine.
+    assert searches["searched"][0][2] == 10
+    assert asked == [("q", ["close", "relevant"])]
+    assert [(source.text, source.score, source.rerank_score) for source in sources] == [("relevant", 0.6, 0.8)]

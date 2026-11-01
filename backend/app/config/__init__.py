@@ -9,6 +9,7 @@ from .mcp import McpSettings
 from .openai_api import OpenAiApiSettings
 from .qdrant import QdrantSettings, SearchSettings
 from .redis import RedisSettings
+from .rerank import RerankSettings
 from .runs import RunSettings
 from .rustfs import RustFsSettings
 from .secrets import SecretsSettings
@@ -27,6 +28,7 @@ __all__ = [
     "OpenAiApiSettings",
     "QdrantSettings",
     "RedisSettings",
+    "RerankSettings",
     "RunSettings",
     "RustFsSettings",
     "SearchSettings",
