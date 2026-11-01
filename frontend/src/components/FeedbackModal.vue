@@ -107,6 +107,10 @@ function submit() {
           rows="3"
           placeholder="Dites-nous ce qui aurait dû être différent…"
         />
+        <p class="feedback-modal__hint">
+          Si votre mémoire est activée, « trop long », « en tableau »… servent aussi à adapter vos prochaines réponses
+          (voir « Ma mémoire »).
+        </p>
       </div>
 
       <div v-if="sources?.length" class="feedback-modal__field">
@@ -264,6 +268,12 @@ function submit() {
   color: var(--text-default-grey);
   font: inherit;
   box-sizing: border-box;
+}
+
+.feedback-modal__hint {
+  margin: 0.375rem 0 0;
+  font-size: 0.8125rem;
+  color: var(--text-mention-grey);
 }
 
 .feedback-modal__sources {

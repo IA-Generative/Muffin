@@ -434,6 +434,9 @@ Ce que la personne retient ou non est à elle (page « Ma mémoire », voir `doc
 | `MEMORY_VALUE_MAX_CHARS` | Longueur maximale d'une phrase retenue | `300` | idem |
 | `MEMORY_MAX_ITEMS` | Nombre maximal d'éléments par personne | `100` | idem |
 | `MEMORY_PROMPT_MAX_CHARS` | Ce qu'un run lit au plus de la mémoire (≈ 4 caractères par jeton, soit ~500 jetons) ; le reste n'entre pas dans le prompt | `2000` | idem |
+| `MEMORY_LEARNING_ENABLED` | Interrupteur de ce qui est appris des 👍/👎 (#285), sans toucher au reste de la mémoire | `true` | idem |
+| `MEMORY_LEARNING_HALF_LIFE_DAYS` | Jours au bout desquels un signal d'un feedback ne pèse plus que la moitié | `30` | idem |
+| `MEMORY_LEARNED_TTL_DAYS` | Jours pendant lesquels un élément appris est lu sans nouveau signal (renouvelé à chaque recalcul) | `45` | idem |
 
 ## worker/evaluation — évaluation du retrieval (issue #11)
 
