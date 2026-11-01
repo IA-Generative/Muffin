@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.43.0](https://github.com/IA-Generative/Muffin/compare/v0.42.0...v0.43.0) (2026-11-01)
+
+
+### Features
+
+* **chat:** joindre des images à un message, lues par un modèle de vision ([#512](https://github.com/IA-Generative/Muffin/issues/512)) ([5991df4](https://github.com/IA-Generative/Muffin/commit/5991df49d9821b1363cfbd946112f6e169794350))
+* **frontend:** afficher les images que l'assistant a générées pendant sa réponse ([#518](https://github.com/IA-Generative/Muffin/issues/518)) ([0adf31d](https://github.com/IA-Generative/Muffin/commit/0adf31db0e9e63d71c7ca55bda19126fa8777ad5))
+* **frontend:** joindre des images à un message, par bouton, collage ou glisser-déposer ([#512](https://github.com/IA-Generative/Muffin/issues/512)) ([9e61eed](https://github.com/IA-Generative/Muffin/commit/9e61eed7c533c7605bf92b4deb9c6ab1a4280bec))
+* **frontend:** mode Image du composeur, affichage et réglages d'administration ([#518](https://github.com/IA-Generative/Muffin/issues/518)) ([c0bf762](https://github.com/IA-Generative/Muffin/commit/c0bf76242d5e931c319871b6dfbd028a9afa06ef))
+* **images:** génération d'images dans le chat via une API compatible OpenAI ([#518](https://github.com/IA-Generative/Muffin/issues/518)) ([9b896f7](https://github.com/IA-Generative/Muffin/commit/9b896f7acedd184650c79bdade644e87c66c54ae))
+* **images:** l'assistant génère une image de lui-même avec l'outil generer_image ([#518](https://github.com/IA-Generative/Muffin/issues/518)) ([e84a77d](https://github.com/IA-Generative/Muffin/commit/e84a77d30478d2e5d739bbe5b5497be07c04a01b))
+* **images:** retouche d'image par le mode Image et par l'outil retoucher_image ([#518](https://github.com/IA-Generative/Muffin/issues/518)) ([8d13f2f](https://github.com/IA-Generative/Muffin/commit/8d13f2f11d29e574d456dad69c3b045c59bf9f2a))
+* **images:** retouche depuis le mode Image et modèle de retouche en administration ([#518](https://github.com/IA-Generative/Muffin/issues/518)) ([1c04f66](https://github.com/IA-Generative/Muffin/commit/1c04f6698e2134205a4d7edb64cebcf8d91c276f))
+
 ## [0.43.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.42.0...v0.43.0-rc) (2026-11-01)
 
 
