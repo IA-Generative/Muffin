@@ -317,7 +317,7 @@ wheels = [
 
 [[package]]
 name = "muffin-worker-owui-sync"
-version = "0.45.0-rc"
+version = "0.45.0"
 source = { editable = "." }
 dependencies = [
     { name = "celery", extra = ["redis"] },
