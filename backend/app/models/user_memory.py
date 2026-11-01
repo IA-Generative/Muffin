@@ -48,6 +48,9 @@ class UserMemorySettings(Base):
 
     user_id: Mapped[str] = mapped_column(String, primary_key=True)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    # Nothing the person did before this moment is learned from any more (#285): set when they delete something that was
+    # learned, so that what they removed does not come back with the next 👍.
+    learning_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
