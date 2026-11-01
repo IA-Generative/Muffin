@@ -17,12 +17,13 @@ import type {
   AssistantQuestion,
   QuestionAnswer,
   ToolCallRequest,
-  GeneratedImage,
+  MessageImage,
   Source,
 } from '../types/chat'
 import { answerHasNoSource } from '../utils/answerSources'
 import { formatAnswers, toRequestAnswers } from '../utils/questionAnswers'
 import { type AnswerDelta, applyDelta, isEndingStatus } from '../utils/runStream'
+import type { StagedImage } from './useImageAttachments'
 import { useImageGeneration } from './useImageGeneration'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
@@ -98,11 +99,13 @@ interface MessageOut {
   images?: ImageOut[] | null
 }
 
-// Backend shape (snake_case) of an image made in the chat (#518).
+// Backend shape (snake_case) of an image of the chat: made by a model (#518) or attached by the person (#512).
 interface ImageOut {
   id: string
-  prompt: string
-  model: string
+  origin: 'generated' | 'attached'
+  prompt?: string | null
+  model?: string | null
+  ai_generated?: boolean
   content_type: string
   width: number
   height: number
@@ -113,12 +116,14 @@ function imageUrl(conversationId: string, imageId: string): string {
   return `${API_BASE_URL}/api/conversations/${conversationId}/images/${imageId}`
 }
 
-function toImages(conversationId: string, raw: ImageOut[] | null | undefined): GeneratedImage[] | undefined {
+function toImages(conversationId: string, raw: ImageOut[] | null | undefined): MessageImage[] | undefined {
   return raw?.length
     ? raw.map((item) => ({
         id: item.id,
-        prompt: item.prompt,
-        model: item.model,
+        origin: item.origin,
+        prompt: item.prompt ?? null,
+        model: item.model ?? null,
+        aiGenerated: item.ai_generated ?? item.origin === 'generated',
         contentType: item.content_type,
         width: item.width,
         height: item.height,
@@ -398,6 +403,8 @@ const EVENT_LABELS: Record<string, string> = {
   search_widened: 'Recherche élargie à toutes les bases de connaissances',
   answer_context_built: 'Contexte de réponse préparé',
   answer_generation_started: 'Génération de la réponse…',
+  image_reading_started: 'Lecture des images jointes',
+  answer_model_switched: 'Réponse écrite par un modèle qui lit les images',
   answer_generation_completed: 'Réponse générée',
   grounding_validation_started: 'Vérification des faits de la réponse…',
   grounding_validation_completed: 'Faits de la réponse vérifiés',
@@ -881,7 +888,13 @@ interface RunOptions {
   continueExploration?: boolean
   // The message answers the questions this run asked (#344), with the answer to each.
   answers?: { runId: string; answers: QuestionAnswer[] }
+  // The images attached to this message (#512), already kept by the server.
+  imageIds?: string[]
 }
+
+// What the API says when it refuses a message that carries images (no model reads them, one is gone, too many): its own
+// sentence, which runQuery shows as the answer.
+class ImageSendError extends Error {}
 
 async function createRun(
   conversationId: string,
@@ -911,9 +924,16 @@ async function createRun(
       continue_exploration: options.continueExploration ?? false,
       answers_run_id: options.answers?.runId,
       answers: options.answers ? toRequestAnswers(options.answers.answers) : undefined,
+      image_ids: options.imageIds?.length ? options.imageIds : undefined,
     }),
   })
-  if (!response.ok) throw new Error(`${response.status}`)
+  if (!response.ok) {
+    if (options.imageIds?.length && (response.status === 409 || response.status === 422)) {
+      const message = await imageErrorMessage(response)
+      throw new ImageSendError(message)
+    }
+    throw new Error(`${response.status}`)
+  }
   return response.json()
 }
 
@@ -1343,7 +1363,9 @@ async function runQuery(
     const status = (failure as Error).message
     const { selectedAssistantId, select, refreshAssistants } = useAssistants()
     let content = 'Impossible de lancer cette recherche. Veuillez réessayer.'
-    if (selectedAssistantId.value && status === '404') {
+    if (failure instanceof ImageSendError) {
+      content = failure.message
+    } else if (selectedAssistantId.value && status === '404') {
       // Removed, or no longer shared with this person: the chat goes back to no assistant, said plainly.
       select(null)
       refreshAssistants()
@@ -1361,19 +1383,34 @@ function sendMessage(
   webSearchEnabled = false,
   includeDescendants = true,
   continueExploration = false,
+  images: StagedImage[] = [],
 ) {
   const conversationId = activeId.value
 
   abandonOpenQuestions(conversationId)
 
   const messageId = crypto.randomUUID()
+  // The images attached to this message (#512) are shown with it at once, from their local preview.
+  const attached: MessageImage[] = images.map((image) => ({
+    id: image.id ?? image.tempId,
+    origin: 'attached',
+    prompt: null,
+    model: null,
+    aiGenerated: false,
+    contentType: image.contentType ?? 'image/png',
+    width: image.width ?? 0,
+    height: image.height ?? 0,
+    sizeBytes: image.sizeBytes ?? 0,
+    url: image.previewUrl,
+  }))
   messagesByConversation.value[conversationId].push(
-    { id: crypto.randomUUID(), role: 'user', content },
+    { id: crypto.randomUUID(), role: 'user', content, images: attached.length ? attached : undefined },
     { id: messageId, role: 'assistant', content: 'Recherche en cours', pending: true },
   )
   runQuery(conversationId, messageId, content, collectionIds, webSearchEnabled, {
     includeDescendants,
     continueExploration,
+    imageIds: images.map((image) => image.id).filter((id): id is string => id !== null),
   })
 }
 

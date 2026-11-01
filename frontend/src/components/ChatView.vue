@@ -49,7 +49,7 @@ watch(
 <template>
   <ChatWindow
     :messages="messages"
-    @send="sendMessage"
+    @send="(content, collectionIds, webSearch, descendants, images) => sendMessage(content, collectionIds, webSearch, descendants, false, images)"
     @generate-image="generateImage"
     @ask-suggestion="askSuggestion"
     @regenerate="regenerateMessage"

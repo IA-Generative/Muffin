@@ -226,7 +226,11 @@ onBeforeUnmount(() => {
         </button>
       </template>
       <template v-else>
-        <p v-if="message.role === 'user'" class="chat-message__text">{{ renderedContent }}</p>
+        <template v-if="message.role === 'user'">
+          <!-- The images the person attached for the model to read (#512), above what they wrote. -->
+          <ChatImages v-if="message.images?.length" :images="message.images" @enlarge="enlargedChart = $event" />
+          <p class="chat-message__text">{{ renderedContent }}</p>
+        </template>
         <div v-else-if="message.pending" class="chat-message__pending">
           <div class="chat-message__pending-header">
             <span class="chat-message__dots" aria-hidden="true"><span>.</span><span>.</span><span>.</span></span>
@@ -454,7 +458,11 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- Images made in the chat (#518): each says on itself that a model made it. -->
-    <ChatImages v-if="message.role === 'assistant' && message.images?.length && !message.pending" :images="message.images" />
+    <ChatImages
+      v-if="message.role === 'assistant' && message.images?.length && !message.pending"
+      :images="message.images"
+      @enlarge="enlargedChart = $event"
+    />
 
     <!-- Tools that change data (#343): nothing ran; the person authorises or refuses. -->
     <ChatToolCalls
@@ -495,7 +503,7 @@ onBeforeUnmount(() => {
         ref="closeChartButton"
         type="button"
         class="chat-chart-overlay__close"
-        aria-label="Fermer le graphique"
+        aria-label="Fermer l’agrandissement"
         @click="enlargedChart = undefined"
       >
         ✕
