@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.44.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.43.0...v0.44.0-rc) (2026-11-01)
+
+
+### Features
+
+* **routines:** activées par défaut, compteur de notifications relevé toutes les heures ([#524](https://github.com/IA-Generative/Muffin/issues/524)) ([d2ac666](https://github.com/IA-Generative/Muffin/commit/d2ac666670b047c9e081f6d7078be8ffd1d3316a))
+* **routines:** page Routines, cloche de notifications et réglages d'administration ([#524](https://github.com/IA-Generative/Muffin/issues/524)) ([5e51e92](https://github.com/IA-Generative/Muffin/commit/5e51e926df2bc59b4efe939fa53590fa70f182a3))
+* **routines:** routines de l'agent et centre de notifications, côté serveur ([#524](https://github.com/IA-Generative/Muffin/issues/524)) ([88fdc0d](https://github.com/IA-Generative/Muffin/commit/88fdc0d24da88bfe28543d5b912ea8ed3b10ebf0))
+
 ## [0.43.0](https://github.com/IA-Generative/Muffin/compare/v0.42.0...v0.43.0) (2026-11-01)
 
 
