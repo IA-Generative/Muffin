@@ -82,7 +82,9 @@ def excerpt(id_: str, **extra) -> dict[str, Any]:
     }
 
 
-async def run(monkeypatch, model: Model, excerpts: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+async def run(
+    monkeypatch, model: Model, excerpts: list[dict[str, Any]] | None = None, assistant_instructions: str = ""
+) -> dict[str, Any]:
     for module in (generate_answer_module, events_module, prompts_module):
         monkeypatch.setattr(module, "backend_client", model)
     monkeypatch.setattr(prompts_module, "_cache", {})
@@ -91,6 +93,7 @@ async def run(monkeypatch, model: Model, excerpts: list[dict[str, Any]] | None =
         "chat_model": "m",
         "contextualized_query": "Combien de jours de congé ?",
         "web_search_enabled": False,
+        "assistant_instructions": assistant_instructions,
         "accessible_vdbs": [{"id": "hr", "name": "RH", "description": "", "tags": []}],
         "unexplored_vdb_ids": [],
         "answer_context": {
@@ -364,3 +367,29 @@ async def test_nothing_is_handed_to_the_chat_when_the_text_has_not_changed(monke
     shown = await generate_answer_module._publish_delta("run-1", '{"answer": "Bon', shown)
 
     assert sent == [("Bon", False)]
+
+
+# --- the instructions of an assistant (#514) ---
+
+
+async def test_the_instructions_of_an_assistant_come_after_the_rules_and_never_replace_them(monkeypatch):
+    model = Model([f"Vingt-cinq jours [{FIRST}]."], admin_prompt="Tu es un agent RH.")
+
+    await run(monkeypatch, model, assistant_instructions="Réponds en trois puces, avec un ton chaleureux.")
+
+    system = model.calls[0][0]["content"]
+    assert system.startswith("Tu es un agent RH.")
+    # Every rule of the base is still there, and the instructions are the last thing said, said to be below them.
+    assert CITATION_RULE in system and OUTPUT_FORMAT in system
+    assert system.endswith("Réponds en trois puces, avec un ton chaleureux.")
+    assert system.index(OUTPUT_FORMAT) < system.index("Instructions from the assistant")
+    assert "never change the rules above" in system
+
+
+async def test_without_an_assistant_the_system_prompt_is_what_it_was(monkeypatch):
+    model = Model([f"Vingt-cinq jours [{FIRST}]."])
+
+    await run(monkeypatch, model)
+    await run(monkeypatch, Model(["x"]), assistant_instructions="   ")
+
+    assert "Instructions from the assistant" not in model.calls[0][0]["content"]
