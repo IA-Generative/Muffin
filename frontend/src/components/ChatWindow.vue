@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useCollections } from '../composables/useCollections'
 import { useChat } from '../composables/useChat'
+import { useAssistants } from '../composables/useAssistants'
 import { type QaSuggestion, useQaSuggestions } from '../composables/useQaSuggestions'
 import { type CollectionImport, isZip, useCollectionImports } from '../composables/useCollectionImports'
 import { useFiling } from '../composables/useFiling'
@@ -13,6 +14,7 @@ import ChatMessageItem from './ChatMessage.vue'
 import CollectionPicker from './CollectionPicker.vue'
 import DiscussionFeedbackPrompt from './DiscussionFeedbackPrompt.vue'
 import FileFilingModal from './FileFilingModal.vue'
+import AssistantSelector from './AssistantSelector.vue'
 import ModelSelector from './ModelSelector.vue'
 
 const props = defineProps<{
@@ -207,13 +209,15 @@ const webSearchEnabled = ref(false)
 const includeDescendants = ref(true)
 const textarea = ref<HTMLTextAreaElement>()
 const { suggestions, loadSuggestions } = useQaSuggestions()
+const { selectedAssistant } = useAssistants()
 
 // Drawn again each time the chat is empty - a new conversation, or another set of pinned
 // collections - so the starter questions vary and follow what the user is about to search.
 watch(
-  () => [props.messages.length === 0, activeId.value, pinnedCollectionIds.value.join(',')] as const,
+  () => [props.messages.length === 0, activeId.value, pinnedCollectionIds.value.join(','), selectedAssistant.value?.id] as const,
   ([isEmpty]) => {
-    if (isEmpty) loadSuggestions(pinnedCollectionIds.value)
+    // With an assistant the starter questions are its own, typed by hand: none are drawn from the collections.
+    if (isEmpty && !selectedAssistant.value) loadSuggestions(pinnedCollectionIds.value)
   },
   { immediate: true },
 )
@@ -274,13 +278,38 @@ watch(
 <template>
   <section class="chat-window">
     <header class="chat-window__header">
+      <AssistantSelector />
       <ModelSelector />
     </header>
 
     <div v-if="messages.length === 0" class="chat-window__intro">
       <div class="chat-window__welcome">
-        <h1>Qu'est-ce qu'on fait aujourd'hui ?</h1>
-        <ul v-if="suggestions.length" class="chat-window__suggestions" aria-label="Questions suggérées">
+        <template v-if="selectedAssistant">
+          <h1>
+            <span aria-hidden="true">{{ selectedAssistant.icon || '✨' }}</span> {{ selectedAssistant.name }}
+          </h1>
+          <p v-if="selectedAssistant.description" class="chat-window__assistant-description">
+            {{ selectedAssistant.description }}
+          </p>
+          <p v-if="selectedAssistant.inaccessibleCollectionCount" class="chat-window__assistant-warning" role="status">
+            {{ selectedAssistant.inaccessibleCollectionCount }} collection{{
+              selectedAssistant.inaccessibleCollectionCount > 1 ? 's' : ''
+            }}
+            de cet assistant ne vous {{ selectedAssistant.inaccessibleCollectionCount > 1 ? 'sont' : 'est' }} pas accessible{{
+              selectedAssistant.inaccessibleCollectionCount > 1 ? 's' : ''
+            }}
+            : {{ selectedAssistant.inaccessibleCollectionCount > 1 ? 'elles sont ignorées' : 'elle est ignorée' }}.
+          </p>
+          <ul v-if="selectedAssistant.suggestions.length" class="chat-window__suggestions" aria-label="Questions suggérées">
+            <li v-for="question in selectedAssistant.suggestions" :key="question">
+              <button type="button" class="chat-window__suggestion" @click="emit('send', question, [], webSearchEnabled, true)">
+                <span class="chat-window__suggestion-question">{{ question }}</span>
+              </button>
+            </li>
+          </ul>
+        </template>
+        <h1 v-else>Qu'est-ce qu'on fait aujourd'hui ?</h1>
+        <ul v-if="!selectedAssistant && suggestions.length" class="chat-window__suggestions" aria-label="Questions suggérées">
           <li v-for="suggestion in suggestions" :key="suggestion.id">
             <button type="button" class="chat-window__suggestion" @click="emit('askSuggestion', suggestion)">
               <span class="chat-window__suggestion-question">{{ suggestion.question }}</span>
@@ -383,10 +412,15 @@ watch(
         </ul>
         <div class="chat-window__composer">
           <CollectionPicker
+            v-if="!selectedAssistant"
             v-model="pinnedCollectionIds"
             v-model:web-search-enabled="webSearchEnabled"
             v-model:include-descendants="includeDescendants"
           />
+          <label v-else-if="selectedAssistant.webSearchAllowed" class="chat-window__assistant-web">
+            <input v-model="webSearchEnabled" type="checkbox" />
+            Web
+          </label>
           <input
             ref="fileInput"
             type="file"
@@ -491,10 +525,30 @@ watch(
   min-width: 0;
 }
 
+.chat-window__assistant-description {
+  margin: 0;
+  color: var(--text-mention-grey);
+}
+
+.chat-window__assistant-warning {
+  margin: 0.5rem 0 0;
+  font-size: 0.875rem;
+  color: var(--text-default-warning);
+}
+
+.chat-window__assistant-web {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.8125rem;
+  color: var(--text-mention-grey);
+}
+
 .chat-window__header {
   flex-shrink: 0;
   display: flex;
   justify-content: flex-end;
+  gap: 0.5rem;
   padding: 0.75rem 1.5rem 0;
 }
 

@@ -272,6 +272,10 @@ onBeforeUnmount(() => {
         Cette réponse ne cite aucune source : vérifiez-la avant de vous y fier.
       </p>
 
+      <p v-if="message.role === 'assistant' && message.assistantName && !message.pending" class="chat-message__assistant">
+        Assistant : {{ message.assistantName }}
+      </p>
+
       <button
         v-if="sourcesLabel"
         type="button"
@@ -740,6 +744,12 @@ onBeforeUnmount(() => {
 
 .chat-message__sources-chip:hover {
   background: var(--background-alt-grey-hover);
+}
+
+.chat-message__assistant {
+  margin: 0.25rem 0 0;
+  font-size: 0.75rem;
+  color: var(--text-mention-grey);
 }
 
 .chat-message__actions {
