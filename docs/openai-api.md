@@ -23,7 +23,7 @@ Les erreurs ont le format d'OpenAI : `{"error": {"message", "type", "code", "par
 Un « modèle » est une **portée de recherche**, pas un LLM : le modèle de langage utilisé reste celui choisi par Muffin.
 
 - `muffin` : toutes les collections lisibles par le propriétaire de la clé (l'agent choisit lesquelles consulter) ;
-- `muffin:collection:<id>` : une collection et ses sous-collections. Une collection que le propriétaire ne peut pas lire n'existe pas
+- `muffin:collection:<id>` : une collection et ses sous-collections, **et rien d'autre** : l'agent ne peut pas aller chercher dans les autres collections du propriétaire (`Run.scope_locked`). Une collection que le propriétaire ne peut pas lire n'existe pas
   pour lui (`404`, `model_not_found`).
 
 `GET /v1/models` liste `muffin` et les collections de premier niveau lisibles (100 au plus, `OPENAI_API_MAX_LISTED_COLLECTIONS`).
