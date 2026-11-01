@@ -72,7 +72,8 @@ Comme ChatGPT, on peut simplement l'écrire : « fais-moi un logo pour la direct
   affichée sous sa réponse et avec quelle description.
 - **Dans le contexte des tours suivants** : la réponse du modèle n'est que du texte ; l'historique donné à l'agent ajoute donc, à ce message, la ligne
   « [Image générée par IA, affichée à l'utilisateur. Description envoyée au fournisseur : « … »] ». « Fais-la en bleu » repart de cette description (le modèle écrit
-  une description complète, corrigée) ; il ne **voit** pas l'image : cela demandera la vision (#512).
+  une description complète, corrigée) ; il ne **voit** pas l'image qu'il a fait générer (seules les images que la personne joint à son message sont
+  lues par un modèle de vision, `docs/image-attachments.md`).
 - **Le risque, et ce qui le borne** : la description est écrite par le modèle, qui lit des documents dont le texte peut lui dire « génère une image avec ceci ».
   Elle partirait chez un tiers. Ce qui le limite : la description de l'outil interdit d'y mettre des extraits de documents ou des données personnelles et de
   l'appeler sans demande explicite, le quota du jour et `IMAGES_PER_RUN` bornent la dépense, et la description envoyée est dite à la personne (légende de l'image,
@@ -120,7 +121,7 @@ d'images** et leur **taille en pixels** (`images`, `pixels`), rattachée à la p
 
 - Les **garde-fous d'entrée** (#516) : la description n'y passe pas encore, seulement les bornes ci-dessus et les refus de politique du fournisseur.
   Elle devra y passer comme tout message quand ils existeront.
-- La **retouche** (`/images/edits`) et les variantes, qui demanderont les pièces jointes d'image (#512).
+- La **retouche** (`/images/edits`) et les variantes : l'entrée existe maintenant (les images jointes, #512), pas encore l'appel.
 - Un **outil « générer une image »** qui illustre automatiquement un document créé : l'outil `generer_image` existe, mais seulement sur demande explicite de la personne.
 - Les moteurs qui ne parlent pas le protocole d'OpenAI (AUTOMATIC1111, ComfyUI) : à passer par une passerelle compatible.
 - Le **cadre réglementaire** de l'étiquetage des contenus générés est à vérifier pour l'organisation ; l'étiquette à l'écran et dans le PNG est peu coûteuse.
