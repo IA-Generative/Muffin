@@ -6,8 +6,7 @@ elle qui décide, voit tout, et peut tout corriger, désactiver, supprimer ou ex
 > **La mémoire règle la forme et le contexte, jamais le fond.** Ce n'est pas une source : elle ne remplace aucune citation, le contrôle d'ancrage des réponses
 > (`ground_check`) est inchangé, et **ce que dit la demande en cours passe toujours avant la mémoire**.
 
-Cette version couvre ce que la personne écrit ou demande elle-même, et **les préférences de style apprises de ses 👍/👎** (#285). Les habitudes d'usage (#286) sont hors de cette
-livraison, voir « Pas encore ».
+Cette version couvre ce que la personne écrit ou demande elle-même, **les préférences de style apprises de ses 👍/👎** (#285) et **les collections qu'elle consulte le plus** (#286).
 
 ## Ce qui est retenu
 
@@ -78,6 +77,36 @@ Un 👎 pour le ton, l'exactitude ou les sources, **sans commentaire, n'apprend 
   donnés jusque-là ne comptent plus (`learning_from`).
 - Interrupteur propre à l'apprentissage : `MEMORY_LEARNING_ENABLED`.
 
+## Les collections habituelles (#286)
+
+**Comptées, sans modèle.** À la fin de chaque réponse, le backend compte ce qu'elle a utilisé (`HabitService.record_run`, après l'enregistrement du résultat ; un échec ne fait jamais échouer la réponse) :
+
+| Usage | Poids |
+|---|---|
+| une collection **citée** par la réponse (`citations[].vdb_id`, `cited`) | 1 |
+| une collection **attachée** par la personne, pour une réponse qui s'appuie sur quelque chose (au moins une citation) | 0,5 |
+
+Un score se **tasse de moitié tous les 30 jours** (`MEMORY_LEARNING_HALF_LIFE_DAYS`) et s'incrémente à chaque réponse. **Une collection n'est une habitude qu'à partir de 1,8** (deux réponses qui la citent à quelques jours d'écart, ou
+quatre où elle était attachée) : un seul usage ne retient rien. Sous 0,25, elle est oubliée ; au plus `MEMORY_HABITS_MAX` (10) sont gardées, les plus lourdes. Compté **seulement** pour une mémoire en usage (pas
+sans mémoire, assistant, routine, API, mémoire coupée), jamais pour une demande bloquée par les garde-fous, jamais sur ce que la personne a écrit, jamais la collection temporaire d'une conversation.
+
+Chaque habitude est un élément `habit` (« Consulte souvent la collection « Règlements » ») : la personne le voit, le désactive, le supprime. Le score et la collection sont dans `data` (jamais dans un prompt : **une habitude n'est pas donnée au
+modèle qui écrit la réponse**, seulement au routage). Ce qu'elle **supprime** ne revient pas avec ce qu'elle a fait avant (`learning_from`) : il faut de nouveaux usages.
+
+**Jamais une collection qu'elle ne peut pas lire.** À chaque lecture (page, routage, sélecteur), une collection supprimée ou dont l'accès a été retiré est **oubliée**, et le nom affiché est celui d'aujourd'hui.
+
+**Dans le routage** — un *a priori*, jamais un filtre :
+
+- les collections habituelles sont **en tête du catalogue** du plan et marquées `habitual: yes` ; le plan est prévenu (seulement s'il y en a, donc sinon son prompt est celui d'avant) que c'est un **départage** à pertinence comparable : jamais une raison en soi, jamais ce
+  qui écarte une collection qui convient mieux ;
+- au-delà de 20 collections, le **pré-filtre vectoriel** compte une habitude **jusqu'à 10 % de plus** (`score × (1 + 0,1 × poids)`) : il demande quelques candidats de plus et recoupe aux 20 meilleurs, de sorte qu'une habitude presque aussi proche passe,
+  et qu'une habitude nettement moins pertinente ne déloge rien. Les collections attachées restent toujours dans le catalogue ;
+- rien ne sort du périmètre `accessible_vdbs`, et une question hors habitudes trouve la bonne collection comme avant.
+
+**Dans le sélecteur** du composer (« + » → « Collections »), les collections habituelles sont en premier, avec la mention « habituelle » (`GET /api/memory/habits`) ; rien n'est retiré de la liste.
+
+## La page « Ma mémoire » (`/memory`, menu de l'utilisateur)
+
 Les éléments par type, avec l'origine (« écrit par vous » / « appris »), la date de mise à jour et d'usage ; pour chacun, **utiliser** (interrupteur), **corriger**, **supprimer** ;
 **ajouter** un élément ; l'interrupteur général ; **tout supprimer** (avec confirmation) ; **exporter** en JSON. Supprimer ou désactiver prend effet **dès la réponse suivante**
 (la mémoire est relue à chaque run).
@@ -107,7 +136,9 @@ Interne (clé des workers) : `GET /api/internal/runs/{id}/memory`, `POST …/mem
 
 ## Pas encore
 
-- **Les habitudes d'usage** (#286), le reclassement des sources (#287), le cache des réponses validées (#288) et la mesure de l'effet avec un groupe témoin (#289) restent à faire.
+- **Les sujets récurrents** (les tags des documents cités) du ticket #286 : pas faits — sans usage défini (rien ne les consommerait, ni le routage ni la réponse), ils ne seraient qu'un encombrement de la page. Le routage
+  ne se sert que des collections.
+- **Le reclassement des sources** (#287), le cache des réponses validées (#288) et la mesure de l'effet avec un groupe témoin (#289) restent à faire.
 - **Le commentaire libre lu par un modèle** (#285 le proposait) : volontairement pas fait — les règles couvrent les consignes simples (longueur, tableau) ; un commentaire plus subtil n'apprend rien. Le
   français et l'anglais sont reconnus ; une négation compliquée peut être mal lue.
 - **Un feedback retiré** : il n'y a pas de route pour retirer un feedback (on le remplace) ; la suppression d'une conversation n'est pas rejouée avant le prochain feedback.
