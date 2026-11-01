@@ -17,6 +17,9 @@ part la description (vers le fournisseur choisi par l'administrateur) et ce qu'i
   réponse, en une phrase lisible.
 - **Deux façons d'en demander une.** Le bouton *Image* (explicite : le message est la description) et, **sans mode**, une phrase du chat (« fais-moi une
   affiche pour… ») : l'assistant appelle alors lui-même l'outil `generer_image` (voir plus bas). Dans les deux cas, même fonction, mêmes droits, même quota.
+- **Retoucher une image.** En mode *Image*, les images jointes au composeur (bouton, collage ou glisser-déposer, `docs/image-attachments.md`) partent avec la
+  description : c'est une **retouche**, pas une création (« mets-la en noir et blanc », « retire le fond »). Le texte du mode le dit. Dans le chat, sans mode,
+  l'assistant retouche avec l'outil `retoucher_image` (voir plus bas).
 
 ## Réglages d'administration
 
@@ -28,6 +31,7 @@ part la description (vers le fournisseur choisi par l'administrateur) et ce qu'i
 | Adresse | Une adresse compatible OpenAI, terminée par `/v1` (le hub, une passerelle LiteLLM, LocalAI…). **Vide : celle du hub.** |
 | Clé | **Vide : celle du hub**, mais seulement avec l'adresse du hub : la clé du hub n'est **jamais envoyée à une autre adresse** (une autre adresse demande la sienne, refusé à l'enregistrement sinon). Une clé saisie est chiffrée (`StoredSecret`, finalité `image-generation-key`) et **jamais relue** : les réglages disent seulement qu'il y en a une. |
 | Modèle | Saisi (`gpt-image-1`, `dall-e-3`…). |
+| Modèle de retouche | Facultatif. Vide : le modèle ci-dessus retouche aussi. À renseigner quand le modèle de génération ne sait pas retoucher (`dall-e-3` : non ; `gpt-image-1`, `dall-e-2` : oui). |
 | Taille, qualité | Taille par défaut (`1024x1024`, `auto`…) et qualité (`low`, `medium`, `high`, `standard`, `hd`, `auto`) ; vide : celle du modèle. |
 | Images par personne et par jour | Quota (UTC), `20` par défaut. |
 | Poids maximal d'une image | `8` Mo par défaut, borné par `IMAGES_MAX_BYTES_LIMIT`. |
@@ -80,6 +84,23 @@ Comme ChatGPT, on peut simplement l'écrire : « fais-moi un logo pour la direct
   tour suivant). **Rien ne demande l'accord avant** : c'est le choix « automatique », comme ChatGPT. Pour l'exiger, retirer l'outil de la conversation ou ne pas
   autoriser la fonction aux groupes concernés.
 
+## Retoucher : `/images/edits` et l'outil `retoucher_image`
+
+Une retouche appelle `POST {adresse}/images/edits` avec les mêmes champs (`model` = le modèle de retouche, sinon celui de génération ; `prompt`, `n=1`, `size`,
+`quality`) et l'image ou **les images** à retoucher (`IMAGES_PER_MESSAGE` au plus). La réponse est traitée comme une génération (`b64_json` ou adresse, octets
+vérifiés, étiquette, quota, consommation au nom du modèle de retouche). Un fournisseur qui ne retouche pas répond une erreur (`parametre_refuse` ou
+`modele_introuvable`) : c'est alors le réglage *Modèle de retouche* à corriger.
+
+- **Par la personne** : `POST /api/images/generations` avec `image_ids` (les images déposées au préalable par `POST /api/images/attachments`). Elles doivent être à
+  la personne et pas encore envoyées (`422` `image_introuvable`, `trop_d_images` sinon) ; elles deviennent celles du message de demande, au-dessus de lui, et
+  restent dans la conversation. Une retouche qui échoue laisse les images jointes côté serveur et ne compte pas dans le quota.
+- **Par l'assistant** : l'outil interne `retoucher_image` (`prompt`, `source` : `jointe`, `generee`, vide) est offert **en plus** de `generer_image`, seulement quand
+  la conversation contient une image (jointe ou générée). `jointe` : l'image jointe au message de la personne (ou au précédent) ; `generee` : la dernière image faite
+  dans la conversation ; vide : la jointe si elle existe, sinon la dernière générée. Sans image du genre demandé : `aucune_image`, rien n'est appelé. Mêmes droits,
+  même quota, même `IMAGES_PER_RUN` que `generer_image`.
+- **Vie privée** : l'image à retoucher et la description **partent chez le fournisseur d'images** — l'interface le dit en mode *Image*, et l'outil dit au modèle que
+  l'image est affichée avec la description envoyée. La retouche ne passe pas par le modèle de vision : elle ne lit pas l'image.
+
 ## Droits, quotas et limites
 
 Avant tout appel au fournisseur : la fonction est activée (sinon `404`, `fonction_desactivee`), la personne est autorisée (sinon `403`, `non_autorise`), la
@@ -96,7 +117,7 @@ fournisseur. `invite_vide`, `invite_trop_longue`, `refus_politique` (422), `cle_
 
 ## Où est l'image
 
-Une table `generated_images` (conversation, message, description, modèle, type, taille, poids) et un objet `images/{conversation}/{image}.{png|jpg|webp}` dans le
+Une table `message_images` (`origin` : `generated` ou `attached`, conversation, message, run, description, modèle, type, taille, poids) et un objet `images/{conversation}/{image}.{png|jpg|webp}` dans le
 stockage, **lu par le backend** avec les droits de la conversation (`GET /api/conversations/{id}/images/{image}`, `404` pour tout autre que son propriétaire),
 jamais par un lien du stockage. Les images ne sont pas indexées. Supprimer la conversation supprime les lignes et les fichiers. Chaque message qui en porte
 liste ses images (`images` dans `GET /api/conversations/{id}/messages`).
@@ -121,7 +142,7 @@ d'images** et leur **taille en pixels** (`images`, `pixels`), rattachée à la p
 
 - Les **garde-fous d'entrée** (#516) : la description n'y passe pas encore, seulement les bornes ci-dessus et les refus de politique du fournisseur.
   Elle devra y passer comme tout message quand ils existeront.
-- La **retouche** (`/images/edits`) et les variantes : l'entrée existe maintenant (les images jointes, #512), pas encore l'appel.
+- Les **variantes** (`/images/variations`) et la retouche **par zone** (masque) : seule la retouche guidée par une description existe.
 - Un **outil « générer une image »** qui illustre automatiquement un document créé : l'outil `generer_image` existe, mais seulement sur demande explicite de la personne.
 - Les moteurs qui ne parlent pas le protocole d'OpenAI (AUTOMATIC1111, ComfyUI) : à passer par une passerelle compatible.
 - Le **cadre réglementaire** de l'étiquetage des contenus générés est à vérifier pour l'organisation ; l'étiquette à l'écran et dans le PNG est peu coûteuse.
