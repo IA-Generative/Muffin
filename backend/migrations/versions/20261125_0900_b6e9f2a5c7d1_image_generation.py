@@ -37,14 +37,15 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_table(
-        "generated_images",
+        "message_images",
         sa.Column("id", sa.UUID(), nullable=False),
-        sa.Column("conversation_id", sa.UUID(), nullable=False),
+        sa.Column("origin", sa.String(length=16), nullable=False),
+        sa.Column("conversation_id", sa.UUID(), nullable=True),
         sa.Column("message_id", sa.UUID(), nullable=True),
         sa.Column("run_id", sa.UUID(), nullable=True),
         sa.Column("user_id", sa.String(), nullable=False),
-        sa.Column("prompt", sa.Text(), nullable=False),
-        sa.Column("model", sa.String(length=200), nullable=False),
+        sa.Column("prompt", sa.Text(), nullable=True),
+        sa.Column("model", sa.String(length=200), nullable=True),
         sa.Column("s3_key", sa.String(), nullable=False),
         sa.Column("content_type", sa.String(length=32), nullable=False),
         sa.Column("width", sa.Integer(), nullable=False),
@@ -57,10 +58,11 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["run_id"], ["runs.id"], ondelete="SET NULL"),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(op.f("ix_generated_images_conversation_id"), "generated_images", ["conversation_id"], unique=False)
-    op.create_index(op.f("ix_generated_images_message_id"), "generated_images", ["message_id"], unique=False)
-    op.create_index(op.f("ix_generated_images_run_id"), "generated_images", ["run_id"], unique=False)
-    op.create_index(op.f("ix_generated_images_user_id"), "generated_images", ["user_id"], unique=False)
+    op.create_index(op.f("ix_message_images_origin"), "message_images", ["origin"], unique=False)
+    op.create_index(op.f("ix_message_images_conversation_id"), "message_images", ["conversation_id"], unique=False)
+    op.create_index(op.f("ix_message_images_message_id"), "message_images", ["message_id"], unique=False)
+    op.create_index(op.f("ix_message_images_run_id"), "message_images", ["run_id"], unique=False)
+    op.create_index(op.f("ix_message_images_user_id"), "message_images", ["user_id"], unique=False)
     # A new value of an enum cannot be used in the transaction that adds it. The labels are the names of the members.
     with op.get_context().autocommit_block():
         op.execute("ALTER TYPE token_usage_kind ADD VALUE IF NOT EXISTS 'IMAGE'")
@@ -72,9 +74,10 @@ def downgrade() -> None:
     """Downgrade schema."""
     op.drop_column("token_usages", "pixels")
     op.drop_column("token_usages", "images")
-    op.drop_index(op.f("ix_generated_images_user_id"), table_name="generated_images")
-    op.drop_index(op.f("ix_generated_images_run_id"), table_name="generated_images")
-    op.drop_index(op.f("ix_generated_images_message_id"), table_name="generated_images")
-    op.drop_index(op.f("ix_generated_images_conversation_id"), table_name="generated_images")
-    op.drop_table("generated_images")
+    op.drop_index(op.f("ix_message_images_user_id"), table_name="message_images")
+    op.drop_index(op.f("ix_message_images_run_id"), table_name="message_images")
+    op.drop_index(op.f("ix_message_images_message_id"), table_name="message_images")
+    op.drop_index(op.f("ix_message_images_conversation_id"), table_name="message_images")
+    op.drop_index(op.f("ix_message_images_origin"), table_name="message_images")
+    op.drop_table("message_images")
     op.drop_table("image_generation_settings")

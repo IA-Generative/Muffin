@@ -17,5 +17,13 @@ class ImageSettings(BaseSettings):
     # The most an administrator may allow for one image (bytes), and the largest side one may have (pixels).
     IMAGES_MAX_BYTES_LIMIT: int = 25 * 1024 * 1024
     IMAGES_MAX_SIDE: int = 8192
+    # The images a person attaches to a message for the model to read (#512): how many to one message, how heavy each
+    # (the page shrinks a large one before sending it), how many are waiting to be sent at once, and for how long
+    # (hours)
+    # an image that was chosen and never sent is kept.
+    IMAGES_PER_MESSAGE: int = 4
+    IMAGES_ATTACH_MAX_BYTES: int = 5 * 1024 * 1024
+    IMAGES_STAGED_MAX: int = 12
+    IMAGES_STAGED_TTL_HOURS: int = 24
 
     model_config = SettingsConfigDict(case_sensitive=True, env_file=(".env", ".env.local"), extra="ignore")

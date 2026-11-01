@@ -20,6 +20,7 @@ from app.schemas.run import RunCreate, RunEventOut, RunOut, RunResumeRequest
 from app.services import run_stream
 from app.services.collection_service import CollectionNotEditableError, CollectionNotFoundError
 from app.services.creation_proposal_service import CreationProposalService, NoPendingCreationError
+from app.services.image_attachment_service import AttachmentError
 from app.services.run_service import (
     ConversationNotFoundError,
     QuestionsNotAnswerableError,
@@ -71,6 +72,8 @@ async def create_run(body: RunCreate, user: UserDep, service: ServiceDep) -> Run
         ) from error
     except InvalidAnswersError as error:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)) from error
+    except AttachmentError as error:
+        raise HTTPException(status_code=error.status, detail={"code": error.code, "message": error.message}) from error
 
 
 @router.get("/runs/{run_id}", summary="Get a run's current status/result", response_model=RunOut)

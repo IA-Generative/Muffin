@@ -14,7 +14,7 @@ from app.repositories.collection_import_repository import CollectionImportReposi
 from app.repositories.collection_repository import CollectionRepository
 from app.repositories.conversation_repository import ConversationRepository
 from app.repositories.feedback_repository import FeedbackRepository
-from app.repositories.generated_image_repository import GeneratedImageRepository
+from app.repositories.message_image_repository import MessageImageRepository
 from app.repositories.run_repository import RunRepository
 from app.repositories.source_repository import SourceRepository
 from app.schemas.feedback import FeedbackCreate, FeedbackOut
@@ -22,6 +22,7 @@ from app.schemas.question import validate_answers
 from app.schemas.run import RunCreate, RunEventOut, RunOut
 from app.services.assistant_service import AssistantService
 from app.services.document_upload_service import _uploader_display
+from app.services.image_attachment_service import ImageAttachmentService
 from app.services.image_generation_service import ImageGenerationService
 from app.services.tool_service import ToolService
 
@@ -66,7 +67,7 @@ class RunService:
         self.db = db
         self.runs = RunRepository(db)
         self.conversations = ConversationRepository(db)
-        self.generated_images = GeneratedImageRepository(db)
+        self.generated_images = MessageImageRepository(db)
         self.collections = CollectionRepository(db)
         self.hierarchy = CollectionHierarchyRepository(db)
         self.imports = CollectionImportRepository(db)
@@ -80,6 +81,9 @@ class RunService:
         assistant = (
             await AssistantService(self.db).resolve(user, body.assistant_id, body.query) if body.assistant_id else None
         )
+        # Likewise the images attached to the message: theirs, in number, and a model that reads them (#512).
+        attachments = ImageAttachmentService(self.db)
+        await attachments.check(user, body.image_ids)
         if body.conversation_id is not None:
             conversation = await self.conversations.get(body.conversation_id, user.user_id)
             if conversation is None:
@@ -96,6 +100,8 @@ class RunService:
         # The run's strong link is to this message, not directly to the
         # conversation - see app/models/run.py.
         message = await self.conversations.add_message(conversation.id, MessageRole.USER, body.query)
+        # The images become this message's (#512): shown with it, and read by the model that writes the answer.
+        await attachments.claim(user, body.image_ids, conversation.id, message.id)
 
         # Auto-pin the conversation's temporary collection (§ conv-files, #88/#89) so the agent
         # always searches files uploaded straight into this conversation, without the user
