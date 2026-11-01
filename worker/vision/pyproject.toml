@@ -1,6 +1,6 @@
 [project]
 name = "muffin-worker-ocr-vision"
-version = "0.40.1"
+version = "0.41.0-rc"
 description = "Celery worker that describes the images and tables of a scanned page (Florence-2 base)"
 requires-python = ">=3.12"
 dependencies = [
