@@ -16,6 +16,7 @@ TaskTool = Literal[
     "tabular_query",
     "web_search",
     "time",
+    "call_tool",
 ]
 
 
@@ -41,6 +42,9 @@ class ResearchTask(TypedDict):
     assistant_id: NotRequired[str]
     assistant_name: NotRequired[str]
     scope_ids: NotRequired[list[str]]
+    # For the tool `call_tool` (#343): which tool of the catalogue or of a server, and with which arguments.
+    tool_ref: NotRequired[str]
+    arguments: NotRequired[dict[str, Any]]
 
 
 class Evidence(TypedDict):
@@ -133,6 +137,9 @@ class AgentState(TypedDict):
     # The other assistants this run may consult, with the collections the person may read (Run.consultable_assistants):
     # [{id, name, description, collection_ids, disabled_tools}]. The plan picks among them, never past them.
     consultable_assistants: list[dict[str, Any]]
+    # The tools the person may use now (#343): [{ref, name, description, input_schema, server_name}], loaded by
+    # `prepare`.
+    available_tools: list[dict[str, Any]]
     # The optional tools the assistant turns off (tool_guide.OPTIONAL_TOOLS): the plan is not offered them.
     disabled_tools: list[str]
 

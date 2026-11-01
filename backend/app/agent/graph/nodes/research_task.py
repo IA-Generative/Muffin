@@ -464,6 +464,53 @@ async def _run_tabular_query(
     return updates, evidence
 
 
+async def _run_call_tool(
+    task: dict[str, Any],
+    _user_id: str,
+    _accessible_vdbs: list[dict[str, Any]],
+    _model: str | None,
+    _scope_ids: list[str],
+    _web_search_enabled: bool,
+    *,
+    run_id: str,
+) -> tuple[dict[str, Any], list[Evidence]]:
+    """A tool of the catalogue or of an MCP server (#343), called for the person of this run - the backend checks
+    that they may use it, that the arguments fit, and the quotas, and answers with a code that does not change,
+    never an error. What comes back is evidence like any other: the answer says what it came from, and says so
+    when the tool could not be used."""
+    result = await backend_client.call_tool(run_id, task["tool_ref"], task.get("arguments") or {})
+    name = result.get("tool_name") or "outil"
+    origin = f" (serveur {result['server_name']})" if result.get("server_name") else ""
+    if result.get("ok"):
+        content = f"Résultat de l'outil « {name} »{origin} :\n{result.get('text', '')}"
+        if result.get("truncated"):
+            content += "\n[résultat tronqué]"
+    else:
+        content = (
+            f"L'outil « {name} »{origin} n'a pas pu être utilisé ({result.get('code')}) : {result.get('text', '')}"
+        )
+    evidence = [
+        Evidence(
+            id=str(uuid.uuid4()),
+            task_id=task["id"],
+            vdb_id="",
+            source_id="",
+            content=content,
+            metadata={
+                "evidence_kind": "tool",
+                "document_name": f"Outil : {name}",
+                "tool_name": name,
+                "tool_ok": bool(result.get("ok")),
+                "tool_code": result.get("code"),
+            },
+            # What a tool answers is what was asked of it: it must reach the answer whatever the passages score.
+            relevance_score=1.0,
+            retrieval_query=task["query"],
+        )
+    ]
+    return {"selected_vdbs": []}, evidence
+
+
 _RUNNERS = {
     "list_collections": lambda task, user_id, accessible_vdbs, model, scope_ids, web_search_enabled: (
         _run_list_collections(task, accessible_vdbs)
@@ -509,6 +556,8 @@ async def research_task(state: ResearchTaskInput) -> dict[str, Any]:
         runner = _RUNNERS.get(task["tool"], _run_search)
         if task["tool"] == "tabular_query":
             runner = partial(_run_tabular_query, run_id=run_id)
+        elif task["tool"] == "call_tool":
+            runner = partial(_run_call_tool, run_id=run_id)
         outcome = runner(
             task,
             user_id,

@@ -367,6 +367,28 @@ class BackendClient:
         )
         response.raise_for_status()
 
+    async def tool_definitions(self, run_id: str) -> list[dict[str, Any]]:
+        """The tools the person of this run may use now, as the model is given them. Empty when they cannot be
+        had: a run goes on without tools rather than fail on them (#343)."""
+        try:
+            response = await self._client.post("/api/internal/tools/definitions", json={"run_id": run_id})
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPError:
+            return []
+
+    async def call_tool(self, run_id: str, ref: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        """One call of a tool for the person of this run. Always a result with a stable `code`, never an error of
+        the tool; only the backend being unreachable is told as such."""
+        try:
+            response = await self._client.post(
+                "/api/internal/tools/call", json={"run_id": run_id, "ref": ref, "arguments": arguments}
+            )
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPError:
+            return {"ok": False, "code": "erreur_outil", "text": "L'outil n'a pas pu être appelé.", "tool_name": ""}
+
     async def get_active_prompt(self, name: str) -> dict[str, Any] | None:
         """None on a 404 (no active version yet for this name) as well as any other failure -
         callers fall back to their own hardcoded default rather than crash the run over the
