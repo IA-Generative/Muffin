@@ -15,6 +15,9 @@ class Conversation(UUIDMixin, TimestampMixin, Base):
     # this flag makes that rewrite a one-time, idempotent event instead of re-firing (and
     # burning an LLM call) on every later run in the same conversation.
     title_generated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # What made it when it was not the user in the chat: "api" for the OpenAI-compatible API (#513). Such a
+    # conversation is not in the sidebar nor in the search, and is purged after a while.
+    source: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
 
     messages: Mapped[list["Message"]] = relationship(  # noqa: F821
         back_populates="conversation",
