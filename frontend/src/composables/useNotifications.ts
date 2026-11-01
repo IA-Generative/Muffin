@@ -1,7 +1,8 @@
 import { computed, ref } from 'vue'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
-const COUNT_EVERY_MS = 60_000
+// Le compteur de la cloche est relevé à l'ouverture, puis toutes les heures ; un flux en direct pourra prendre le relais.
+const COUNT_EVERY_MS = 60 * 60 * 1000
 const PAGE_SIZE = 20
 
 export interface AppNotification {
@@ -61,22 +62,25 @@ const preferencesError = ref<string | null>(null)
 
 let timer: ReturnType<typeof setInterval> | undefined
 let watching = false
+let lastCountAt = 0
 
 async function refreshCount() {
+  lastCountAt = Date.now()
   try {
     const response = await fetch(`${API_BASE_URL}/api/notifications/unread-count`, { credentials: 'include' })
     if (!response.ok) return
     unread.value = (await response.json()).count
   } catch {
-    // Hors ligne ou serveur indisponible : le compteur garde sa valeur, la minute suivante réessaiera.
+    // Hors ligne ou serveur indisponible : le compteur garde sa valeur, le relevé suivant réessaiera.
   }
 }
 
+// Un onglet resté en arrière-plan ralentit ses minuteurs : au retour, on relève si le dernier relevé date de plus d'une heure.
 function onVisible() {
-  if (document.visibilityState === 'visible') void refreshCount()
+  if (document.visibilityState === 'visible' && Date.now() - lastCountAt >= COUNT_EVERY_MS) void refreshCount()
 }
 
-// Le compteur est relevé toutes les minutes et au retour sur l'onglet ; un flux en direct pourra prendre le relais.
+// Le compteur est relevé à l'ouverture, puis toutes les heures ; ouvrir le panneau recharge la liste et le compteur.
 function startWatching() {
   if (watching) return
   watching = true

@@ -22,7 +22,7 @@ const items: AdminItem[] = [
   {
     key: 'routines',
     label: 'Routines',
-    description: 'Facultatives, désactivées par défaut : limites, suspension automatique, liste de toutes les routines et leur coût.',
+    description: 'Activées par défaut : limites, suspension automatique, interrupteur général, liste de toutes les routines et leur coût.',
     path: '/admin/routines',
   },
   {

@@ -5,8 +5,9 @@ courriel n'est pas proposé (voir « Pas encore »).
 
 ## Ce que voit la personne
 
-- Une **cloche** dans la barre latérale (*Notifications*) avec le nombre de non lues. Le compteur est relevé **toutes les minutes** tant que l'application est
-  ouverte, et au retour sur l'onglet ; un lecteur d'écran l'entend (`aria-live`). Replié, la barre ne montre que la pastille.
+- Une **cloche** dans la barre latérale (*Notifications*) avec le nombre de non lues. Le compteur est relevé **à l'ouverture de l'application, puis toutes les heures**
+  tant qu'elle reste ouverte (et au retour sur un onglet resté longtemps en arrière-plan) ; ouvrir le panneau recharge la liste et le compteur. Un lecteur d'écran
+  l'entend (`aria-live`). Replié, la barre ne montre que la pastille.
 - Un panneau : titre, une ligne, date, lien. Cliquer ouvre le lien (un chemin de l'application) et marque la notification lue ; *Tout marquer comme lu* ; une
   croix supprime ; *Voir les plus anciennes* charge la suite (par curseur). Échap ferme.
 - Des **préférences** dans *Paramètres* : une case par type, « dans l'application », cochée par défaut. Un type décoché n'est plus enregistré du tout.
@@ -53,5 +54,5 @@ partent d'abord, pour qu'une routine toutes les heures ne remplisse pas la table
 ## Pas encore
 
 - Le **courriel** (configuration SMTP, courrier sans contenu, désabonnement, regroupement).
-- La publication sur le flux d'événements (#515 : `notification.created`) et le flux en direct (#510) à la place du relevé de la minute.
+- La publication sur le flux d'événements (#515 : `notification.created`) et le flux en direct (#510) à la place du relevé horaire.
 - Les notifications d'autres événements.

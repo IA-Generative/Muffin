@@ -2,7 +2,8 @@
 
 Une **routine** pose une question à l'agent **à intervalles réguliers**, au nom de la personne, sans qu'elle ouvre le chat : « chaque lundi, qu'est-ce qui a
 changé dans la collection *Règlements* ? ». Chaque exécution produit une **conversation** qu'on peut ouvrir et poursuivre, et la personne est prévenue par la
-cloche (`docs/notifications.md`). Facultatives et **désactivées par défaut** : une routine dépense des appels de modèle sans que personne ne soit devant l'écran.
+cloche (`docs/notifications.md`). Une routine dépense des appels de modèle sans que personne ne soit devant l'écran : la fonction est **activée par défaut**, avec des
+limites prudentes (voir plus bas), et un administrateur peut la couper ou les resserrer.
 
 ## Ce que fait la personne
 
@@ -45,7 +46,7 @@ Réglables, et vérifiées **à chaque exécution**, pas seulement à la créati
 
 | Réglage | Défaut |
 |---|---|
-| Fonction activée | **non** |
+| Fonction activée | **oui** (un administrateur peut la couper : plus rien ne s'exécute, les routines restent) |
 | Routines actives par personne (une routine en pause ne compte pas) | 5 |
 | Intervalle minimal entre deux exécutions (comparé à l'écart le plus court du rythme, pas seulement aux « toutes les n heures ») | 60 minutes |
 | Exécutions par personne sur 24 heures (`daily_limit` au-delà, à la main aussi) | 10 |

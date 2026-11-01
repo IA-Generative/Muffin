@@ -42,9 +42,10 @@ async function save() {
       <h1>Routines</h1>
     </div>
     <p class="admin-view__intro">
-      Facultatives et <strong>désactivées par défaut</strong> : une routine consomme des appels de modèle sans que personne
-      ne soit devant l’écran, d’où les limites ci-dessous. Une routine agit avec les droits de son propriétaire au moment
-      de l’exécution, jamais en administrateur, et sans les outils qui demandent son jeton.
+      Activées <strong>par défaut</strong> : une routine consomme des appels de modèle sans que personne ne soit devant
+      l’écran, d’où les limites ci-dessous, que vous pouvez resserrer, et l’interrupteur pour tout couper. Une routine agit
+      avec les droits de son propriétaire au moment de l’exécution, jamais en administrateur, et sans les outils qui
+      demandent son jeton.
     </p>
 
     <p v-if="error" class="admin-view__error" role="alert">{{ error }}</p>

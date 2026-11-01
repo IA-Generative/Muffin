@@ -49,7 +49,7 @@ def upgrade() -> None:
     op.create_table(
         "routine_settings",
         sa.Column("id", sa.Integer(), nullable=False),
-        sa.Column("enabled", sa.Boolean(), server_default="false", nullable=False),
+        sa.Column("enabled", sa.Boolean(), server_default="true", nullable=False),
         sa.Column("max_active_per_user", sa.Integer(), server_default="5", nullable=False),
         sa.Column("min_interval_minutes", sa.Integer(), server_default="60", nullable=False),
         sa.Column("max_runs_per_user_per_day", sa.Integer(), server_default="10", nullable=False),
