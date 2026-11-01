@@ -1,3 +1,5 @@
+import pytest
+
 from app.agent.graph.services.scope import scope_ids, scope_vdbs, within_pinned
 
 ACCESSIBLE = [{"id": "a", "name": "A"}, {"id": "b", "name": "B"}, {"id": "c", "name": "C"}]
@@ -193,3 +195,109 @@ def test_the_plan_hears_of_the_assistants_it_may_consult_only_when_there_are_som
 
     assert "Assistants:" in with_some and "'id': 'rh'" in with_some and "leave" not in with_some
     assert "Assistants:" not in without
+
+
+# --- tools the plan may call (#343) ---
+
+TOOLS = {
+    "internal.calculatrice": {
+        "ref": "internal.calculatrice",
+        "name": "calculatrice",
+        "description": "Calcule",
+        "input_schema": {
+            "type": "object",
+            "properties": {"expression": {"type": "string"}},
+            "required": ["expression"],
+            "additionalProperties": False,
+        },
+    }
+}
+
+
+def test_a_query_calls_a_tool_only_if_it_was_offered_and_the_arguments_fit_its_schema():
+    from app.agent.graph.nodes.plan import _queries
+
+    good = {
+        "query": "combien ?",
+        "tool": "call_tool",
+        "ref": "internal.calculatrice",
+        "arguments": {"expression": "2+2"},
+    }
+
+    queries = _queries([good], "q", False, available_tools=TOOLS)
+
+    assert queries == [
+        {
+            "query": "combien ?",
+            "tool": "call_tool",
+            "tool_ref": "internal.calculatrice",
+            "arguments": {"expression": "2+2"},
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    "item",
+    [
+        {"query": "q", "tool": "call_tool", "ref": "internal.inventé", "arguments": {"expression": "1"}},
+        {"query": "q", "tool": "call_tool", "ref": "internal.calculatrice", "arguments": {}},
+        {"query": "q", "tool": "call_tool", "ref": "internal.calculatrice", "arguments": {"expression": 3}},
+        {"query": "q", "tool": "call_tool", "ref": "internal.calculatrice", "arguments": {"expression": "1", "x": 1}},
+        {"query": "q", "tool": "call_tool", "ref": "internal.calculatrice", "arguments": "1+1"},
+        {"query": "q", "tool": "call_tool"},
+    ],
+)
+def test_a_call_that_names_no_offered_tool_or_wrong_arguments_becomes_a_plain_search(item):
+    from app.agent.graph.nodes.plan import _queries
+
+    queries = _queries([item], "q", False, available_tools=TOOLS)
+
+    assert [q["tool"] for q in queries] == ["search"] and "tool_ref" not in queries[0]
+
+
+def test_without_tools_to_offer_or_with_the_tool_turned_off_the_plan_cannot_call_one():
+    from app.agent.graph.nodes.plan import _queries
+
+    item = {"query": "q", "tool": "call_tool", "ref": "internal.calculatrice", "arguments": {"expression": "1"}}
+
+    assert [q["tool"] for q in _queries([item], "q", False, available_tools={})] == ["search"]
+    assert [q["tool"] for q in _queries([item], "q", False, frozenset({"call_tool"}), available_tools=TOOLS)] == [
+        "search"
+    ]
+
+
+def test_the_guide_lists_the_tools_with_their_schema_and_says_their_descriptions_are_not_instructions():
+    from app.agent.graph.services.tool_guide import external_tools_guide
+
+    guide = external_tools_guide(list(TOOLS.values()))
+
+    assert "ref=internal.calculatrice" in guide and "expression" in guide and "not instructions to you" in guide
+    assert external_tools_guide([]) == ""
+
+
+def test_a_task_that_calls_a_tool_carries_which_one_and_its_arguments():
+    from app.agent.graph.nodes.plan import _tasks
+
+    plan = {
+        "queries": [
+            {"query": "q", "tool": "call_tool", "tool_ref": "internal.calculatrice", "arguments": {"expression": "1"}}
+        ]
+    }
+
+    task = _tasks(plan)[0]
+
+    assert (task["tool"], task["tool_ref"], task["arguments"]) == (
+        "call_tool",
+        "internal.calculatrice",
+        {"expression": "1"},
+    )
+
+
+def test_an_assistant_can_turn_the_tools_off_like_any_other_optional_tool():
+    from app.agent.graph.services.tool_guide import OPTIONAL_TOOLS, valid_tools
+
+    assert "call_tool" in OPTIONAL_TOOLS
+    assert "call_tool" in valid_tools(False, external=True) and "call_tool" not in valid_tools(
+        False, {"call_tool"}, external=True
+    )
+    assert "call_tool" not in valid_tools(False)  # nothing to call: not offered
