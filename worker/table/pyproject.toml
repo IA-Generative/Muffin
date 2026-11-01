@@ -1,6 +1,6 @@
 [project]
 name = "muffin-worker-ocr-table"
-version = "0.42.0"
+version = "0.43.0-rc"
 description = "Celery worker that reads the tables of a scanned page: their structure and the text of their cells (SLANet_plus, PP-OCRv5 mobile)"
 requires-python = ">=3.12"
 dependencies = [

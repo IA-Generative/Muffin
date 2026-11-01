@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.43.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.42.0...v0.43.0-rc) (2026-11-01)
+
+
+### Features
+
+* **chat:** joindre des images à un message, lues par un modèle de vision ([#512](https://github.com/IA-Generative/Muffin/issues/512)) ([177ac70](https://github.com/IA-Generative/Muffin/commit/177ac70760f268f3122fb733c606a57866bf687b))
+* **frontend:** afficher les images que l'assistant a générées pendant sa réponse ([#518](https://github.com/IA-Generative/Muffin/issues/518)) ([cb2cc39](https://github.com/IA-Generative/Muffin/commit/cb2cc395fe5e954ebccb339debb323f2940241a9))
+* **frontend:** joindre des images à un message, par bouton, collage ou glisser-déposer ([#512](https://github.com/IA-Generative/Muffin/issues/512)) ([8c64ebb](https://github.com/IA-Generative/Muffin/commit/8c64ebb28335a7636aabb3e13aebcb8124de8e77))
+* **frontend:** mode Image du composeur, affichage et réglages d'administration ([#518](https://github.com/IA-Generative/Muffin/issues/518)) ([27f6eb6](https://github.com/IA-Generative/Muffin/commit/27f6eb6d793eb6e17caa15f31e7f9e8c8451b614))
+* **images:** génération d'images dans le chat via une API compatible OpenAI ([#518](https://github.com/IA-Generative/Muffin/issues/518)) ([e8b4046](https://github.com/IA-Generative/Muffin/commit/e8b4046b5d4bc5939a53abc8bf8da7baa6295923))
+* **images:** l'assistant génère une image de lui-même avec l'outil generer_image ([#518](https://github.com/IA-Generative/Muffin/issues/518)) ([9593c44](https://github.com/IA-Generative/Muffin/commit/9593c441b410c6a7979a1afc49fb4f2e489cb5e5))
+* **images:** retouche d'image par le mode Image et par l'outil retoucher_image ([#518](https://github.com/IA-Generative/Muffin/issues/518)) ([8970c2d](https://github.com/IA-Generative/Muffin/commit/8970c2d4ea3855c914468c1327d7eb6743a75abb))
+* **images:** retouche depuis le mode Image et modèle de retouche en administration ([#518](https://github.com/IA-Generative/Muffin/issues/518)) ([82d3aa3](https://github.com/IA-Generative/Muffin/commit/82d3aa34d568b8190d06471af4f9e1a39f4e3916))
+
 ## [0.42.0](https://github.com/IA-Generative/Muffin/compare/v0.41.0...v0.42.0) (2026-11-01)
 
 
