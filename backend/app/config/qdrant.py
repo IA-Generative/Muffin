@@ -35,6 +35,11 @@ class SearchSettings(BaseSettings):
     # Logs, for every search, what each branch alone would have ranked (extra queries: debugging only).
     SEARCH_LOG_BRANCHES: bool = False
 
+    # The embedding of a question is kept this long (seconds), by model: the same question is searched in several
+    # indexes at once (chunks, answered questions, summaries, collection and assistant descriptions) and asked again
+    # as the user retypes it - one call to the model is enough for all of them. 0 turns it off.
+    SEARCH_EMBEDDING_CACHE_SECONDS: int = 900
+
     # The collections copied from Open WebUI (#453) are read in its own Qdrant collections, named
     # `<prefix>_<id of the knowledge base in Open WebUI>` (its QDRANT_COLLECTION_PREFIX, classic mode).
     OWUI_QDRANT_PREFIX: str = "open-webui"
