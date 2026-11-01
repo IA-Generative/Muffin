@@ -4,8 +4,10 @@ Three rules everything here keeps:
 - **Rights first.** The tools a person is offered are those of their own servers, of the ones shared with their groups
   or with everyone, and Muffin's own - minus what they removed for the conversation. A call is checked against the same
   list, so a tool that is not offered cannot be called by naming it.
-- **A tool that changes data is never called** - not until it can be approved by the person (not built yet).
+- **A tool that changes data is never run by the agent.** The call becomes a request the person decides (`_propose`).
 - **A call never raises.** The agent and the model always get a result with a code that does not change.
+- **The model is given few tools, the closest to its question** (#530): Muffin's own always, and of those of MCP servers
+  the closest ones when there are many. Choosing among them only narrows what is offered - never what may be called.
 
 What the journal holds is who, which tool, how long and how it ended - never the arguments nor the answer."""
 
@@ -47,13 +49,16 @@ from app.repositories.conversation_repository import ConversationRepository
 from app.schemas.tool import (
     ToolCallRequest,
     ToolCallResult,
+    ToolHitOut,
     ToolOut,
     ToolProposalOut,
     ToolServerCreate,
     ToolServerOut,
     ToolServerUpdate,
 )
+from app.services import vector_store
 from app.services.secret_store_service import SecretNotFoundError, SecretStore
+from app.services.tool_search_service import ToolSearchService
 from app.services.tools import internal_catalog, mcp_client
 from app.services.tools.mcp_client import ToolServerError
 
@@ -122,10 +127,34 @@ class ToolService:
             out += [self._remote_out(server, tool, removed) for tool in server.tools]
         return out
 
-    async def definitions(self, user_id: str, groups: list[str], conversation_id: uuid.UUID | None) -> list[ToolOut]:
-        """What the model is given: the tools that can be called now, at most `TOOLS_OFFERED_MAX`."""
+    async def definitions(
+        self, user_id: str, groups: list[str], conversation_id: uuid.UUID | None, query: str | None = None
+    ) -> list[ToolOut]:
+        """What the model is given: the tools that can be called now, at most `TOOLS_OFFERED_MAX`. Muffin's own are
+        always there. Of the tools of MCP servers, all of them while there are at most `TOOLS_SELECTED_MAX`; past that,
+        the ones closest to the question (#530), so that the model is not handed - and does not pick among - dozens of
+        definitions. Only the list shrinks: a call is still checked against everything the person may use."""
         usable = [tool for tool in await self.available(user_id, groups, conversation_id) if tool.available]
-        return usable[: _settings.TOOLS_OFFERED_MAX]
+        fixed = [tool for tool in usable if tool.server_id is None]
+        remote = [tool for tool in usable if tool.server_id is not None]
+        if query and len(remote) > _settings.TOOLS_SELECTED_MAX:
+            remote = await self._closest(remote, query)
+        return (fixed + remote)[: _settings.TOOLS_OFFERED_MAX]
+
+    async def _closest(self, remote: list[ToolOut], query: str) -> list[ToolOut]:
+        hits = await ToolSearchService(self.db).rank(remote, query, _settings.TOOLS_SELECTED_MAX)
+        # A question that says nothing about any tool ("do it") keeps the list, bounded, as it was before.
+        return [hit.tool for hit in hits] or remote[: _settings.TOOLS_SELECTED_MAX]
+
+    async def search(
+        self, user: RequestContext, query: str, limit: int | None = None, conversation_id: uuid.UUID | None = None
+    ) -> list[ToolHitOut]:
+        """The tools the person may use, closest to the query first - by what they do, not only by their name. Only
+        ranks inside what `available` gives, so a tool of a server the person cannot see is never returned, nor is its
+        existence given away. Empty for an empty query: the interface lists the tools by name then."""
+        candidates = await self.available(user.user_id, user.groups, conversation_id)
+        hits = await ToolSearchService(self.db).rank(candidates, query, limit)
+        return [ToolHitOut(**hit.tool.model_dump(), score=hit.score, match=hit.kind) for hit in hits]  # type: ignore[arg-type]
 
     @staticmethod
     def _internal_out(tool: internal_catalog.InternalTool, removed: set[str]) -> ToolOut:
@@ -228,9 +257,11 @@ class ToolService:
 
     async def delete_server(self, user: RequestContext, server_id: uuid.UUID) -> None:
         server = await self._get_owned(user, server_id)
+        tool_ids = [tool.id for tool in server.tools]
         await self._forget_token(server)
         await self.db.delete(server)
         await self.db.commit()
+        vector_store.delete_tool_points(tool_ids)
         logger.info(f"Tool server {server_id} deleted by {user.user_id}")
 
     async def sync_server(self, user: RequestContext, server_id: uuid.UUID) -> ToolServerOut:
@@ -249,6 +280,7 @@ class ToolService:
             await self.db.commit()
             return
         known = {tool.name: tool for tool in server.tools}
+        gone_ids: list[uuid.UUID] = []
         for item in remote:
             tool = known.pop(item.name, None)
             if tool is None:
@@ -268,11 +300,18 @@ class ToolService:
                     item.side_effect,
                 )
         for gone in known.values():
+            gone_ids.append(gone.id)
             await self.db.delete(gone)
         server.last_synced_at = datetime.now(UTC)
         server.last_error = None
         await self.db.commit()
         await self.db.refresh(server, attribute_names=["tools", "updated_at"])
+        # The index follows what was imported (#530): what is gone leaves it, what is new or changed is embedded - and a
+        # tool whose text did not change is not. An index that is down never fails the synchronisation.
+        vector_store.delete_tool_points(gone_ids)
+        await ToolSearchService(self.db).index(
+            [(tool.id, tool.name, tool.description, tool.input_schema) for tool in server.tools]
+        )
 
     # --- the conversation's own choice ---
 

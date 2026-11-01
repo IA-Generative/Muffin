@@ -52,6 +52,14 @@ class ToolOut(BaseModel):
     reason: str | None = None
 
 
+class ToolHitOut(ToolOut):
+    """A tool found by what it does (#530): the tool as listed, how close it is to the question, and how it was matched
+    - `hybrid` (the vector and the words) or `lexical` (the words alone, when the index cannot be used)."""
+
+    score: float
+    match: Literal["hybrid", "lexical"]
+
+
 class ToolServerOut(BaseModel):
     id: uuid.UUID
     name: str

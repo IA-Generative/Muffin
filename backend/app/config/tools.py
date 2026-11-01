@@ -25,6 +25,13 @@ class ToolSettings(BaseSettings):
     # How many tool servers a person may add, and how many tools are described to the model at once.
     TOOL_SERVERS_PER_USER: int = 10
     TOOLS_OFFERED_MAX: int = 12
+    # The search of tools by what they do (#530). A run offers Muffin's own tools, always, and - when the person may use
+    # more than TOOLS_SELECTED_MAX tools of MCP servers - only the TOOLS_SELECTED_MAX closest to the question. A search
+    # answers with at most TOOLS_SEARCH_LIMIT tools. With fewer than TOOLS_SEARCH_INDEX_MIN tools to look through they
+    # are matched on their words, with no call to an embedding model nor to the index.
+    TOOLS_SELECTED_MAX: int = 8
+    TOOLS_SEARCH_LIMIT: int = 20
+    TOOLS_SEARCH_INDEX_MIN: int = 8
     # The tools of a server are imported again when it is synchronised: how many it may bring at most.
     TOOLS_PER_SERVER_MAX: int = 100
 
