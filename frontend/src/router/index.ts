@@ -24,6 +24,7 @@ export const router = createRouter({
     { path: '/filing', name: 'filing', component: () => import('../components/FilingReviewView.vue') },
     { path: '/quality', name: 'quality', component: () => import('../components/QualityDashboardView.vue') },
     { path: '/usage', name: 'usage', component: () => import('../components/UsageView.vue') },
+    { path: '/memory', name: 'memory', component: () => import('../components/MemoryView.vue') },
     { path: '/admin', name: 'admin', component: () => import('../components/AdminIndexView.vue') },
     { path: '/admin/settings', name: 'admin-settings', component: () => import('../components/AdminSettingsView.vue') },
     { path: '/admin/images', name: 'admin-images', component: () => import('../components/AdminImagesView.vue') },

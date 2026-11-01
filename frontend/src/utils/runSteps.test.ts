@@ -91,3 +91,11 @@ test('a long question is cut so that the line stays readable', () => {
   assert.ok(steps[0].label.length < 100)
   assert.ok(steps[0].label.includes('…'))
 })
+
+test('a command on the memory is a step that says what came of it and nothing of what was said', () => {
+  const steps = applyEvents([], [event('memory_command_completed', { action: 'remember', outcome: 'saved' })])
+  const refused = applyEvents([], [event('memory_command_completed', { action: 'remember', outcome: 'refused' })])
+
+  assert.deepEqual(steps.map((step) => [step.label, step.detail, step.state]), [['Votre mémoire', 'retenu', 'done']])
+  assert.equal(refused[0].detail, 'non modifiée')
+})

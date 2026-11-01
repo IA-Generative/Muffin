@@ -25,6 +25,7 @@ import { formatAnswers, toRequestAnswers } from '../utils/questionAnswers'
 import { type AnswerDelta, applyDelta, isEndingStatus } from '../utils/runStream'
 import type { StagedImage } from './useImageAttachments'
 import { useImageGeneration } from './useImageGeneration'
+import { useMemory } from './useMemory'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
 
@@ -99,6 +100,7 @@ interface MessageOut {
   images?: ImageOut[] | null
   guardrail_outcome?: string | null
   guardrail_notice?: string | null
+  memory_used?: number
 }
 
 // Backend shape (snake_case) of an image of the chat: made by a model (#518) or attached by the person (#512).
@@ -261,6 +263,7 @@ interface RunOut {
   assistant_inaccessible_collections?: number
   guardrail_outcome?: string | null
   guardrail_notice?: string | null
+  memory_used?: number
   error: string | null
 }
 
@@ -399,6 +402,7 @@ const EVENT_LABELS: Record<string, string> = {
   guardrail_started: 'Vérification de la demande…',
   guardrail_completed: 'Demande vérifiée',
   guardrail_blocked: 'Demande non traitée',
+  memory_command_completed: 'Mémoire mise à jour',
   vdb_discovery_started: 'Recherche des bases de connaissances accessibles…',
   vdb_discovery_completed: 'Bases de connaissances accessibles identifiées',
   query_analysis_started: 'Analyse de la question…',
@@ -500,6 +504,7 @@ async function ensureMessagesLoaded(conversationId: string) {
         toolCalls: toToolCalls(item.tool_calls),
         images: toImages(conversationId, item.images),
         ...toGuardrail(item.guardrail_outcome, item.guardrail_notice),
+        memoryUsed: item.memory_used || undefined,
         assistantName: item.assistant_name ?? undefined,
       }
     })
@@ -927,6 +932,7 @@ async function createRun(
   // The assistant picked in the chat (#514): the server uses its collections instead of the ones picked by hand, and adds
   // its instructions. An assistant that was removed since is answered with a 404 and the choice is dropped.
   const { selectedAssistantId } = useAssistants()
+  const { memoryInChat } = useMemory()
   const response = await fetch(`${API_BASE_URL}/api/runs`, {
     method: 'POST',
     credentials: 'include',
@@ -937,6 +943,7 @@ async function createRun(
       assistant_id: selectedAssistantId.value ?? undefined,
       collection_ids: collectionIds.length > 0 && !selectedAssistantId.value ? collectionIds : undefined,
       web_search_enabled: webSearchEnabled,
+      use_memory: memoryInChat.value,
       include_descendants: options.includeDescendants ?? true,
       continue_exploration: options.continueExploration ?? false,
       answers_run_id: options.answers?.runId,
@@ -1158,6 +1165,7 @@ function assistantMessageFor(id: string, run: RunOut): ChatMessage {
       // The images the assistant made while answering (#518): the run's own conversation, not a placeholder's.
       images: run.conversation_id ? toImages(run.conversation_id, run.images) : undefined,
       ...toGuardrail(run.guardrail_outcome, run.guardrail_notice),
+      memoryUsed: run.memory_used || undefined,
       assistantName: run.assistant_name ?? undefined,
     }
   }

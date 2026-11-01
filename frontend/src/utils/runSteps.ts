@@ -169,6 +169,15 @@ export function describeEvent(event: RunEvent): Line | undefined {
       }
     case 'guardrail_blocked':
       return undefined
+    case 'memory_command_completed': {
+      const done: Record<string, string> = { saved: 'retenu', updated: 'mis à jour', deleted: 'oublié', listed: 'affichée' }
+      return {
+        key: 'memory',
+        label: 'Votre mémoire',
+        detail: typeof data.outcome === 'string' ? (done[data.outcome] ?? 'non modifiée') : undefined,
+        state: 'done',
+      }
+    }
     case 'image_reading_started': {
       const count = asNumber(data.count)
       return {
