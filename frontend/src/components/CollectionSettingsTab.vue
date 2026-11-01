@@ -89,6 +89,7 @@ const hasErrors = computed(() => Object.keys(errors.value).length > 0)
 const SECTION_FIELDS: Record<SectionKey, (keyof SettingsErrors)[]> = {
   embedding: [],
   captions: [],
+  rerank: [],
   chunking: ['chunkSize', 'chunkOverlap', 'chunkingWindowPages', 'chunkingSlidePages'],
   summary: ['summaryPagesPerMap'],
   qa: ['qaWindowPages', 'qaSlidePages', 'qaQuestionsPerWindow', 'collectionQaCount'],
@@ -428,6 +429,21 @@ const STRATEGY_HINT = {
               </select>
             </template>
           </SettingsField>
+        </SettingsSection>
+
+        <SettingsSection
+          title="Reclassement des résultats"
+          :summary="draft.rerank ? 'Activé' : 'Désactivé'"
+          :changed="isChanged('rerank')"
+        >
+          <p class="sf-hint">
+            Un modèle relit la question avec chaque passage trouvé et garde ceux qui y répondent le mieux. La recherche
+            est un peu plus précise et un peu plus lente. Sans effet si le serveur n'a pas de modèle de reclassement.
+          </p>
+          <div class="fr-checkbox-group">
+            <input id="rerank-enabled" v-model="draft.rerank" type="checkbox" />
+            <label class="fr-label" for="rerank-enabled">Reclasser les résultats de cette collection</label>
+          </div>
         </SettingsSection>
 
         <SettingsSection

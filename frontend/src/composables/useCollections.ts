@@ -61,6 +61,7 @@ interface CollectionOut {
   generation_models: GenerationModels
   caption_engine?: CaptionEngine
   caption_model?: string | null
+  rerank_enabled?: boolean
   pipeline_windows: {
     summary_pages_per_map: number
     qa_window_pages: number
@@ -149,6 +150,7 @@ function toCollection(raw: CollectionOut): Collection {
     pipelineWindows: toPipelineWindows(raw.pipeline_windows),
     captionEngine: raw.caption_engine ?? 'local',
     captionModel: raw.caption_model ?? null,
+    rerankEnabled: raw.rerank_enabled ?? false,
     evaluationRuns: raw.evaluation_runs,
     // Not embedded in CollectionOut (owner-only, would 404/leak nothing useful for a viewer
     // anyway) - fetched separately by refreshShares, see CollectionSettingsTab.
