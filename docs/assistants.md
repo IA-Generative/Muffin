@@ -93,9 +93,45 @@ journalisés : qui, quand, quoi.
 `assistant_inaccessible_collections`. `AssistantService.resolve(user, assistant_id)` ne dépend d'aucune route : l'API compatible OpenAI
 (`docs/openai-api.md`) et le MCP pourront l'utiliser.
 
+## Retrouver un assistant (#531)
+
+*Rechercher un assistant* (sélecteur du chat, page Assistants) cherche par ce que l'assistant dit faire, **parmi tous ceux que la personne
+peut lire** (les siens, ceux partagés avec elle, les publics) : `GET /api/assistants/search?q=`. `GET /api/assistants/suggest?q=` propose
+ceux dont la description colle à une question, éventuellement aucun ; **une suggestion n'applique jamais un assistant**.
+
+![La recherche dans le sélecteur : « conge » trouve « RH – congés » et « Télétravail », sans accent et sans requête](images/assistants-recherche.png)
+
+La recherche fait le moins d'appels possible (`docs/search.md`) : avec moins de 8 assistants, elle se fait sur les mots, **dans le
+navigateur, sans aucune requête** ; au-delà, une seule requête après une pause de frappe (la précédente est annulée), une recherche
+hybride sur les descriptions, **un seul appel d'embedding pour la question** (gardé quelques minutes), et jamais de modèle de langage. Ce
+qui est cherché : le nom, la description et les questions suggérées - **jamais** les consignes ni les noms des collections, pour qu'on ne
+puisse rien en deviner.
+
+## Consulter d'autres assistants (#531)
+
+Un assistant peut **chercher dans les collections d'autres assistants** pour une sous-question qui relève clairement de l'un d'eux. C'est
+le même graphe de l'agent : le planificateur, dans son appel habituel, ajoute `"assistant": id` à une de ses requêtes, et celle-ci est
+cherchée dans les collections de cet assistant au lieu de celles de l'assistant principal. **Aucun appel de plus au modèle.**
+
+- **Réglage** (formulaire, « Consulter d'autres assistants ») : *aucun* (par défaut : l'assistant répond uniquement à partir de ses
+  collections), *tous ceux auxquels l'utilisateur a accès*, ou *seulement ceux que je choisis*.
+- **Qui est consultable, calculé en code à la création du message** (`AssistantService._consultable`) : parmi les assistants que **la
+  personne qui discute** peut lire, jamais l'assistant lui-même, seulement ceux qui ont des collections, et **seulement par celles de leurs
+  collections que cette personne peut lire**. Le résultat est figé sur le run (`runs.consultable_assistants`) : le modèle ne choisit
+  que là-dedans, et la portée verrouillée de l'assistant (`scope_locked`) s'élargit de ces collections-là et d'aucune autre.
+- **Peu d'appels** : jusqu'à `ASSISTANTS_CONSULT_MAX` (5) candidats, tous sont proposés, sans aucune recherche ; au-delà, les plus proches
+  de la question par la recherche hybride (un embedding, partagé avec le routage des collections).
+- **Ce qui est repris de l'assistant consulté** : ses collections et ses outils coupés pour cette sous-question. **Pas ses consignes** :
+  elles servent à écrire une réponse, et l'assistant principal écrit la seule réponse. Il ne consulte pas à son tour (un seul niveau), et
+  seule une recherche de contenu lui est confiée.
+- Chaque source citée dit l'assistant consulté qui l'a trouvée (`consulted_assistant`).
+- Une liste d'assistants à consulter n'est jamais montrée au-delà de ce que la personne peut lire : les autres sont seulement comptés, et
+  qui enregistre ne les perd pas.
+
 ## Réglages et limites
 
-- `ASSISTANTS_PUBLIC_ENABLED` (défaut `false`) et `ASSISTANTS_PER_USER` (défaut `100`) : voir `docs/environment-variables.md`.
+- `ASSISTANTS_PUBLIC_ENABLED`, `ASSISTANTS_PER_USER`, `ASSISTANTS_SEARCH_INDEX_MIN`, `ASSISTANTS_SEARCH_LIMIT`, `ASSISTANTS_SUGGEST_MIN_SCORE` et
+  `ASSISTANTS_CONSULT_MAX` : voir `docs/environment-variables.md`. Le modèle d'embedding est celui de l'administration.
 - Pas encore : les assistants comme `model` de `GET /v1/models`, un avertissement au moment du partage qui compare les destinataires aux
   droits sur les collections (une invitation n'a pas d'identité tant que la personne ne s'est pas connectée), le choix du modèle de
   langage par assistant, la mémoire propre à un assistant.
