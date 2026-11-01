@@ -57,7 +57,6 @@ Le graphe ne change pas, et il n'y a **aucun appel de plus**.
 
 ## Pas encore
 
-- La **retouche** d'une image jointe par un modèle d'image (`/images/edits`, `docs/image-generation.md`).
 - Que le modèle **voie** l'image qu'il a fait générer (seules les images jointes par la personne sont lues).
 - Le **redimensionnement côté serveur** : il se fait dans la page, le serveur ne fait que refuser ce qui dépasse ses bornes.
 - Les **images dans le serveur MCP** (l'outil `search` reste textuel).
