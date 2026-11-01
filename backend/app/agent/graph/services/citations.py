@@ -7,6 +7,7 @@ overridden (administrable) prompt kept the request (#402). This is the check, on
 
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -47,6 +48,12 @@ def cited_ids(answer: str, valid_ids: set[str]) -> list[str]:
             if candidate in valid_ids:
                 found[candidate] = None
     return list(found)
+
+
+def replace_markers(text: str, render: Callable[[list[str]], str]) -> str:
+    """The text with each bracket of citations replaced by what `render` makes of the ids in it, in order - for a
+    client that does not know the interface's markers (the OpenAI-compatible API numbers them, #513)."""
+    return _MARKER.sub(lambda match: render(_ids_of(match.group(1))), text)
 
 
 def without_invented_markers(answer: str, valid_ids: set[str]) -> str:
