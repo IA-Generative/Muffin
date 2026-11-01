@@ -48,6 +48,7 @@ from app.routers.internal_pipeline import router as internal_pipeline_router
 from app.routers.internal_prompts import router as internal_prompts_router
 from app.routers.internal_runs import router as internal_runs_router
 from app.routers.internal_tasks import router as internal_tasks_router
+from app.routers.internal_tools import router as internal_tools_router
 from app.routers.living_documents import router as living_documents_router
 from app.routers.models import router as models_router
 from app.routers.qa_pairs import router as qa_pairs_router
@@ -56,6 +57,7 @@ from app.routers.quality import router as quality_router
 from app.routers.reports import router as reports_router
 from app.routers.runs import router as runs_router
 from app.routers.tasks import router as tasks_router
+from app.routers.tools import router as tools_router
 from app.routers.usage import router as usage_router
 from app.services.assistant_service import (
     AssistantNotEditableError,
@@ -67,6 +69,12 @@ from app.services.assistant_service import (
 )
 from app.services.collection_service import AlreadyInvitedError, ShareNotFoundError
 from app.services.copied_collections import CopiedCollectionError
+from app.services.tool_service import (
+    InvalidToolServerError,
+    ToolServerNotFoundError,
+    ToolServerNotOwnedError,
+    TooManyToolServersError,
+)
 
 _keycloak_settings = KeycloakSettings()
 
@@ -156,6 +164,9 @@ _ASSISTANT_ERRORS: dict[type[Exception], tuple[int, str]] = {
     NoReadableCollectionError: (409, "You cannot read any of the collections of this assistant"),
     AlreadyInvitedError: (409, "Already invited"),
     ShareNotFoundError: (404, "Share not found"),
+    ToolServerNotFoundError: (404, "Tool server not found"),
+    ToolServerNotOwnedError: (403, "Only whoever added a tool server can do this"),
+    TooManyToolServersError: (409, "Too many tool servers"),
 }
 
 
@@ -164,6 +175,12 @@ def _assistant_error_handler(status_code: int, detail: str):
         return JSONResponse(status_code=status_code, content={"detail": detail})
 
     return handler
+
+
+@app.exception_handler(InvalidToolServerError)
+async def invalid_tool_server_handler(_request: Request, error: InvalidToolServerError) -> JSONResponse:
+    """What was asked for a tool server cannot be, and the message says why - for the person who asked."""
+    return JSONResponse(status_code=422, content={"detail": str(error)})
 
 
 for _error_type, (_status, _detail) in _ASSISTANT_ERRORS.items():
@@ -226,6 +243,8 @@ app.include_router(internal_tasks_router, prefix="/api")
 app.include_router(internal_llm_router, prefix="/api")
 app.include_router(internal_runs_router, prefix="/api")
 app.include_router(internal_prompts_router, prefix="/api")
+app.include_router(internal_tools_router, prefix="/api")
+app.include_router(tools_router, prefix="/api")
 
 # The MCP server (#467), under /api/mcp, with its own bearer-token check.
 app.mount("/api/mcp", mcp_app)

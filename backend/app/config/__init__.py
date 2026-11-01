@@ -15,6 +15,7 @@ from .runs import RunSettings
 from .rustfs import RustFsSettings
 from .secrets import SecretsSettings
 from .sharing import SharingSettings
+from .tools import ToolSettings
 from .worker import WorkerSettings
 
 __all__ = [
@@ -36,5 +37,6 @@ __all__ = [
     "SearchSettings",
     "SecretsSettings",
     "SharingSettings",
+    "ToolSettings",
     "WorkerSettings",
 ]
