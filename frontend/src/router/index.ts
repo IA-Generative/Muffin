@@ -16,6 +16,7 @@ export const router = createRouter({
       name: 'collection-detail',
       component: () => import('../components/CollectionsView.vue'),
     },
+    { path: '/tools', name: 'tools', component: () => import('../components/ToolsView.vue') },
     { path: '/assistants', name: 'assistants', component: () => import('../components/AssistantsView.vue') },
     { path: '/groups', name: 'groups', component: () => import('../components/GroupsView.vue') },
     { path: '/tasks', name: 'tasks', component: () => import('../components/TasksView.vue') },
