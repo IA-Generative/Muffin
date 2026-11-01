@@ -73,6 +73,11 @@ class Run(UUIDMixin, TimestampMixin, Base):
     assistant_instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
     # The optional tools that assistant turns off, as they were then.
     assistant_disabled_tools: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
+    # The assistants this run may consult (#531), as they were when it was made: [{id, name, description,
+    # collection_ids, disabled_tools}], the collections being those the person may read. Fixed here, in code, so the
+    # agent
+    # only ever picks among them and never reaches a collection that was not worked out for this person.
+    consultable_assistants: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
     # Whether the search stays within the collections the run was given instead of going on to the others the person
     # may read (an assistant's, or a model of the OpenAI-compatible API). The planner can then narrow, never widen.
     scope_locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")

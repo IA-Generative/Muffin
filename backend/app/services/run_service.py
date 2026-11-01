@@ -73,7 +73,9 @@ class RunService:
         """`scope_locked`: the search stays within the collections given (a model of the OpenAI-compatible API)."""
         # Before anything is written: an assistant the caller may not use, or whose collections they may not read, makes
         # no conversation and no message.
-        assistant = await AssistantService(self.db).resolve(user, body.assistant_id) if body.assistant_id else None
+        assistant = (
+            await AssistantService(self.db).resolve(user, body.assistant_id, body.query) if body.assistant_id else None
+        )
         if body.conversation_id is not None:
             conversation = await self.conversations.get(body.conversation_id, user.user_id)
             if conversation is None:
@@ -128,6 +130,7 @@ class RunService:
             assistant_version=assistant.version if assistant else None,
             assistant_instructions=assistant.instructions if assistant else None,
             assistant_disabled_tools=assistant.disabled_tools if assistant else None,
+            consultable_assistants=assistant.consultable if assistant else None,
             scope_locked=locked,
         )
         await self.db.commit()

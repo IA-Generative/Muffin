@@ -34,6 +34,11 @@ class Assistant(UUIDMixin, TimestampMixin, Base):
     web_search_allowed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     # Optional tools of the agent this assistant does not use (e.g. "tabular_query"); the rest of the graph is the same.
     disabled_tools: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
+    # Whether this assistant may consult others for a question (#531): "none" (the default: what it answers from is what
+    # its author chose), "all" (the closest of those the person using it may read), or "list" (those named in
+    # consult_assistant_ids). It consults their collections, never their instructions, and never goes further than that.
+    consult_mode: Mapped[str] = mapped_column(String(8), nullable=False, default="none", server_default="none")
+    consult_assistant_ids: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
     suggestions: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
     visibility: Mapped[CollectionVisibility] = mapped_column(
         Enum(CollectionVisibility, name="collection_visibility", create_type=False),
