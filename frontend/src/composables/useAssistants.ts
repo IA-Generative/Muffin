@@ -1,5 +1,5 @@
 import { computed, ref } from 'vue'
-import type { Assistant, AssistantDraft, AssistantShare, AssistantVisibility } from '../types/assistant'
+import type { Assistant, AssistantDraft, AssistantShare, AssistantVisibility, ConsultMode } from '../types/assistant'
 import type { SharePermission, ShareSubjectType } from '../types/collection'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
@@ -19,6 +19,9 @@ interface AssistantOut {
   include_descendants: boolean
   web_search_allowed: boolean
   disabled_tools: string[]
+  consult_mode: ConsultMode
+  consulted: { id: string; name: string }[]
+  inaccessible_consulted_count: number
   suggestions: string[]
   visibility: AssistantVisibility
   version: number
@@ -52,6 +55,9 @@ function toAssistant(raw: AssistantOut): Assistant {
     includeDescendants: raw.include_descendants,
     webSearchAllowed: raw.web_search_allowed,
     disabledTools: raw.disabled_tools,
+    consultMode: raw.consult_mode,
+    consulted: raw.consulted,
+    inaccessibleConsultedCount: raw.inaccessible_consulted_count,
     suggestions: raw.suggestions,
     visibility: raw.visibility,
     version: raw.version,
@@ -152,6 +158,8 @@ function toBody(draft: AssistantDraft): Record<string, unknown> {
     include_descendants: draft.includeDescendants,
     web_search_allowed: draft.webSearchAllowed,
     disabled_tools: draft.disabledTools,
+    consult_mode: draft.consultMode,
+    consult_assistant_ids: draft.consultAssistantIds,
     suggestions: draft.suggestions
       .split('\n')
       .map((line) => line.trim())
@@ -177,6 +185,22 @@ async function saveAssistant(draft: AssistantDraft, id?: string): Promise<Assist
   const assistant = toAssistant(await response.json())
   upsert(assistant)
   return assistant
+}
+
+// Les assistants dont la description colle à une recherche, parmi tous ceux que la personne peut lire : une requête au
+// serveur, faite seulement quand le filtre local (utils/assistantSearch.ts) ne suffit pas. `signal` annule la requête
+// d'une frappe dépassée.
+async function searchAssistants(query: string, signal?: AbortSignal): Promise<Assistant[] | null> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/assistants/search?q=${encodeURIComponent(query)}`, {
+      credentials: 'include',
+      signal,
+    })
+    if (!response.ok) return null
+    return ((await response.json()) as AssistantOut[]).map(toAssistant)
+  } catch {
+    return null
+  }
 }
 
 async function duplicateAssistant(id: string): Promise<Assistant | null> {
@@ -281,6 +305,7 @@ export function useAssistants() {
     selectedAssistant,
     select,
     refreshAssistants,
+    searchAssistants,
     saveAssistant,
     duplicateAssistant,
     deleteAssistant,

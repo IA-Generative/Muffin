@@ -12,7 +12,7 @@ const emit = defineEmits<{ saved: [assistant: Assistant]; cancel: [] }>()
 const MAX_INSTRUCTIONS = 4000
 const MAX_SUGGESTIONS = 6
 
-const { saveAssistant, assistantError } = useAssistants()
+const { assistants, saveAssistant, assistantError } = useAssistants()
 const { collections } = useCollections()
 
 function fromAssistant(assistant: Assistant | null): AssistantDraft {
@@ -26,6 +26,8 @@ function fromAssistant(assistant: Assistant | null): AssistantDraft {
     includeDescendants: assistant?.includeDescendants ?? true,
     webSearchAllowed: assistant?.webSearchAllowed ?? false,
     disabledTools: [...(assistant?.disabledTools ?? [])],
+    consultMode: assistant?.consultMode ?? 'none',
+    consultAssistantIds: assistant?.consulted.map((item) => item.id) ?? [],
     suggestions: (assistant?.suggestions ?? []).join('\n'),
   }
 }
@@ -48,6 +50,9 @@ const problems = computed(() => {
 // Ce qu'on ne peut pas lire n'est ni montré ni touché : l'enregistrement garde ces collections-là telles qu'elles sont.
 const hiddenCount = computed(() => props.assistant?.inaccessibleCollectionCount ?? 0)
 const instructionsLocked = computed(() => props.assistant?.instructionsHidden ?? false)
+const hiddenConsulted = computed(() => props.assistant?.inaccessibleConsultedCount ?? 0)
+// Ceux que cet assistant peut consulter : tous ceux que vous pouvez lire, sauf lui-même.
+const consultable = computed(() => assistants.value.filter((item) => item.id !== props.assistant?.id))
 
 function toggleTool(id: string, on: boolean) {
   draft.disabledTools = on ? draft.disabledTools.filter((tool) => tool !== id) : [...new Set([...draft.disabledTools, id])]
@@ -168,6 +173,46 @@ async function submit() {
           <span class="fr-hint-text">Jamais activée d’elle-même : l’utilisateur l’allume message par message.</span>
         </label>
       </div>
+    </fieldset>
+
+    <fieldset class="assistant-form__fieldset">
+      <legend class="fr-label">Consulter d’autres assistants</legend>
+      <p class="assistant-form__hint">
+        Pour une sous-question qui relève clairement d’un autre assistant, celui-ci peut chercher dans les collections de
+        l’autre, sans appel supplémentaire au modèle. Il ne reprend ni ses consignes ni ses outils, et chaque personne
+        n’atteint que ce qu’elle peut déjà lire. Par défaut : aucun, car l’assistant répond alors uniquement à partir de ses
+        collections.
+      </p>
+      <div class="fr-radio-group">
+        <input id="consult-none" v-model="draft.consultMode" type="radio" value="none" />
+        <label class="fr-label" for="consult-none">Aucun : seulement mes collections</label>
+      </div>
+      <div class="fr-radio-group">
+        <input id="consult-all" v-model="draft.consultMode" type="radio" value="all" />
+        <label class="fr-label" for="consult-all">
+          Tous ceux auxquels l’utilisateur a accès
+          <span class="fr-hint-text">Les plus proches de la question, cinq au plus.</span>
+        </label>
+      </div>
+      <div class="fr-radio-group">
+        <input id="consult-list" v-model="draft.consultMode" type="radio" value="list" />
+        <label class="fr-label" for="consult-list">Seulement ceux que je choisis</label>
+      </div>
+      <template v-if="draft.consultMode === 'list'">
+        <p v-if="hiddenConsulted" class="assistant-form__hint" role="status">
+          {{ hiddenConsulted }} assistant{{ hiddenConsulted > 1 ? 's' : '' }} de cette liste ne vous
+          {{ hiddenConsulted > 1 ? 'sont' : 'est' }} pas accessible{{ hiddenConsulted > 1 ? 's' : '' }} : conservé{{
+            hiddenConsulted > 1 ? 's' : ''
+          }}, mais vous {{ hiddenConsulted > 1 ? 'ne les' : 'ne le' }} voyez pas.
+        </p>
+        <ul class="assistant-form__choices assistant-form__choices--scroll">
+          <li v-for="item in consultable" :key="item.id" class="fr-checkbox-group">
+            <input :id="`consult-${item.id}`" v-model="draft.consultAssistantIds" type="checkbox" :value="item.id" />
+            <label class="fr-label" :for="`consult-${item.id}`">{{ item.icon }} {{ item.name }}</label>
+          </li>
+        </ul>
+        <p v-if="!consultable.length" class="assistant-form__hint">Vous n’avez accès à aucun autre assistant.</p>
+      </template>
     </fieldset>
 
     <div class="fr-input-group">
