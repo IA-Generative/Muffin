@@ -34,6 +34,9 @@ données ; les deux premiers ne touchent pas au réseau.
 - **`generer_image`** (#518) : génère une image à partir d'une description et l'affiche sous la réponse. **Offert seulement si la génération d'images est activée** et
   ouverte à la personne ; c'est le seul outil interne qui sort du réseau (vers le fournisseur choisi par l'administrateur) et qui a un coût, borné par le quota du
   jour et `IMAGES_PER_RUN`. Voir `docs/image-generation.md`.
+- **`retoucher_image`** (#518) : retouche une image de la conversation (celle que la personne vient de joindre, ou la dernière générée) à partir d'une description.
+  Mêmes conditions et même quota que `generer_image`, et **offert en plus seulement quand la conversation contient une image** ; l'image et la description partent
+  chez le fournisseur d'images. Voir `docs/image-generation.md`.
 
 ## Les serveurs MCP des utilisateurs
 
