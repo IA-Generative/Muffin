@@ -235,6 +235,14 @@ class FakeBackend:
     async def get_default_chat_model(self) -> str | None:
         return "test-model"
 
+    async def get_vision_models(self) -> list[str]:
+        # None by default: a run with images then says it cannot read them (#512), unless a test seeds some.
+        return getattr(self, "vision_models", [])
+
+    async def get_run_image(self, run_id: str, image_id: str) -> tuple[bytes, str] | None:
+        self.image_requests = [*getattr(self, "image_requests", []), image_id]
+        return getattr(self, "run_images", {}).get(image_id)
+
     async def list_collection_documents(self, user_id: str, collection_id: str) -> list[dict[str, Any]]:
         return self.documents_by_collection.get(collection_id, [])
 
@@ -361,6 +369,7 @@ def initial_state(
     history: list[dict[str, Any]] | None = None,
     assistant_instructions: str = "",
     scope_locked: bool = False,
+    images: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     return {
         "run_id": str(uuid.uuid4()),
@@ -371,6 +380,7 @@ def initial_state(
         "contextualized_query": query,
         "messages": [*(history or []), {"role": "user", "content": query}],
         "chat_model": "test-model",
+        "images": images or [],
         "pinned_vdb_ids": pinned_vdb_ids or [],
         "web_search_enabled": web_search_enabled,
         "resume_from_vdb_ids": resume_from_vdb_ids or [],

@@ -26,7 +26,8 @@ from app.core.security.factory import RequestContext, get_current_user
 from app.db import async_session_factory
 from app.main import app
 from app.models.conversation import Conversation
-from app.models.image_generation import GeneratedImage, ImageGenerationSettings
+from app.models.image_generation import ImageGenerationSettings
+from app.models.message_image import MessageImage
 from app.models.stored_secret import StoredSecret
 from app.models.token_usage import TokenUsage, TokenUsageKind
 from app.repositories.token_usage_repository import TokenUsageRepository
@@ -623,7 +624,7 @@ async def test_an_image_goes_with_its_conversation_and_its_file_with_it(client, 
 
     assert deleted.status_code == 204 and bucket == {}
     async with async_session_factory() as session:
-        assert (await session.execute(select(func.count()).select_from(GeneratedImage))).scalar_one() == 0
+        assert (await session.execute(select(func.count()).select_from(MessageImage))).scalar_one() == 0
 
 
 # --- what it costs ---

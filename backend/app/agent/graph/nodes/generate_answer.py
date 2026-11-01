@@ -1,3 +1,4 @@
+import base64
 import time
 from typing import Any
 
@@ -44,6 +45,17 @@ _SYSTEM_PROMPT = (
 
 
 _PARTIAL_PUBLISH_INTERVAL_SECONDS = 0.4
+
+# Added to the rules of the answer when the message carries images (#512): they are a source like the excerpts, and the
+# one a claim drawn from them cannot cite - it needs no citation.
+IMAGE_RULE = (
+    "\n\nImages: the user attached image(s) to this message (or to the previous one, which this message may follow "
+    "up). "
+    "Look at them: they are part of what you answer from, together with the evidence excerpts when there are any. What "
+    "an image shows needs no citation - cite the excerpts only for what comes from them - and when there are no "
+    "excerpts, answer from the images alone. If an image does not show what is asked, say so plainly. Never claim to "
+    "see what is not in an image."
+)
 # What the model wrote is handed to the chat in pieces at most this far apart: close enough to read as it is written,
 # and far enough that a long answer is some hundreds of entries rather than one per token.
 _DELTA_PUBLISH_INTERVAL_SECONDS = 0.05
@@ -116,6 +128,14 @@ async def generate_answer(state: AgentState) -> dict[str, Any]:
             "citations": [],
         }
 
+    # The images of the message (#512): read by the model that writes the answer - the one chosen if it reads images,
+    # otherwise the hub's first that does, said in the run's events - and by no other call of the run.
+    image_parts: list[dict[str, Any]] = []
+    if state.get("images"):
+        model, image_parts, unreadable = await _read_images(state, model)
+        if unreadable is not None:
+            return {"answer": unreadable, "citations": []}
+
     # Only worth suggesting when the run never had the option in the first place - if web search
     # was already on and still came up short, there's nothing left to point the user toward.
     web_search_hint = (
@@ -123,7 +143,8 @@ async def generate_answer(state: AgentState) -> dict[str, Any]:
     )
 
     unexplored = _unexplored_paths(state)
-    if not context["excerpts"]:
+    # With images, the answer does not need excerpts: it is written from what they show (#512).
+    if not context["excerpts"] and not image_parts:
         go_further_hint = (
             f" Some sub-collections were not searched ({', '.join(unexplored)}) - you can ask to go further."
             if unexplored
@@ -138,8 +159,11 @@ async def generate_answer(state: AgentState) -> dict[str, Any]:
     system_prompt, prompt_version_id = await get_prompt("generate_answer", fallback=_SYSTEM_PROMPT)
     # Appended here, not in the prompt (administrable, see get_prompt): an overridden prompt keeps the rule (#402).
     system_prompt += CITATION_RULE + OUTPUT_FORMAT + assistant_rules(state.get("assistant_instructions", ""))
-    evidence_block = "\n\n".join(
-        f"[{e['id']}] (source: {e['source'] or e['tool']})\n{e['content']}" for e in context["excerpts"]
+    if image_parts:
+        system_prompt += IMAGE_RULE
+    evidence_block = (
+        "\n\n".join(f"[{e['id']}] (source: {e['source'] or e['tool']})\n{e['content']}" for e in context["excerpts"])
+        or "(no excerpt from the knowledge bases: answer from the attached image(s))"
     )
     missing_note = (
         f"\n\nNote: the following could not be established from accessible sources: "
@@ -169,14 +193,17 @@ async def generate_answer(state: AgentState) -> dict[str, Any]:
     start = time.monotonic()
     messages = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_content},
+        {
+            "role": "user",
+            "content": [{"type": "text", "text": user_content}, *image_parts] if image_parts else user_content,
+        },
     ]
     result = await _write_answer(run_id, model, messages)
     prompt_tokens = result.get("prompt_tokens")
     completion_tokens = result.get("completion_tokens")
     valid_ids = {e["id"] for e in context["excerpts"]}
     written, sources = _read_answer(result["content"], valid_ids)
-    if not _cited(written, sources, valid_ids):
+    if not _cited(written, sources, valid_ids) and not image_parts:
         # Evidence was given and the answer cites none of it (#402): it stands, and the interface says that it has no
         # source. Not asked again: a second call would cost as much as the first for an answer that often is the same.
         logger.warning(f"Run {run_id}: the answer cites no evidence")
@@ -225,6 +252,41 @@ async def generate_answer(state: AgentState) -> dict[str, Any]:
         "answer_completion_tokens": completion_tokens,
         "prompt_usages": [prompt_version_id] if prompt_version_id else [],
     }
+
+
+async def _read_images(state: AgentState, model: str) -> tuple[str, list[dict[str, Any]], str | None]:
+    """The parts of the message that carry the images, and the model that will read them (#512).
+
+    The model chosen when it reads images; otherwise the hub's first that does, and the run's events say so - the
+    answer is never written by another model without telling. With no model that reads images, or no image that can be
+    had, the third item is the answer to give instead: said plainly, with no model call lost."""
+    run_id = state["run_id"]
+    vision = await backend_client.get_vision_models()
+    if not vision:
+        return (
+            model,
+            [],
+            "Je ne peux pas lire les images jointes : aucun modèle capable de lire les images n'est disponible.",
+        )
+    parts: list[dict[str, Any]] = []
+    for image in state["images"]:
+        fetched = await backend_client.get_run_image(run_id, image["id"])
+        if fetched is None:
+            continue
+        data, content_type = fetched
+        encoded = base64.b64encode(data).decode()
+        parts.append({"type": "image_url", "image_url": {"url": f"data:{content_type};base64,{encoded}"}})
+    if not parts:
+        return (
+            model,
+            [],
+            "Je n'ai pas pu lire les images jointes : elles ne sont plus disponibles. Joignez-les de nouveau.",
+        )
+    if model not in vision:
+        await emit(run_id, "answer_model_switched", {"from": model, "to": vision[0], "reason": "images"})
+        model = vision[0]
+    await emit(run_id, "image_reading_started", {"count": len(parts)})
+    return model, parts, None
 
 
 def _read_answer(raw: str, valid_ids: set[str]) -> tuple[str, list[dict[str, Any]]]:

@@ -222,6 +222,16 @@ async def default_vision_model() -> dict[str, str | None]:
     return {"model": model_ids[0] if model_ids else None}
 
 
+@router.get(
+    "/llm/vision-models",
+    summary="The hub's chat models that read images, for the answer to an image attached to a message (#512)",
+)
+async def vision_models() -> dict[str, list[str]]:
+    if _openai_client is None:
+        return {"models": []}
+    return {"models": await _discover_models(_VISION_MODELS_CACHE_KEY, _supports_vision)}
+
+
 @router.post(
     "/llm/embed",
     summary="Embed a piece of text on the worker's behalf",

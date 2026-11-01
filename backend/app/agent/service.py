@@ -112,6 +112,11 @@ class AgentService:
                 # backend_client.get_default_chat_model() is already Redis-cached backend-side, so this
                 # is the only worker<->backend round trip for it in the entire run.
                 "chat_model": (await backend_client.get_default_chat_model()),
+                # The images of this message (#512): read only by the model that writes the answer.
+                "images": [
+                    {"id": str(image["id"]), "content_type": image["content_type"], "current": image["current"]}
+                    for image in (run.get("images") or [])
+                ],
                 # Collections explicitly attached via the chat composer's "+" picker - see
                 # AgentState.pinned_vdb_ids.
                 "pinned_vdb_ids": [str(vdb_id) for vdb_id in (run.get("pinned_collection_ids") or [])],

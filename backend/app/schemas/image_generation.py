@@ -103,15 +103,18 @@ class ImageGenerationIn(BaseModel):
 
 class ImageOut(BaseModel):
     id: uuid.UUID
-    prompt: str
-    model: str
+    # "generated": a model made it (#518); "attached": the person attached it to their message (#512).
+    origin: Literal["generated", "attached"]
+    # What the model was asked to draw, and with which model: for a generated image only.
+    prompt: str | None = None
+    model: str | None = None
     content_type: str
     width: int
     height: int
     size_bytes: int
     created_at: datetime
-    # Every image here was made by a model: the chat shows it as such, on the image.
-    ai_generated: Literal[True] = True
+    # True for every image a model made: the chat shows it as such, on the image.
+    ai_generated: bool = False
 
 
 class GeneratedMessageOut(BaseModel):

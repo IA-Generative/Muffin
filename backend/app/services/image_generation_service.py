@@ -40,11 +40,12 @@ from app.core import image_bytes, storage, url_guard
 from app.core.image_bytes import NotAnImageError
 from app.core.secret_store import SecretStoreError
 from app.core.security.factory import RequestContext
-from app.models.image_generation import GeneratedImage, ImageGenerationSettings
+from app.models.image_generation import ImageGenerationSettings
 from app.models.message import MessageRole
+from app.models.message_image import ORIGIN_GENERATED, MessageImage
 from app.models.token_usage import TokenUsageKind
 from app.repositories.conversation_repository import ConversationRepository
-from app.repositories.generated_image_repository import GeneratedImageRepository, ImageSettingsRepository
+from app.repositories.message_image_repository import ImageSettingsRepository, MessageImageRepository
 from app.schemas.image_generation import (
     GeneratedMessageOut,
     ImageGenerationOut,
@@ -110,7 +111,7 @@ class ImageGenerationService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
         self.settings = ImageSettingsRepository(db)
-        self.images = GeneratedImageRepository(db)
+        self.images = MessageImageRepository(db)
         self.conversations = ConversationRepository(db)
 
     # --- the administrator's settings ---
@@ -538,8 +539,9 @@ class ImageGenerationService:
                 f"Image générée par IA à partir de la demande : « {_remember(prompt)[:200]} ».",
             )
             image = await self.images.add(
-                GeneratedImage(
+                MessageImage(
                     id=image_id,
+                    origin=ORIGIN_GENERATED,
                     conversation_id=conversation.id,
                     message_id=answer.id,
                     user_id=user.user_id,
@@ -588,7 +590,7 @@ class ImageGenerationService:
         conversation_id: uuid.UUID,
         run_id: uuid.UUID,
         prompt: str,
-    ) -> GeneratedImage:
+    ) -> MessageImage:
         """An image the assistant asked for while answering (#518, the tool `generer_image`): the same checks, the same
         quota and the same keeping as the person's own request - the quota is the person's, and a run may ask for at
         most `IMAGES_PER_RUN`. Nothing is written in the conversation here: the image belongs to the run, and to its
@@ -603,8 +605,9 @@ class ImageGenerationService:
         await asyncio.to_thread(storage.put_object, key_in_bucket, data, info.content_type)
         try:
             image = await self.images.add(
-                GeneratedImage(
+                MessageImage(
                     id=image_id,
+                    origin=ORIGIN_GENERATED,
                     conversation_id=conversation_id,
                     run_id=run_id,
                     user_id=user_id,
@@ -643,9 +646,10 @@ class ImageGenerationService:
         )
 
     @staticmethod
-    def present_image(image: GeneratedImage) -> ImageOut:
+    def present_image(image: MessageImage) -> ImageOut:
         return ImageOut(
             id=image.id,
+            origin=image.origin,  # type: ignore[arg-type]
             prompt=image.prompt,
             model=image.model,
             content_type=image.content_type,
@@ -653,4 +657,5 @@ class ImageGenerationService:
             height=image.height,
             size_bytes=image.size_bytes,
             created_at=image.created_at,
+            ai_generated=image.origin == ORIGIN_GENERATED,
         )

@@ -340,6 +340,25 @@ class BackendClient:
         response.raise_for_status()
         return response.json()["model"]
 
+    async def get_vision_models(self) -> list[str]:
+        """The hub's models that read images (#512), cached backend-side. Empty when they cannot be had."""
+        try:
+            response = await self._client.get("/api/internal/llm/vision-models")
+            response.raise_for_status()
+            return response.json()["models"]
+        except httpx.HTTPError:
+            return []
+
+    async def get_run_image(self, run_id: str, image_id: str) -> tuple[bytes, str] | None:
+        """The bytes of an image the answer reads, and its type. None when it cannot be had: the answer is then written
+        without it, and says so."""
+        try:
+            response = await self._client.get(f"/api/internal/runs/{run_id}/images/{image_id}")
+            response.raise_for_status()
+            return response.content, response.headers.get("content-type", "image/png")
+        except httpx.HTTPError:
+            return None
+
     async def list_collection_documents(self, user_id: str, collection_id: str) -> list[dict[str, Any]]:
         response = await self._client.get(f"/api/internal/users/{user_id}/collections/{collection_id}/documents")
         response.raise_for_status()

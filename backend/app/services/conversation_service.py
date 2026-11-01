@@ -12,7 +12,7 @@ from app.repositories.conversation_repository import ConversationRepository
 from app.repositories.discussion_feedback_repository import DiscussionFeedbackRepository
 from app.repositories.discussion_score_repository import DiscussionScoreRepository
 from app.repositories.feedback_repository import FeedbackRepository
-from app.repositories.generated_image_repository import GeneratedImageRepository
+from app.repositories.message_image_repository import MessageImageRepository
 from app.repositories.task_repository import TaskRepository
 from app.schemas.conversation import ConversationOut, ConversationSearchHit, MessageOut
 from app.schemas.discussion_feedback import DiscussionFeedbackOut
@@ -31,7 +31,7 @@ class ConversationService:
         self.db = db
         self.conversations = ConversationRepository(db)
         self.charts = ChartRepository(db)
-        self.generated_images = GeneratedImageRepository(db)
+        self.generated_images = MessageImageRepository(db)
         self.discussion_scores = DiscussionScoreRepository(db)
         self.discussion_feedbacks = DiscussionFeedbackRepository(db)
         self.tasks = TaskRepository(db)

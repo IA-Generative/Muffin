@@ -5,7 +5,7 @@ import re
 import uuid
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.connectors import redis_connector
@@ -14,12 +14,13 @@ from app.core.security.worker_auth import require_worker_api_key
 from app.db import get_db
 from app.models.chart import Chart
 from app.models.message import MessageRole
+from app.models.message_image import ORIGIN_ATTACHED, ORIGIN_GENERATED, MessageImage
 from app.models.run import RunStatus
 from app.repositories.chart_repository import ChartRepository
 from app.repositories.collection_repository import CollectionRepository
 from app.repositories.conversation_repository import ConversationRepository
 from app.repositories.document_repository import DocumentRepository
-from app.repositories.generated_image_repository import GeneratedImageRepository
+from app.repositories.message_image_repository import MessageImageRepository
 from app.repositories.run_repository import RunRepository
 from app.repositories.source_repository import SourceRepository
 from app.schemas.document import TableOut
@@ -36,6 +37,7 @@ from app.schemas.internal_run import (
     RunErrorUpdate,
     RunEventCreate,
     RunGroundingUpdate,
+    RunImageRef,
     RunPartialAnswerUpdate,
     RunResultUpdate,
     RunStateUpdate,
@@ -107,20 +109,12 @@ async def get_run(run_id: uuid.UUID, db: Annotated[AsyncSession, Depends(get_db)
     # Oldest first, this run's own just-inserted user message excluded (see InternalRunOut.history)
     # - AgentService.run() appends it itself, right after this history, as the current question.
     messages = await ConversationRepository(db).list_messages(run.conversation_id)
-    # An image made in the chat is not in what a message says: the next turns are told which one, and from what
-    # description, so that "make it blue" has something to start from (#518).
-    made = await GeneratedImageRepository(db).for_messages([message.id for message, *_rest in messages])
+    images = await MessageImageRepository(db).for_messages([message.id for message, *_rest in messages])
     history = [
         # `asked`: questions with options were asked here (#344), which the worker counts to stop asking.
         {
             "role": message.role,
-            "content": message.content
-            + "".join(
-                f"\n[Image générée par IA, affichée à l'utilisateur. Description envoyée au fournisseur : "
-                f"« {image.prompt[:500]} »]"
-                for image in made.get(message.id, [])
-                if message.run_id is not None  # the answer of the mode «Image» already says its description
-            ),
+            "content": message.content + _image_notes(message, images.get(message.id, [])),
             "asked": bool(message.questions),
         }
         for message, *_run_fields in messages
@@ -130,7 +124,77 @@ async def get_run(run_id: uuid.UUID, db: Annotated[AsyncSession, Depends(get_db)
     if run.continue_exploration:
         previous = await RunRepository(db).get_previous_in_conversation(run)
         resume_from = previous.unexplored_collection_ids if previous is not None else None
-    return _to_out(run, history, resume_from)
+    out = _to_out(run, history, resume_from)
+    out.images = _images_to_read(run.message_id, [message for message, *_rest in messages], images)
+    return out
+
+
+def _image_notes(message, images: list[MessageImage]) -> str:  # noqa: ANN001
+    """What a message holds that its text does not say, for the turns that follow (#512, #518): an image that was
+    attached, or that the assistant made and from what description - so that "make it blue" has something to start
+    from."""
+    if message.role == MessageRole.USER:
+        attached = [image for image in images if image.origin == ORIGIN_ATTACHED]
+        return f"\n[L'utilisateur avait joint {len(attached)} image(s)]" if attached else ""
+    # The answer of the mode «Image» already says its description in its text.
+    if message.run_id is None:
+        return ""
+    return "".join(
+        "\n[Image générée par IA, affichée à l'utilisateur. Description envoyée au fournisseur : "
+        f"« {(image.prompt or '')[:500]} »]"
+        for image in images
+        if image.origin == ORIGIN_GENERATED
+    )
+
+
+def _images_to_read(
+    message_id: uuid.UUID,
+    messages: list,
+    images: dict[uuid.UUID, list[MessageImage]],  # noqa: ANN001
+) -> list[RunImageRef]:
+    """The images the answer is written from: those attached to this message or, when there are none, to the user
+    message just before it - a follow-up ("and the second column?") is about the same screenshot."""
+    mine = [image for image in images.get(message_id, []) if image.origin == ORIGIN_ATTACHED]
+    current = True
+    if not mine:
+        current = False
+        previous_user = None
+        for message in messages:
+            if message.id == message_id:
+                break
+            if message.role == MessageRole.USER:
+                previous_user = message
+        if previous_user is not None:
+            mine = [image for image in images.get(previous_user.id, []) if image.origin == ORIGIN_ATTACHED]
+    return [
+        RunImageRef(
+            id=image.id,
+            content_type=image.content_type,
+            width=image.width,
+            height=image.height,
+            size_bytes=image.size_bytes,
+            current=current,
+        )
+        for image in mine
+    ]
+
+
+@router.get(
+    "/runs/{run_id}/images/{image_id}",
+    summary="The bytes of an image the answer of a run reads (#512), for the model that writes it",
+    responses={200: {"content": {"image/png": {}, "image/jpeg": {}, "image/webp": {}}}},
+)
+async def get_run_image(
+    run_id: uuid.UUID, image_id: uuid.UUID, db: Annotated[AsyncSession, Depends(get_db)]
+) -> Response:
+    run = await RunRepository(db).get_by_id(run_id)
+    if run is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+    image = await MessageImageRepository(db).get_in_conversation(image_id, run.conversation_id)
+    if image is None or image.origin != ORIGIN_ATTACHED or image.user_id != run.user_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found")
+    content, _ = await asyncio.to_thread(storage.get_object, image.s3_key)
+    return Response(content=content, media_type=image.content_type, headers={"X-Content-Type-Options": "nosniff"})
 
 
 @router.patch("/runs/{run_id}/status", summary="Report a run's status/current node/activity")
@@ -220,7 +284,7 @@ async def update_run_result(
     # The charts the run drew while it ran now belong to this message (#434).
     await ChartRepository(db).attach_run_to_message(run.id, message.id)
     # So do the images it asked for (#518).
-    await GeneratedImageRepository(db).attach_run_to_message(run.id, message.id)
+    await MessageImageRepository(db).attach_run_to_message(run.id, message.id)
     await repository.set_result(
         run,
         update.answer,
