@@ -86,6 +86,11 @@ class Run(UUIDMixin, TimestampMixin, Base):
     # person (a refusal, a warning) are `guardrail_notice`.
     guardrail_outcome: Mapped[str | None] = mapped_column(String(24), nullable=True)
     guardrail_notice: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Whether the person's memory plays in this run (#282): `on`, `temporary` (the person turned it off for this
+    # conversation), or `unavailable` (an assistant, a routine or the OpenAI-compatible API: the memory is for the
+    # personal chat). How many of its items shaped the answer is `memory_used` - their content is nowhere on the run.
+    memory_mode: Mapped[str] = mapped_column(String(12), nullable=False, default="on", server_default="on")
+    memory_used: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     # Whether the requesting user was a platform administrator, and how to show them ("Jean D."),
     # snapshotted like user_groups: the research agent acts on the user's behalf from this row alone
     # (it has no session), e.g. to ask the backend to start an edit of a living document (#171) -

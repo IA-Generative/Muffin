@@ -17,6 +17,7 @@ from app.agent.graph.services.citations import (
     without_invented_markers,
 )
 from app.agent.graph.services.events import emit, is_cancelled, set_activity
+from app.agent.graph.services.memory import MEMORY_RULE, memory_block
 from app.agent.graph.services.prompts import get_prompt
 from app.agent.graph.services.vdb_router import collection_path, collection_path_names
 from app.agent.graph.state import AgentState
@@ -161,6 +162,10 @@ async def generate_answer(state: AgentState) -> dict[str, Any]:
     system_prompt += CITATION_RULE + OUTPUT_FORMAT + assistant_rules(state.get("assistant_instructions", ""))
     if image_parts:
         system_prompt += IMAGE_RULE
+    # The person's memory, when they have one on: handed over as data below the evidence, never in the system prompt.
+    memory_items = list((state.get("memory") or {}).get("items") or [])
+    if memory_items:
+        system_prompt += MEMORY_RULE
     evidence_block = (
         "\n\n".join(f"[{e['id']}] (source: {e['source'] or e['tool']})\n{e['content']}" for e in context["excerpts"])
         or "(no excerpt from the knowledge bases: answer from the attached image(s))"
@@ -188,7 +193,7 @@ async def generate_answer(state: AgentState) -> dict[str, Any]:
     )
     user_content = (
         f"Query: {state['contextualized_query']}\n\nEvidence:{missing_note}{exploration_note}{assumption_note}"
-        f"\n\n{evidence_block}"
+        f"\n\n{evidence_block}{memory_block(memory_items)}"
     )
     start = time.monotonic()
     messages = [
@@ -199,6 +204,8 @@ async def generate_answer(state: AgentState) -> dict[str, Any]:
         },
     ]
     result = await _write_answer(run_id, model, messages)
+    if memory_items:
+        await backend_client.memory_used(run_id, [str(item["id"]) for item in memory_items])
     prompt_tokens = result.get("prompt_tokens")
     completion_tokens = result.get("completion_tokens")
     valid_ids = {e["id"] for e in context["excerpts"]}

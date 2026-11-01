@@ -66,3 +66,5 @@ class MessageOut(BaseModel):
     # `warned`, and the words shown - restored with the message, so that they survive a reload.
     guardrail_outcome: str | None = None
     guardrail_notice: str | None = None
+    # How many items of the person's memory shaped this answer (#283): the chat says so, with a link to the page.
+    memory_used: int = 0

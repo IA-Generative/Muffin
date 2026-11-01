@@ -48,6 +48,7 @@ from app.routers.internal_evaluation import router as internal_evaluation_router
 from app.routers.internal_groups import router as internal_groups_router
 from app.routers.internal_guardrails import router as internal_guardrails_router
 from app.routers.internal_llm import router as internal_llm_router
+from app.routers.internal_memory import router as internal_memory_router
 from app.routers.internal_owui_sync import router as internal_owui_sync_router
 from app.routers.internal_pipeline import router as internal_pipeline_router
 from app.routers.internal_prompts import router as internal_prompts_router
@@ -55,6 +56,7 @@ from app.routers.internal_runs import router as internal_runs_router
 from app.routers.internal_tasks import router as internal_tasks_router
 from app.routers.internal_tools import router as internal_tools_router
 from app.routers.living_documents import router as living_documents_router
+from app.routers.memory import router as memory_router
 from app.routers.models import router as models_router
 from app.routers.notifications import router as notifications_router
 from app.routers.qa_pairs import router as qa_pairs_router
@@ -243,6 +245,8 @@ app.include_router(cgu_router, prefix="/api")
 app.include_router(admin_reports_router, prefix="/api")
 app.include_router(internal_groups_router, prefix="/api")
 app.include_router(internal_guardrails_router, prefix="/api")
+app.include_router(internal_memory_router, prefix="/api")
+app.include_router(memory_router, prefix="/api")
 app.include_router(internal_collection_sync_router, prefix="/api")
 app.include_router(internal_document_sync_router, prefix="/api")
 app.include_router(internal_owui_sync_router, prefix="/api")

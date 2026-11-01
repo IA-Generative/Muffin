@@ -3,6 +3,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
+from loguru import logger
 
 from app.agent.usage_context import current_usage
 from app.config import WorkerSettings
@@ -393,6 +394,33 @@ class BackendClient:
         response = await self._client.post(f"/api/internal/runs/{run_id}/guardrails")
         response.raise_for_status()
         return response.json()
+
+    async def read_memory(self, run_id: str) -> dict[str, Any]:
+        """What this run may read of its person's memory (#284): `state` (`on`, or why not) and the `items`. A memory
+        that cannot be read is no memory: the run goes on without it, as it does without tools."""
+        try:
+            response = await self._client.get(f"/api/internal/runs/{run_id}/memory")
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPError:
+            return {"state": "unavailable", "items": []}
+
+    async def memory_command(self, run_id: str, action: str, kind: str, text: str) -> dict[str, Any]:
+        """What the person asked of their memory in the chat, carried out by the backend under the rules of the page.
+        Not caught: they asked for something, and the answer must not pretend it was done."""
+        response = await self._client.post(
+            f"/api/internal/runs/{run_id}/memory/command", json={"action": action, "kind": kind, "text": text}
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def memory_used(self, run_id: str, ids: list[str]) -> None:
+        """The items of the memory that shaped the answer: counted on the run so the chat can say so. Best effort."""
+        try:
+            response = await self._client.post(f"/api/internal/runs/{run_id}/memory/used", json={"ids": ids})
+            response.raise_for_status()
+        except httpx.HTTPError:
+            logger.warning(f"Run {run_id}: the use of the memory could not be recorded")
 
     async def tool_definitions(self, run_id: str) -> list[dict[str, Any]]:
         """The tools the person of this run may use now, as the model is given them. Empty when they cannot be

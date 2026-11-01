@@ -33,6 +33,7 @@ class RunRepository:
         assistant_disabled_tools: list[str] | None = None,
         consultable_assistants: list[dict] | None = None,
         scope_locked: bool = False,
+        memory_mode: str = "on",
     ) -> Run:
         run = Run(
             user_id=user_id,
@@ -55,6 +56,7 @@ class RunRepository:
             assistant_disabled_tools=assistant_disabled_tools or None,
             consultable_assistants=consultable_assistants or None,
             scope_locked=scope_locked,
+            memory_mode=memory_mode,
         )
         self.db.add(run)
         await self.db.flush()
