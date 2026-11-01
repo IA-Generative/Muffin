@@ -1,3 +1,6 @@
+import asyncio
+import hashlib
+import json
 import uuid
 from collections import defaultdict
 from collections.abc import Sequence
@@ -6,7 +9,8 @@ from loguru import logger
 from openai import AsyncOpenAI
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import LlmSettings
+from app.config import LlmSettings, SearchSettings
+from app.connectors import async_redis
 from app.models.chunk import Chunk
 from app.models.document import Document
 from app.models.qa import QaPair
@@ -22,6 +26,7 @@ from app.services.embedding_model_lookup import default_embedding_model
 # Module attribute (not closed over), same reasoning as app/routers/internal_llm.py: tests
 # swap this out with monkeypatch.setattr without a live LLM hub.
 _llm_settings = LlmSettings()
+_search_settings = SearchSettings()
 _openai_client = (
     AsyncOpenAI(api_key=_llm_settings.OPENAI_API_KEY, base_url=_llm_settings.OPENAI_API_BASE_URL)
     if _llm_settings.is_configured
@@ -265,7 +270,16 @@ class SearchService:
         return vector_store.search_collections(query, query_embedding, collection_ids, limit)
 
     async def _embed(self, model: str, text: str) -> list[float]:
-        return await embed_text(model, text)
+        return await embed_query(model, text)
+
+
+async def embed_texts(model: str, texts: list[str], batch: int = 64) -> list[list[float]]:
+    """Several texts embedded together: one call for `batch` of them instead of one each."""
+    embeddings: list[list[float]] = []
+    for start in range(0, len(texts), batch):
+        result = await _openai_client.embeddings.create(model=model, input=texts[start : start + batch])
+        embeddings.extend(item.embedding for item in sorted(result.data, key=lambda item: item.index))
+    return embeddings
 
 
 async def embed_text(model: str, text: str) -> list[float]:
@@ -274,3 +288,58 @@ async def embed_text(model: str, text: str) -> list[float]:
     search all go through this exact same client/call."""
     result = await _openai_client.embeddings.create(model=model, input=text)
     return result.data[0].embedding
+
+
+# Questions being embedded right now, by (model, text): a second search for the same question, started while the first
+# one waits for the model, waits for that answer instead of asking again.
+_in_flight: dict[tuple[str, str], asyncio.Future[list[float]]] = {}
+# A question longer than this is not kept: it is not one a person retypes.
+_CACHEABLE_CHARS = 2000
+
+
+def _cache_key(model: str, text: str) -> str:
+    return "embedding:q:" + hashlib.sha256(f"{model}\0{text}".encode()).hexdigest()
+
+
+async def embed_query(model: str, text: str) -> list[float]:
+    """The embedding of a question - the same call as embed_text, made once for every search of the same question.
+
+    One question is searched in the chunks, the answered questions, the summaries, the descriptions of the collections
+    and the assistants, often at the same time and with the same model: they share one call, and the next search of it
+    (the user retypes, the agent asks again) finds it kept for a few minutes. Only what is a question is kept - a
+    document's text goes through embed_text. Redis being down only costs the saving, never the search."""
+    ttl = _search_settings.SEARCH_EMBEDDING_CACHE_SECONDS
+    if ttl <= 0 or len(text) > _CACHEABLE_CHARS:
+        return await embed_text(model, text)
+    key = (model, text)
+    pending = _in_flight.get(key)
+    if pending is not None:
+        return await asyncio.shield(pending)
+    pending = asyncio.get_running_loop().create_future()
+    _in_flight[key] = pending
+    try:
+        embedding = await _cached_embedding(model, text, ttl)
+        pending.set_result(embedding)
+        return embedding
+    except BaseException as error:
+        pending.set_exception(error)
+        pending.exception()  # read here: nobody else may be waiting, and an unread one is logged as a mistake
+        raise
+    finally:
+        _in_flight.pop(key, None)
+
+
+async def _cached_embedding(model: str, text: str, ttl: int) -> list[float]:
+    redis_key = _cache_key(model, text)
+    try:
+        cached = await async_redis().get(redis_key)
+        if cached is not None:
+            return json.loads(cached)
+    except Exception:
+        logger.warning("The embedding cache could not be read", exc_info=True)
+    embedding = await embed_text(model, text)
+    try:
+        await async_redis().set(redis_key, json.dumps(embedding), ex=ttl)
+    except Exception:
+        logger.warning("The embedding cache could not be written", exc_info=True)
+    return embedding

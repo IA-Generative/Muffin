@@ -47,6 +47,11 @@ _client = qdrant_connector.client
 # an uploaded file (§122).
 _COLLECTIONS = "collections"
 
+# One point per assistant (#531), embedded with the same admin-configured model as the descriptions above: what the
+# assistant says of itself (name, description, suggested questions) and never its instructions or the names of its
+# collections. A point is written when a search finds it missing or out of date - see AssistantSearchService.
+_ASSISTANTS = "assistants"
+
 _PAGE = 1000
 
 
@@ -84,6 +89,19 @@ def _target(collection_id: uuid.UUID, next_index: bool) -> str:
 
 def _exists(name: str) -> bool:
     return _client.collection_exists(name)
+
+
+def _create_collection_without_document_index(name: str, dimensions: int) -> None:
+    """A collection of descriptions: dense and BM25 vectors, none of the payload indexes the chunks' ones need."""
+    try:
+        _client.create_collection(
+            name,
+            vectors_config={_DENSE: models.VectorParams(size=dimensions, distance=models.Distance.COSINE)},
+            sparse_vectors_config={_SPARSE: models.SparseVectorParams(modifier=models.Modifier.IDF)},
+        )
+    except Exception:
+        if not _exists(name):  # a concurrent writer may have created it first
+            raise
 
 
 def _create_collection(name: str, dimensions: int) -> None:
@@ -638,3 +656,67 @@ def search_collections(
         must=[models.HasIdCondition(has_id=[str(collection_id) for collection_id in collection_ids])]
     )
     return _hybrid(_COLLECTIONS, query, query_embedding, limit, candidates)
+
+
+# -- assistant descriptions (#531) -----------------------------------------------------------------------
+
+
+def get_assistant_points(assistant_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, tuple[str, str]]:
+    """What the index holds of these assistants: (hash of the indexed text, embedding model) by id. An assistant with
+    no entry has no point yet; the caller writes the ones whose hash or model is not the current one."""
+    if not assistant_ids or not _exists(_ASSISTANTS):
+        return {}
+    records = _client.retrieve(
+        _ASSISTANTS,
+        [str(assistant_id) for assistant_id in assistant_ids],
+        with_payload=["text_hash", "model"],
+        with_vectors=False,
+    )
+    return {
+        uuid.UUID(str(record.id)): (
+            (record.payload or {}).get("text_hash", ""),
+            (record.payload or {}).get("model", ""),
+        )
+        for record in records
+    }
+
+
+def upsert_assistants(points: Sequence[tuple[uuid.UUID, str, str, list[float]]], model: str) -> None:
+    """(id, text, hash of the text, embedding) for each - the points that were missing or stale, in one write."""
+    if not points:
+        return
+    if not _exists(_ASSISTANTS):
+        _create_collection_without_document_index(_ASSISTANTS, len(points[0][3]))
+    _client.upsert(
+        _ASSISTANTS,
+        [
+            models.PointStruct(
+                id=str(assistant_id),
+                vector={_DENSE: embedding, _SPARSE: _sparse(text)},
+                payload={"text_hash": text_hash, "model": model},
+            )
+            for assistant_id, text, text_hash, embedding in points
+        ],
+        wait=True,
+    )
+
+
+def delete_assistant_point(assistant_id: uuid.UUID) -> None:
+    try:
+        if _exists(_ASSISTANTS):
+            _delete_ids([_ASSISTANTS], [str(assistant_id)])
+    except Exception:
+        logger.exception(f"Failed to remove assistant {assistant_id} from the '{_ASSISTANTS}' index")
+
+
+def search_assistants(
+    query: str, query_embedding: list[float], assistant_ids: Sequence[uuid.UUID], limit: int
+) -> list[tuple[uuid.UUID, float]]:
+    """Hybrid search over assistant descriptions, restricted to the given ids - the caller has already kept only the
+    assistants the person may read; this ranks inside that list and never widens it."""
+    if not assistant_ids:
+        return []
+    candidates = models.Filter(
+        must=[models.HasIdCondition(has_id=[str(assistant_id) for assistant_id in assistant_ids])]
+    )
+    return _hybrid(_ASSISTANTS, query, query_embedding, limit, candidates)
