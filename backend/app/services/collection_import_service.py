@@ -32,6 +32,7 @@ from app.services.description_rollup_service import DescriptionRollupService
 from app.services.document_upload_service import DocumentUploadService, _uploader_display
 from app.services.embedding_model_lookup import default_embedding_model
 from app.services.import_processing_queue import ImportProcessingQueue
+from app.services.notification_service import IMPORT_COMPLETED, notify
 from app.services.search_service import embed_text
 
 # The planner's own part of the batch results (#334) - a key no batch has.
@@ -363,10 +364,28 @@ class CollectionImportService:
         collection_import.error = result.error
         archive_key, collection_import.archive_key = collection_import.archive_key, None
         await self.db.commit()
+        await self._tell_finished(collection_import)
         # Best-effort and after the commit, same as every other RustFS cleanup. The plan of a big import
         # (#334) is stored beside its archive.
         if archive_key:
             storage.delete_objects([archive_key, plan_key(archive_key)])
+
+    @staticmethod
+    async def _tell_finished(collection_import: CollectionImport) -> None:
+        """The person who dropped the archive is told (#524), whether it worked or not: counts and a link, never the
+        names of the files nor the error."""
+        documents = int((collection_import.summary or {}).get("documents_created", 0))
+        failed = collection_import.status == CollectionImportStatus.FAILED
+        collection_id = collection_import.root_collection_id
+        await notify(
+            collection_import.owner_id,
+            IMPORT_COMPLETED,
+            "L'import a échoué" if failed else "Import terminé",
+            f"« {collection_import.archive_name} » : "
+            + ("l'import n'a pas pu aller au bout." if failed else f"{documents} document(s) ajouté(s)."),
+            f"/collections/{collection_id}" if collection_id else "/collections",
+            {"import_id": str(collection_import.id), "status": collection_import.status.value},
+        )
 
     async def _get_owned(self, import_id: uuid.UUID, user: RequestContext) -> CollectionImport:
         collection_import = await self.imports.get(import_id, user.user_id)

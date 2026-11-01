@@ -21,6 +21,15 @@ class GroupRepository:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
+    async def active_user_ids(self, group_id: uuid.UUID) -> list[str]:
+        """The people in a group who have signed in - the ones a notification can reach."""
+        result = await self.db.scalars(
+            select(GroupMember.user_id).where(
+                GroupMember.group_id == group_id, GroupMember.status == MemberStatus.ACTIVE
+            )
+        )
+        return [user_id for user_id in result if user_id]
+
     async def group_ids_of(self, user_id: str) -> list[str]:
         """The groups a user is a member of here, as what a share points to (a group's id)."""
         result = await self.db.scalars(

@@ -56,10 +56,12 @@ from app.models.import_document import ImportDocument
 from app.models.index_rebuild import IndexRebuild, IndexRebuildStatus
 from app.models.message import Message, MessageRole
 from app.models.message_image import MessageImage
+from app.models.notification import Notification, NotificationPreference
 from app.models.owui_sync_run import OwuiSyncRun
 from app.models.prompt import PromptVersion, RunPromptUsage
 from app.models.qa import QaOrigin, QaPair
 from app.models.report import Report, ReportStatus, ReportType
+from app.models.routine import Routine, RoutineRun, RoutineSettings
 from app.models.run import Run, RunEvent, RunStatus
 from app.models.source import MessageSource, Source
 from app.models.stored_secret import StoredSecret
@@ -105,6 +107,11 @@ __all__ = [
     "DocumentTabularSheet",
     "MessageImage",
     "ImageGenerationSettings",
+    "Notification",
+    "NotificationPreference",
+    "Routine",
+    "RoutineRun",
+    "RoutineSettings",
     "ImportDocument",
     "DocumentType",
     "DraftStatus",

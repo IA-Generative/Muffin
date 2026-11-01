@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import BigInteger, DateTime, Enum, Integer, String, func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin, UUIDMixin
@@ -58,6 +58,10 @@ class UserProfile(Base):
     user_id: Mapped[str] = mapped_column(String, primary_key=True)
     display: Mapped[str] = mapped_column(String, nullable=False)
     email: Mapped[str | None] = mapped_column(String, nullable=True)
+    # The last time the person opened the application, and the groups of their token then: what a routine - which runs
+    # without them - has of the person (#524). Never more than that: no token is kept.
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    groups: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

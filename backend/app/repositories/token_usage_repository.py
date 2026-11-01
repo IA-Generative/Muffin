@@ -51,14 +51,21 @@ class TokenUsageRepository:
     async def collection_user(self, collection_id: uuid.UUID) -> str | None:
         return await self.db.scalar(select(Collection.owner_id).where(Collection.id == collection_id))
 
-    async def save_profile(self, user_id: str, display: str, email: str | None) -> None:
-        statement = insert(UserProfile).values(user_id=user_id, display=display, email=email)
+    async def save_profile(
+        self, user_id: str, display: str, email: str | None, groups: list[str] | None = None
+    ) -> None:
+        values = {"user_id": user_id, "display": display, "email": email, "last_seen_at": func.now()}
+        if groups is not None:
+            values["groups"] = groups
+        statement = insert(UserProfile).values(**values)
         await self.db.execute(
             statement.on_conflict_do_update(
                 index_elements=[UserProfile.user_id],
                 set_={
                     "display": statement.excluded.display,
                     "email": statement.excluded.email,
+                    "last_seen_at": func.now(),
+                    **({"groups": statement.excluded.groups} if groups is not None else {}),
                     "updated_at": func.now(),
                 },
             )

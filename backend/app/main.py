@@ -14,6 +14,7 @@ from app.routers.admin_cgu import router as admin_cgu_router
 from app.routers.admin_owui_sync import router as admin_owui_sync_router
 from app.routers.admin_prompts import router as admin_prompts_router
 from app.routers.admin_reports import router as admin_reports_router
+from app.routers.admin_routines import router as admin_routines_router
 from app.routers.admin_secrets import router as admin_secrets_router
 from app.routers.admin_settings import router as admin_settings_router
 from app.routers.api_keys import router as api_keys_router
@@ -53,10 +54,12 @@ from app.routers.internal_tasks import router as internal_tasks_router
 from app.routers.internal_tools import router as internal_tools_router
 from app.routers.living_documents import router as living_documents_router
 from app.routers.models import router as models_router
+from app.routers.notifications import router as notifications_router
 from app.routers.qa_pairs import router as qa_pairs_router
 from app.routers.qa_suggestions import router as qa_suggestions_router
 from app.routers.quality import router as quality_router
 from app.routers.reports import router as reports_router
+from app.routers.routines import router as routines_router
 from app.routers.runs import router as runs_router
 from app.routers.tasks import router as tasks_router
 from app.routers.tools import router as tools_router
@@ -71,6 +74,7 @@ from app.services.assistant_service import (
 )
 from app.services.collection_service import AlreadyInvitedError, ShareNotFoundError
 from app.services.copied_collections import CopiedCollectionError
+from app.services.routine_runner import routine_scheduler
 from app.services.tool_service import (
     InvalidToolServerError,
     NothingToDecideError,
@@ -91,9 +95,11 @@ async def lifespan(application: FastAPI):
     check_secrets_configuration(SecretsSettings())
     async with mcp_lifespan(application):
         await agent_runner.start_up()
+        await routine_scheduler.start_up()
         try:
             yield
         finally:
+            await routine_scheduler.shut_down()
             await agent_runner.shut_down()
 
 
@@ -207,6 +213,7 @@ app.include_router(api_keys_router, prefix="/api")
 app.include_router(assistants_router, prefix="/api")
 app.include_router(health_router, prefix="/api")
 app.include_router(models_router, prefix="/api")
+app.include_router(notifications_router, prefix="/api")
 app.include_router(collections_router, prefix="/api")
 app.include_router(groups_router, prefix="/api")
 app.include_router(qa_pairs_router, prefix="/api")
@@ -251,6 +258,8 @@ app.include_router(internal_runs_router, prefix="/api")
 app.include_router(internal_prompts_router, prefix="/api")
 app.include_router(internal_tools_router, prefix="/api")
 app.include_router(tools_router, prefix="/api")
+app.include_router(routines_router, prefix="/api")
+app.include_router(admin_routines_router, prefix="/api")
 app.include_router(images_router, prefix="/api")
 app.include_router(image_attachments_router, prefix="/api")
 

@@ -72,6 +72,13 @@ class ExecutionOut(BaseModel):
     assumptions: EnergyAssumptions
 
 
+class RoutineUsage(BaseModel):
+    """What the routines asked of the agent (#524), apart from the rest: runs that were made, and their tokens."""
+
+    runs: int
+    total_tokens: int
+
+
 class UsageOut(BaseModel):
     days: int
     totals: UsageSums
@@ -81,3 +88,4 @@ class UsageOut(BaseModel):
     # Administrators only - always empty on a user's own report.
     by_user: list[UserUsage]
     execution: ExecutionOut
+    routines: RoutineUsage = RoutineUsage(runs=0, total_tokens=0)
