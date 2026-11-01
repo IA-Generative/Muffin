@@ -14,7 +14,7 @@ from app.schemas.notification import NotificationOut, NotificationPage, Preferen
 
 # What a person keeps at most: older ones go first.
 KEEP_PER_USER = 500
-# A person seen less than this long ago is not "seen" again: the look at the unread count is made every minute.
+# A person seen less than this long ago is not "seen" again: the look at the unread count is made every hour.
 SEEN_EVERY = timedelta(minutes=5)
 
 ROUTINE_COMPLETED = "routine.completed"
@@ -129,8 +129,8 @@ class NotificationService:
         )
 
     async def unread_count(self, user: RequestContext) -> int:
-        """The number the bell shows. Asked every minute while the application is open, so it is also what tells that
-        the person is there (the routines of someone who left are not kept running)."""
+        """The number the bell shows. Asked when the application opens and then every hour while it is open, so it is
+        also what tells that the person is there (the routines of someone who left are not kept running)."""
         await self.notifications.touch_profile(user.user_id, datetime.now(UTC) - SEEN_EVERY)
         count = await self.notifications.unread_count(user.user_id)
         await self.db.commit()

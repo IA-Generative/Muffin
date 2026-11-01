@@ -15,7 +15,7 @@ import ReportModal from './ReportModal.vue'
 
 const { version } = useAppVersion()
 const { openTutorial } = useOnboarding()
-// Le compteur de la cloche : relevé toutes les minutes tant que la barre latérale est là (voir useNotifications).
+// Le compteur de la cloche : relevé à l'ouverture puis toutes les heures tant que la barre latérale est là (voir useNotifications).
 const { unread, startWatching, stopWatching } = useNotifications()
 const showNotifications = ref(false)
 const showReleaseNotes = ref(false)

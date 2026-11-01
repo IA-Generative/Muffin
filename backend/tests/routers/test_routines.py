@@ -94,18 +94,24 @@ async def load(routine_id: str) -> Routine:
         return await session.get(Routine, uuid.UUID(routine_id))
 
 
-# --- off by default ---
+# --- on by default, and off when an administrator says so ---
 
 
-async def test_routines_are_off_until_an_administrator_turns_them_on(client):
-    status_before = (await client.get("/api/routines/status")).json()
+async def test_routines_are_on_by_default_and_an_administrator_can_turn_them_off(client):
+    status_default = (await client.get("/api/routines/status")).json()
+    made = await client.post("/api/routines", json=body())
+    become(ROOT, admin=True)
+    await client.patch("/api/admin/routines/settings", json={"enabled": False})
+    become(ALICE)
+    status_off = (await client.get("/api/routines/status")).json()
     refused = await client.post("/api/routines", json=body())
-    await enable()
-    status_after = (await client.get("/api/routines/status")).json()
+    run_refused = await client.post(f"/api/routines/{made.json()['id']}/run")
 
-    assert status_before["enabled"] is False and status_after["enabled"] is True
+    assert status_default["enabled"] is True and made.status_code == 201
+    assert status_off["enabled"] is False
     assert refused.status_code == 404 and refused.json()["detail"]["code"] == "fonction_desactivee"
-    assert (await client.get("/api/routines")).json() == []
+    assert run_refused.status_code == 404
+    assert [item["name"] for item in (await client.get("/api/routines")).json()] == ["Veille"]  # still listed
 
 
 async def test_the_status_tells_the_limits_and_what_the_person_has_used(client):

@@ -124,13 +124,14 @@ class RoutineRun(UUIDMixin, Base):
 
 
 class RoutineSettings(Base):
-    """The limits of the routines for the whole application (#524): one row (id is always 1), admin-only, **off by
-    default** - a routine spends model calls with nobody at the screen."""
+    """The limits of the routines for the whole application (#524): one row (id is always 1), admin-only, **on by
+    default** - an administrator turns the function off, or bounds it: a routine spends model calls with nobody at the
+    screen."""
 
     __tablename__ = "routine_settings"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
-    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     max_active_per_user: Mapped[int] = mapped_column(Integer, nullable=False, default=5, server_default="5")
     min_interval_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=60, server_default="60")
     max_runs_per_user_per_day: Mapped[int] = mapped_column(Integer, nullable=False, default=10, server_default="10")
