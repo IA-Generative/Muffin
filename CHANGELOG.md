@@ -1,5 +1,38 @@
 # Changelog
 
+## [0.41.0](https://github.com/IA-Generative/Muffin/compare/v0.40.1...v0.41.0) (2026-11-01)
+
+
+### Features
+
+* **admin:** état des secrets et rewrap après rotation de la clé ([c38f6d3](https://github.com/IA-Generative/Muffin/commit/c38f6d3891fe457945de3f1895352ddc56e25335)), closes [#521](https://github.com/IA-Generative/Muffin/issues/521)
+* **api:** exposer une API compatible OpenAI sous /v1 (modèles, chat, flux) ([25530e6](https://github.com/IA-Generative/Muffin/commit/25530e63276749864c7bee0e4274b89825130a6c))
+* **backend:** créer, lister et révoquer ses clés d'API ([d2eea0b](https://github.com/IA-Generative/Muffin/commit/d2eea0b7c83802f944f89b95c4d37a69a309028c))
+* **backend:** publier étapes, réponse et statut d'un run dans un flux Redis ([2518291](https://github.com/IA-Generative/Muffin/commit/25182918a6303cbf55af25b449425b157e54ab1b)), closes [#510](https://github.com/IA-Generative/Muffin/issues/510)
+* **backend:** rechercher dans les conversations de l'utilisateur ([388506a](https://github.com/IA-Generative/Muffin/commit/388506a5807fc6d99cd37f33314924c7fd530f52)), closes [#509](https://github.com/IA-Generative/Muffin/issues/509)
+* **backend:** suivre un run en direct par SSE (GET /runs/{id}/stream) ([30f5758](https://github.com/IA-Generative/Muffin/commit/30f57588818bb2e84d046aa0799bb9049e2f5d93)), closes [#510](https://github.com/IA-Generative/Muffin/issues/510)
+* **collections:** réglage du reclassement des résultats par collection ([#511](https://github.com/IA-Generative/Muffin/issues/511)) ([27281c3](https://github.com/IA-Generative/Muffin/commit/27281c3900fc58506fccc16fc6bcca6467bbb201))
+* **db:** marquer les conversations créées par l'API et les purger ([ce2d611](https://github.com/IA-Generative/Muffin/commit/ce2d611ad119273982ee19dbfea2cfda207a9f8c))
+* **db:** mots des messages et configuration française sans accents pour la recherche ([1d5fcfa](https://github.com/IA-Generative/Muffin/commit/1d5fcfa132fa4db73c9f254f3af6d62c649f602f)), closes [#509](https://github.com/IA-Generative/Muffin/issues/509)
+* **db:** stocker les secrets chiffrés, liés à leur ligne, avec rewrap ([ea76a56](https://github.com/IA-Generative/Muffin/commit/ea76a56589ec67a8f59f93ef05c50be722350753)), closes [#521](https://github.com/IA-Generative/Muffin/issues/521)
+* **db:** table des clés d'API, seul le condensat est gardé ([f0a656c](https://github.com/IA-Generative/Muffin/commit/f0a656ce7b4094e0de746c9a2abf30fea2968cc7))
+* **documents:** route qui renvoie le fichier d'origine d'un document ([df64221](https://github.com/IA-Generative/Muffin/commit/df6422107b677b44e726576b09aff41e5c4b42a2))
+* **frontend:** case du reclassement dans les réglages d'une collection ([#511](https://github.com/IA-Generative/Muffin/issues/511)) ([989e091](https://github.com/IA-Generative/Muffin/commit/989e091528fbc747e6046c61ac3ac6eef7df012d))
+* **frontend:** champ de recherche des conversations et accès au message trouvé ([592ffac](https://github.com/IA-Generative/Muffin/commit/592ffac15061c51e9d185390b39f4f3573aacf6a)), closes [#509](https://github.com/IA-Generative/Muffin/issues/509)
+* **frontend:** liens du fichier d'un document et saisie d'un numéro de page ([e31dc5d](https://github.com/IA-Generative/Muffin/commit/e31dc5de8bf07d0419fa17e1cc8f137298a5b2e6))
+* **frontend:** page des clés d'API dans le menu utilisateur ([fdb3593](https://github.com/IA-Generative/Muffin/commit/fdb3593c9393ebd7e605e858a0f8ea226aaf7090))
+* **frontend:** suivre un run par le flux, repli sur l'interrogation ([f6d809e](https://github.com/IA-Generative/Muffin/commit/f6d809e5cf2fcdf6e0afebe71164e9155b35882b)), closes [#510](https://github.com/IA-Generative/Muffin/issues/510)
+* **frontend:** télécharger le fichier, l'ouvrir à la page, parcourir toutes les pages ([5ab8190](https://github.com/IA-Generative/Muffin/commit/5ab819068106079d1ade6675f76a06c9d22e5e55))
+* **mcp:** appeler le serveur MCP avec une clé d'API (portée search) ([cd05077](https://github.com/IA-Generative/Muffin/commit/cd050773475a79ea8a0ae13d7b9b4fbce19cf5e9))
+* **search:** reclasser les passages avec un service /rerank, cosinus conservé ([0b69c9c](https://github.com/IA-Generative/Muffin/commit/0b69c9c881d3db471e560004ab03405fe5650997))
+* **security:** format, checksum et hachage HMAC des clés d'API personnelles ([028168b](https://github.com/IA-Generative/Muffin/commit/028168b76c45e85da02c205ffbff85f4cc5e9f93))
+* **security:** fournisseurs de chiffrement des secrets, Vault Transit et jeu de clés local ([afa222d](https://github.com/IA-Generative/Muffin/commit/afa222de84443540cde996cd412409f5b9a04806)), closes [#521](https://github.com/IA-Generative/Muffin/issues/521)
+
+
+### Bug Fixes
+
+* **frontend:** le champ de page, le titre et le libellé du fichier restent lisibles ([86eed89](https://github.com/IA-Generative/Muffin/commit/86eed89295db05aae38f83bdb452ae7e41799731))
+
 ## [0.41.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.40.1...v0.41.0-rc) (2026-11-01)
 
 
