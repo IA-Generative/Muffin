@@ -25,6 +25,7 @@ from app.services.assistant_service import AssistantService
 from app.services.document_upload_service import _uploader_display
 from app.services.image_attachment_service import ImageAttachmentService
 from app.services.image_generation_service import ImageGenerationService
+from app.services.memory_learning_service import MemoryLearningService
 from app.services.tool_service import ToolService
 
 # Module attribute (not closed over) so tests can change the limit with monkeypatch.setattr.
@@ -313,6 +314,8 @@ class RunService:
             added_source_ids,
         )
         await self.db.commit()
+        # What this 👍/👎 teaches of the style the person likes (#285) is in memory before their next question.
+        await MemoryLearningService(self.db).learn(user.user_id)
         return FeedbackOut(
             id=feedback.id,
             message_id=feedback.message_id,

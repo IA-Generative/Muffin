@@ -134,10 +134,14 @@ class MemoryService:
         item = await self.memories.get(user.user_id, item_id)
         if item is None:
             raise MemoryItemNotFoundError
+        if item.origin == MemoryOrigin.INFERRED:
+            # What the person removes of what was learned does not come back with the next 👍 (#285).
+            await self.memories.forget_learning_before_now(user.user_id)
         await self.memories.delete(item)
         await self.db.commit()
 
     async def delete_all(self, user: RequestContext) -> int:
+        await self.memories.forget_learning_before_now(user.user_id)
         count = await self.memories.delete_all(user.user_id)
         await self.db.commit()
         return count
