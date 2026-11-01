@@ -14,6 +14,9 @@ Le même dessin en Mermaid, que GitHub affiche directement :
 ```mermaid
 flowchart TD
     prepare[prepare]
+    guardrails[guardrails]
+    prepare_request[prepare_request]
+    blocked[blocked]
     plan[plan]
     answer_help[answer_help]
     research_task[research_task]
@@ -35,6 +38,12 @@ flowchart TD
     __start__(( début ))
     __end__(( fin ))
     __start__ --> prepare
+    __start__ --> guardrails
+    prepare --> prepare_request
+    guardrails --> prepare_request
+    prepare_request -.-> plan
+    prepare_request -.-> blocked
+    blocked --> __end__
     answer_help -.-> __end__
     build_answer_context -.-> generate_answer
     gate -.-> build_answer_context
@@ -47,7 +56,6 @@ flowchart TD
     plan -.-> edit__edit_resolve
     plan -.-> gate
     plan -.-> research_task
-    prepare -.-> plan
     research_task --> merge_evidence
     widen_search -.-> build_answer_context
     widen_search -.-> research_task
@@ -72,7 +80,10 @@ Relevé dans le code. « HTTP » compte les appels au backend (`GET` d'annulatio
 
 | Nœud | Vient de → va vers | Ce qu'il fait exactement | Appels LLM | Autre chose utilisée |
 |---|---|---|---|---|
-| `prepare` | début → `plan` | Charge les collections accessibles (la barrière de permission). Si le message contient un verbe de modification ou de création, charge ce que l'utilisateur peut modifier / où il peut créer. Au-delà de 20 collections, le catalogue du plan est réduit par le pré-filtre vectoriel. | 0 | Backend : collections, documents modifiables, collections de création ; Qdrant : pré-filtre |
+| `prepare` | début → `prepare_request` | Charge les collections accessibles (la barrière de permission). **Ne lit aucun texte** : il part en même temps que `guardrails`. | 0 | Backend : collections |
+| `guardrails` | début → `prepare_request` | **Garde-fous d'entrée (#516).** Demande au backend ce que les garde-fous décident de la demande (`docs/guardrails.md`) : continuer, continuer masquée, continuer avec un avertissement, ou bloquer. Quand la demande est masquée, `original_query`, `contextualized_query` et le dernier message deviennent le texte masqué. Les événements ne portent que des comptes. Sans garde-fou actif, une seule requête sans appel de modèle. Un contrôle qui ne peut pas être fait fait échouer le run (il n'est pas « passé »). | 0 (1 par garde-fou de type modèle, en parallèle) | Backend : garde-fous ; hub : juges ; services externes |
+| `prepare_request` | `prepare` + `guardrails` → `plan` / `blocked` | Attend les deux, puis lit la demande **telle que les garde-fous l'ont laissée** : charge ce que l'utilisateur peut modifier / où il peut créer si elle contient un tel verbe, les outils qu'il peut utiliser, et réduit le catalogue du plan par le pré-filtre vectoriel au-delà de 20 collections. Si la demande est bloquée, il ne fait rien : ni plongement du texte, ni appel d'outils. | 0 | Backend : documents modifiables, collections de création, outils ; Qdrant : pré-filtre |
+| `blocked` | `prepare_request` → fin | La demande a été arrêtée : la réponse est le refus des garde-fous (jamais la règle), sans source. Le run est **terminé**, pas en échec. Aucun modèle, aucune recherche, aucun appel au web. | 0 | — |
 | `plan` | `prepare` → fin / `answer_help` / `edit` / `create` / `research_task` | **L'appel n°1.** Lit le message, les 6 derniers tours et le catalogue ; rend un JSON : `mode` (`direct`, `clarify`, `help`, `edit`, `create`, `search`) et, pour `search`, la question autonome, 1 à 4 requêtes avec leur outil, les collections et la complexité. `direct` et `clarify` portent la réponse : le run s'arrête là. Valide tout contre les listes du backend. | **1** | `get_prompt` |
 | `answer_help` | `plan` → fin | Répond à « comment faire dans Muffin » avec le guide intégré. | 1 | `get_prompt` |
 | `edit` (sous-graphe) | `plan` → fin | `edit_resolve` valide le document choisi ou explique pourquoi pas ; `edit_request` demande à l'agent d'édition ; `edit_wait` suit le brouillon toutes les 2 s (300 s au plus) ; `edit_report` résume la proposition. N'écrit rien dans la collection. | 0 | Backend, worker `document_edit` |
@@ -96,6 +107,8 @@ Relevé dans le code. « HTTP » compte les appels au backend (`GET` d'annulatio
 | Question complexe | 2, puis 1 après coup (`ground_check`) |
 | Modification d'un document | 1 (`plan`) |
 | Création d'un document | 2 (`plan`, `create_write`) |
+| Demande arrêtée par un garde-fou d'entrée | 0 (`blocked`) |
+| Garde-fou d'entrée de type modèle | +1 par garde-fou, en parallèle de `prepare`, avant `plan` |
 | Hors graphe, après `completed` | titre de la conversation : +1 |
 
 Hors boucle SQL de `tabular_query`, qui garde son propre budget de tours.
@@ -108,3 +121,5 @@ uv run python scripts/draw_graph.py
 ```
 
 La liste des nœuds qui appellent un LLM (`LLM_NODES`) est écrite à la main dans le script : elle est à tenir à jour avec `app/graph/nodes`.
+
+> Le script de dessin n'est plus dans le dépôt : le **Mermaid** ci-dessus est à jour des garde-fous d'entrée (#516), pas le PNG.
