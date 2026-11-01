@@ -63,8 +63,8 @@ async function saved() {
     <p class="tools-view__intro">
       Le chat peut appeler des <strong>outils</strong> : ceux de Muffin (calcul, dates) et ceux des <strong>serveurs MCP</strong> que
       vous ajoutez. Il les appelle <strong>en votre nom</strong>, avec un quota, et chaque appel est journalisé sans ses arguments ni sa
-      réponse. Un outil qui <strong>modifie des données</strong> n’est jamais appelé sans votre accord : cet accord n’existe pas encore,
-      ces outils sont donc listés mais pas utilisables.
+      réponse. Un outil qui <strong>modifie des données</strong> n’est jamais appelé sans votre accord : l’assistant le <strong>propose</strong>
+      dans la discussion, avec ses arguments, et ne le lance que si vous l’autorisez.
     </p>
     <p v-if="toolError && !editing" class="tools-view__error" role="alert">{{ toolError }}</p>
 
@@ -121,7 +121,7 @@ async function saved() {
               <ul v-if="server.tools.length" class="tools-view__tools">
                 <li v-for="tool in server.tools.filter(matches)" :key="tool.ref" class="tools-view__tool">
                   <strong>{{ tool.name }}</strong>
-                  <span v-if="tool.sideEffect" class="tools-view__badge" :title="tool.reason ?? ''">modifie des données · pas encore appelable</span>
+                  <span v-if="tool.sideEffect" class="tools-view__badge" :title="tool.reason ?? ''">modifie des données · votre accord est demandé</span>
                   <span class="tools-view__description">{{ tool.description }}</span>
                 </li>
               </ul>

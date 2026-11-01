@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 from app.models.feedback import FeedbackValue
 from app.schemas.question import Question, QuestionAnswer
+from app.schemas.tool import ToolProposalOut
 
 
 class ConversationOut(BaseModel):
@@ -56,3 +57,5 @@ class MessageOut(BaseModel):
     feedback: FeedbackValue | None = None
     # The assistant the run behind this message was made with (#514), as it was named then.
     assistant_name: str | None = None
+    # The requests to run a tool that changes data that the run behind this message made (#343).
+    tool_calls: list[ToolProposalOut] = []

@@ -1,6 +1,7 @@
 """The tools the chat may call (#343): who sees which server and tool, what a call may do, and what is kept of it."""
 
 import uuid
+from unittest.mock import patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -17,6 +18,7 @@ from app.models.message import Message, MessageRole
 from app.models.run import Run
 from app.models.stored_secret import StoredSecret
 from app.models.tool import Tool, ToolCallLog, ToolServer
+from app.repositories.conversation_repository import ConversationRepository
 from app.services import tool_service
 from app.services.tools import mcp_client
 from app.services.tools.mcp_client import RemoteResult, RemoteTool, ToolServerError
@@ -72,6 +74,9 @@ def remote(monkeypatch):
 async def client(monkeypatch, remote):
     monkeypatch.setattr(secret_store, "_provider", LocalProvider([("k1", bytes([1]) * 32)]))
     monkeypatch.setattr(worker_auth._worker_settings, "WORKER_API_KEY", WORKER_KEY)
+    # The counters live in Redis, across tests: the quota tests set their own limits, the others must not meet them.
+    monkeypatch.setattr(tool_service._settings, "TOOLS_CALLS_PER_USER_PER_MINUTE", 100_000)
+    monkeypatch.setattr(tool_service._settings, "TOOLS_CALLS_PER_RUN", 100_000)
     app.dependency_overrides[get_current_user] = _as(ALICE)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as http:
         yield http
@@ -297,25 +302,26 @@ async def test_a_server_switched_off_offers_nothing_but_stays_with_its_owner(cli
 # --- what the chat is offered ---
 
 
-async def test_the_catalogue_of_muffin_and_the_servers_tools_are_listed_with_why_one_is_not_available(client):
+async def test_the_catalogue_of_muffin_and_the_servers_tools_are_listed_and_the_ones_that_change_data_flagged(client):
     server = await add_server(client)
 
     tools = {t["name"]: t for t in (await client.get("/api/tools")).json()}
 
     assert tools["calculatrice"]["available"] and tools["calcul_dates"]["available"]
     assert tools["chercher"]["available"] and tools["chercher"]["server_name"] == "Dossiers"
-    assert tools["supprimer"]["available"] is False and "modifie des données" in tools["supprimer"]["reason"]
+    # A tool that changes data is offered too: it is proposed to the person, who decides.
+    assert tools["supprimer"]["available"] is True and tools["supprimer"]["side_effect"] is True
     assert tools["supprimer"]["ref"] == ref_of(server, "supprimer")
 
 
-async def test_what_the_model_is_given_leaves_out_what_changes_data_and_is_bounded(client, monkeypatch):
+async def test_what_the_model_is_given_says_which_tools_change_data_and_is_bounded(client, monkeypatch):
     await add_server(client)
     run_id, _ = await make_run()
 
     names = [t["name"] for t in (await _definitions(client, run_id))]
     monkeypatch.setattr(tool_service._settings, "TOOLS_OFFERED_MAX", 2)
 
-    assert names == ["calculatrice", "calcul_dates", "chercher"]
+    assert names == ["calculatrice", "calcul_dates", "chercher", "supprimer"]
     assert len(await _definitions(client, run_id)) == 2
 
 
@@ -386,15 +392,6 @@ async def test_arguments_that_do_not_fit_the_schema_are_refused_before_the_serve
     assert remote.calls == [] and wrong_calculation["code"] == "arguments_invalides"
 
 
-async def test_a_tool_that_changes_data_is_never_called_without_approval(client, remote):
-    server = await add_server(client)
-    run_id, _ = await make_run()
-
-    result = await call(client, run_id, ref_of(server, "supprimer"), {"q": "dossier 12"})
-
-    assert (result["ok"], result["code"]) == (False, "confirmation_requise") and remote.calls == []
-
-
 async def test_a_name_that_is_not_a_tool_is_not_one(client):
     run_id, _ = await make_run()
 
@@ -458,8 +455,9 @@ async def test_a_run_may_call_a_few_tools_and_past_that_the_answer_is_a_code_not
 async def test_a_person_has_a_quota_per_minute_across_their_runs(client, monkeypatch):
     monkeypatch.setattr(tool_service._settings, "TOOLS_CALLS_PER_USER_PER_MINUTE", 3)
     codes = []
+    person = f"quota-{uuid.uuid4()}"  # the counter is kept in Redis for the minute: a person of this test alone
     for _ in range(5):
-        run_id, _ = await make_run("quota-person")
+        run_id, _ = await make_run(person)
         codes.append((await call(client, run_id, "internal.calculatrice", {"expression": "1+1"}))["code"])
 
     assert codes == ["ok", "ok", "ok", "quota_depasse", "quota_depasse"]
@@ -488,3 +486,253 @@ async def test_the_journal_keeps_who_what_how_long_and_how_it_ended_and_never_th
     assert all(row.run_id == run_id and row.duration_ms >= 0 for row in rows)
     everything = " ".join(str(value) for row in rows for value in vars(row).values())
     assert "DONNEE-PERSONNELLE" not in everything and "7006" not in everything and "dossier 12" not in everything
+
+
+# --- tools that change data: the person decides (#343) ---
+
+
+async def decide(client, run_id, approve: bool):
+    return await client.post(f"/api/runs/{run_id}/tool-calls/decision", json={"approve": approve})
+
+
+async def proposals(client, conversation_id) -> list[dict]:
+    response = await client.get(f"/api/conversations/{conversation_id}/tool-calls")
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+async def messages_of(conversation_id) -> list[str]:
+    async with async_session_factory() as session:
+        query = select(Message).where(Message.conversation_id == conversation_id).order_by(Message.created_at)
+        rows = (await session.execute(query)).scalars().all()
+    return [row.content for row in rows]
+
+
+async def test_a_call_to_a_tool_that_changes_data_runs_nothing_and_becomes_a_request_in_the_conversation(
+    client, remote
+):
+    server = await add_server(client)
+    run_id, conversation_id = await make_run()
+
+    result = await call(client, run_id, ref_of(server, "supprimer"), {"q": "dossier 12"})
+
+    assert (result["ok"], result["code"]) == (False, "confirmation_demandee") and result["proposal_id"]
+    assert remote.calls == []
+    [waiting] = await proposals(client, conversation_id)
+    assert (waiting["status"], waiting["tool_name"], waiting["server_name"]) == ("pending", "supprimer", "Dossiers")
+    assert waiting["arguments"] == {"q": "dossier 12"} and waiting["run_id"] == str(run_id)
+
+
+async def test_the_arguments_are_checked_before_a_request_is_made(client, remote):
+    server = await add_server(client)
+    run_id, conversation_id = await make_run()
+
+    result = await call(client, run_id, ref_of(server, "supprimer"), {"q": 12})
+
+    assert result["code"] == "arguments_invalides" and await proposals(client, conversation_id) == []
+
+
+async def test_authorising_runs_the_tool_once_and_writes_the_outcome_in_the_conversation(client, remote):
+    server = await add_server(client)
+    run_id, conversation_id = await make_run()
+    await call(client, run_id, ref_of(server, "supprimer"), {"q": "dossier 12"})
+    remote.result = RemoteResult(text="dossier 12 supprimé", is_error=False, truncated=False)
+
+    first = await decide(client, run_id, True)
+    second = await decide(client, run_id, True)
+    third = await decide(client, run_id, False)
+
+    assert first.status_code == 200 and first.json()[0]["status"] == "executed"
+    assert first.json()[0]["result_code"] == "ok"
+    assert remote.calls == [(PUBLIC, None, "supprimer", {"q": "dossier 12"})]
+    assert (second.status_code, third.status_code) == (409, 409)  # a second click or a second tab runs nothing
+    outcome = (await messages_of(conversation_id))[-1]
+    assert "a été exécuté avec votre accord" in outcome and "dossier 12 supprimé" in outcome and "```" in outcome
+
+
+async def test_refusing_runs_nothing_and_says_so_in_the_conversation(client, remote):
+    server = await add_server(client)
+    run_id, conversation_id = await make_run()
+    await call(client, run_id, ref_of(server, "supprimer"), {"q": "dossier 12"})
+
+    refused = await decide(client, run_id, False)
+    late = await decide(client, run_id, True)
+
+    assert refused.json()[0]["status"] == "refused" and remote.calls == [] and late.status_code == 409
+    assert "Vous avez refusé" in (await messages_of(conversation_id))[-1]
+
+
+async def test_the_requests_of_one_turn_are_decided_together_and_the_outcome_is_one_message(client, remote):
+    server = await add_server(client)
+    run_id, conversation_id = await make_run()
+    await call(client, run_id, ref_of(server, "supprimer"), {"q": "dossier 1"})
+    await call(client, run_id, ref_of(server, "supprimer"), {"q": "dossier 2"})
+    before = len(await messages_of(conversation_id))
+
+    decided = await decide(client, run_id, True)
+
+    assert [c["status"] for c in decided.json()] == ["executed", "executed"]
+    assert [call_[3] for call_ in remote.calls] == [{"q": "dossier 1"}, {"q": "dossier 2"}]
+    outcome = await messages_of(conversation_id)
+    assert len(outcome) == before + 1 and outcome[-1].count("a été exécuté") == 2
+
+
+async def test_what_the_server_answers_cannot_break_out_of_its_block_and_a_failure_is_said_with_its_code(
+    client, remote, monkeypatch
+):
+    server = await add_server(client)
+    run_id, conversation_id = await make_run()
+    await call(client, run_id, ref_of(server, "supprimer"), {"q": "a"})
+    await call(client, run_id, ref_of(server, "supprimer"), {"q": "b"})
+    results = iter(
+        [
+            RemoteResult(text="fin ```\n# Titre <script>alert(1)</script>", is_error=False, truncated=True),
+            RemoteResult(text="dossier verrouillé", is_error=True, truncated=False),
+        ]
+    )
+
+    async def call_tool(url, token, name, arguments):
+        return next(results)
+
+    monkeypatch.setattr(mcp_client, "call_tool", call_tool)
+    decided = (await decide(client, run_id, True)).json()
+
+    text = (await messages_of(conversation_id))[-1]
+    assert [c["status"] for c in decided] == ["executed", "failed"] and decided[1]["result_code"] == "erreur_outil"
+    assert "```\n# Titre" not in text and "'''" in text and "[résultat tronqué]" in text
+    assert "n'a pas pu être exécuté (erreur_outil) : dossier verrouillé" in text
+
+
+async def test_what_is_authorised_runs_with_the_rights_the_person_has_now(client, remote):
+    server = await add_server(client)
+    run_id, conversation_id = await make_run()
+    await call(client, run_id, ref_of(server, "supprimer"), {"q": "x"})
+    await client.patch(f"/api/tool-servers/{server['id']}", json={"enabled": False})  # switched off since
+
+    decided = (await decide(client, run_id, True)).json()
+
+    assert decided[0]["status"] == "failed" and decided[0]["result_code"] == "outil_indisponible"
+    assert remote.calls == []
+    assert "n'a pas pu être exécuté (outil_indisponible)" in (await messages_of(conversation_id))[-1]
+
+
+async def test_a_tool_removed_for_the_conversation_since_is_not_run_either(client, remote):
+    server = await add_server(client)
+    run_id, conversation_id = await make_run()
+    supprimer = ref_of(server, "supprimer")
+    await call(client, run_id, supprimer, {"q": "x"})
+    await client.put(f"/api/conversations/{conversation_id}/tools", json={"disabled_refs": [supprimer]})
+
+    decided = (await decide(client, run_id, True)).json()
+
+    assert decided[0]["status"] == "failed" and remote.calls == []
+
+
+async def test_a_server_no_longer_shared_cannot_be_used_through_an_old_request(client, remote):
+    become(ALICE, ["/rh"])
+    server = await add_server(client, visibility="groups", group_ids=["/rh"])
+    become(BOB, ["/rh"])
+    run_id, _ = await make_run(BOB, ["/rh"])
+    await call(client, run_id, ref_of(server, "supprimer"), {"q": "x"})
+    become(ALICE, ["/rh"])
+    await client.patch(f"/api/tool-servers/{server['id']}", json={"visibility": "private"})
+    become(BOB, ["/rh"])
+
+    decided = (await decide(client, run_id, True)).json()
+
+    assert decided[0]["status"] == "failed" and remote.calls == []
+
+
+async def test_nobody_decides_the_requests_of_someone_else(client, remote):
+    server = await add_server(client)
+    run_id, conversation_id = await make_run()
+    await call(client, run_id, ref_of(server, "supprimer"), {"q": "x"})
+    become(BOB)
+
+    assert (await decide(client, run_id, True)).status_code == 404
+    assert (await decide(client, uuid.uuid4(), True)).status_code == 404
+    assert await proposals(client, conversation_id) == []
+    become(ALICE)
+    assert [p["status"] for p in await proposals(client, conversation_id)] == ["pending"] and remote.calls == []
+
+
+async def test_writing_something_else_abandons_what_was_waiting(client, remote):
+    server = await add_server(client)
+    run_id, conversation_id = await make_run()
+    await call(client, run_id, ref_of(server, "supprimer"), {"q": "x"})
+
+    with patch("app.services.run_service.agent_runner.start"):
+        body = {"query": "Autre chose ?", "conversation_id": str(conversation_id)}
+        again = await client.post("/api/runs", json=body)
+
+    assert again.status_code == 202
+    assert [p["status"] for p in await proposals(client, conversation_id)] == ["superseded"]
+    assert (await decide(client, run_id, True)).status_code == 409 and remote.calls == []
+
+
+async def test_a_request_nobody_decided_in_time_expires_and_runs_nothing(client, remote, monkeypatch):
+    server = await add_server(client)
+    run_id, conversation_id = await make_run()
+    await call(client, run_id, ref_of(server, "supprimer"), {"q": "x"})
+    monkeypatch.setattr(tool_service._settings, "TOOLS_PENDING_HOURS", 0)
+
+    late = await decide(client, run_id, True)
+
+    assert late.status_code == 409 and remote.calls == []
+    assert [p["status"] for p in await proposals(client, conversation_id)] == ["expired"]
+
+
+async def test_a_person_cannot_pile_up_requests(client, remote, monkeypatch):
+    monkeypatch.setattr(tool_service._settings, "TOOLS_PENDING_PER_USER", 1)
+    server = await add_server(client)
+    run_id, _ = await make_run()
+    other_run, _ = await make_run()
+
+    first = await call(client, run_id, ref_of(server, "supprimer"), {"q": "x"})
+    second = await call(client, other_run, ref_of(server, "supprimer"), {"q": "y"})
+
+    assert first["code"] == "confirmation_demandee" and second["code"] == "quota_depasse"
+
+
+async def test_authorising_does_not_use_up_the_quota_of_the_run(client, remote, monkeypatch):
+    monkeypatch.setattr(tool_service._settings, "TOOLS_CALLS_PER_RUN", 1)
+    server = await add_server(client)
+    run_id, _ = await make_run()
+    await call(client, run_id, ref_of(server, "supprimer"), {"q": "x"})  # the one call of the run
+
+    decided = (await decide(client, run_id, True)).json()
+
+    assert decided[0]["status"] == "executed"
+
+
+async def test_the_requests_are_shown_with_the_message_of_the_run_that_made_them(client, remote):
+    server = await add_server(client)
+    run_id, conversation_id = await make_run()
+    await call(client, run_id, ref_of(server, "supprimer"), {"q": "x"})
+    async with async_session_factory() as session:
+        await ConversationRepository(session).add_message(
+            conversation_id, MessageRole.ASSISTANT, "Je propose de supprimer le dossier.", run_id=run_id
+        )
+        await session.commit()
+
+    messages = (await client.get(f"/api/conversations/{conversation_id}/messages")).json()
+    run = (await client.get(f"/api/runs/{run_id}")).json()
+
+    assert [m["tool_calls"] for m in messages if m["role"] == "user"] == [[]]
+    [asked] = [m for m in messages if m["role"] == "assistant"]
+    assert [c["status"] for c in asked["tool_calls"]] == ["pending"]
+    assert asked["tool_calls"][0]["arguments"] == {"q": "x"}
+    assert [c["tool_name"] for c in run["tool_calls"]] == ["supprimer"]
+
+
+async def test_the_journal_tells_the_request_and_the_decision_and_never_the_arguments(client, remote):
+    server = await add_server(client)
+    run_id, _ = await make_run()
+    await call(client, run_id, ref_of(server, "supprimer"), {"q": "DONNEE-PERSONNELLE-DUPONT"})
+
+    await decide(client, run_id, True)
+
+    async with async_session_factory() as session:
+        rows = (await session.execute(select(ToolCallLog).order_by(ToolCallLog.created_at))).scalars().all()
+    assert [row.outcome for row in rows] == ["confirmation_demandee", "ok"]
+    assert "DONNEE-PERSONNELLE" not in " ".join(str(value) for row in rows for value in vars(row).values())

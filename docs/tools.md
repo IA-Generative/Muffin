@@ -73,14 +73,14 @@ Tout est vérifié **côté backend**, pour **la personne du run** (lue sur le r
 
 1. L'outil doit être **offert à cette personne maintenant** (ses serveurs, ceux partagés avec elle, ceux de Muffin, moins ce qu'elle a retiré). Nommer un outil
    qu'on ne lui offre pas ne le rend pas appelable.
-2. Un outil qui **modifie des données** n'est **jamais appelé** : `confirmation_requise` (voir plus bas).
+2. Un outil qui **modifie des données** n'est **jamais lancé par l'agent** : l'appel devient une demande d'accord (`confirmation_demandee`, voir « L'accord de la personne »).
 3. Les arguments doivent **correspondre au schéma** de l'outil (validés par le planificateur et de nouveau par le backend), et rester courts.
 4. Les **quotas** : `TOOLS_CALLS_PER_RUN` par run, `TOOLS_CALLS_PER_USER_PER_MINUTE` par personne.
 5. La **réponse est bornée** (`TOOLS_OUTPUT_MAX_CHARS`, le reste est coupé et signalé) ; ce qui n'est pas du texte est omis ; les descriptions et les schémas
    que le serveur envoie sont bornés aussi.
 
 **Un appel ne lève jamais d'erreur** : il répond un résultat avec un code qui ne change pas — `ok`, `quota_depasse`, `outil_indisponible`,
-`arguments_invalides`, `confirmation_requise`, `url_refusee`, `serveur_injoignable`, `delai_depasse`, `erreur_outil`. Ce que le réseau a dit d'une panne n'est pas
+`arguments_invalides`, `confirmation_demandee`, `url_refusee`, `serveur_injoignable`, `delai_depasse`, `erreur_outil`. Ce que le réseau a dit d'une panne n'est pas
 transmis.
 
 ### Les descriptions viennent de tiers
@@ -102,10 +102,25 @@ d'utiliser. La liste n'est modifiable qu'une fois la conversation créée (aprè
 Chaque appel écrit **qui, quel outil, quel serveur, combien de temps, comment ça s'est fini** (`tool_call_logs`) — **jamais les arguments ni la réponse**, qui
 peuvent contenir des données personnelles. La création, la modification et la suppression d'un serveur sont journalisées (qui, quoi, jamais le jeton).
 
+## L'accord de la personne
+
+Un outil qui **modifie des données** n'est jamais lancé par l'agent. Un outil MCP est considéré comme modifiant des données tant que son serveur ne dit pas
+qu'il est en lecture seule (`readOnlyHint`). Quand le planificateur en choisit un, les arguments sont vérifiés comme pour les autres, puis l'appel devient une
+**demande** (`chat_tool_calls`) : l'agent répond que **rien n'a été exécuté** et la discussion affiche une carte avec l'outil, son serveur et les arguments
+exacts, avec **Autoriser** et **Refuser**.
+
+- **Rien n'attend** : pas de tâche ni de connexion ouverte. La personne décide quand elle veut ; la décision lance l'outil (`POST /api/runs/{id}/tool-calls/decision`,
+  `{"approve": true|false}`), pour **toutes** les demandes du tour ensemble.
+- **Une seule fois** : chaque demande est réservée par une mise à jour conditionnelle ; un second clic ou un second onglet reçoit `409` et ne lance rien.
+- **Avec les droits d'aujourd'hui** : ce qui est autorisé est appelé avec les droits que la personne a *maintenant* (outil retiré de la conversation, serveur
+  désactivé ou plus partagé depuis : non lancé, dit `outil_indisponible`), les quotas et la garde d'adresse s'appliquent comme pour tout appel.
+- **Le résultat est un message de la discussion** (refusé, exécuté, ou échoué avec son code). La réponse du serveur y est dans un bloc de code qu'elle ne peut
+  pas fermer, bornée comme toute réponse ; le tour suivant la lit avec la conversation.
+- **Elle ne s'accumule pas** : une demande expire après `TOOLS_PENDING_HOURS` (24 h), n'est plus valable si la personne écrit autre chose
+  (`superseded`), et au plus `TOOLS_PENDING_PER_USER` (20) attendent par personne.
+- `GET /api/conversations/{id}/tool-calls` liste les demandes (et leur état) ; chaque message de la conversation porte celles de son run (`tool_calls`).
+
 ## Pas encore
 
-- **Les outils qui modifient des données.** Ils sont importés et listés (« modifie des données · pas encore appelable ») mais **jamais exécutés** : l'accord de
-  la personne (une demande qui reste dans la discussion, qu'elle autorise ou refuse quand elle veut) est une prochaine étape. Un outil MCP est considéré comme
-  modifiant des données tant que son serveur ne dit pas qu'il est en lecture seule (`readOnlyHint`).
 - L'échange de jeton Keycloak, un serveur par personne dans un groupe de travail, le choix des outils par une recherche hybride sur leur description (#530),
   l'appel d'un outil en plusieurs tours, la limite par assistant d'un outil précis (un assistant coupe tous les outils ou aucun).

@@ -10,6 +10,7 @@ import { toPlainText } from '../utils/plainText'
 import ChatCreateProposal from './ChatCreateProposal.vue'
 import ChatEditProposal from './ChatEditProposal.vue'
 import ChatQuestions from './ChatQuestions.vue'
+import ChatToolCalls from './ChatToolCalls.vue'
 import FeedbackModal from './FeedbackModal.vue'
 
 const props = defineProps<{
@@ -450,6 +451,12 @@ onBeforeUnmount(() => {
       </p>
       <button type="button" class="fr-btn fr-btn--sm fr-btn--secondary" @click="goFurther()">Aller plus loin</button>
     </div>
+
+    <!-- Tools that change data (#343): nothing ran; the person authorises or refuses. -->
+    <ChatToolCalls
+      v-if="message.role === 'assistant' && message.toolCalls?.length && message.runId && !message.pending"
+      :message="message"
+    />
 
     <ChatEditProposal
       v-if="message.role === 'assistant' && message.editProposal && !message.pending"

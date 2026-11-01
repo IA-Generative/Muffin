@@ -64,7 +64,7 @@ from app.models.stored_secret import StoredSecret
 from app.models.task import Task
 from app.models.task_log_entry import TaskLogEntry
 from app.models.token_usage import TokenUsage, TokenUsageKind, UserProfile
-from app.models.tool import Tool, ToolCallLog, ToolServer
+from app.models.tool import ChatToolCall, Tool, ToolCallLog, ToolServer
 
 __all__ = [
     "ApiKey",
@@ -75,6 +75,7 @@ __all__ = [
     "CguAcceptance",
     "CguVersion",
     "Chart",
+    "ChatToolCall",
     "Chunk",
     "ChunkingStrategy",
     "Collection",
