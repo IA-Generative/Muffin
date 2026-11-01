@@ -16,7 +16,7 @@ from app.repositories.collection_repository import CollectionRepository
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.qa_pair_repository import QaPairRepository
 from app.schemas.collection import CollectionPathItem
-from app.services import vector_store
+from app.services import reranker, vector_store
 from app.services.embedding_model_lookup import default_embedding_model
 
 # Module attribute (not closed over), same reasoning as app/routers/internal_llm.py: tests
@@ -45,6 +45,9 @@ class SearchService:
         self.hierarchy = CollectionHierarchyRepository(db)
         self.qa_pairs = QaPairRepository(db)
         self.documents = DocumentRepository(db)
+        # The rating the reranking service gave each passage of the last `search`, by chunk id: empty when it did not
+        # rerank. Beside the results rather than in them, which are read as (chunk, document, collection, cosine).
+        self.rerank_scores: dict[uuid.UUID, float] = {}
 
     async def resolve_scope(self, collection_ids: list[uuid.UUID], include_descendants: bool) -> list[uuid.UUID]:
         """The collections a search actually queries (#217). Opt-in, never implied: each
@@ -81,8 +84,13 @@ class SearchService:
     async def search(
         self, collection_ids: list[uuid.UUID], query: str, limit: int
     ) -> Sequence[tuple[Chunk, str, uuid.UUID, float]]:
+        self.rerank_scores = {}
         if _openai_client is None:
             return []
+
+        # Reranking (#511) reads more passages than are kept, when a collection of the search asks for it.
+        rerank = reranker.is_enabled() and bool(await self.collections.rerank_enabled_ids(collection_ids))
+        fetch = max(limit, reranker.candidates()) if rerank else limit
 
         models_by_collection = await self.collections.get_embedding_models(collection_ids)
         collections_by_model: dict[str, list[uuid.UUID]] = defaultdict(list)
@@ -104,17 +112,17 @@ class SearchService:
             for collection_id in collections_for_model:
                 if collection_id in copied:
                     name = vector_store.external_collection_name(copied[collection_id][1])
-                    hits = vector_store.search_external(name, query_embedding, limit)
+                    hits = vector_store.search_external(name, query_embedding, fetch)
                 else:
-                    hits = vector_store.search(collection_id, query, query_embedding, limit)
+                    hits = vector_store.search(collection_id, query, query_embedding, fetch)
                 for chunk_id, score in hits:
                     scored_ids[chunk_id] = max(score, scored_ids.get(chunk_id, float("-inf")))
 
-        top_ids = sorted(scored_ids, key=lambda chunk_id: scored_ids[chunk_id], reverse=True)[:limit]
+        top_ids = sorted(scored_ids, key=lambda chunk_id: scored_ids[chunk_id], reverse=True)[:fetch]
         rows = await self.chunks.get_by_ids(top_ids)
         # `IN (...)` doesn't preserve order - re-sort by score since that's the ranking callers
         # (the research agent's search_knowledge_base) actually rely on.
-        return sorted(
+        ranked = sorted(
             (
                 (chunk, document_name, collection_id, scored_ids[chunk.id])
                 for chunk, document_name, collection_id in rows
@@ -122,6 +130,20 @@ class SearchService:
             key=lambda row: row[3],
             reverse=True,
         )
+        if rerank:
+            ranked = await self._reranked(query, ranked)
+        return ranked[:limit]
+
+    async def _reranked(
+        self, query: str, ranked: list[tuple[Chunk, str, uuid.UUID, float]]
+    ) -> list[tuple[Chunk, str, uuid.UUID, float]]:
+        """The candidates in the order of the reranking service's ratings (#511), their score still the cosine. They
+        stay as they were when the service cannot be used."""
+        ratings = await reranker.rerank(query, [row[0].text for row in ranked])
+        if ratings is None:
+            return ranked
+        self.rerank_scores = {row[0].id: rating for row, rating in zip(ranked, ratings, strict=True)}
+        return sorted(ranked, key=lambda row: self.rerank_scores[row[0].id], reverse=True)
 
     async def search_qa(
         self, collection_ids: list[uuid.UUID], query: str, limit: int
