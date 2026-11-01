@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.44.0-rc.2](https://github.com/IA-Generative/Muffin/compare/v0.44.0-rc.1...v0.44.0-rc.2) (2026-11-01)
+
+
+### Features
+
+* **mémoire:** mémoire utilisateur, injection dans les réponses et commandes du chat ([#282](https://github.com/IA-Generative/Muffin/issues/282), [#284](https://github.com/IA-Generative/Muffin/issues/284)) ([3a13843](https://github.com/IA-Generative/Muffin/commit/3a13843fe3bcb159740210b7f0a692df13380080))
+* **mémoire:** page « Ma mémoire », interrupteur du chat et mention sur les réponses ([#283](https://github.com/IA-Generative/Muffin/issues/283)) ([1b87497](https://github.com/IA-Generative/Muffin/commit/1b874971f367c721c8aa13755de80678a3a91b73))
+
 ## [0.44.0-rc.1](https://github.com/IA-Generative/Muffin/compare/v0.44.0-rc...v0.44.0-rc.1) (2026-11-01)
 
 
