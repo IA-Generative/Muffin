@@ -12,6 +12,10 @@ Un **assistant** est un réglage nommé que l'on choisit en un clic dans le chat
 S'y ajoutent un nom, une description, une icône, des **questions suggérées** (saisies à la main, jamais tirées des documents) et une
 visibilité. *Barre latérale → Assistants* pour les créer ; le sélecteur à côté du modèle, dans le chat, pour en choisir un.
 
+![Le chat avec l'assistant « RH – congés » : son nom, sa description et ses questions suggérées](images/assistants-chat.png)
+
+![La liste des assistants : les miens, ceux partagés avec moi, et l'avertissement quand une collection n'est pas accessible](images/assistants-liste.png)
+
 ## Ce qu'un assistant ne fait pas
 
 **Il ne donne jamais accès à une collection : il la désigne.** À chaque message, les collections cherchées sont celles que
@@ -33,6 +37,8 @@ est fait en code (`AssistantService.resolve`), jamais par un modèle.
 - La recherche sur le web n'est jamais allumée par l'assistant : il dit seulement si le message peut la demander.
 
 ## Les outils
+
+![Le formulaire d'un assistant : consignes, collections, outils et questions suggérées](images/assistants-edition.png)
 
 C'est le même graphe ; un assistant retire des outils au **planificateur** (`plan`). Ceux qu'il peut couper : calculs sur les tableaux
 (`tabular_query`), texte d'une page (`page_content`), liste et résumé des documents (`list_documents`), liste des collections
@@ -61,6 +67,8 @@ administrables (#343) ne sont pas encore rattachés aux assistants.
 - Un assistant privé n'est visible de personne d'autre : toute lecture, modification, copie, partage ou utilisation répond `404`.
 
 ## Partage
+
+![Le partage d'un assistant : visibilité, invitation par email ou groupe, droit utiliser ou modifier](images/assistants-partage.png)
 
 Le même mécanisme que les collections (`docs/collection-sharing.md`) : par email ou groupe Keycloak (invitation hachée, **résolue à la
 connexion** de la personne, sans jamais dire si l'adresse a un compte), ou par un groupe fait dans Muffin (actif tout de suite). Droit

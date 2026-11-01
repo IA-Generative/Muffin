@@ -126,7 +126,7 @@ async function submit() {
         accessible{{ hiddenCount > 1 ? 's' : '' }} : {{ hiddenCount > 1 ? 'elles sont conservées' : 'elle est conservée' }}, mais vous ne
         la voyez pas.
       </p>
-      <ul class="assistant-form__choices">
+      <ul class="assistant-form__choices assistant-form__choices--scroll">
         <li v-for="collection in collections" :key="collection.id" class="fr-checkbox-group">
           <input :id="`assistant-col-${collection.id}`" v-model="draft.collectionIds" type="checkbox" :value="collection.id" />
           <label class="fr-label" :for="`assistant-col-${collection.id}`">{{ collection.name }}</label>
@@ -229,12 +229,15 @@ async function submit() {
   gap: 0.5rem;
 }
 
+.assistant-form__choices--scroll {
+  max-height: 14rem;
+  overflow-y: auto;
+}
+
 .assistant-form__choices {
   list-style: none;
   margin: 0;
   padding: 0;
-  max-height: 14rem;
-  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
