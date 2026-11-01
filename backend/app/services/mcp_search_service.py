@@ -16,7 +16,7 @@ from app.repositories.document_repository import DocumentRepository
 from app.repositories.qa_pair_repository import QaPairRepository
 from app.schemas.internal_pipeline import LlmUsageContext
 from app.schemas.mcp import SearchResult, SearchSource, SubQueryResult, SuggestedCollection, SuggestedCollections
-from app.services import chat_model_lookup
+from app.services import chat_model_lookup, reranker
 from app.services.page_highlights import chunk_pages_of
 from app.services.search_service import SearchService
 from app.services.usage_service import UsageService
@@ -139,11 +139,28 @@ class McpSearchService:
                 suggested = await self._described(scope, accessible)
             else:
                 suggested = await self._suggest(accessible, sub_query, max_collections)
-            hits = await self.search_service.search_points([item.id for item in suggested], sub_query, limit)
-            results.append(
-                SubQueryResult(text=sub_query, collections=suggested, sources=await self._sources(hits, suggested))
+            searched = [item.id for item in suggested]
+            # Reranking (#511) reads more points than are kept, when a collection searched asks for it.
+            rerank = reranker.is_enabled() and bool(await self.collections.rerank_enabled_ids(searched))
+            hits = await self.search_service.search_points(
+                searched, sub_query, max(limit, reranker.candidates()) if rerank else limit
             )
+            sources = await self._sources(hits, suggested)
+            if rerank:
+                sources = await self._reranked(sub_query, sources, limit)
+            results.append(SubQueryResult(text=sub_query, collections=suggested, sources=sources))
         return SearchResult(query=query, model=used_model, sub_queries=results)
+
+    async def _reranked(self, query: str, sources: list[SearchSource], limit: int) -> list[SearchSource]:
+        """The `limit` sources the reranking model rates best, in its order, each still with its cosine as `score`. As
+        they were, cut to `limit`, when the service cannot be used."""
+        ratings = await reranker.rerank(query, [source.text for source in sources])
+        if ratings is None:
+            return sources[:limit]
+        rated = [
+            source.model_copy(update={"rerank_score": rating}) for source, rating in zip(sources, ratings, strict=True)
+        ]
+        return sorted(rated, key=lambda source: source.rerank_score, reverse=True)[:limit]
 
     async def _described(
         self, collection_ids: list[uuid.UUID], accessible: set[uuid.UUID]

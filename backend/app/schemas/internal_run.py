@@ -162,6 +162,8 @@ class SearchResultOut(BaseModel):
     collection_path: list[CollectionPathItem]
     text: str
     rank: float
+    # What the reranking service rated the passage (#511), when the search was reranked. `rank` stays the cosine.
+    rerank_score: float | None = None
     # The document page(s) this chunk spans (Chunk.extras["page_start"/"page_end"], set for both
     # file and scraped-URL documents at chunk creation time - see worker/document_process's
     # chunk_document) - lets a citation link back to a specific page, not just the document.
