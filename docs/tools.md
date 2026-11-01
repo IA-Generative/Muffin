@@ -17,6 +17,10 @@ de plus au modèle** pour décider, ni pour exécuter (un appel d'outil n'est pa
   de un, et le modèle ne peut pas boucler. Un résultat qui en appellerait un autre demande une nouvelle question.
 - Les outils sont demandés au backend **une fois par run**, et seulement pour un run qui a un modèle pour les choisir. Un assistant (`docs/assistants.md`)
   peut couper `call_tool` comme n'importe quel outil facultatif.
+- **Avec beaucoup d'outils, le modèle n'en reçoit que quelques-uns** (#530) : ceux de Muffin toujours, et des serveurs MCP les `TOOLS_SELECTED_MAX` (8)
+  plus proches de la question, par la recherche hybride de `docs/search.md` (« Descriptions des outils »). La description de tous les outils à chaque
+  tour coûte des jetons et dégrade le choix. Seule la liste décrite se réduit : un appel est vérifié contre tout ce que la personne peut utiliser, et le
+  modèle décide toujours de l'appel. Avec peu d'outils, rien ne change.
 
 ## Les outils de Muffin
 
@@ -97,6 +101,13 @@ arguments qui ne collent pas au schéma : la requête devient une recherche ordi
 ne les reçoit plus et ne peut plus les appeler. **On ne fait que retirer** : une conversation ne gagne jamais un outil que sa personne n'a pas le droit
 d'utiliser. La liste n'est modifiable qu'une fois la conversation créée (après le premier message) ; celle d'un autre ne l'est jamais.
 
+## Chercher un outil
+
+Dans la page des outils et dans le menu *Outils* du chat, un champ **Chercher un outil** accepte une phrase (« convertir une devise », « retrouver un
+dossier dans le SI RH ») et trie les outils par pertinence sur leur **description**, pas seulement sur leur nom (`GET /api/tools/search`, `docs/search.md`).
+Il n'apparaît qu'à partir de 7 outils ; avec peu d'outils le filtre se fait dans le navigateur, sans requête, et il se déclenche après une pause de frappe.
+Une recherche ne montre que les outils que la personne peut utiliser ; sans résultat, la liste dit « Aucun outil ne correspond ».
+
 ## Le journal
 
 Chaque appel écrit **qui, quel outil, quel serveur, combien de temps, comment ça s'est fini** (`tool_call_logs`) — **jamais les arguments ni la réponse**, qui
@@ -122,5 +133,5 @@ exacts, avec **Autoriser** et **Refuser**.
 
 ## Pas encore
 
-- L'échange de jeton Keycloak, un serveur par personne dans un groupe de travail, le choix des outils par une recherche hybride sur leur description (#530),
+- L'échange de jeton Keycloak, un serveur par personne dans un groupe de travail, le reclassement des outils par un modèle dédié (#511),
   l'appel d'un outil en plusieurs tours, la limite par assistant d'un outil précis (un assistant coupe tous les outils ou aucun).
