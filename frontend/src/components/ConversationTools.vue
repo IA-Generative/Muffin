@@ -4,6 +4,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useChat } from '../composables/useChat'
+import { useToolSearch } from '../composables/useToolSearch'
 import { useTools } from '../composables/useTools'
 
 const router = useRouter()
@@ -13,8 +14,14 @@ const { tools, refreshTools, setConversationTools } = useTools()
 const open = ref(false)
 const wrapper = ref<HTMLElement>()
 const saved = computed(() => isConversationSaved(activeId.value))
-const usable = computed(() => tools.value.filter((tool) => !tool.sideEffect))
+// Tous les outils que la personne peut utiliser : celui qui modifie des données aussi, que l'assistant propose et qu'elle autorise.
+const usable = computed(() => tools.value)
 const active = computed(() => usable.value.filter((tool) => tool.available).length)
+// Chercher un outil par ce qu'il fait (#530), les plus proches d'abord ; les retirés restent trouvables pour être remis.
+const { query, results, active: searching, loading } = useToolSearch(
+  usable,
+  computed(() => (saved.value ? activeId.value : undefined)),
+)
 
 function outside(event: MouseEvent) {
   if (open.value && !wrapper.value?.contains(event.target as Node)) open.value = false
@@ -50,8 +57,23 @@ async function toggle(ref_: string, on: boolean) {
       <p v-if="!saved" class="conversation-tools__hint">
         Vous pourrez retirer des outils pour cette conversation après votre premier message.
       </p>
+      <div v-if="usable.length > 6" class="conversation-tools__search" role="search">
+        <label class="fr-label" for="conv-tools-search">Chercher un outil</label>
+        <input
+          id="conv-tools-search"
+          v-model="query"
+          type="search"
+          class="fr-input fr-input--sm"
+          placeholder="Ce qu’il fait…"
+          autocomplete="off"
+        />
+      </div>
+      <p v-if="searching && loading" class="conversation-tools__hint" role="status">Recherche…</p>
+      <p v-else-if="searching && !results.length" class="conversation-tools__hint" role="status">
+        Aucun outil ne correspond à « {{ query.trim() }} ».
+      </p>
       <ul class="conversation-tools__list">
-        <li v-for="tool in usable" :key="tool.ref" class="fr-checkbox-group">
+        <li v-for="tool in results" :key="tool.ref" class="fr-checkbox-group">
           <input
             :id="`conv-tool-${tool.ref}`"
             type="checkbox"
@@ -61,6 +83,7 @@ async function toggle(ref_: string, on: boolean) {
           />
           <label class="fr-label" :for="`conv-tool-${tool.ref}`">
             {{ tool.name }}<span v-if="tool.serverName" class="conversation-tools__server"> · {{ tool.serverName }}</span>
+            <span v-if="tool.sideEffect" class="conversation-tools__server"> · modifie des données</span>
             <span class="fr-hint-text">{{ tool.description.slice(0, 90) }}</span>
           </label>
         </li>
@@ -101,6 +124,10 @@ async function toggle(ref_: string, on: boolean) {
   border-radius: 0.375rem;
   background: var(--background-default-grey);
   box-shadow: 0 4px 16px rgb(0 0 0 / 0.12);
+}
+
+.conversation-tools__search {
+  margin-bottom: 0.5rem;
 }
 
 .conversation-tools__list {

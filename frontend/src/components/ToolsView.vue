@@ -1,15 +1,17 @@
 <script setup lang="ts">
 // Les outils que le chat peut appeler (#343) : ceux de Muffin, et ceux des serveurs MCP que les utilisateurs ajoutent.
 import { computed, onMounted, ref } from 'vue'
+import { useToolSearch } from '../composables/useToolSearch'
 import { useTools } from '../composables/useTools'
-import type { Tool, ToolServer } from '../types/tool'
+import type { ToolServer } from '../types/tool'
 import ToolServerForm from './ToolServerForm.vue'
 
 const { servers, tools, isLoading, toolError, refreshServers, refreshTools, setEnabled, syncServer, deleteServer } = useTools()
+// Chercher un outil par ce qu'il fait (#530) : une phrase, pas seulement un mot de son nom. Triés par pertinence.
+const { query, results, active, loading } = useToolSearch(tools)
 
 const editing = ref<{ id: string | null } | null>(null)
 const syncing = ref<string | null>(null)
-const filter = ref('')
 
 onMounted(() => {
   refreshServers()
@@ -20,12 +22,6 @@ const own = computed(() => servers.value.filter((item) => item.isOwner))
 const shared = computed(() => servers.value.filter((item) => !item.isOwner))
 const internal = computed(() => tools.value.filter((tool) => tool.serverId === null))
 const current = computed(() => (editing.value?.id ? (servers.value.find((item) => item.id === editing.value!.id) ?? null) : null))
-
-function matches(tool: Tool): boolean {
-  const wanted = filter.value.trim().toLowerCase()
-  return !wanted || `${tool.name} ${tool.description}`.toLowerCase().includes(wanted)
-}
-
 async function sync(server: ToolServer) {
   syncing.value = server.id
   await syncServer(server.id)
@@ -75,59 +71,77 @@ async function saved() {
 
     <template v-else>
       <div v-if="tools.length > 6" class="tools-view__search" role="search">
-        <label class="fr-label" for="tools-filter">Filtrer les outils</label>
-        <input id="tools-filter" v-model="filter" type="search" class="fr-input" placeholder="Ce qu’il fait…" autocomplete="off" />
+        <label class="fr-label" for="tools-filter">
+          Chercher un outil
+          <span class="fr-hint-text">Décrivez ce que vous voulez faire : « convertir une devise », « retrouver un dossier »…</span>
+        </label>
+        <input id="tools-filter" v-model="query" type="search" class="fr-input" placeholder="Ce qu’il fait…" autocomplete="off" />
       </div>
 
-      <h2>Outils de Muffin</h2>
-      <ul class="tools-view__tools">
-        <li v-for="tool in internal.filter(matches)" :key="tool.ref" class="tools-view__tool">
-          <strong>{{ tool.name }}</strong>
-          <span class="tools-view__description">{{ tool.description }}</span>
-        </li>
-      </ul>
+      <template v-if="active">
+        <h2>Résultats</h2>
+        <p v-if="loading" class="tools-view__empty" role="status">Recherche…</p>
+        <p v-else-if="!results.length" class="tools-view__empty" role="status">Aucun outil ne correspond à « {{ query.trim() }} ».</p>
+        <ul v-else class="tools-view__tools" aria-label="Outils trouvés, du plus proche au moins proche">
+          <li v-for="tool in results" :key="tool.ref" class="tools-view__tool">
+            <strong>{{ tool.name }}<span v-if="tool.serverName" class="tools-view__meta"> · {{ tool.serverName }}</span></strong>
+            <span v-if="tool.sideEffect" class="tools-view__badge">modifie des données · votre accord est demandé</span>
+            <span class="tools-view__description">{{ tool.description }}</span>
+          </li>
+        </ul>
+      </template>
 
-      <p v-if="isLoading && !servers.length" class="tools-view__empty">Chargement…</p>
-      <p v-else-if="!servers.length" class="tools-view__empty">
-        Aucun serveur MCP pour l’instant. Ajoutez-en un pour donner d’autres outils au chat.
-      </p>
+      <template v-else>
+        <h2>Outils de Muffin</h2>
+        <ul class="tools-view__tools">
+          <li v-for="tool in internal" :key="tool.ref" class="tools-view__tool">
+            <strong>{{ tool.name }}</strong>
+            <span class="tools-view__description">{{ tool.description }}</span>
+          </li>
+        </ul>
 
-      <template v-for="group in [{ title: 'Mes serveurs', items: own }, { title: 'Partagés avec moi', items: shared }]" :key="group.title">
-        <template v-if="group.items.length">
-          <h2>{{ group.title }}</h2>
-          <ul class="tools-view__servers">
-            <li v-for="server in group.items" :key="server.id" class="tools-view__server">
-              <div class="tools-view__server-head">
-                <div class="tools-view__text">
-                  <strong>{{ server.name }}</strong>
-                  <span class="tools-view__description">{{ server.url }}</span>
-                  <span class="tools-view__meta">
-                    {{ server.enabled ? '' : 'Désactivé · ' }}{{ { private: 'Privé', groups: 'Partagé avec des groupes', all: 'Toute l’organisation' }[server.visibility] }}
-                    · {{ server.authMode === 'bearer' ? 'avec jeton' : 'sans jeton' }} · synchronisé : {{ when(server.lastSyncedAt) }}
-                  </span>
-                  <span v-if="server.lastError" class="tools-view__warning" role="status">{{ server.lastError }}</span>
+        <p v-if="isLoading && !servers.length" class="tools-view__empty">Chargement…</p>
+        <p v-else-if="!servers.length" class="tools-view__empty">
+          Aucun serveur MCP pour l’instant. Ajoutez-en un pour donner d’autres outils au chat.
+        </p>
+
+        <template v-for="group in [{ title: 'Mes serveurs', items: own }, { title: 'Partagés avec moi', items: shared }]" :key="group.title">
+          <template v-if="group.items.length">
+            <h2>{{ group.title }}</h2>
+            <ul class="tools-view__servers">
+              <li v-for="server in group.items" :key="server.id" class="tools-view__server">
+                <div class="tools-view__server-head">
+                  <div class="tools-view__text">
+                    <strong>{{ server.name }}</strong>
+                    <span class="tools-view__description">{{ server.url }}</span>
+                    <span class="tools-view__meta">
+                      {{ server.enabled ? '' : 'Désactivé · ' }}{{ { private: 'Privé', groups: 'Partagé avec des groupes', all: 'Toute l’organisation' }[server.visibility] }}
+                      · {{ server.authMode === 'bearer' ? 'avec jeton' : 'sans jeton' }} · synchronisé : {{ when(server.lastSyncedAt) }}
+                    </span>
+                    <span v-if="server.lastError" class="tools-view__warning" role="status">{{ server.lastError }}</span>
+                  </div>
+                  <div v-if="server.isOwner" class="tools-view__actions">
+                    <button type="button" class="fr-btn fr-btn--sm fr-btn--secondary" :disabled="syncing === server.id" @click="sync(server)">
+                      {{ syncing === server.id ? 'Connexion…' : 'Tester et synchroniser' }}
+                    </button>
+                    <button type="button" class="fr-btn fr-btn--sm fr-btn--secondary" @click="editing = { id: server.id }">Modifier</button>
+                    <button type="button" class="fr-btn fr-btn--sm fr-btn--tertiary" @click="toggle(server)">
+                      {{ server.enabled ? 'Désactiver' : 'Activer' }}
+                    </button>
+                    <button type="button" class="fr-btn fr-btn--sm fr-btn--tertiary" @click="remove(server)">Supprimer</button>
+                  </div>
                 </div>
-                <div v-if="server.isOwner" class="tools-view__actions">
-                  <button type="button" class="fr-btn fr-btn--sm fr-btn--secondary" :disabled="syncing === server.id" @click="sync(server)">
-                    {{ syncing === server.id ? 'Connexion…' : 'Tester et synchroniser' }}
-                  </button>
-                  <button type="button" class="fr-btn fr-btn--sm fr-btn--secondary" @click="editing = { id: server.id }">Modifier</button>
-                  <button type="button" class="fr-btn fr-btn--sm fr-btn--tertiary" @click="toggle(server)">
-                    {{ server.enabled ? 'Désactiver' : 'Activer' }}
-                  </button>
-                  <button type="button" class="fr-btn fr-btn--sm fr-btn--tertiary" @click="remove(server)">Supprimer</button>
-                </div>
-              </div>
-              <ul v-if="server.tools.length" class="tools-view__tools">
-                <li v-for="tool in server.tools.filter(matches)" :key="tool.ref" class="tools-view__tool">
-                  <strong>{{ tool.name }}</strong>
-                  <span v-if="tool.sideEffect" class="tools-view__badge" :title="tool.reason ?? ''">modifie des données · votre accord est demandé</span>
-                  <span class="tools-view__description">{{ tool.description }}</span>
-                </li>
-              </ul>
-              <p v-else class="tools-view__empty">Aucun outil importé.</p>
-            </li>
-          </ul>
+                <ul v-if="server.tools.length" class="tools-view__tools">
+                  <li v-for="tool in server.tools" :key="tool.ref" class="tools-view__tool">
+                    <strong>{{ tool.name }}</strong>
+                    <span v-if="tool.sideEffect" class="tools-view__badge" :title="tool.reason ?? ''">modifie des données · votre accord est demandé</span>
+                    <span class="tools-view__description">{{ tool.description }}</span>
+                  </li>
+                </ul>
+                <p v-else class="tools-view__empty">Aucun outil importé.</p>
+              </li>
+            </ul>
+          </template>
         </template>
       </template>
     </template>
