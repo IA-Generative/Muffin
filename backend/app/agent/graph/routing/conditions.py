@@ -47,6 +47,8 @@ def after_plan(state: AgentState) -> str | list[Send]:
         return "answer_help"
     if mode in ("edit", "create"):
         return mode
+    if mode == "memory":
+        return "memory_command"
     batch = _ready_tasks(state)
     return fan_out(state, batch) if batch else "gate"
 

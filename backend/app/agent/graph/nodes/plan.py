@@ -13,6 +13,7 @@ from app.agent.graph.services.authoring import (
 )
 from app.agent.graph.services.events import emit, is_cancelled, set_activity
 from app.agent.graph.services.llm import json_chat
+from app.agent.graph.services.memory import MEMORY_ACTIONS, MEMORY_KINDS, MEMORY_PLAN_INSTRUCTION
 from app.agent.graph.services.prompts import get_prompt
 from app.agent.graph.services.scope import scope_ids
 from app.agent.graph.services.tool_guide import (
@@ -25,7 +26,7 @@ from app.agent.graph.services.tool_guide import (
 from app.agent.graph.services.vdb_router import catalogue_entry
 from app.agent.graph.state import AgentState, ResearchTask
 
-_MODES = ("direct", "clarify", "help", "edit", "create", "search")
+_MODES = ("direct", "clarify", "help", "edit", "create", "memory", "search")
 
 _SYSTEM_PROMPT = (
     "You are Muffin, an internal assistant that answers by searching the user's own knowledge base collections "
@@ -232,6 +233,16 @@ def normalize_plan(raw: Any, state: AgentState) -> dict[str, Any]:
         return {"mode": "clarify", "questions": questions}
     if mode == "help":
         return {"mode": "help", "standalone_query": standalone}
+    if mode == "memory":
+        action = str(raw.get("action") or "")
+        text = str(raw.get("text") or "").strip()
+        kind = str(raw.get("kind") or "")
+        # Said "memory" where the memory is not offered, or for something it cannot do: an ordinary question.
+        if (state.get("memory") or {}).get("state") == "suspended" or action not in MEMORY_ACTIONS:
+            return _fallback(query)
+        if action != "show" and not text:
+            return _fallback(query)
+        return {"mode": "memory", "action": action, "kind": kind if kind in MEMORY_KINDS else "fact", "text": text}
     if mode == "edit":
         documents = {d["document_id"]: d for d in state["edit_candidates"]}
         if not documents:
@@ -335,6 +346,8 @@ async def plan(state: AgentState) -> dict[str, Any]:
         instructions = _QUESTIONS_INSTRUCTION + (_CONSULT_INSTRUCTION if state.get("consultable_assistants") else "")
         if state.get("images"):
             instructions += _IMAGES_INSTRUCTION
+        if (state.get("memory") or {}).get("state", "suspended") != "suspended":
+            instructions += MEMORY_PLAN_INSTRUCTION
         raw = await json_chat(model, system_prompt + instructions, _user_content(state), fallback=None)
 
     plan_ = normalize_plan(raw, state)
@@ -344,7 +357,12 @@ async def plan(state: AgentState) -> dict[str, Any]:
         plan_ = {**plan_, "mode": "search", "queries": [], "collections": plan_.get("collections", [])}
     mode = plan_["mode"]
     standalone = plan_.get("standalone_query") or state["original_query"]
-    await emit(run_id, "query_analysis_completed", {"analysis": {k: v for k, v in plan_.items() if k != "answer"}})
+    # What the person asked to remember is nowhere in the events: only that the plan chose to handle their memory.
+    await emit(
+        run_id,
+        "query_analysis_completed",
+        {"analysis": {k: v for k, v in plan_.items() if k not in ("answer", "text")}},
+    )
 
     updates: dict[str, Any] = {
         "plan": plan_,

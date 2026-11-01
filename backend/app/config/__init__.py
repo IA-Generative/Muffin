@@ -9,6 +9,7 @@ from .keycloak import KeycloakSettings
 from .llm import LlmSettings
 from .logging import LoggingSettings
 from .mcp import McpSettings
+from .memory import MemorySettings
 from .openai_api import OpenAiApiSettings
 from .qdrant import QdrantSettings, SearchSettings
 from .redis import RedisSettings
@@ -32,6 +33,7 @@ __all__ = [
     "LlmSettings",
     "LoggingSettings",
     "McpSettings",
+    "MemorySettings",
     "OpenAiApiSettings",
     "QdrantSettings",
     "RedisSettings",

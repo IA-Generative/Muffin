@@ -9,6 +9,7 @@ from app.agent.graph.nodes.edit import build_edit_graph
 from app.agent.graph.nodes.gate import gate, widen_search
 from app.agent.graph.nodes.generate_answer import generate_answer
 from app.agent.graph.nodes.guardrails import blocked, guardrails
+from app.agent.graph.nodes.memory_command import memory_command
 from app.agent.graph.nodes.merge_evidence import merge_evidence
 from app.agent.graph.nodes.plan import plan
 from app.agent.graph.nodes.prepare import prepare, prepare_request
@@ -46,6 +47,7 @@ def build_graph(checkpointer: BaseCheckpointSaver | None = None):
     graph.add_node("blocked", measured("blocked", blocked))
     graph.add_node("plan", measured("plan", plan))
     graph.add_node("answer_help", measured("answer_help", answer_help))
+    graph.add_node("memory_command", measured("memory_command", memory_command))
     # The edit and the creation of a document are sub-graphs: they share the run's state and never go back to research.
     graph.add_node("edit", build_edit_graph())
     graph.add_node("create", build_create_graph())
@@ -75,6 +77,7 @@ def build_graph(checkpointer: BaseCheckpointSaver | None = None):
         after_plan,
         {
             "answer_help": "answer_help",
+            "memory_command": "memory_command",
             "edit": "edit",
             "create": "create",
             "research_task": "research_task",
@@ -83,7 +86,7 @@ def build_graph(checkpointer: BaseCheckpointSaver | None = None):
             "end": END,
         },
     )
-    for terminal in ("answer_help", "edit", "create"):
+    for terminal in ("answer_help", "memory_command", "edit", "create"):
         _cancellable_edge(graph, terminal, END)
     graph.add_edge("research_task", "merge_evidence")
     _cancellable_edge(graph, "merge_evidence", "gate")

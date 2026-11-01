@@ -40,7 +40,8 @@ async def prepare(state: AgentState) -> dict[str, Any]:
         ]
         accessible = within_pinned([*state["pinned_vdb_ids"], *consulted], accessible)
     await emit(run_id, "vdb_discovery_completed", {"accessible_count": len(accessible)})
-    return {"accessible_vdbs": accessible}
+    # The memory of the person, read once and kept in the state: no word of it goes in an event.
+    return {"accessible_vdbs": accessible, "memory": await backend_client.read_memory(run_id)}
 
 
 async def prepare_request(state: AgentState) -> dict[str, Any]:
