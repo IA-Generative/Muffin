@@ -6,6 +6,10 @@ name: Unit Tests
 #
 # The Python workers (document_process, evaluation, document_edit) run
 # the same uv sync --group dev + pytest pattern.
+#
+# Each Python job then scores the functions it tested (CRAP: complexity made worse by what is not covered), see
+# .github/actions/crap-gate. The ceiling of a project is 30, or its worst score today when it already has functions over
+# it - lower it as they are cut up or tested, never raise it.
 
 on:
   workflow_call:
@@ -101,7 +105,13 @@ jobs:
 
       - name: Run tests
         working-directory: backend
-        run: uv run pytest --cov=app --cov-report=term-missing
+        run: uv run pytest --cov=app --cov-branch --cov-report=term-missing --cov-report=lcov:lcov.info
+
+      - name: CRAP gate
+        uses: ./.github/actions/crap-gate
+        with:
+          working-directory: backend
+          max-crap: "760"
 
   unit-tests-worker-document-process:
     name: worker/document_process
@@ -125,7 +135,13 @@ jobs:
 
       - name: Run tests
         working-directory: worker/document_process
-        run: uv run pytest
+        run: uv run --with pytest-cov pytest --cov=app --cov-branch --cov-report=lcov:lcov.info
+
+      - name: CRAP gate
+        uses: ./.github/actions/crap-gate
+        with:
+          working-directory: worker/document_process
+          max-crap: "110"
 
   unit-tests-worker-ocr-ocr-layout:
     name: worker/layout
@@ -149,7 +165,13 @@ jobs:
 
       - name: Run tests
         working-directory: worker/layout
-        run: uv run pytest
+        run: uv run --with pytest-cov pytest --cov=app --cov-branch --cov-report=lcov:lcov.info
+
+      - name: CRAP gate
+        uses: ./.github/actions/crap-gate
+        with:
+          working-directory: worker/layout
+          max-crap: "30"
 
   unit-tests-worker-ocr:
     name: worker/ocr
@@ -173,7 +195,13 @@ jobs:
 
       - name: Run tests
         working-directory: worker/ocr
-        run: uv run pytest
+        run: uv run --with pytest-cov pytest --cov=app --cov-branch --cov-report=lcov:lcov.info
+
+      - name: CRAP gate
+        uses: ./.github/actions/crap-gate
+        with:
+          working-directory: worker/ocr
+          max-crap: "30"
 
   unit-tests-worker-ocr-table:
     name: worker/table
@@ -197,7 +225,13 @@ jobs:
 
       - name: Run tests
         working-directory: worker/table
-        run: uv run pytest
+        run: uv run --with pytest-cov pytest --cov=app --cov-branch --cov-report=lcov:lcov.info
+
+      - name: CRAP gate
+        uses: ./.github/actions/crap-gate
+        with:
+          working-directory: worker/table
+          max-crap: "30"
 
   unit-tests-worker-ocr-vision:
     name: worker/vision
@@ -221,7 +255,13 @@ jobs:
 
       - name: Run tests
         working-directory: worker/vision
-        run: uv run pytest
+        run: uv run --with pytest-cov pytest --cov=app --cov-branch --cov-report=lcov:lcov.info
+
+      - name: CRAP gate
+        uses: ./.github/actions/crap-gate
+        with:
+          working-directory: worker/vision
+          max-crap: "30"
 
   unit-tests-worker-owui-sync:
     name: worker/owui_sync
@@ -245,7 +285,13 @@ jobs:
 
       - name: Run tests
         working-directory: worker/owui_sync
-        run: uv run pytest
+        run: uv run --with pytest-cov pytest --cov=app --cov-branch --cov-report=lcov:lcov.info
+
+      - name: CRAP gate
+        uses: ./.github/actions/crap-gate
+        with:
+          working-directory: worker/owui_sync
+          max-crap: "30"
 
   unit-tests-worker-tabular:
     name: worker/tabular
@@ -269,7 +315,13 @@ jobs:
 
       - name: Run tests
         working-directory: worker/tabular
-        run: uv run pytest
+        run: uv run --with pytest-cov pytest --cov=app --cov-branch --cov-report=lcov:lcov.info
+
+      - name: CRAP gate
+        uses: ./.github/actions/crap-gate
+        with:
+          working-directory: worker/tabular
+          max-crap: "50"
 
   unit-tests-worker-evaluation:
     name: worker/evaluation
@@ -293,7 +345,13 @@ jobs:
 
       - name: Run tests
         working-directory: worker/evaluation
-        run: uv run pytest
+        run: uv run --with pytest-cov pytest --cov=app --cov-branch --cov-report=lcov:lcov.info
+
+      - name: CRAP gate
+        uses: ./.github/actions/crap-gate
+        with:
+          working-directory: worker/evaluation
+          max-crap: "90"
 
   unit-tests-worker-document-edit:
     name: worker/document_edit
@@ -317,4 +375,10 @@ jobs:
 
       - name: Run tests
         working-directory: worker/document_edit
-        run: uv run pytest
+        run: uv run --with pytest-cov pytest --cov=app --cov-branch --cov-report=lcov:lcov.info
+
+      - name: CRAP gate
+        uses: ./.github/actions/crap-gate
+        with:
+          working-directory: worker/document_edit
+          max-crap: "35"

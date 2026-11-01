@@ -1,0 +1,52 @@
+name: CRAP gate
+description: >-
+  Fails when a function of a Python project is too risky to change: its CRAP score, which combines its cyclomatic
+  complexity with what the tests leave uncovered of it (CC^2 * (1 - coverage)^3 + CC), is over the ceiling. Reads the
+  LCOV report of the tests (pytest --cov-branch --cov-report=lcov:lcov.info) and writes its report in the job summary.
+
+inputs:
+  working-directory:
+    description: Folder of the Python project (where the tests ran)
+    required: true
+  source:
+    description: Folder of the code to score, relative to the working directory
+    required: false
+    default: app
+  lcov:
+    description: LCOV report of the tests, relative to the working directory
+    required: false
+    default: lcov.info
+  max-crap:
+    description: >-
+      CRAP score above which a function fails. 30 is the usual threshold. A project that already has functions over it
+      sets this to its worst score today, so that nothing worse gets in, and lowers it as those functions are cut up
+      or tested.
+    required: false
+    default: "30"
+
+runs:
+  using: composite
+  steps:
+    - name: CRAP score
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        PROJECT: ${{ inputs.working-directory }}
+        SOURCE: ${{ inputs.source }}
+        LCOV: ${{ inputs.lcov }}
+        MAX_CRAP: ${{ inputs.max-crap }}
+      run: |
+        set -o pipefail
+        status=0
+        uvx crap4py@0.1.1 "$SOURCE/" --lcov "$LCOV" --max-crap "$MAX_CRAP" | tee crap-report.txt || status=$?
+        {
+          echo "### Score CRAP - ${PROJECT} (plafond ${MAX_CRAP})"
+          echo
+          echo '```'
+          head -25 crap-report.txt
+          echo '```'
+        } >> "$GITHUB_STEP_SUMMARY"
+        if [ "$status" -ne 0 ]; then
+          echo "::error title=CRAP::Une fonction de ${PROJECT} dépasse ${MAX_CRAP}. Couvrez-la de tests ou découpez-la (voir docs/quality-gate-crap.md)."
+        fi
+        exit "$status"
