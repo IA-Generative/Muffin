@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.45.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.44.0...v0.45.0-rc) (2026-11-01)
+
+
+### Features
+
+* **mémoire:** apprendre le style des réponses depuis les 👍/👎 ([#285](https://github.com/IA-Generative/Muffin/issues/285)) ([a923cf6](https://github.com/IA-Generative/Muffin/commit/a923cf62721b785eae48d2afd82309e91924e71c))
+
 ## [0.44.0](https://github.com/IA-Generative/Muffin/compare/v0.43.0...v0.44.0) (2026-11-01)
 
 
