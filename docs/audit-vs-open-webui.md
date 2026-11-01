@@ -48,7 +48,7 @@ Légende : **➕** Muffin devant · **🟰** équivalent · **🔻** Muffin en r
 | Voix | STT / TTS à moteurs, appel vocal temps réel | dictée et lecture vocale (`useVoiceInput`, `useVoiceOutput`) | 🔻 |
 | Génération d'images | plusieurs moteurs | optionnelle, désactivée par défaut : adresse compatible OpenAI (`docs/image-generation.md`) | 🟰 |
 | Interpréteur de code, terminaux | oui | non ; à la place, SQL + graphiques sur les fichiers tabulaires | ❌ |
-| Mémoire de l'utilisateur | oui | non | ❌ |
+| Mémoire de l'utilisateur | oui | **« Ma mémoire »** : ce que l'assistant retient (voir, corriger, désactiver, exporter), « retiens que… » dans le chat, conversation sans mémoire (`docs/memory.md`) ; l'apprentissage depuis les 👍/👎 reste à faire | 🔻 |
 | Notes | oui | non (les documents modifiables jouent un rôle voisin) | ❌ |
 | Dossiers, étiquettes, épingles, archives | oui | renommer et supprimer seulement | 🔻 |
 | Recherche dans les conversations | oui | non trouvée | 🔻 |
@@ -147,7 +147,7 @@ Effort : **S** quelques jours · **M** une à deux semaines · **L** plusieurs s
 
 ### P2 : à faire si le besoin se confirme
 
-Mémoire de l'utilisateur · génération d'images (si le hub la propose) · clés d'API personnelles · internationalisation · application
+Génération d'images (si le hub la propose) · clés d'API personnelles · internationalisation · application
 installable (PWA) · mode « contexte complet » pour les petites collections · chargeur YouTube · plus de moteurs de recherche web · branches de messages.
 
 ### À ne pas faire (ou à laisser à Open WebUI)

@@ -424,6 +424,17 @@ Ce que définit l'administrateur (quels garde-fous, leur mode, leur étape, la p
 | `GUARDRAILS_ALLOWED_PRIVATE_HOSTS` | Hôtes (séparés par des virgules) qu'un garde-fou `http` peut appeler bien qu'ils soient sur un réseau privé ; rien d'autre qui ne soit public n'est joint | vide | idem |
 | `GUARDRAILS_RESULTS_RETENTION_DAYS` | Durée de conservation (jours) des verdicts et des comptes — jamais du texte | `180` | idem (purge de la maintenance des routines) |
 
+## backend — mémoire de l'utilisateur (#282)
+
+Ce que la personne retient ou non est à elle (page « Ma mémoire », voir `docs/memory.md`) ; ces variables sont les bornes de l'application et l'interrupteur de l'administrateur.
+
+| Variable | Définition | Défaut | Utilisée par |
+|---|---|---|---|
+| `MEMORY_ENABLED` | Coupe-circuit : à `false`, rien n'est lu, retenu ni signalé comme utilisé, pour tout le monde ; ce qui est enregistré reste | `true` | **backend** (`app/config/memory.py`) |
+| `MEMORY_VALUE_MAX_CHARS` | Longueur maximale d'une phrase retenue | `300` | idem |
+| `MEMORY_MAX_ITEMS` | Nombre maximal d'éléments par personne | `100` | idem |
+| `MEMORY_PROMPT_MAX_CHARS` | Ce qu'un run lit au plus de la mémoire (≈ 4 caractères par jeton, soit ~500 jetons) ; le reste n'entre pas dans le prompt | `2000` | idem |
+
 ## worker/evaluation — évaluation du retrieval (issue #11)
 
 | Variable | Définition | Défaut | Utilisée par |
