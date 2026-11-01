@@ -278,6 +278,25 @@ onBeforeUnmount(() => {
         Cette réponse ne cite aucune source : vérifiez-la avant de vous y fier.
       </p>
 
+      <p
+        v-if="message.role === 'assistant' && !message.pending && message.guardrailOutcome === 'blocked'"
+        class="chat-message__guardrail chat-message__guardrail--blocked"
+        role="note"
+      >
+        <span class="fr-badge fr-badge--sm fr-badge--error fr-badge--no-icon">Demande non traitée</span>
+        Elle n'a été envoyée à aucun modèle.
+      </p>
+      <p
+        v-else-if="message.role === 'assistant' && !message.pending && message.guardrailOutcome"
+        class="chat-message__guardrail"
+        role="note"
+      >
+        <span class="fr-badge fr-badge--sm fr-badge--info fr-badge--no-icon">
+          {{ message.guardrailOutcome === 'redacted' ? 'Éléments masqués' : 'Avertissement' }}
+        </span>
+        {{ message.guardrailNotice || (message.guardrailOutcome === 'redacted' ? 'Des éléments sensibles ont été masqués avant l’envoi au modèle.' : '') }}
+      </p>
+
       <p v-if="message.role === 'assistant' && message.assistantName && !message.pending" class="chat-message__assistant">
         Assistant : {{ message.assistantName }}
       </p>
@@ -763,6 +782,16 @@ onBeforeUnmount(() => {
 
 .chat-message__sources-chip:hover {
   background: var(--background-alt-grey-hover);
+}
+
+.chat-message__guardrail {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.375rem 0 0;
+  font-size: 0.8125rem;
+  color: var(--text-mention-grey);
 }
 
 .chat-message__assistant {

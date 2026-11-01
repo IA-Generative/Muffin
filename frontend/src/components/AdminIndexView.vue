@@ -20,6 +20,12 @@ const items: AdminItem[] = [
     path: '/admin/images',
   },
   {
+    key: 'guardrails',
+    label: 'Garde-fous d\'entrée',
+    description: 'Vérifications avant l\'envoi au modèle : règles, juge, service externe ; observer avant de bloquer, politique, essai et journal.',
+    path: '/admin/guardrails',
+  },
+  {
     key: 'routines',
     label: 'Routines',
     description: 'Activées par défaut : limites, suspension automatique, interrupteur général, liste de toutes les routines et leur coût.',
