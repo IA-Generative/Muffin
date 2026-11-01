@@ -27,6 +27,8 @@ class ImageGenerationSettings(Base):
     base_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     secret_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     model: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # The model that retouches an image, when it is not the one that draws (`dall-e-3` cannot retouch); None: the same.
+    edit_model: Mapped[str | None] = mapped_column(String(200), nullable=True)
     size: Mapped[str] = mapped_column(String(20), nullable=False, default="1024x1024", server_default="1024x1024")
     quality: Mapped[str | None] = mapped_column(String(20), nullable=True)
     # Images one person may make per day (UTC), and the heaviest one that is kept (bytes).
