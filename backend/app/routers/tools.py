@@ -9,6 +9,7 @@ from app.db import get_db
 from app.schemas.tool import (
     ConversationToolsUpdate,
     ToolDecision,
+    ToolHitOut,
     ToolOut,
     ToolProposalOut,
     ToolServerCreate,
@@ -38,6 +39,22 @@ async def list_tools(
     user: UserDep, service: ServiceDep, conversation_id: Annotated[uuid.UUID | None, Query()] = None
 ) -> list[ToolOut]:
     return await service.available(user.user_id, user.groups, conversation_id)
+
+
+@router.get(
+    "/tools/search",
+    summary="Find the tools the caller may use by what they do (hybrid search on their description), closest first. "
+    "Only ranks among the tools the caller may use; an empty query finds nothing.",
+    response_model=list[ToolHitOut],
+)
+async def search_tools(
+    user: UserDep,
+    service: ServiceDep,
+    q: Annotated[str, Query(max_length=500)] = "",
+    limit: Annotated[int | None, Query(ge=1)] = None,
+    conversation_id: Annotated[uuid.UUID | None, Query()] = None,
+) -> list[ToolHitOut]:
+    return await service.search(user, q, limit, conversation_id)
 
 
 @router.put(

@@ -52,6 +52,11 @@ _COLLECTIONS = "collections"
 # collections. A point is written when a search finds it missing or out of date - see AssistantSearchService.
 _ASSISTANTS = "assistants"
 
+# One point per tool imported from an MCP server (#530), embedded with the same model: name, description and the names
+# of the parameters, never a call's arguments, a result or a token. Muffin's own tools are few and always offered:
+# they are not indexed. A point is written when a search finds it missing or out of date - see ToolSearchService.
+_TOOLS = "tools"
+
 _PAGE = 1000
 
 
@@ -231,6 +236,12 @@ def _branches(query: str, query_embedding: list[float], flt: models.Filter) -> l
         sparse = models.SparseVector(indices=indices, values=values)
         branches.append((_SPARSE, models.Prefetch(query=sparse, using=_SPARSE, filter=flt, limit=limit)))
     return branches
+
+
+def terms(text: str) -> set[str]:
+    """The terms of a text as the BM25 branch sees them - stemmed, without stop words - for the callers that match on
+    words when the vector cannot be used."""
+    return set(_encoder.tokens(text))
 
 
 def _cosine(left: Sequence[float], right: Sequence[float]) -> float:
@@ -661,16 +672,13 @@ def search_collections(
 # -- assistant descriptions (#531) -----------------------------------------------------------------------
 
 
-def get_assistant_points(assistant_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, tuple[str, str]]:
-    """What the index holds of these assistants: (hash of the indexed text, embedding model) by id. An assistant with
-    no entry has no point yet; the caller writes the ones whose hash or model is not the current one."""
-    if not assistant_ids or not _exists(_ASSISTANTS):
+def _get_text_points(name: str, ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, tuple[str, str]]:
+    """What an index of described objects holds of these ids: (hash of the indexed text, embedding model) by id. An id
+    with no entry has no point yet; the caller writes the ones whose hash or model is not the current one."""
+    if not ids or not _exists(name):
         return {}
     records = _client.retrieve(
-        _ASSISTANTS,
-        [str(assistant_id) for assistant_id in assistant_ids],
-        with_payload=["text_hash", "model"],
-        with_vectors=False,
+        name, [str(item) for item in ids], with_payload=["text_hash", "model"], with_vectors=False
     )
     return {
         uuid.UUID(str(record.id)): (
@@ -681,24 +689,43 @@ def get_assistant_points(assistant_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, 
     }
 
 
-def upsert_assistants(points: Sequence[tuple[uuid.UUID, str, str, list[float]]], model: str) -> None:
+def _upsert_text_points(name: str, points: Sequence[tuple[uuid.UUID, str, str, list[float]]], model: str) -> None:
     """(id, text, hash of the text, embedding) for each - the points that were missing or stale, in one write."""
     if not points:
         return
-    if not _exists(_ASSISTANTS):
-        _create_collection_without_document_index(_ASSISTANTS, len(points[0][3]))
+    if not _exists(name):
+        _create_collection_without_document_index(name, len(points[0][3]))
     _client.upsert(
-        _ASSISTANTS,
+        name,
         [
             models.PointStruct(
-                id=str(assistant_id),
+                id=str(item),
                 vector={_DENSE: embedding, _SPARSE: _sparse(text)},
                 payload={"text_hash": text_hash, "model": model},
             )
-            for assistant_id, text, text_hash, embedding in points
+            for item, text, text_hash, embedding in points
         ],
         wait=True,
     )
+
+
+def _search_text_points(
+    name: str, query: str, query_embedding: list[float], ids: Sequence[uuid.UUID], limit: int
+) -> list[tuple[uuid.UUID, float]]:
+    """Hybrid search restricted to the given ids - the caller has already kept only what the person may read; this ranks
+    inside that list and never widens it."""
+    if not ids:
+        return []
+    candidates = models.Filter(must=[models.HasIdCondition(has_id=[str(item) for item in ids])])
+    return _hybrid(name, query, query_embedding, limit, candidates)
+
+
+def get_assistant_points(assistant_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, tuple[str, str]]:
+    return _get_text_points(_ASSISTANTS, assistant_ids)
+
+
+def upsert_assistants(points: Sequence[tuple[uuid.UUID, str, str, list[float]]], model: str) -> None:
+    _upsert_text_points(_ASSISTANTS, points, model)
 
 
 def delete_assistant_point(assistant_id: uuid.UUID) -> None:
@@ -712,11 +739,35 @@ def delete_assistant_point(assistant_id: uuid.UUID) -> None:
 def search_assistants(
     query: str, query_embedding: list[float], assistant_ids: Sequence[uuid.UUID], limit: int
 ) -> list[tuple[uuid.UUID, float]]:
-    """Hybrid search over assistant descriptions, restricted to the given ids - the caller has already kept only the
-    assistants the person may read; this ranks inside that list and never widens it."""
-    if not assistant_ids:
-        return []
-    candidates = models.Filter(
-        must=[models.HasIdCondition(has_id=[str(assistant_id) for assistant_id in assistant_ids])]
-    )
-    return _hybrid(_ASSISTANTS, query, query_embedding, limit, candidates)
+    """Hybrid search over assistant descriptions, restricted to the given ids (the assistants the person may read)."""
+    return _search_text_points(_ASSISTANTS, query, query_embedding, assistant_ids, limit)
+
+
+# -- tool descriptions (#530) ----------------------------------------------------------------------------------
+
+
+def get_tool_points(tool_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, tuple[str, str]]:
+    return _get_text_points(_TOOLS, tool_ids)
+
+
+def upsert_tools(points: Sequence[tuple[uuid.UUID, str, str, list[float]]], model: str) -> None:
+    _upsert_text_points(_TOOLS, points, model)
+
+
+def delete_tool_points(tool_ids: Sequence[uuid.UUID]) -> None:
+    """Takes the points of tools that no longer exist out of the index. A leftover would never be returned - the
+    candidates are filtered by rights first - but it would stay there. Never raises: the index is out of the way."""
+    if not tool_ids:
+        return
+    try:
+        if _exists(_TOOLS):
+            _delete_ids([_TOOLS], [str(item) for item in tool_ids])
+    except Exception:
+        logger.exception(f"Failed to remove {len(tool_ids)} tool(s) from the '{_TOOLS}' index")
+
+
+def search_tools(
+    query: str, query_embedding: list[float], tool_ids: Sequence[uuid.UUID], limit: int
+) -> list[tuple[uuid.UUID, float]]:
+    """Hybrid search over tool descriptions, restricted to the given ids (the tools the person may use)."""
+    return _search_text_points(_TOOLS, query, query_embedding, tool_ids, limit)
