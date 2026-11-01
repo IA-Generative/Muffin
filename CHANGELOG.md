@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.46.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.45.0...v0.46.0-rc) (2026-11-01)
+
+
+### Features
+
+* **mémoire:** collections habituelles en tête du sélecteur ([#286](https://github.com/IA-Generative/Muffin/issues/286)) ([4a8ed13](https://github.com/IA-Generative/Muffin/commit/4a8ed13eea9b803e71bf8e03a7ac87434d87ae6b))
+* **mémoire:** collections habituelles, a priori du routage ([#286](https://github.com/IA-Generative/Muffin/issues/286)) ([6b77642](https://github.com/IA-Generative/Muffin/commit/6b776420b298964515f319d6b32ee5aa44b48465))
+
 ## [0.45.0](https://github.com/IA-Generative/Muffin/compare/v0.44.0...v0.45.0) (2026-11-01)
 
 
