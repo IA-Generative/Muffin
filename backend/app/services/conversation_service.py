@@ -90,8 +90,9 @@ class ConversationService:
                 and message.questions_answer is None
                 and message.id != last_id,
                 feedback=feedback_map.get(message.id),
+                assistant_name=assistant_name,
             )
-            for message, citations, edit_proposal, unexplored_collection_ids in rows
+            for message, citations, edit_proposal, unexplored_collection_ids, assistant_name in rows
         ]
 
     async def rename_conversation(
