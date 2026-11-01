@@ -3,6 +3,7 @@ from typing import Any
 from app.agent.backend_client import backend_client
 from app.agent.graph.services.authoring import CREATE_VERBS, EDIT_VERBS
 from app.agent.graph.services.events import emit, is_cancelled, set_activity
+from app.agent.graph.services.scope import within_pinned
 from app.agent.graph.services.vdb_router import VECTOR_PREFILTER_THRESHOLD, vector_prefilter
 from app.agent.graph.state import AgentState
 
@@ -30,6 +31,10 @@ async def prepare(state: AgentState) -> dict[str, Any]:
     await emit(run_id, "run_started", {"query": state["original_query"]})
     await emit(run_id, "vdb_discovery_started")
     accessible = await backend_client.list_accessible_collections(state["user_id"], state["user_groups"])
+    if state.get("scope_locked"):
+        # An assistant's collections are the only ones searched: nothing past them is shown to the plan, so nothing
+        # later can reach it (#514).
+        accessible = within_pinned(state["pinned_vdb_ids"], accessible)
     await emit(run_id, "vdb_discovery_completed", {"accessible_count": len(accessible)})
 
     query = state["original_query"]

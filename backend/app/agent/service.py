@@ -122,6 +122,9 @@ class AgentService:
                 # exploration adds to it, see AgentState.unexplored_vdb_ids.
                 "unexplored_vdb_ids": [str(vdb_id) for vdb_id in (run.get("unexplored_collection_ids") or [])],
                 "interactive": bool(run.get("interactive", True)),
+                "assistant_instructions": run.get("assistant_instructions") or "",
+                "scope_locked": bool(run.get("scope_locked", False)),
+                "disabled_tools": list(run.get("disabled_tools") or []),
                 "question_rounds": question_rounds(raw_history),
                 "questions": None,
                 "must_assume": False,

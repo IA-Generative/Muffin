@@ -16,3 +16,20 @@ def scope_vdbs(ids: list[str], accessible: list[dict[str, Any]]) -> list[dict[st
         return list(accessible)
     by_id = {str(vdb["id"]): vdb for vdb in accessible}
     return [by_id[vdb_id] for vdb_id in ids if vdb_id in by_id]
+
+
+def within_pinned(pinned: list[str], accessible: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The accessible collections that are one of the pinned ones or below one of them, whatever the depth: what a
+    search that must stay within the collections it was given (an assistant's, #514) is allowed to look at."""
+    allowed = set(pinned)
+    children: dict[str, list[str]] = {}
+    for vdb in accessible:
+        if vdb.get("parent_id"):
+            children.setdefault(str(vdb["parent_id"]), []).append(str(vdb["id"]))
+    queue = list(allowed)
+    while queue:
+        for child in children.get(queue.pop(), []):
+            if child not in allowed:
+                allowed.add(child)
+                queue.append(child)
+    return [vdb for vdb in accessible if str(vdb["id"]) in allowed]

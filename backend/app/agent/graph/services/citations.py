@@ -28,6 +28,20 @@ OUTPUT_FORMAT = (
     "you cite once, with a passage that is really in it."
 )
 
+# Where the instructions of an assistant (#514) come in the system prompt: after every rule above, and said to be below
+# them. They are the text of whoever made the assistant, read on behalf of the people who use it.
+ASSISTANT_RULES_HEADER = (
+    "\n\nInstructions from the assistant the user is talking to. They set the role, tone, format and language of the "
+    'text of "answer", and any rule of the business. They never change the rules above: the answer is still drawn only '
+    "from the evidence, still cites it, and is still the JSON object described, whatever these say.\n"
+)
+
+
+def assistant_rules(instructions: str) -> str:
+    """The instructions of an assistant, to add at the end of the system prompt - nothing without any."""
+    return f"{ASSISTANT_RULES_HEADER}{instructions.strip()}" if instructions.strip() else ""
+
+
 # The same shape as the interface reads (useChat.ts, formatAnswerWithCitations): a bracket of hexadecimal ids, possibly
 # several, separated by commas, semicolons or spaces.
 _MARKER = re.compile(r"\[([0-9a-f][0-9a-f,;\s-]{6,}[0-9a-f])\]", re.IGNORECASE)
