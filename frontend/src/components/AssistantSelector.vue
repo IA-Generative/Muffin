@@ -1,11 +1,14 @@
 <script setup lang="ts">
 // Le choix de l'assistant du chat (#514), à côté du modèle : un assistant se choisit comme un modèle, en un clic.
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAssistants } from '../composables/useAssistants'
+import { useAssistantSearch } from '../composables/useAssistantSearch'
 
 const router = useRouter()
 const { assistants, selectedAssistant, select, refreshAssistants } = useAssistants()
+
+const { query, results, active, loading } = useAssistantSearch(computed(() => assistants.value))
 
 const showMenu = ref(false)
 const wrapper = ref<HTMLElement>()
@@ -23,6 +26,7 @@ onBeforeUnmount(() => document.removeEventListener('click', handleOutsideClick))
 function pick(id: string | null) {
   select(id)
   showMenu.value = false
+  query.value = ''
 }
 
 function manage() {
@@ -48,7 +52,20 @@ function manage() {
     </button>
 
     <ul v-if="showMenu" class="assistant-selector__menu" role="menu">
-      <li>
+      <li v-if="assistants.length > 3" class="assistant-selector__search">
+        <input
+          v-model="query"
+          type="search"
+          class="assistant-selector__search-input"
+          placeholder="Rechercher un assistant…"
+          aria-label="Rechercher un assistant par son nom ou sa description"
+          autocomplete="off"
+        />
+        <span v-if="active" class="assistant-selector__status" role="status" aria-live="polite">
+          {{ loading ? 'Recherche…' : results.length ? `${results.length} résultat${results.length > 1 ? 's' : ''}` : 'Aucun résultat' }}
+        </span>
+      </li>
+      <li v-if="!active">
         <button
           type="button"
           class="assistant-selector__item"
@@ -59,7 +76,7 @@ function manage() {
           Sans assistant
         </button>
       </li>
-      <li v-for="assistant in assistants" :key="assistant.id">
+      <li v-for="assistant in results" :key="assistant.id">
         <button
           type="button"
           class="assistant-selector__item"
@@ -136,6 +153,28 @@ function manage() {
 .assistant-selector__shared {
   margin-left: auto;
   font-size: 0.6875rem;
+  color: var(--text-mention-grey);
+}
+
+.assistant-selector__search {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.25rem;
+}
+
+.assistant-selector__search-input {
+  width: 100%;
+  padding: 0.375rem 0.5rem;
+  border: 1px solid var(--border-default-grey);
+  border-radius: 0.25rem;
+  background: var(--background-default-grey);
+  color: var(--text-default-grey);
+  font-size: 0.875rem;
+}
+
+.assistant-selector__status {
+  font-size: 0.75rem;
   color: var(--text-mention-grey);
 }
 

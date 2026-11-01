@@ -4,6 +4,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAssistants } from '../composables/useAssistants'
+import { useAssistantSearch } from '../composables/useAssistantSearch'
 import { useCollections } from '../composables/useCollections'
 import type { Assistant } from '../types/assistant'
 import AssistantForm from './AssistantForm.vue'
@@ -21,8 +22,10 @@ onMounted(() => {
   refreshCollections()
 })
 
-const mine = computed(() => assistants.value.filter((item) => item.isOwner))
-const shared = computed(() => assistants.value.filter((item) => !item.isOwner))
+const { query, results, active, loading } = useAssistantSearch(computed(() => assistants.value))
+
+const mine = computed(() => results.value.filter((item) => item.isOwner))
+const shared = computed(() => results.value.filter((item) => !item.isOwner))
 const editing = computed(() =>
   panel.value?.kind === 'edit' && panel.value.id ? (assistants.value.find((item) => item.id === panel.value!.id) ?? null) : null,
 )
@@ -82,6 +85,20 @@ function status(assistant: Assistant): string {
     </div>
 
     <template v-else>
+      <div v-if="assistants.length > 3" class="assistants-view__search" role="search">
+        <label class="fr-label" for="assistants-search">Rechercher un assistant</label>
+        <input
+          id="assistants-search"
+          v-model="query"
+          type="search"
+          class="fr-input"
+          placeholder="Ce qu’il fait : « répond sur les congés », « marchés publics »…"
+          autocomplete="off"
+        />
+        <p v-if="active" class="assistants-view__status" role="status" aria-live="polite">
+          {{ loading ? 'Recherche…' : results.length ? `${results.length} résultat${results.length > 1 ? 's' : ''}` : 'Aucun résultat' }}
+        </p>
+      </div>
       <p v-if="isLoading && !assistants.length" class="assistants-view__empty">Chargement…</p>
       <p v-else-if="!assistants.length" class="assistants-view__empty">
         Aucun assistant pour l’instant. Créez le premier : « RH – congés » avec vos collections de RH et un ton adapté.
@@ -157,6 +174,16 @@ function status(assistant: Assistant): string {
 
 .assistants-view h2 {
   margin-top: 2rem;
+}
+
+.assistants-view__search {
+  margin-top: 1rem;
+}
+
+.assistants-view__status {
+  margin: 0.25rem 0 0;
+  font-size: 0.8125rem;
+  color: var(--text-mention-grey);
 }
 
 .assistants-view__list {
