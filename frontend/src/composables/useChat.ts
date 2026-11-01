@@ -1377,6 +1377,22 @@ async function runQuery(
   }
 }
 
+// The images attached in the composer, as the message shows them at once: from their local preview.
+function attachedImages(images: StagedImage[]): MessageImage[] {
+  return images.map((image) => ({
+    id: image.id ?? image.tempId,
+    origin: 'attached',
+    prompt: null,
+    model: null,
+    aiGenerated: false,
+    contentType: image.contentType ?? 'image/png',
+    width: image.width ?? 0,
+    height: image.height ?? 0,
+    sizeBytes: image.sizeBytes ?? 0,
+    url: image.previewUrl,
+  }))
+}
+
 function sendMessage(
   content: string,
   collectionIds: string[] = [],
@@ -1391,18 +1407,7 @@ function sendMessage(
 
   const messageId = crypto.randomUUID()
   // The images attached to this message (#512) are shown with it at once, from their local preview.
-  const attached: MessageImage[] = images.map((image) => ({
-    id: image.id ?? image.tempId,
-    origin: 'attached',
-    prompt: null,
-    model: null,
-    aiGenerated: false,
-    contentType: image.contentType ?? 'image/png',
-    width: image.width ?? 0,
-    height: image.height ?? 0,
-    sizeBytes: image.sizeBytes ?? 0,
-    url: image.previewUrl,
-  }))
+  const attached = attachedImages(images)
   messagesByConversation.value[conversationId].push(
     { id: crypto.randomUUID(), role: 'user', content, images: attached.length ? attached : undefined },
     { id: messageId, role: 'assistant', content: 'Recherche en cours', pending: true },
@@ -1417,13 +1422,20 @@ function sendMessage(
 // An image asked for in the chat (#518), on the person's explicit request - never started by the model. The
 // backend makes it, keeps it with the conversation and answers with both messages: nothing to poll, but a few
 // seconds to wait, which the pending message says. A refusal (quota, policy, provider) is shown as the answer.
-async function generateImage(prompt: string) {
+// With images attached it is a retouching of those: they are shown with the request, as for a message.
+async function generateImage(prompt: string, images: StagedImage[] = []) {
   const conversationId = activeId.value
   abandonOpenQuestions(conversationId)
   const messageId = crypto.randomUUID()
+  const attached = attachedImages(images)
   messagesByConversation.value[conversationId].push(
-    { id: crypto.randomUUID(), role: 'user', content: prompt },
-    { id: messageId, role: 'assistant', content: 'Génération de l’image en cours', pending: true },
+    { id: crypto.randomUUID(), role: 'user', content: prompt, images: attached.length ? attached : undefined },
+    {
+      id: messageId,
+      role: 'assistant',
+      content: attached.length ? 'Retouche de l’image en cours' : 'Génération de l’image en cours',
+      pending: true,
+    },
   )
   try {
     const response = await fetch(`${API_BASE_URL}/api/images/generations`, {
@@ -1433,6 +1445,7 @@ async function generateImage(prompt: string) {
       body: JSON.stringify({
         prompt,
         conversation_id: confirmedConversationIds.has(conversationId) ? conversationId : undefined,
+        image_ids: images.map((image) => image.id).filter((id): id is string => id !== null),
       }),
     })
     if (!response.ok) throw new Error(await imageErrorMessage(response))

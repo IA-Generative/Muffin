@@ -11,6 +11,8 @@ export interface ImageSettings {
   hasKey: boolean
   hubAvailable: boolean
   model: string | null
+  // Le modèle qui retouche une image ; vide : le même que pour générer.
+  editModel: string | null
   size: string
   quality: string | null
   dailyLimit: number
@@ -26,6 +28,7 @@ export interface ImageSettingsDraft {
   apiKey: string
   clearKey: boolean
   model: string
+  editModel: string
   size: string
   quality: string
   dailyLimit: number
@@ -53,6 +56,7 @@ interface SettingsOut {
   has_key: boolean
   hub_available: boolean
   model: string | null
+  edit_model: string | null
   size: string
   quality: string | null
   daily_limit: number
@@ -82,6 +86,7 @@ function toSettings(raw: SettingsOut): ImageSettings {
     hasKey: raw.has_key,
     hubAvailable: raw.hub_available,
     model: raw.model,
+    editModel: raw.edit_model,
     size: raw.size,
     quality: raw.quality,
     dailyLimit: raw.daily_limit,
@@ -134,6 +139,7 @@ async function saveImageSettings(draft: ImageSettingsDraft): Promise<boolean> {
         ...(draft.apiKey.trim() ? { api_key: draft.apiKey.trim() } : {}),
         clear_key: draft.clearKey,
         model: draft.model.trim(),
+        edit_model: draft.editModel.trim(),
         size: draft.size.trim() || undefined,
         quality: draft.quality || null,
         daily_limit: draft.dailyLimit,

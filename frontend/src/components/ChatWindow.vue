@@ -34,7 +34,7 @@ const emit = defineEmits<{
     includeDescendants: boolean,
     images: StagedImage[],
   ]
-  generateImage: [prompt: string]
+  generateImage: [prompt: string, images: StagedImage[]]
   askSuggestion: [suggestion: QaSuggestion]
   regenerate: [id: string]
   feedback: [id: string, value: 'up' | 'down', details?: FeedbackDetails]
@@ -296,7 +296,7 @@ function submit() {
   const content = draft.value.trim() || (ready && !imageMode.value ? 'Que montre cette image ?' : '')
   if (!content) return
   if (imageMode.value && imageStatus.value.available) {
-    emit('generateImage', content)
+    emit('generateImage', content, takeStagedImages())
   } else {
     emit('send', content, pinnedCollectionIds.value, webSearchEnabled.value, includeDescendants.value, takeStagedImages())
   }
@@ -485,8 +485,15 @@ watch(
           </li>
         </ul>
         <p v-if="imageMode" class="chat-window__image-hint" role="status">
-          Mode image : votre message décrit l’image à créer. Il est envoyé au fournisseur d’images choisi par
-          l’administrateur, et l’image est étiquetée « générée par IA ». {{ imageQuotaLabel }}
+          <template v-if="staged.length">
+            Mode image : votre message décrit la retouche à faire sur les images jointes. Elles et votre message sont
+            envoyés au fournisseur d’images choisi par l’administrateur, et l’image est étiquetée « générée par IA ».
+          </template>
+          <template v-else>
+            Mode image : votre message décrit l’image à créer. Il est envoyé au fournisseur d’images choisi par
+            l’administrateur, et l’image est étiquetée « générée par IA ».
+          </template>
+          {{ imageQuotaLabel }}
         </p>
         <ul v-if="staged.length" class="chat-window__staged" aria-label="Images jointes au message">
           <li v-for="(image, index) in staged" :key="image.tempId" class="chat-window__staged-item">
