@@ -6,7 +6,8 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.image_generation import ImageGenerationSettings
-from app.models.message_image import ORIGIN_ATTACHED, MessageImage
+from app.models.message import Message, MessageRole
+from app.models.message_image import ORIGIN_ATTACHED, ORIGIN_GENERATED, MessageImage
 
 
 class MessageImageRepository:
@@ -51,6 +52,54 @@ class MessageImageRepository:
             select(MessageImage.s3_key).where(MessageImage.conversation_id == conversation_id)
         )
         return result.scalars().all()
+
+    async def exists_in_conversation(self, conversation_id: uuid.UUID) -> bool:
+        result = await self.db.execute(
+            select(MessageImage.id).where(MessageImage.conversation_id == conversation_id).limit(1)
+        )
+        return result.first() is not None
+
+    async def latest_generated(self, conversation_id: uuid.UUID) -> MessageImage | None:
+        """The last image a model made in this conversation: what "make it darker" is about."""
+        result = await self.db.execute(
+            select(MessageImage)
+            .where(MessageImage.conversation_id == conversation_id, MessageImage.origin == ORIGIN_GENERATED)
+            .order_by(MessageImage.created_at.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    async def _attached_to(self, message_id: uuid.UUID) -> list[MessageImage]:
+        result = await self.db.execute(
+            select(MessageImage)
+            .where(MessageImage.message_id == message_id, MessageImage.origin == ORIGIN_ATTACHED)
+            .order_by(MessageImage.created_at)
+        )
+        return list(result.scalars())
+
+    async def attached_to_read(
+        self, conversation_id: uuid.UUID, message_id: uuid.UUID
+    ) -> tuple[list[MessageImage], bool]:
+        """The images a message is about (#512): those attached to it - and True - or, when it has none, those attached
+        to the user message just before it, which a follow-up ("and the second column?") is still about - and False."""
+        mine = await self._attached_to(message_id)
+        if mine:
+            return mine, True
+        current = await self.db.get(Message, message_id)
+        if current is None:
+            return [], True
+        previous = await self.db.execute(
+            select(Message.id)
+            .where(
+                Message.conversation_id == conversation_id,
+                Message.role == MessageRole.USER,
+                Message.created_at < current.created_at,
+            )
+            .order_by(Message.created_at.desc())
+            .limit(1)
+        )
+        previous_id = previous.scalar_one_or_none()
+        return (await self._attached_to(previous_id) if previous_id else []), False
 
     # --- the images a person attached, before the message that carries them exists ---
 

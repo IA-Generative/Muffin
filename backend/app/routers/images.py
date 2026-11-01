@@ -58,7 +58,7 @@ async def get_status(user: UserDep, service: ServiceDep) -> ImageStatusOut:
 )
 async def generate_image(body: ImageGenerationIn, user: UserDep, service: ServiceDep) -> ImageGenerationOut:
     try:
-        return await service.generate(user, body.prompt, body.conversation_id)
+        return await service.generate(user, body.prompt, body.conversation_id, body.image_ids)
     except ImageGenerationError as error:
         raise _refused(error) from error
     except ConversationNotFoundError as error:

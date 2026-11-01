@@ -17,6 +17,7 @@ import binascii
 import re
 import time
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime
 
 import httpx
@@ -135,6 +136,7 @@ class ImageGenerationService:
             has_key=row.secret_id is not None,
             hub_available=self._hub_available(),
             model=row.model,
+            edit_model=row.edit_model,
             size=row.size,
             quality=row.quality,
             daily_limit=row.daily_limit,
@@ -153,8 +155,9 @@ class ImageGenerationService:
         changes = body.model_dump(exclude_unset=True, exclude={"api_key", "clear_key"})
         if "base_url" in changes:
             changes["base_url"] = await self._checked_address(changes["base_url"])
-        if "model" in changes:
-            changes["model"] = (changes["model"] or "").strip() or None
+        for field in ("model", "edit_model"):
+            if field in changes:
+                changes[field] = (changes[field] or "").strip() or None
         if "quality" in changes:
             changes["quality"] = changes["quality"] or None
         if "max_image_bytes" in changes and changes["max_image_bytes"] > _settings.IMAGES_MAX_BYTES_LIMIT:
@@ -162,7 +165,7 @@ class ImageGenerationService:
                 "reglage_invalide", "Cette taille maximale dépasse la limite de l'installation.", 422
             )
         for key, value in changes.items():
-            if value is not None or key in ("base_url", "model", "quality"):
+            if value is not None or key in ("base_url", "model", "edit_model", "quality"):
                 setattr(row, key, value)
         if body.clear_key and row.secret_id is not None:
             await self._forget_key(row)
@@ -332,16 +335,29 @@ class ImageGenerationService:
     # --- calling the provider ---
 
     async def _ask_provider(
-        self, row: ImageGenerationSettings, base_url: str, key: str, prompt: str
+        self,
+        row: ImageGenerationSettings,
+        base_url: str,
+        key: str,
+        prompt: str,
+        sources: Sequence[tuple[bytes, str, str]] | None = None,
     ) -> tuple[bytes, str]:
-        """The bytes of the image the provider made, and how it gave them (`b64_json` or `url`)."""
-        arguments: dict = {"model": row.model, "prompt": prompt, "n": 1, "size": row.size}
+        """The bytes of the image the provider made, and how it gave them (`b64_json` or `url`).
+
+        With `sources` - (bytes, type, name) of the images to retouch - it is a retouching (`/images/edits`) made by the
+        edit model, which is the one that draws unless the administrator named another."""
+        model = (row.edit_model or row.model) if sources else row.model
+        arguments: dict = {"model": model, "prompt": prompt, "n": 1, "size": row.size}
         if row.quality:
             arguments["quality"] = row.quality
         # No `response_format`: some models refuse it, some answer only with base64, the others by address.
         client = _client(base_url, key)
         try:
-            response = await client.images.generate(**arguments)
+            if sources:
+                files = [(name, data, content_type) for data, content_type, name in sources]
+                response = await client.images.edit(image=files if len(files) > 1 else files[0], **arguments)
+            else:
+                response = await client.images.generate(**arguments)
         except Exception as error:
             raise self._provider_error(error) from error
         finally:
@@ -498,20 +514,56 @@ class ImageGenerationService:
         user_id: str,
         prompt: str,
         run_id: uuid.UUID | None = None,
+        sources: Sequence[tuple[bytes, str, str]] | None = None,
     ) -> tuple[bytes, image_bytes.ImageInfo]:
-        """The checked and labelled bytes of an image, once the quota is taken - and given back if there is none."""
+        """The checked and labelled bytes of an image, once the quota is taken - and given back if there is none. With
+        `sources` the image is a retouching of those."""
         await self._take_quota(row, user_id, run_id)
         try:
-            data, _how = await self._ask_provider(row, *address, prompt)
+            data, _how = await self._ask_provider(row, *address, prompt, sources)
             info = self._checked(data, row)
         except ImageGenerationError:
             await self._give_back_quota(user_id)
             raise
         return image_bytes.label_png(data), info
 
+    async def _staged_sources(
+        self, user_id: str, image_ids: Sequence[uuid.UUID]
+    ) -> tuple[list[MessageImage], list[tuple[bytes, str, str]]]:
+        """The images the person attached in the composer, to be retouched: theirs, not sent yet, in number. Read from
+        the bucket - they go to the image provider, which the person is told."""
+        if len(set(image_ids)) != len(image_ids) or len(image_ids) > _settings.IMAGES_PER_MESSAGE:
+            raise ImageGenerationError(
+                "trop_d_images", f"Au plus {_settings.IMAGES_PER_MESSAGE} images à retoucher à la fois.", 422
+            )
+        rows: list[MessageImage] = []
+        for image_id in image_ids:
+            image = await self.images.get_staged(image_id, user_id)
+            if image is None:
+                raise ImageGenerationError(
+                    "image_introuvable", "Une image jointe n'existe plus : joignez-la de nouveau.", 422
+                )
+            rows.append(image)
+        return rows, await self._read_sources(rows)
+
+    @staticmethod
+    async def _read_sources(rows: Sequence[MessageImage]) -> list[tuple[bytes, str, str]]:
+        sources = []
+        for index, image in enumerate(rows, start=1):
+            content, _ = await asyncio.to_thread(storage.get_object, image.s3_key)
+            extension = image.s3_key.rsplit(".", 1)[-1]
+            sources.append((content, image.content_type, f"image-{index}.{extension}"))
+        return sources
+
     async def generate(
-        self, user: RequestContext, prompt: str, conversation_id: uuid.UUID | None
+        self,
+        user: RequestContext,
+        prompt: str,
+        conversation_id: uuid.UUID | None,
+        image_ids: Sequence[uuid.UUID] = (),
     ) -> ImageGenerationOut:
+        """An image for the person, in a conversation. With `image_ids` - images they attached in the composer - it is a
+        retouching of those: they become the request's own images, shown above it."""
         row = await self.settings.get()
         prompt = self._guard(row, user.groups, user.is_admin, prompt)
         address = await self._provider(row)
@@ -520,23 +572,30 @@ class ImageGenerationService:
             conversation = await self.conversations.get(conversation_id, user.user_id)
             if conversation is None:
                 raise ConversationNotFoundError(str(conversation_id))
+        staged, sources = await self._staged_sources(user.user_id, image_ids) if image_ids else ([], None)
 
         started = time.monotonic()
-        data, info = await self._produce(row, address, user.user_id, prompt)
+        data, info = await self._produce(row, address, user.user_id, prompt, sources=sources)
         image_id = uuid.uuid4()
         if conversation is None:
             conversation = await self.conversations.create(user.user_id, title=_remember(prompt)[:80])
         key_in_bucket = f"images/{conversation.id}/{image_id}.{info.extension}"
         await asyncio.to_thread(storage.put_object, key_in_bucket, data, info.content_type)
+        used_model = (row.edit_model or row.model or "") if sources else (row.model or "")
         try:
             user_message = await self.conversations.add_message(conversation.id, MessageRole.USER, prompt)
+            # The images to retouch are the request's own: shown above it, and the conversation's from now on.
+            attached = await self.images.claim(
+                [image.id for image in staged], user.user_id, conversation.id, user_message.id
+            )
             # Its own transaction: the history orders messages by creation time, which Postgres takes from the start of
             # the transaction - the answer must come after the request, not at the same instant.
             await self.db.commit()
             answer = await self.conversations.add_message(
                 conversation.id,
                 MessageRole.ASSISTANT,
-                f"Image générée par IA à partir de la demande : « {_remember(prompt)[:200]} ».",
+                f"Image {'retouchée' if sources else 'générée'} par IA à partir de la demande : "
+                f"« {_remember(prompt)[:200]} ».",
             )
             image = await self.images.add(
                 MessageImage(
@@ -546,7 +605,7 @@ class ImageGenerationService:
                     message_id=answer.id,
                     user_id=user.user_id,
                     prompt=prompt,
-                    model=row.model or "",
+                    model=used_model,
                     s3_key=key_in_bucket,
                     content_type=info.content_type,
                     width=info.width,
@@ -565,7 +624,11 @@ class ImageGenerationService:
         result = ImageGenerationOut(
             conversation_id=conversation.id,
             user_message=GeneratedMessageOut(
-                id=user_message.id, role="user", content=user_message.content, created_at=user_message.created_at
+                id=user_message.id,
+                role="user",
+                content=user_message.content,
+                created_at=user_message.created_at,
+                images=[self.present_image(item) for item in attached],
             ),
             message=GeneratedMessageOut(
                 id=answer.id,
@@ -575,12 +638,30 @@ class ImageGenerationService:
                 images=[self.present_image(image)],
             ),
         )
-        await self._record_usage(user.user_id, row.model or "", info)
+        await self._record_usage(user.user_id, used_model, info)
         logger.info(
             f"Image {image_id} generated for {user.user_id} in {int((time.monotonic() - started) * 1000)} ms "
             f"({info.width}x{info.height}, {len(data)} bytes)"
         )
         return result
+
+    async def has_images(self, conversation_id: uuid.UUID) -> bool:
+        """Whether the conversation holds an image to retouch - one attached to a message, or made for it (#518)."""
+        return await self.images.exists_in_conversation(conversation_id)
+
+    async def source_images(
+        self, conversation_id: uuid.UUID, message_id: uuid.UUID, source: str | None
+    ) -> list[MessageImage]:
+        """The images to retouch for the run of this message: `jointe` - the ones attached to it or to the message
+        before
+        - or `generee` - the last one a model made here; with no choice, the attached ones if there are some."""
+        attached, _current = await self.images.attached_to_read(conversation_id, message_id)
+        generated = await self.images.latest_generated(conversation_id)
+        if source == "generee":
+            return [generated] if generated else []
+        if source == "jointe":
+            return attached
+        return attached or ([generated] if generated else [])
 
     async def generate_for_run(
         self,
@@ -590,16 +671,20 @@ class ImageGenerationService:
         conversation_id: uuid.UUID,
         run_id: uuid.UUID,
         prompt: str,
+        source_images: Sequence[MessageImage] | None = None,
     ) -> MessageImage:
-        """An image the assistant asked for while answering (#518, the tool `generer_image`): the same checks, the same
-        quota and the same keeping as the person's own request - the quota is the person's, and a run may ask for at
-        most `IMAGES_PER_RUN`. Nothing is written in the conversation here: the image belongs to the run, and to its
-        answer when it is written."""
+        """An image the assistant asked for while answering (#518, the tools `generer_image` and `retoucher_image`): the
+        same checks, the same quota and the same keeping as the person's own request - the quota is the person's, and a
+        run may ask for at most `IMAGES_PER_RUN`. With `source_images` it is a retouching of those. Nothing is written
+        in
+        the conversation here: the image belongs to the run, and to its answer when it is written."""
         row = await self.settings.get()
         prompt = self._guard(row, groups, False, prompt)
         address = await self._provider(row)
+        sources = await self._read_sources(source_images) if source_images else None
+        used_model = (row.edit_model or row.model or "") if sources else (row.model or "")
         started = time.monotonic()
-        data, info = await self._produce(row, address, user_id, prompt, run_id)
+        data, info = await self._produce(row, address, user_id, prompt, run_id, sources)
         image_id = uuid.uuid4()
         key_in_bucket = f"images/{conversation_id}/{image_id}.{info.extension}"
         await asyncio.to_thread(storage.put_object, key_in_bucket, data, info.content_type)
@@ -612,7 +697,7 @@ class ImageGenerationService:
                     run_id=run_id,
                     user_id=user_id,
                     prompt=prompt,
-                    model=row.model or "",
+                    model=used_model,
                     s3_key=key_in_bucket,
                     content_type=info.content_type,
                     width=info.width,
@@ -626,7 +711,7 @@ class ImageGenerationService:
             await asyncio.to_thread(storage.delete_objects, [key_in_bucket])
             await self._give_back_quota(user_id)
             raise
-        await self._record_usage(user_id, row.model or "", info)
+        await self._record_usage(user_id, used_model, info)
         logger.info(
             f"Image {image_id} generated for the run {run_id} of {user_id} in "
             f"{int((time.monotonic() - started) * 1000)} ms ({info.width}x{info.height}, {len(data)} bytes)"
