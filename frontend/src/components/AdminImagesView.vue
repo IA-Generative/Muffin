@@ -13,6 +13,7 @@ const draft = reactive<ImageSettingsDraft>({
   apiKey: '',
   clearKey: false,
   model: '',
+  editModel: '',
   size: '1024x1024',
   quality: '',
   dailyLimit: 20,
@@ -39,6 +40,7 @@ watch(
     draft.apiKey = ''
     draft.clearKey = false
     draft.model = value.model ?? ''
+    draft.editModel = value.editModel ?? ''
     draft.size = value.size
     draft.quality = value.quality ?? ''
     draft.dailyLimit = value.dailyLimit
@@ -144,6 +146,10 @@ async function test() {
         <div class="admin-card__field">
           <label for="img-model">Modèle</label>
           <input id="img-model" v-model="draft.model" class="fr-input" type="text" autocomplete="off" placeholder="gpt-image-1" />
+        </div>
+        <div class="admin-card__field">
+          <label for="img-edit-model">Modèle de retouche (facultatif)</label>
+          <input id="img-edit-model" v-model="draft.editModel" class="fr-input" type="text" autocomplete="off" placeholder="Le même que pour générer" />
         </div>
         <div class="admin-card__field">
           <label for="img-size">Taille</label>
