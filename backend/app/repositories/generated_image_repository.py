@@ -39,6 +39,18 @@ class GeneratedImageRepository:
     async def attach_to_message(self, image_id: uuid.UUID, message_id: uuid.UUID) -> None:
         await self.db.execute(update(GeneratedImage).where(GeneratedImage.id == image_id).values(message_id=message_id))
 
+    async def attach_run_to_message(self, run_id: uuid.UUID, message_id: uuid.UUID) -> None:
+        """The images a run made while it ran belong to the message made from its answer, like its charts."""
+        await self.db.execute(
+            update(GeneratedImage).where(GeneratedImage.run_id == run_id).values(message_id=message_id)
+        )
+
+    async def for_run(self, run_id: uuid.UUID) -> list[GeneratedImage]:
+        result = await self.db.execute(
+            select(GeneratedImage).where(GeneratedImage.run_id == run_id).order_by(GeneratedImage.created_at)
+        )
+        return list(result.scalars())
+
     async def keys_for_conversation(self, conversation_id: uuid.UUID) -> Sequence[str]:
         result = await self.db.execute(
             select(GeneratedImage.s3_key).where(GeneratedImage.conversation_id == conversation_id)

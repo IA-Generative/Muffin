@@ -41,6 +41,7 @@ def upgrade() -> None:
         sa.Column("id", sa.UUID(), nullable=False),
         sa.Column("conversation_id", sa.UUID(), nullable=False),
         sa.Column("message_id", sa.UUID(), nullable=True),
+        sa.Column("run_id", sa.UUID(), nullable=True),
         sa.Column("user_id", sa.String(), nullable=False),
         sa.Column("prompt", sa.Text(), nullable=False),
         sa.Column("model", sa.String(length=200), nullable=False),
@@ -53,10 +54,12 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
         sa.ForeignKeyConstraint(["conversation_id"], ["conversations.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["message_id"], ["messages.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["run_id"], ["runs.id"], ondelete="SET NULL"),
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index(op.f("ix_generated_images_conversation_id"), "generated_images", ["conversation_id"], unique=False)
     op.create_index(op.f("ix_generated_images_message_id"), "generated_images", ["message_id"], unique=False)
+    op.create_index(op.f("ix_generated_images_run_id"), "generated_images", ["run_id"], unique=False)
     op.create_index(op.f("ix_generated_images_user_id"), "generated_images", ["user_id"], unique=False)
     # A new value of an enum cannot be used in the transaction that adds it. The labels are the names of the members.
     with op.get_context().autocommit_block():
@@ -70,6 +73,7 @@ def downgrade() -> None:
     op.drop_column("token_usages", "pixels")
     op.drop_column("token_usages", "images")
     op.drop_index(op.f("ix_generated_images_user_id"), table_name="generated_images")
+    op.drop_index(op.f("ix_generated_images_run_id"), table_name="generated_images")
     op.drop_index(op.f("ix_generated_images_message_id"), table_name="generated_images")
     op.drop_index(op.f("ix_generated_images_conversation_id"), table_name="generated_images")
     op.drop_table("generated_images")

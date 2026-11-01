@@ -19,6 +19,7 @@ from app.repositories.chart_repository import ChartRepository
 from app.repositories.collection_repository import CollectionRepository
 from app.repositories.conversation_repository import ConversationRepository
 from app.repositories.document_repository import DocumentRepository
+from app.repositories.generated_image_repository import GeneratedImageRepository
 from app.repositories.run_repository import RunRepository
 from app.repositories.source_repository import SourceRepository
 from app.schemas.document import TableOut
@@ -106,9 +107,22 @@ async def get_run(run_id: uuid.UUID, db: Annotated[AsyncSession, Depends(get_db)
     # Oldest first, this run's own just-inserted user message excluded (see InternalRunOut.history)
     # - AgentService.run() appends it itself, right after this history, as the current question.
     messages = await ConversationRepository(db).list_messages(run.conversation_id)
+    # An image made in the chat is not in what a message says: the next turns are told which one, and from what
+    # description, so that "make it blue" has something to start from (#518).
+    made = await GeneratedImageRepository(db).for_messages([message.id for message, *_rest in messages])
     history = [
         # `asked`: questions with options were asked here (#344), which the worker counts to stop asking.
-        {"role": message.role, "content": message.content, "asked": bool(message.questions)}
+        {
+            "role": message.role,
+            "content": message.content
+            + "".join(
+                f"\n[Image générée par IA, affichée à l'utilisateur. Description envoyée au fournisseur : "
+                f"« {image.prompt[:500]} »]"
+                for image in made.get(message.id, [])
+                if message.run_id is not None  # the answer of the mode «Image» already says its description
+            ),
+            "asked": bool(message.questions),
+        }
         for message, *_run_fields in messages
         if message.id != run.message_id
     ][-_HISTORY_LIMIT:]
@@ -205,6 +219,8 @@ async def update_run_result(
     enriched_citations = await SourceRepository(db).link_citations(message.id, update.citations)
     # The charts the run drew while it ran now belong to this message (#434).
     await ChartRepository(db).attach_run_to_message(run.id, message.id)
+    # So do the images it asked for (#518).
+    await GeneratedImageRepository(db).attach_run_to_message(run.id, message.id)
     await repository.set_result(
         run,
         update.answer,
