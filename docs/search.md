@@ -133,6 +133,46 @@ restent possibles.
 Une collection reprise n'est ni listée par la synchronisation (elle ne peut donc pas être supprimée parce qu'elle a disparu
 d'Open WebUI), ni supprimable par elle (`409`). Les fichiers restent là où Open WebUI les a écrits.
 
+## Reclassement (#511)
+
+La fusion RRF et le cosinus ne relisent jamais le texte d'un passage avec la question. Un **modèle de reclassement** le fait : il lit la
+question et chaque passage candidat ensemble et note la pertinence du passage. C'est ce qui sépare le mieux, quand les documents se
+ressemblent (procédures, textes réglementaires), le passage qui répond de celui qui parle du même sujet.
+
+**Principe.** Le reclasseur change *la sélection et l'ordre*, jamais *le score exposé* : `rank` (agent) et `score` (MCP) restent le
+**cosinus**, sur lequel sont réglés les seuils de l'agent (porte `gate`, paires de questions-réponses déjà posées). La note du reclasseur
+est donnée à part : `rerank_score`.
+
+**Où.** `SearchService.search` (l'agent, `POST /api/internal/search`) et `McpSearchService.search` (outil MCP `search`). On lit
+`RERANK_CANDIDATES` passages (40) au lieu de `limit`, le service les note, on garde les `limit` meilleurs. L'agent range ensuite les
+passages retenus par cosinus avant de rédiger (`build_answer_context`) : le reclassement décide *lesquels* il lit, pas l'ordre du prompt.
+
+**Réglages** (`app/config/rerank.py`, `docs/environment-variables.md`) : un service qui parle le `/rerank` de Cohere, Jina ou vLLM
+(`POST` avec `query`, `documents`, `top_n`, `model` ; réponse `results[].index` / `relevance_score`).
+
+| Variable | Défaut | |
+|---|---|---|
+| `RERANK_API_URL` | vide | URL complète de la route. **Vide : le reclassement est éteint**, aucun appel, résultats identiques |
+| `RERANK_API_KEY` | vide | Envoyée en `Authorization: Bearer` si elle est définie |
+| `RERANK_MODEL` | vide | Nom du modèle, s'il en faut un |
+| `RERANK_CANDIDATES` | 40 | Passages lus avant reclassement |
+| `RERANK_TIMEOUT_SECONDS` | 3 | Au-delà, on garde l'ordre actuel |
+| `RERANK_PASSAGE_MAX_CHARS` | 2000 | Un passage plus long est coupé avant l'envoi |
+
+**Activation par collection** : *Réglages de la collection → Reclassement des résultats*, désactivé par défaut. Une recherche sur
+plusieurs collections est reclassée si **au moins une** l'a activé (tous les candidats sont alors notés, y compris ceux des autres).
+
+**Repli.** Le reclassement n'est qu'un raffinement : délai dépassé, erreur réseau, réponse en 500, réponse inattendue ou passage non
+noté, la recherche garde l'ordre qu'elle avait, **n'échoue jamais**, et un avertissement est journalisé
+(`The reranking service could not be used…`, avec le type de l'erreur, jamais le contenu). Moins de deux passages : pas d'appel.
+
+**Limites.**
+- Une requête de plus par recherche reclassée : la latence ajoutée est celle du service (3 s au plus).
+- Pas encore de reclassement des paires de questions-réponses ni des résumés (`/qa-search`, `/summary-search`) : seulement des passages.
+- Les collections copiées d'Open WebUI suivent le même chemin ; à vérifier séparément.
+- **Pas encore mesuré** : le gain de rappel@5 sur le jeu d'évaluation et la latence p95 pour 40 candidats demandent un service de
+  reclassement réel. Tant que ce n'est pas fait, le reclassement reste désactivé partout par défaut ; les chiffres seront consignés ici.
+
 ## Écriture, lecture, suppression
 
 - Écritures par lots, avec `wait=true` : ce qu'on relit juste après est déjà là.
