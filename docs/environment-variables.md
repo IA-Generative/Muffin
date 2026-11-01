@@ -437,6 +437,8 @@ Ce que la personne retient ou non est à elle (page « Ma mémoire », voir `doc
 | `MEMORY_LEARNING_ENABLED` | Interrupteur de ce qui est appris des 👍/👎 (#285), sans toucher au reste de la mémoire | `true` | idem |
 | `MEMORY_LEARNING_HALF_LIFE_DAYS` | Jours au bout desquels un signal d'un feedback ne pèse plus que la moitié | `30` | idem |
 | `MEMORY_LEARNED_TTL_DAYS` | Jours pendant lesquels un élément appris est lu sans nouveau signal (renouvelé à chaque recalcul) | `45` | idem |
+| `MEMORY_HABITS_MAX` | Nombre maximal de collections habituelles gardées par personne (#286), les plus lourdes | `10` | idem |
+| `MEMORY_HABITS_TTL_DAYS` | Jours pendant lesquels une habitude est gardée sans que la collection soit utilisée de nouveau | `90` | idem |
 
 ## worker/evaluation — évaluation du retrieval (issue #11)
 

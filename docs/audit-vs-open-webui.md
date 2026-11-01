@@ -48,7 +48,7 @@ Légende : **➕** Muffin devant · **🟰** équivalent · **🔻** Muffin en r
 | Voix | STT / TTS à moteurs, appel vocal temps réel | dictée et lecture vocale (`useVoiceInput`, `useVoiceOutput`) | 🔻 |
 | Génération d'images | plusieurs moteurs | optionnelle, désactivée par défaut : adresse compatible OpenAI (`docs/image-generation.md`) | 🟰 |
 | Interpréteur de code, terminaux | oui | non ; à la place, SQL + graphiques sur les fichiers tabulaires | ❌ |
-| Mémoire de l'utilisateur | oui | **« Ma mémoire »** : ce que l'assistant retient (voir, corriger, désactiver, exporter), « retiens que… » dans le chat, conversation sans mémoire (`docs/memory.md`) ; **préférences de style apprises des 👍/👎**, par règles ; les habitudes d'usage restent à faire | 🔻 |
+| Mémoire de l'utilisateur | oui | **« Ma mémoire »** : ce que l'assistant retient (voir, corriger, désactiver, exporter), « retiens que… » dans le chat, conversation sans mémoire (`docs/memory.md`) ; **préférences de style apprises des 👍/👎** et **collections habituelles** (a priori du routage, sélecteur), par règles ; reste le reclassement des sources et le cache des réponses | 🔻 |
 | Notes | oui | non (les documents modifiables jouent un rôle voisin) | ❌ |
 | Dossiers, étiquettes, épingles, archives | oui | renommer et supprimer seulement | 🔻 |
 | Recherche dans les conversations | oui | non trouvée | 🔻 |
