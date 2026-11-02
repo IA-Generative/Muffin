@@ -20,6 +20,12 @@ const items: AdminItem[] = [
     path: '/admin/images',
   },
   {
+    key: 'voice',
+    label: 'Voix',
+    description: 'Facultative, désactivée par défaut : dictée par enregistrement et lecture à voix haute par un service compatible OpenAI (ou le pod Kitten TTS), avec essai.',
+    path: '/admin/voice',
+  },
+  {
     key: 'guardrails',
     label: 'Garde-fous d\'entrée',
     description: 'Vérifications avant l\'envoi au modèle : règles, juge, service externe ; observer avant de bloquer, politique, essai et journal.',

@@ -9,11 +9,12 @@ import { useFiling } from '../composables/useFiling'
 import { useImageGeneration } from '../composables/useImageGeneration'
 import { useImageAttachments } from '../composables/useImageAttachments'
 import { imagesOf } from '../utils/imageResize'
-import { useVoiceInput } from '../composables/useVoiceInput'
+import { useDictation } from '../composables/useDictation'
 import { useVoiceOutput } from '../composables/useVoiceOutput'
 import type { ChatMessage, ConversationFile, FeedbackDetails } from '../types/chat'
 import type { StagedImage } from '../composables/useImageAttachments'
 import { toPlainText } from '../utils/plainText'
+import { dictationNotice } from '../utils/voice'
 import ChatMessageItem from './ChatMessage.vue'
 import CollectionPicker from './CollectionPicker.vue'
 import DiscussionFeedbackPrompt from './DiscussionFeedbackPrompt.vue'
@@ -147,13 +148,14 @@ async function decideAttachmentFor(action: 'accept' | 'choose_other' | 'dismiss'
 
 const draft = ref('')
 
+// La dictée (#517) : le navigateur, ou un enregistrement transcrit par le serveur quand l'administrateur l'a mis en place.
+const dictation = useDictation()
 const {
-  isSupported: voiceSupported,
-  isListening: voiceListening,
+  supported: voiceSupported,
+  listening: voiceListening,
+  transcribing: voiceTranscribing,
   error: voiceError,
-  start: startVoice,
-  stop: stopVoice,
-} = useVoiceInput()
+} = dictation
 // Text already in the composer before this dictation segment started, so a live interim
 // result replaces only the in-progress phrase instead of piling up duplicated transcripts.
 let voiceBaseDraft = ''
@@ -165,12 +167,14 @@ function joinDraft(base: string, addition: string): string {
 }
 
 function toggleVoice() {
+  if (voiceTranscribing.value) return
   if (voiceListening.value) {
-    stopVoice()
+    dictation.stop()
     return
   }
   voiceBaseDraft = draft.value
-  startVoice((transcript, isFinal) => {
+  void dictation.start((transcript, isFinal) => {
+    // Le texte transcrit s'ajoute au brouillon : il ne l'envoie pas et n'écrase rien de ce qui est déjà écrit.
     draft.value = joinDraft(voiceBaseDraft, transcript)
     if (isFinal) voiceBaseDraft = draft.value
     resizeTextarea()
@@ -601,8 +605,17 @@ watch(
             class="chat-window__mic"
             :class="{ 'chat-window__mic--active': voiceListening }"
             :aria-pressed="voiceListening"
+            :disabled="voiceTranscribing"
             aria-keyshortcuts="Alt+Shift+V"
-            :aria-label="voiceListening ? 'Arrêter la dictée vocale' : 'Dicter le message (raccourci : Alt+Maj+V)'"
+            :aria-label="
+              voiceTranscribing
+                ? 'Transcription en cours'
+                : voiceListening
+                  ? dictation.mode.value === 'server'
+                    ? 'Arrêter l’enregistrement et transcrire'
+                    : 'Arrêter la dictée vocale'
+                  : 'Dicter le message (raccourci : Alt+Maj+V)'
+            "
             :title="voiceListening ? 'Arrêter la dictée vocale' : 'Dicter le message (Alt+Maj+V)'"
             @click="toggleVoice"
           >
@@ -626,8 +639,30 @@ watch(
             </svg>
           </button>
         </div>
+        <div
+          v-if="dictation.mode.value === 'server' && (voiceListening || voiceTranscribing)"
+          class="chat-window__recorder"
+        >
+          <template v-if="voiceTranscribing">
+            <span class="chat-window__recorder-text">Transcription en cours…</span>
+          </template>
+          <template v-else>
+            <span class="chat-window__recorder-dot" aria-hidden="true" />
+            <span class="chat-window__recorder-text">
+              Enregistrement {{ dictation.clock.value }} / {{ dictation.limit.value }}
+            </span>
+            <span class="chat-window__recorder-level" aria-hidden="true">
+              <span class="chat-window__recorder-level-bar" :style="{ width: `${Math.round(dictation.level.value * 100)}%` }" />
+            </span>
+            <button type="button" class="chat-window__recorder-cancel" @click="dictation.cancel()">Annuler</button>
+          </template>
+        </div>
+        <p class="fr-sr-only" role="status" aria-live="polite">{{ dictation.announcement.value }}</p>
         <p v-if="voiceError" class="chat-window__voice-hint chat-window__voice-hint--error" role="alert">
           {{ voiceError }}
+        </p>
+        <p v-else-if="dictation.mode.value === 'server' && voiceListening" class="chat-window__voice-hint">
+          {{ dictationNotice(dictation.destination.value) }}
         </p>
         <p v-else-if="!voiceSupported" class="chat-window__voice-hint">
           La dictée vocale n'est pas disponible sur ce navigateur - utilisez Google Chrome ou Microsoft Edge (sur
@@ -1008,6 +1043,67 @@ watch(
 
 .chat-window__voice-hint--error {
   color: var(--text-default-error);
+}
+
+.chat-window__mic:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+.chat-window__recorder {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  margin: 0.5rem 0 0;
+  padding: 0.375rem 0.75rem;
+  border: 1px solid var(--border-default-grey);
+  border-radius: 0.5rem;
+  background: var(--background-alt-grey);
+  font-size: 0.8125rem;
+}
+
+.chat-window__recorder-dot {
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 50%;
+  background: var(--background-flat-error);
+  animation: chat-window-mic-pulse 1.4s ease-in-out infinite;
+}
+
+.chat-window__recorder-text {
+  color: var(--text-default-grey);
+  font-variant-numeric: tabular-nums;
+}
+
+.chat-window__recorder-level {
+  flex: 1;
+  max-width: 10rem;
+  height: 0.375rem;
+  border-radius: 0.25rem;
+  background: var(--border-default-grey);
+  overflow: hidden;
+}
+
+.chat-window__recorder-level-bar {
+  display: block;
+  height: 100%;
+  background: var(--background-flat-success);
+  transition: width 0.1s linear;
+}
+
+.chat-window__recorder-cancel {
+  margin-left: auto;
+  padding: 0.125rem 0.625rem;
+  border: 1px solid var(--border-default-grey);
+  border-radius: 0.375rem;
+  background: transparent;
+  color: var(--text-default-grey);
+  font: inherit;
+  cursor: pointer;
+}
+
+.chat-window__recorder-cancel:hover {
+  background: var(--background-alt-grey-hover);
 }
 
 </style>

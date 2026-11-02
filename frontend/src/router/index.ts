@@ -28,6 +28,7 @@ export const router = createRouter({
     { path: '/admin', name: 'admin', component: () => import('../components/AdminIndexView.vue') },
     { path: '/admin/settings', name: 'admin-settings', component: () => import('../components/AdminSettingsView.vue') },
     { path: '/admin/images', name: 'admin-images', component: () => import('../components/AdminImagesView.vue') },
+    { path: '/admin/voice', name: 'admin-voice', component: () => import('../components/AdminVoiceView.vue') },
     {
       path: '/admin/guardrails',
       name: 'admin-guardrails',
