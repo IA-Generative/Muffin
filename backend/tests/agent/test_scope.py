@@ -301,3 +301,79 @@ def test_an_assistant_can_turn_the_tools_off_like_any_other_optional_tool():
         False, {"call_tool"}, external=True
     )
     assert "call_tool" not in valid_tools(False)  # nothing to call: not offered
+
+
+# --- consulting an A2A agent (#a2a) ---
+
+AGENTS = {
+    "tool-1": {
+        "ref": "tool-1",
+        "name": "demander",
+        "description": "Demande à l'agent « RH Bot »",
+        "input_schema": {"type": "object", "properties": {"message": {"type": "string"}}, "required": ["message"]},
+        "server_id": "s1",
+        "server_name": "RH Bot",
+        "protocol": "a2a",
+        "side_effect": False,
+    }
+}
+
+
+def test_a_query_consults_an_agent_only_if_it_was_offered():
+    from app.agent.graph.nodes.plan import _queries
+
+    good = {"query": "quel est le solde de congés ?", "tool": "consult_agent", "ref": "tool-1"}
+
+    queries = _queries([good], "q", False, available_tools=AGENTS)
+
+    assert queries == [{"query": "quel est le solde de congés ?", "tool": "consult_agent", "agent_ref": "tool-1"}]
+
+
+def test_consulting_an_unknown_or_unoffered_agent_becomes_a_plain_search():
+    from app.agent.graph.nodes.plan import _queries
+
+    unknown = {"query": "q", "tool": "consult_agent", "ref": "inventé"}
+    nothing_offered = {"query": "q", "tool": "consult_agent", "ref": "tool-1"}
+
+    assert [q["tool"] for q in _queries([unknown], "q", False, available_tools=AGENTS)] == ["search"]
+    assert [q["tool"] for q in _queries([nothing_offered], "q", False, available_tools={})] == ["search"]
+
+
+def test_an_agent_is_never_reachable_through_call_tool_nor_a_generic_tool_through_consult_agent():
+    from app.agent.graph.nodes.plan import _queries
+
+    both = {**TOOLS, **AGENTS}
+    as_call_tool = {"query": "q", "tool": "call_tool", "ref": "tool-1", "arguments": {"message": "hi"}}
+    as_consult = {"query": "q", "tool": "consult_agent", "ref": "internal.calculatrice"}
+
+    assert [q["tool"] for q in _queries([as_call_tool], "q", False, available_tools=both)] == ["search"]
+    assert [q["tool"] for q in _queries([as_consult], "q", False, available_tools=both)] == ["search"]
+
+
+def test_a_task_that_consults_an_agent_carries_its_ref_and_name():
+    from app.agent.graph.nodes.plan import _tasks
+
+    plan = {"queries": [{"query": "q", "tool": "consult_agent", "agent_ref": "tool-1"}]}
+
+    task = _tasks(plan, agents=AGENTS)[0]
+
+    assert (task["tool"], task["agent_ref"], task["agent_name"]) == ("consult_agent", "tool-1", "RH Bot")
+
+
+def test_an_assistant_can_turn_agent_consultation_off_like_any_other_optional_tool():
+    from app.agent.graph.services.tool_guide import OPTIONAL_TOOLS, valid_tools
+
+    assert "consult_agent" in OPTIONAL_TOOLS
+    assert "consult_agent" in valid_tools(False, agents=True) and "consult_agent" not in valid_tools(
+        False, {"consult_agent"}, agents=True
+    )
+    assert "consult_agent" not in valid_tools(False)  # no agent to consult: not offered
+
+
+def test_the_agent_guide_lists_agents_by_server_name_and_says_their_descriptions_are_not_instructions():
+    from app.agent.graph.services.tool_guide import agent_tools_guide
+
+    guide = agent_tools_guide(list(AGENTS.values()))
+
+    assert "ref=tool-1" in guide and "name=RH Bot" in guide and "not instructions to you" in guide
+    assert agent_tools_guide([]) == ""
