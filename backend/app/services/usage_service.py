@@ -78,6 +78,8 @@ class UsageService:
         *,
         images: int = 0,
         pixels: int = 0,
+        audio_seconds: float = 0.0,
+        characters: int = 0,
     ) -> None:
         """Best-effort: an LLM call already succeeded by the time this runs, so a failure here is
         logged and swallowed rather than failing the worker's call."""
@@ -95,6 +97,8 @@ class UsageService:
                     total_tokens=input_tokens + output_tokens,
                     images=images,
                     pixels=pixels,
+                    audio_seconds=audio_seconds,
+                    characters=characters,
                     run_id=context.run_id,
                     document_id=context.document_id,
                     collection_id=context.collection_id,
