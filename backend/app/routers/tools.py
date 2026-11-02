@@ -68,14 +68,16 @@ async def set_conversation_tools(
     return await service.set_disabled(user, conversation_id, body.disabled_refs)
 
 
-@router.get("/tool-servers", summary="The MCP servers the caller added or can use", response_model=list[ToolServerOut])
+@router.get(
+    "/tool-servers", summary="The MCP or A2A servers the caller added or can use", response_model=list[ToolServerOut]
+)
 async def list_servers(user: UserDep, service: ServiceDep) -> list[ToolServerOut]:
     return await service.list_servers(user)
 
 
 @router.post(
     "/tool-servers",
-    summary="Add an MCP server: its address is checked (public, allowed domain), its tools are imported",
+    summary="Add an MCP or A2A server: its address is checked (public, allowed domain), its tools are imported",
     status_code=status.HTTP_201_CREATED,
     response_model=ToolServerOut,
 )
@@ -102,7 +104,8 @@ async def delete_server(server_id: uuid.UUID, user: UserDep, service: ServiceDep
 
 @router.post(
     "/tool-servers/{server_id}/sync",
-    summary="Import the tools of the server again (`tools/list`) - also a test of the connection",
+    summary="Import the tools of the server again (MCP's `tools/list`, or an A2A agent's card) - also a test of the "
+    "connection",
     response_model=ToolServerOut,
 )
 async def sync_server(server_id: uuid.UUID, user: UserDep, service: ServiceDep) -> ToolServerOut:

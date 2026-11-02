@@ -6,11 +6,15 @@ from pydantic import BaseModel, Field, field_validator
 
 Visibility = Literal["private", "groups", "all"]
 AuthMode = Literal["none", "bearer"]
+# "mcp": the server lists several tools (`tools/list`). "a2a": its agent card is imported as the one tool to ask it
+# something (#a2a) - see app/services/tools/a2a_client.py.
+Protocol = Literal["mcp", "a2a"]
 
 
 class ToolServerCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     url: str = Field(min_length=1, max_length=2048)
+    protocol: Protocol = "mcp"
     auth_mode: AuthMode = "none"
     # The token of a `bearer` server. Kept encrypted, used to call the server, never given back.
     token: str | None = Field(default=None, max_length=4096)
@@ -28,6 +32,9 @@ class ToolServerCreate(BaseModel):
 class ToolServerUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=100)
     url: str | None = Field(default=None, min_length=1, max_length=2048)
+    # Left out: unchanged. A server rarely changes protocol, but nothing stops it - it is resynchronised like a new
+    # URL would be.
+    protocol: Protocol | None = None
     auth_mode: AuthMode | None = None
     # Left out: the token stays. Sent: it is replaced.
     token: str | None = Field(default=None, max_length=4096)
@@ -44,6 +51,9 @@ class ToolOut(BaseModel):
     input_schema: dict[str, Any]
     server_id: uuid.UUID | None = None
     server_name: str | None = None
+    # The protocol of the server it comes from ("mcp" or "a2a"), None for one of Muffin's own. The plan reads this
+    # to offer an A2A one as an agent to consult (#a2a), not as a generic tool to call.
+    protocol: Protocol | None = None
     side_effect: bool = False
     # False when the person removed it for this conversation. A tool that changes data is available too: it is
     # proposed to the person, who decides (`side_effect`), never run by itself.
@@ -64,6 +74,7 @@ class ToolServerOut(BaseModel):
     id: uuid.UUID
     name: str
     url: str
+    protocol: Protocol
     auth_mode: AuthMode
     has_token: bool
     visibility: Visibility
