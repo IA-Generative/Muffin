@@ -230,6 +230,8 @@ async def generate_answer(state: AgentState) -> dict[str, Any]:
             "tool": e["tool"],
             # The assistant that was consulted for this excerpt (#531), when it was not the run's own search.
             "consulted_assistant": e.get("consulted_assistant"),
+            # The A2A agent that was consulted for this excerpt (#a2a), when it was not the run's own search.
+            "consulted_agent": e.get("consulted_agent"),
             "evidence_kind": e["evidence_kind"],
             "document_id": e["document_id"],
             "chunk_id": e["chunk_id"],

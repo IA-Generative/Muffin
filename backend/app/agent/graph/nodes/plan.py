@@ -25,6 +25,8 @@ from app.agent.graph.services.scope import scope_ids
 from app.agent.graph.services.tool_guide import (
     AUTHORING_CAPABILITIES,
     CALL_TOOL,
+    CONSULT_AGENT,
+    agent_tools_guide,
     external_tools_guide,
     tool_guide,
     valid_tools,
@@ -87,6 +89,14 @@ _CONSULT_INSTRUCTION = (
     'bases. For a query that clearly belongs to one of them, add "assistant": its id to that query: it is then '
     "searched in that assistant's knowledge bases and not in yours. Do it only when it is clearly better placed "
     "than your own knowledge bases; otherwise leave it out. Use only the ids listed."
+)
+
+# Added only when the person may use at least one A2A agent (#a2a): the agents themselves, with what they do, are in
+# the guide ({guide}) - this only tells the model that "consult_agent" exists and how a query picks one.
+_AGENT_INSTRUCTION = (
+    '\n\nFor a query clearly meant for one of the agents listed in the tool guide as "consult_agent" entries, set '
+    '"tool": "consult_agent" and "ref": its listed ref. It is then asked that query as a question, not searched in '
+    "your own knowledge bases."
 )
 
 _MAX_QUERIES = 4
@@ -174,29 +184,48 @@ def _queries(
     tools that assistant turns off are off for that query too."""
     consultable = consultable or {}
     available_tools = available_tools or {}
+    # An A2A agent (#a2a) is offered as something to consult (CONSULT_AGENT), never as a generic tool to call: kept
+    # out of what CALL_TOOL may name, so the model is steered to the right one of the two by the ref itself.
+    agent_tools = {ref: tool for ref, tool in available_tools.items() if tool.get("protocol") == "a2a"}
+    generic_tools = {ref: tool for ref, tool in available_tools.items() if ref not in agent_tools}
     found = []
     for item in raw if isinstance(raw, list) else []:
         if not isinstance(item, dict) or not str(item.get("query") or "").strip():
             continue
         consulted = consultable.get(str(item.get("assistant") or ""))
         off = disabled | frozenset(consulted["disabled_tools"]) if consulted else disabled
-        allowed = valid_tools(web_search_enabled, off, external=bool(available_tools))
+        allowed = valid_tools(web_search_enabled, off, external=bool(generic_tools), agents=bool(agent_tools))
         tool = item.get("tool") if item.get("tool") in allowed else "search"
         entry: dict[str, Any] = {"query": str(item["query"]).strip(), "tool": tool}
         if tool == CALL_TOOL:
             # A call is only ever to a tool the person was offered, with arguments that fit its schema - checked
             # here, in code, whatever the model wrote. Otherwise the query is a plain search.
-            arguments = _checked_call(item, available_tools)
+            arguments = _checked_call(item, generic_tools)
             if arguments is None:
                 entry["tool"] = "search"
                 found.append(entry)
                 continue
             entry |= arguments
+        elif tool == CONSULT_AGENT:
+            # Likewise: only an agent the person was offered, named by its ref - otherwise a plain search.
+            agent = _checked_agent(item, agent_tools)
+            if agent is None:
+                entry["tool"] = "search"
+                found.append(entry)
+                continue
+            entry |= agent
         # Only a search of content goes to an assistant: a tool that lists or summarises has no business in its scope.
         if consulted and tool == "search":
             entry["assistant"] = str(consulted["id"])
         found.append(entry)
     return found[:_MAX_QUERIES] or [{"query": query, "tool": "search"}]
+
+
+def _checked_agent(item: dict[str, Any], agents: dict[str, dict[str, Any]]) -> dict[str, Any] | None:
+    """{"agent_ref": ...} if the model named an A2A agent it was offered - otherwise None, and the query falls back
+    to a plain search."""
+    agent = agents.get(str(item.get("ref") or ""))
+    return {"agent_ref": agent["ref"]} if agent else None
 
 
 def _checked_call(item: dict[str, Any], available: dict[str, dict[str, Any]]) -> dict[str, Any] | None:
@@ -303,8 +332,13 @@ def normalize_plan(raw: Any, state: AgentState) -> dict[str, Any]:
     return plan
 
 
-def _tasks(plan: dict[str, Any], consultable: dict[str, dict[str, Any]] | None = None) -> list[ResearchTask]:
+def _tasks(
+    plan: dict[str, Any],
+    consultable: dict[str, dict[str, Any]] | None = None,
+    agents: dict[str, dict[str, Any]] | None = None,
+) -> list[ResearchTask]:
     consultable = consultable or {}
+    agents = agents or {}
     tasks = []
     for index, item in enumerate(plan["queries"], start=1):
         task = ResearchTask(
@@ -322,6 +356,9 @@ def _tasks(plan: dict[str, Any], consultable: dict[str, dict[str, Any]] | None =
         )
         if item.get("tool_ref"):
             task |= {"tool_ref": item["tool_ref"], "arguments": item.get("arguments") or {}}
+        if item.get("agent_ref"):
+            agent = agents.get(item["agent_ref"])
+            task |= {"agent_ref": item["agent_ref"], "agent_name": agent["server_name"] if agent else "l'agent"}
         consulted = consultable.get(item.get("assistant", ""))
         if consulted:
             task |= {
@@ -352,11 +389,20 @@ async def plan(state: AgentState) -> dict[str, Any]:
         template, prompt_version_id = await get_prompt("plan", fallback=_SYSTEM_PROMPT)
         if prompt_version_id:
             prompt_usages.append(prompt_version_id)
-        guide = tool_guide(
-            state["web_search_enabled"], frozenset(state.get("disabled_tools") or ())
-        ) + external_tools_guide(state.get("available_tools") or [])
+        available = state.get("available_tools") or []
+        agent_tools = [t for t in available if t.get("protocol") == "a2a"]
+        generic_tools = [t for t in available if t.get("protocol") != "a2a"]
+        guide = (
+            tool_guide(state["web_search_enabled"], frozenset(state.get("disabled_tools") or ()))
+            + external_tools_guide(generic_tools)
+            + agent_tools_guide(agent_tools)
+        )
         system_prompt = template.replace("{guide}", guide).replace("{capabilities}", AUTHORING_CAPABILITIES)
-        instructions = _QUESTIONS_INSTRUCTION + (_CONSULT_INSTRUCTION if state.get("consultable_assistants") else "")
+        instructions = (
+            _QUESTIONS_INSTRUCTION
+            + (_CONSULT_INSTRUCTION if state.get("consultable_assistants") else "")
+            + (_AGENT_INSTRUCTION if agent_tools else "")
+        )
         if state.get("images"):
             instructions += _IMAGES_INSTRUCTION
         if (state.get("memory") or {}).get("state", "suspended") != "suspended":
@@ -407,7 +453,11 @@ async def plan(state: AgentState) -> dict[str, Any]:
     elif mode == "create":
         updates["create_target"] = await _create_target(plan_, state)
     elif mode == "search":
-        updates["research_tasks"] = _tasks(plan_, {a["id"]: a for a in state.get("consultable_assistants") or []})
+        updates["research_tasks"] = _tasks(
+            plan_,
+            {a["id"]: a for a in state.get("consultable_assistants") or []},
+            {t["ref"]: t for t in state.get("available_tools") or [] if t.get("protocol") == "a2a"},
+        )
         updates["scope_ids"] = scope_ids(plan_["collections"], state["pinned_vdb_ids"], state["accessible_vdbs"])
     return updates
 

@@ -519,6 +519,58 @@ async def _run_call_tool(
     return {"selected_vdbs": []}, evidence
 
 
+async def _run_consult_agent(
+    task: dict[str, Any],
+    _user_id: str,
+    _accessible_vdbs: list[dict[str, Any]],
+    _model: str | None,
+    _scope_ids: list[str],
+    _web_search_enabled: bool,
+    *,
+    run_id: str,
+) -> tuple[dict[str, Any], list[Evidence]]:
+    """A question put to an A2A agent (#a2a) the person added, as its own message - answered as one excerpt, the way
+    consulting another Muffin assistant is (#531), except the other party is an external agent, not Muffin's own
+    graph. The backend resolves the agent's address and credentials the same way as for an MCP tool (#343): this
+    worker only ever sees a ref and a message, never the agent's URL or token."""
+    name = task.get("agent_name") or "l'agent"
+    result = await backend_client.call_tool(run_id, task["agent_ref"], {"message": task["query"]})
+    if result.get("code") == "confirmation_demandee":
+        # Handing the question to another agent is never done by itself (#a2a): the person was asked, the same way
+        # a tool that changes data is (#343). Said plainly, so that the answer does not claim it was done.
+        content = (
+            f"Consulter l'agent « {name} » demande l'accord de l'utilisateur : une demande d'autorisation a été "
+            f"présentée, avec ce message : {(result.get('arguments') or {}).get('message', task['query'])!r}. RIEN "
+            "N'A ÉTÉ DEMANDÉ À L'AGENT. Dis-le clairement, et invite l'utilisateur à autoriser ou refuser la "
+            "demande affichée dans la conversation."
+        )
+    elif result.get("ok"):
+        content = result.get("text", "")
+        if result.get("truncated"):
+            content += "\n[réponse tronquée]"
+    else:
+        content = f"L'agent « {name} » n'a pas pu répondre ({result.get('code')}) : {result.get('text', '')}"
+    evidence = [
+        Evidence(
+            id=str(uuid.uuid4()),
+            task_id=task["id"],
+            vdb_id="",
+            source_id="",
+            content=content,
+            metadata={
+                "evidence_kind": "agent",
+                "document_name": f"Agent : {name}",
+                "tool_ok": bool(result.get("ok")),
+                "tool_code": result.get("code"),
+            },
+            # What an agent answers is what was asked of it: it must reach the answer whatever the passages score.
+            relevance_score=1.0,
+            retrieval_query=task["query"],
+        )
+    ]
+    return {"selected_vdbs": []}, evidence
+
+
 _RUNNERS = {
     "list_collections": lambda task, user_id, accessible_vdbs, model, scope_ids, web_search_enabled: (
         _run_list_collections(task, accessible_vdbs)
@@ -566,6 +618,8 @@ async def research_task(state: ResearchTaskInput) -> dict[str, Any]:
             runner = partial(_run_tabular_query, run_id=run_id)
         elif task["tool"] == "call_tool":
             runner = partial(_run_call_tool, run_id=run_id)
+        elif task["tool"] == "consult_agent":
+            runner = partial(_run_consult_agent, run_id=run_id)
         outcome = runner(
             task,
             user_id,
@@ -583,6 +637,7 @@ async def research_task(state: ResearchTaskInput) -> dict[str, Any]:
         stamp = {
             "tool": task["tool"],
             **({"consulted_assistant": task["assistant_name"]} if task.get("assistant_name") else {}),
+            **({"consulted_agent": task["agent_name"]} if task.get("agent_name") else {}),
         }
         evidence = [{**e, "metadata": {**e["metadata"], **stamp}} for e in evidence]
         # Run-level, not part of the task itself - see AgentState.unexplored_vdb_ids.
