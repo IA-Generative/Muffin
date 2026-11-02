@@ -344,7 +344,7 @@ onBeforeUnmount(() => {
         </button>
 
         <button
-          v-if="voiceOutput.isSupported"
+          v-if="voiceOutput.isSupported.value"
           type="button"
           class="chat-message__action"
           :class="{ 'chat-message__action--active': isSpeaking }"
