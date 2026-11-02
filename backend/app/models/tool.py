@@ -13,10 +13,14 @@ VISIBILITY_GROUPS = "groups"
 VISIBILITY_ALL = "all"
 AUTH_NONE = "none"
 AUTH_BEARER = "bearer"
+PROTOCOL_MCP = "mcp"
+PROTOCOL_A2A = "a2a"
 
 
 class ToolServer(UUIDMixin, TimestampMixin, Base):
-    """An MCP server a person added (#343), whose tools the chat may call. Muffin is its client."""
+    """A server a person added (#343, #a2a), whose tools the chat may call. Muffin is its client, of either protocol:
+    MCP (`tools/list` describes several tools) or A2A (its agent card describes one agent, imported as one tool -
+    `app/services/tools/a2a_client.py`)."""
 
     __tablename__ = "tool_servers"
 
@@ -24,6 +28,8 @@ class ToolServer(UUIDMixin, TimestampMixin, Base):
     owner_id: Mapped[str] = mapped_column(String, index=True, nullable=False)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     url: Mapped[str] = mapped_column(String(2048), nullable=False)
+    # "mcp" or "a2a": which client talks to it, and how it is synchronised - see app/services/tool_service.py.
+    protocol: Mapped[str] = mapped_column(String(8), nullable=False, default=PROTOCOL_MCP, server_default=PROTOCOL_MCP)
     # "none", or "bearer": a token kept encrypted (StoredSecret, purpose `tool-server-token`), never read back.
     auth_mode: Mapped[str] = mapped_column(String(8), nullable=False, default=AUTH_NONE, server_default=AUTH_NONE)
     secret_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)

@@ -32,6 +32,7 @@ from app.models.run import Run
 from app.models.tool import (
     AUTH_BEARER,
     AUTH_NONE,
+    PROTOCOL_A2A,
     STATUS_APPROVED,
     STATUS_EXECUTED,
     STATUS_EXPIRED,
@@ -61,7 +62,7 @@ from app.services import vector_store
 from app.services.image_generation_service import ImageGenerationError, ImageGenerationService
 from app.services.secret_store_service import SecretNotFoundError, SecretStore
 from app.services.tool_search_service import ToolSearchService
-from app.services.tools import internal_catalog, mcp_client
+from app.services.tools import a2a_client, internal_catalog, mcp_client
 from app.services.tools.mcp_client import ToolServerError
 
 # Module attribute so that tests change it with monkeypatch.setattr.
@@ -190,6 +191,7 @@ class ToolService:
             input_schema=tool.input_schema,
             server_id=server.id,
             server_name=server.name,
+            protocol=server.protocol,  # type: ignore[arg-type]
             side_effect=tool.side_effect,
             available=reason is None,
             reason=reason,
@@ -221,6 +223,7 @@ class ToolService:
             owner_id=user.user_id,
             name=body.name,
             url=url,
+            protocol=body.protocol,
             auth_mode=body.auth_mode,
             visibility=body.visibility,
             group_ids=list(dict.fromkeys(body.group_ids)) if body.visibility == VISIBILITY_GROUPS else [],
@@ -260,7 +263,7 @@ class ToolService:
             raise InvalidToolServerError("Ce serveur demande un jeton.")
         await self.db.commit()
         logger.info(f"Tool server {server.id} changed by {user.user_id}: {', '.join(sorted(changes))}")
-        if "url" in changes or body.token:
+        if "url" in changes or "protocol" in changes or body.token:
             await self._sync(server)
         return self._server_out(server, user)
 
@@ -279,11 +282,12 @@ class ToolService:
         return self._server_out(server, user)
 
     async def _sync(self, server: ToolServer) -> None:
-        """Takes the tools of the server again (`tools/list`). A server that does not answer keeps the tools it had and
-        says why."""
+        """Takes the tools of the server again - MCP's `tools/list`, or the one tool an A2A agent's card is imported
+        as (#a2a). A server that does not answer keeps the tools it had and says why."""
         await self.db.refresh(server, attribute_names=["tools"])
+        client = a2a_client if server.protocol == PROTOCOL_A2A else mcp_client
         try:
-            remote = await mcp_client.list_tools(server.url, await self._token(server))
+            remote = await client.list_tools(server.url, await self._token(server))
         except ToolServerError as error:
             server.last_error = error.message[:300]
             await self.db.commit()
@@ -657,9 +661,10 @@ class ToolService:
         server = await self.db.get(ToolServer, tool.server_id) if tool.server_id else None
         if record is None or server is None:
             return self._failed("outil_indisponible", "Cet outil n'existe plus.", tool)
+        client = a2a_client if server.protocol == PROTOCOL_A2A else mcp_client
         try:
             # The address is checked again here, at each call: see app/core/url_guard.py.
-            result = await mcp_client.call_tool(server.url, await self._token(server), record.name, request.arguments)
+            result = await client.call_tool(server.url, await self._token(server), record.name, request.arguments)
         except ToolServerError as error:
             return self._failed(error.code, error.message, tool)
         if result.is_error:
@@ -735,6 +740,7 @@ class ToolService:
             id=server.id,
             name=server.name,
             url=server.url if owner else _origin(server.url),
+            protocol=server.protocol,  # type: ignore[arg-type]
             auth_mode=server.auth_mode,  # type: ignore[arg-type]
             has_token=server.secret_id is not None,
             visibility=server.visibility,  # type: ignore[arg-type]
