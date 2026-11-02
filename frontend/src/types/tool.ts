@@ -1,5 +1,8 @@
 export type ToolVisibility = 'private' | 'groups' | 'all'
 export type ToolAuthMode = 'none' | 'bearer'
+// 'mcp' : le serveur liste plusieurs outils (`tools/list`). 'a2a' : sa carte d'agent est importée comme l'outil
+// unique pour lui demander quelque chose.
+export type ToolProtocol = 'mcp' | 'a2a'
 
 export interface Tool {
   // Ce par quoi le chat désigne un outil : `internal.calculatrice`, ou l'identifiant de l'outil d'un serveur.
@@ -19,6 +22,7 @@ export interface ToolServer {
   id: string
   name: string
   url: string
+  protocol: ToolProtocol
   authMode: ToolAuthMode
   hasToken: boolean
   visibility: ToolVisibility
@@ -33,6 +37,7 @@ export interface ToolServer {
 export interface ToolServerDraft {
   name: string
   url: string
+  protocol: ToolProtocol
   authMode: ToolAuthMode
   token: string
   visibility: ToolVisibility
