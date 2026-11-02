@@ -1,0 +1,16 @@
+{{- if and .Values.enabled .Values.tts.enabled }}
+{{- if or .Values.tts.envCm .Values.global.envCm -}}
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: {{ include "helper.componentFullname" (dict "root" . "componentName" "tts") }}
+  labels: {{- (include "helper.labels" (dict "root" . "componentName" "tts")) | nindent 4 }}
+data:
+  {{- if .Values.global.envCm -}}
+  {{- include "helper.env" (dict "root" . "data" .Values.global.envCm) | indent 2 }}
+  {{- end -}}
+  {{- if .Values.tts.envCm -}}
+  {{- include "helper.env" (dict "root" . "data" .Values.tts.envCm) | indent 2 }}
+  {{- end -}}
+{{- end -}}
+{{- end }}

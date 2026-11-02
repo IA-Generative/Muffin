@@ -1,0 +1,18 @@
+{{- if and .Values.enabled .Values.tts.enabled }}
+{{- if eq .Values.tts.deploymentType "DaemonSet" }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "helper.componentFullname" (dict "root" . "componentName" "tts") }}
+  labels: {{- (include "helper.labels" (dict "root" . "componentName" "tts")) | nindent 4 }}
+spec:
+  revisionHistoryLimit: {{ .Values.tts.revisionHistoryLimit | default 10 }}
+  selector:
+    matchLabels: {{- include "helper.selectorLabels" (dict "root" . "componentName" "tts") | nindent 6 }}
+  {{- with .Values.tts.updateStrategy }}
+  updateStrategy: {{- toYaml . | nindent 4 }}
+  {{- end }}
+  template:
+    {{- include "helper.component.podTemplate" (dict "root" . "name" "tts" "component" .Values.tts) | nindent 4 }}
+{{- end }}
+{{- end }}

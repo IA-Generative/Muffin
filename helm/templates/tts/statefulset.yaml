@@ -1,0 +1,25 @@
+{{- if and .Values.enabled .Values.tts.enabled }}
+{{- if eq .Values.tts.deploymentType "StatefulSet" }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "helper.componentFullname" (dict "root" . "componentName" "tts") }}
+  labels: {{- include "helper.labels" (dict "root" . "componentName" "tts") | nindent 4 }}
+spec:
+  {{- if not .Values.tts.autoscaling.enabled }}
+  replicas: {{ .Values.tts.replicaCount }}
+  {{- end }}
+  revisionHistoryLimit: {{ .Values.tts.revisionHistoryLimit | default 10 }}
+  selector:
+    matchLabels: {{- include "helper.selectorLabels" (dict "root" . "componentName" "tts") | nindent 6 }}
+  serviceName: {{ include "helper.componentFullname" (dict "root" . "componentName" "tts") }}
+  {{- with .Values.tts.updateStrategy }}
+  updateStrategy: {{- toYaml . | nindent 4 }}
+  {{- end }}
+  template:
+    {{- include "helper.component.podTemplate" (dict "root" . "name" "tts" "component" .Values.tts) | nindent 4 }}
+  {{- if or .Values.tts.volumeClaims .Values.tts.extraVolumeClaims }}
+  volumeClaimTemplates: {{- toYaml (concat (default (list) .Values.tts.volumeClaims) (default (list) .Values.tts.extraVolumeClaims)) | nindent 2 }}
+  {{- end }}
+{{- end }}
+{{- end }}
