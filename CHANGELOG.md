@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.46.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.45.0...v0.46.0-rc) (2026-11-02)
+
+
+### Features
+
+* **mémoire:** collections habituelles en tête du sélecteur ([#286](https://github.com/IA-Generative/Muffin/issues/286)) ([4a8ed13](https://github.com/IA-Generative/Muffin/commit/4a8ed13eea9b803e71bf8e03a7ac87434d87ae6b))
+* **mémoire:** collections habituelles, a priori du routage ([#286](https://github.com/IA-Generative/Muffin/issues/286)) ([6b77642](https://github.com/IA-Generative/Muffin/commit/6b776420b298964515f319d6b32ee5aa44b48465))
+* **voix:** enregistreur de dictée, lecture par le serveur et page d'administration ([#517](https://github.com/IA-Generative/Muffin/issues/517)) ([c78fa79](https://github.com/IA-Generative/Muffin/commit/c78fa7933b0a8ed3248ca1b84eda724354b3cba9))
+* **voix:** pod facultatif worker/tts, synthèse Kitten TTS 2 compatible OpenAI ([#517](https://github.com/IA-Generative/Muffin/issues/517)) ([e9d0246](https://github.com/IA-Generative/Muffin/commit/e9d024694e5a7c7defe68f32bcc617abc9eb9509))
+* **voix:** transcription et lecture à voix haute par un service compatible OpenAI ([#517](https://github.com/IA-Generative/Muffin/issues/517)) ([76a29fc](https://github.com/IA-Generative/Muffin/commit/76a29fc588c982662741058ec02816fb119f7266))
+
 ## [0.45.0](https://github.com/IA-Generative/Muffin/compare/v0.44.0...v0.45.0) (2026-11-01)
 
 
