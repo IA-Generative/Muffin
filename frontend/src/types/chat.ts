@@ -14,8 +14,9 @@ export interface Source {
   // The rest are only set for a real citation (never a user-added feedback source) - see
   // useChat.ts's formatAnswerWithCitations. "document" citations ("search"/"page_content" tools)
   // link back to a real page + the exact chunk text; "web" ones (web_search) link to `url`
-  // instead; every other tool is just input/output, there's nothing to open for either.
-  type?: 'document' | 'document_summary' | 'qa' | 'collection' | 'tool' | 'web'
+  // instead; "agent" (consult_agent, #a2a) is an external agent's own answer; every other tool
+  // is just input/output, there's nothing to open for either.
+  type?: 'document' | 'document_summary' | 'qa' | 'collection' | 'tool' | 'web' | 'agent'
   collectionId?: string
   // Names from the root down to the cited collection, through collections the user can read (#220).
   collectionPath?: string[]

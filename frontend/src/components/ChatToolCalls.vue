@@ -35,14 +35,14 @@ function shown(value: unknown): string {
 </script>
 
 <template>
-  <section class="tool-calls" :class="{ 'tool-calls--closed': !waiting }" aria-label="Outils qui modifient des données">
+  <section class="tool-calls" :class="{ 'tool-calls--closed': !waiting }" aria-label="Actions qui demandent votre accord">
     <p class="tool-calls__state">
       {{
         waiting
           ? calls.length === 1
-            ? 'L’assistant demande à lancer un outil qui modifie des données. Rien n’a été exécuté.'
-            : 'L’assistant demande à lancer des outils qui modifient des données. Rien n’a été exécuté.'
-          : 'Outils qui modifient des données'
+            ? 'L’assistant demande votre accord avant d’agir (modifier des données, ou consulter un agent). Rien n’a été fait.'
+            : 'L’assistant demande votre accord avant d’agir (modifier des données, ou consulter un agent). Rien n’a été fait.'
+          : 'Actions qui ont demandé votre accord'
       }}
     </p>
     <ul class="tool-calls__list">

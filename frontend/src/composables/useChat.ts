@@ -1039,6 +1039,7 @@ function formatAnswerWithCitations(answer: string, citations: Citation[] | null 
       else if (citation.evidence_kind === 'qa') type = 'qa'
       else if (citation.evidence_kind === 'summary') type = 'document_summary'
       else if (citation.evidence_kind === 'collection') type = 'collection'
+      else if (citation.evidence_kind === 'agent') type = 'agent'
       else if (citation.tool !== undefined) type = isDocument ? 'document' : 'tool'
       else type = 'tool'
       sources.push({
