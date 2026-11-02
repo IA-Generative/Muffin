@@ -1,6 +1,6 @@
 [project]
 name = "muffin-worker-document-process"
-version = "0.45.0"
+version = "0.46.0-rc"
 description = "Celery worker that ingests documents (scraped URLs or uploaded files) into a collection"
 requires-python = ">=3.12"
 dependencies = [
