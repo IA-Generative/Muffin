@@ -58,15 +58,16 @@ async function saved() {
     </header>
     <p class="tools-view__intro">
       Le chat peut appeler des <strong>outils</strong> : ceux de Muffin (calcul, dates, et la génération d’images quand
-      l’administrateur l’a activée) et ceux des <strong>serveurs MCP</strong> que
-      vous ajoutez. Il les appelle <strong>en votre nom</strong>, avec un quota, et chaque appel est journalisé sans ses arguments ni sa
-      réponse. Un outil qui <strong>modifie des données</strong> n’est jamais appelé sans votre accord : l’assistant le <strong>propose</strong>
-      dans la discussion, avec ses arguments, et ne le lance que si vous l’autorisez.
+      l’administrateur l’a activée), ceux des <strong>serveurs MCP</strong> que vous ajoutez, et les <strong>agents A2A</strong>
+      (Agent2Agent) que vous ajoutez de la même façon, par leur adresse. Il les appelle <strong>en votre nom</strong>, avec un
+      quota, et chaque appel est journalisé sans ses arguments ni sa réponse. Un outil qui <strong>modifie des données</strong>
+      n’est jamais appelé sans votre accord : l’assistant le <strong>propose</strong> dans la discussion, avec ses arguments, et
+      ne le lance que si vous l’autorisez.
     </p>
     <p v-if="toolError && !editing" class="tools-view__error" role="alert">{{ toolError }}</p>
 
     <div v-if="editing" class="tools-view__panel">
-      <h2>{{ current ? `Modifier « ${current.name} »` : 'Ajouter un serveur MCP' }}</h2>
+      <h2>{{ current ? `Modifier « ${current.name} »` : 'Ajouter un serveur' }}</h2>
       <ToolServerForm :key="editing.id ?? 'new'" :server="current" @saved="saved" @cancel="editing = null" />
     </div>
 
@@ -103,7 +104,7 @@ async function saved() {
 
         <p v-if="isLoading && !servers.length" class="tools-view__empty">Chargement…</p>
         <p v-else-if="!servers.length" class="tools-view__empty">
-          Aucun serveur MCP pour l’instant. Ajoutez-en un pour donner d’autres outils au chat.
+          Aucun serveur MCP ni agent A2A pour l’instant. Ajoutez-en un pour donner d’autres outils au chat.
         </p>
 
         <template v-for="group in [{ title: 'Mes serveurs', items: own }, { title: 'Partagés avec moi', items: shared }]" :key="group.title">
@@ -116,6 +117,7 @@ async function saved() {
                     <strong>{{ server.name }}</strong>
                     <span class="tools-view__description">{{ server.url }}</span>
                     <span class="tools-view__meta">
+                      {{ server.protocol === 'a2a' ? 'A2A' : 'MCP' }} ·
                       {{ server.enabled ? '' : 'Désactivé · ' }}{{ { private: 'Privé', groups: 'Partagé avec des groupes', all: 'Toute l’organisation' }[server.visibility] }}
                       · {{ server.authMode === 'bearer' ? 'avec jeton' : 'sans jeton' }} · synchronisé : {{ when(server.lastSyncedAt) }}
                     </span>

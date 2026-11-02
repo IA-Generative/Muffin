@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Ajouter ou modifier un serveur MCP : son adresse (publique), son accès, et qui peut utiliser ses outils.
+// Ajouter ou modifier un serveur MCP ou A2A : son protocole, son adresse (publique), son accès, et qui peut utiliser ses outils.
 import { computed, reactive } from 'vue'
 import { useCurrentUser } from '../composables/useCurrentUser'
 import { useTools } from '../composables/useTools'
@@ -14,6 +14,7 @@ const { user } = useCurrentUser()
 const draft = reactive<ToolServerDraft>({
   name: props.server?.name ?? '',
   url: props.server?.url ?? '',
+  protocol: props.server?.protocol ?? 'mcp',
   authMode: props.server?.authMode ?? 'none',
   token: '',
   visibility: props.server?.visibility ?? 'private',
@@ -41,6 +42,24 @@ async function submit() {
 
 <template>
   <form class="tool-form" @submit.prevent="submit">
+    <fieldset class="tool-form__fieldset">
+      <legend class="fr-label">Protocole</legend>
+      <div class="fr-radio-group">
+        <input id="protocol-mcp" v-model="draft.protocol" type="radio" value="mcp" :disabled="Boolean(server)" />
+        <label class="fr-label" for="protocol-mcp">
+          MCP
+          <span class="fr-hint-text">Un serveur qui liste plusieurs outils.</span>
+        </label>
+      </div>
+      <div class="fr-radio-group">
+        <input id="protocol-a2a" v-model="draft.protocol" type="radio" value="a2a" :disabled="Boolean(server)" />
+        <label class="fr-label" for="protocol-a2a">
+          A2A (Agent2Agent)
+          <span class="fr-hint-text">Un agent, importé comme l’outil « lui demander quelque chose ».</span>
+        </label>
+      </div>
+    </fieldset>
+
     <div class="fr-input-group">
       <label class="fr-label" for="tool-name">Nom</label>
       <input id="tool-name" v-model="draft.name" class="fr-input" maxlength="100" required placeholder="Dossiers RH" />
@@ -48,12 +67,19 @@ async function submit() {
 
     <div class="fr-input-group">
       <label class="fr-label" for="tool-url">
-        Adresse du serveur MCP
+        {{ draft.protocol === 'a2a' ? 'Adresse de l’agent A2A' : 'Adresse du serveur MCP' }}
         <span class="fr-hint-text">
           Une adresse publique (http ou https), sans identifiant dedans. Une adresse du réseau interne est refusée.
         </span>
       </label>
-      <input id="tool-url" v-model="draft.url" class="fr-input" type="url" required placeholder="https://outils.exemple.fr/mcp" />
+      <input
+        id="tool-url"
+        v-model="draft.url"
+        class="fr-input"
+        type="url"
+        required
+        :placeholder="draft.protocol === 'a2a' ? 'https://agent.exemple.fr' : 'https://outils.exemple.fr/mcp'"
+      />
     </div>
 
     <fieldset class="tool-form__fieldset">

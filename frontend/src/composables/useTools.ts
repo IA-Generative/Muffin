@@ -1,5 +1,5 @@
 import { ref } from 'vue'
-import type { Tool, ToolAuthMode, ToolServer, ToolServerDraft, ToolVisibility } from '../types/tool'
+import type { Tool, ToolAuthMode, ToolProtocol, ToolServer, ToolServerDraft, ToolVisibility } from '../types/tool'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
 
@@ -19,6 +19,7 @@ interface ServerOut {
   id: string
   name: string
   url: string
+  protocol: ToolProtocol
   auth_mode: ToolAuthMode
   has_token: boolean
   visibility: ToolVisibility
@@ -49,6 +50,7 @@ function toServer(raw: ServerOut): ToolServer {
     id: raw.id,
     name: raw.name,
     url: raw.url,
+    protocol: raw.protocol,
     authMode: raw.auth_mode,
     hasToken: raw.has_token,
     visibility: raw.visibility,
@@ -119,6 +121,7 @@ function body(draft: ToolServerDraft, editing: boolean): Record<string, unknown>
   return {
     name: draft.name.trim(),
     url: draft.url.trim(),
+    protocol: draft.protocol,
     auth_mode: draft.authMode,
     // Absent : le jeton reste (à la modification) ; envoyé : il est remplacé. Jamais relu.
     ...(draft.authMode === 'bearer' && draft.token ? { token: draft.token } : editing ? {} : { token: null }),
