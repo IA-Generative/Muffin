@@ -1,0 +1,26 @@
+{{- if and .Values.enabled .Values.tts.enabled }}
+{{- /* Not gated on `deploymentType`: every supported kind (Deployment/StatefulSet/DaemonSet) can
+sit behind a Service, and `service.enabled` is the switch for components that take no traffic.
+This matches metrics.yaml, which is gated the same way. */ -}}
+{{- if .Values.tts.service.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "helper.componentFullname" (dict "root" . "componentName" "tts") }}
+  labels: {{- (include "helper.labels" (dict "root" . "componentName" "tts")) | nindent 4 }}
+spec:
+  type: {{ .Values.tts.service.type | default "ClusterIP" }}
+  ports:
+  - port: {{ .Values.tts.service.port | default 80 }}
+    targetPort: {{ .Values.tts.containerPortName | default .Values.tts.containerPort | default 8080 }}
+    protocol: {{ .Values.tts.service.protocol | default "TCP" }}
+    {{- if and (eq .Values.tts.service.type "NodePort") .Values.tts.service.nodePort }}
+    nodePort: {{ .Values.tts.service.nodePort }}
+    {{- end }}
+    name: {{ .Values.tts.service.portName | default "http" }}
+  {{- if .Values.tts.service.extraPorts -}}
+  {{- toYaml .Values.tts.service.extraPorts | nindent 2 -}}
+  {{- end }}
+  selector: {{- include "helper.selectorLabels" (dict "root" . "componentName" "tts") | nindent 4 }}
+{{- end }}
+{{- end }}

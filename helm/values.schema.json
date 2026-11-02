@@ -412,6 +412,13 @@
     "ocr_table": { "$ref": "#/definitions/workloadComponent" },
     "ocr_vision": { "$ref": "#/definitions/workloadComponent" },
     "tabular": { "$ref": "#/definitions/workloadComponent" },
+    "tts": {
+      "description": "Optional text-to-speech pod (Kitten-TTS 2): rendered only when `tts.enabled` is true.",
+      "allOf": [
+        { "$ref": "#/definitions/workloadComponent" },
+        { "properties": { "enabled": { "type": "boolean" } } }
+      ]
+    },
     "index_rebuild": { "$ref": "#/definitions/workloadComponent" },
     "jobs": {
       "type": ["object", "null"],
