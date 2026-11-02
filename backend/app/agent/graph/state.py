@@ -17,6 +17,7 @@ TaskTool = Literal[
     "web_search",
     "time",
     "call_tool",
+    "consult_agent",
 ]
 
 
@@ -45,6 +46,10 @@ class ResearchTask(TypedDict):
     # For the tool `call_tool` (#343): which tool of the catalogue or of a server, and with which arguments.
     tool_ref: NotRequired[str]
     arguments: NotRequired[dict[str, Any]]
+    # For the tool `consult_agent` (#a2a): which A2A agent (the ref of its one imported tool), and its name - for the
+    # evidence's attribution, the same way a consulted assistant's name is (above).
+    agent_ref: NotRequired[str]
+    agent_name: NotRequired[str]
 
 
 class Evidence(TypedDict):

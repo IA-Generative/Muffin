@@ -36,6 +36,8 @@ async def build_answer_context(state: AgentState) -> dict[str, Any]:
                 "tool": e["metadata"].get("tool", "search"),
                 # The other assistant this was found by consulting (#531), if any.
                 "consulted_assistant": e["metadata"].get("consulted_assistant"),
+                # The A2A agent this was found by consulting (#a2a), if any.
+                "consulted_agent": e["metadata"].get("consulted_agent"),
                 # evidence_kind is the precise provenance of this excerpt (document, qa, summary,
                 # collection, web) - stamped by each evidence producer in research_task.py. The
                 # frontend uses it to pick the right card variant + badge instead of guessing from
