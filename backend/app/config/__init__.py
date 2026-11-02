@@ -19,6 +19,7 @@ from .rustfs import RustFsSettings
 from .secrets import SecretsSettings
 from .sharing import SharingSettings
 from .tools import ToolSettings
+from .voice import VoiceSettings
 from .worker import WorkerSettings
 
 __all__ = [
@@ -44,5 +45,6 @@ __all__ = [
     "SecretsSettings",
     "SharingSettings",
     "ToolSettings",
+    "VoiceSettings",
     "WorkerSettings",
 ]
