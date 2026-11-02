@@ -14,10 +14,13 @@ Utilitaire partagé : [`frontend/src/utils/plainText.ts`](../../../frontend/src/
 (retire tableaux/`` `code` ``/**gras**/citations `[1]`), utilisé à la fois par le bouton par
 message et par le raccourci "lire le dernier message".
 
-**Choix delibéré de fallback** (voir issues #108/#111) : `SpeechRecognition`/`speechSynthesis`
-sont les API natives du navigateur, pas la solution définitive - suffisantes pour une première
-itération (zéro backend, gratuit), une meilleure option (transcription/synthèse serveur) pourra
-les remplacer plus tard si le rendu s'avère insuffisant en usage réel.
+**Choix délibéré de repli** (voir issues #108/#111) : `SpeechRecognition`/`speechSynthesis`
+sont les API natives du navigateur — zéro backend, gratuites — et restent **le repli et le
+comportement par défaut**. Depuis #517, un administrateur peut les remplacer, pour la dictée
+(enregistrement transcrit par le serveur : `useDictation.ts`, `useVoiceRecorder.ts`) et pour la
+lecture (`useVoiceOutput.ts`, voix de synthèse du serveur), par un service compatible OpenAI :
+voir [`docs/voice.md`](../../voice.md). Ce document décrit le comportement du navigateur ; avec
+le serveur, le bouton micro devient un enregistreur (démarrer, arrêter, annuler, durée, niveau).
 
 ## Dictée vocale (entrée, issue #108)
 
