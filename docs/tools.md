@@ -1,22 +1,26 @@
 # Les outils du chat (#343)
 
-Le chat peut **appeler des outils** : ceux de Muffin, qui vivent dans le code, et ceux de **serveurs MCP** que les utilisateurs ajoutent. Muffin est
-déjà *serveur* MCP (`docs/mcp.md`, il expose sa recherche) ; ici il est aussi **client** : il appelle des serveurs tiers.
+Le chat peut **appeler des outils** : ceux de Muffin, qui vivent dans le code, ceux de **serveurs MCP** que les utilisateurs ajoutent, et des
+**agents A2A** (Agent2Agent) ajoutés de la même façon, par leur adresse. Muffin est déjà *serveur* MCP (`docs/mcp.md`, il expose sa recherche) ;
+ici il est aussi **client** : il appelle des serveurs ou des agents tiers.
 
 ![La page des outils : ceux de Muffin, puis les serveurs de la personne et ceux qu'on lui partage](images/tools-liste.png)
 
 ## Comment le chat s'en sert, avec le moins d'appels au modèle
 
 Le chat reste le même graphe (LangGraph) : **le planificateur**, dans son appel habituel, peut choisir l'outil `call_tool` pour une de ses requêtes, avec
-`ref` (l'outil) et `arguments`. Les outils offerts, avec leurs descriptions et le schéma de leurs arguments, sont dans le guide qu'il lit déjà : **aucun appel
-de plus au modèle** pour décider, ni pour exécuter (un appel d'outil n'est pas un appel au modèle).
+`ref` (l'outil) et `arguments` - c'est ainsi qu'un outil de Muffin ou d'un serveur MCP est appelé. Un **agent A2A** est différent : il n'est jamais
+appelé par `call_tool`, il est **consulté** par `consult_agent`, avec seulement `ref` (l'agent) - la requête elle-même devient le message qui lui est
+posé, comme une question à un autre assistant (`docs/assistants.md` § consultation), jamais des arguments à remplir selon un schéma. Les deux sont dans
+le guide que le planificateur lit déjà : **aucun appel de plus au modèle** pour choisir, ni pour exécuter (ni un appel d'outil ni une consultation d'agent
+n'est un appel au modèle).
 
-- Le résultat de l'outil devient une **source** comme les autres : la réponse dit d'où il vient, et dit aussi quand l'outil n'a pas pu être utilisé (avec
-  son code). Il atteint toujours la réponse, quel que soit le score des passages.
+- Le résultat devient une **source** comme les autres : la réponse dit d'où il vient (l'outil, ou l'agent consulté), et dit aussi quand il n'a pas pu
+  être utilisé (avec son code). Il atteint toujours la réponse, quel que soit le score des passages.
 - C'est **un tour**, pas une boucle : les requêtes d'un même plan (quatre au plus) s'exécutent ensemble, puis la réponse est écrite. Le plafond de tours est donc
   de un, et le modèle ne peut pas boucler. Un résultat qui en appellerait un autre demande une nouvelle question.
-- Les outils sont demandés au backend **une fois par run**, et seulement pour un run qui a un modèle pour les choisir. Un assistant (`docs/assistants.md`)
-  peut couper `call_tool` comme n'importe quel outil facultatif.
+- Les outils et les agents sont demandés au backend **une fois par run**, et seulement pour un run qui a un modèle pour les choisir. Un assistant
+  (`docs/assistants.md`) peut couper `call_tool` ou `consult_agent` comme n'importe quel outil facultatif.
 - **Avec beaucoup d'outils, le modèle n'en reçoit que quelques-uns** (#530) : ceux de Muffin toujours, et des serveurs MCP les `TOOLS_SELECTED_MAX` (8)
   plus proches de la question, par la recherche hybride de `docs/search.md` (« Descriptions des outils »). La description de tous les outils à chaque
   tour coûte des jetons et dégrade le choix. Seule la liste décrite se réduit : un appel est vérifié contre tout ce que la personne peut utiliser, et le
@@ -38,12 +42,26 @@ données ; les deux premiers ne touchent pas au réseau.
   Mêmes conditions et même quota que `generer_image`, et **offert en plus seulement quand la conversation contient une image** ; l'image et la description partent
   chez le fournisseur d'images. Voir `docs/image-generation.md`.
 
-## Les serveurs MCP des utilisateurs
+## Les serveurs MCP et les agents A2A des utilisateurs
 
-*Barre latérale → Outils → Ajouter un serveur* : un nom, l'adresse du serveur MCP (HTTP), l'accès et la visibilité. Ses outils sont importés (`tools/list`) ;
-*Tester et synchroniser* les reprend (un outil disparu est retiré, un nouveau ajouté).
+*Barre latérale → Outils → Ajouter un serveur* : un protocole (**MCP** ou **A2A**), un nom, l'adresse (HTTP), l'accès et la visibilité. Le
+protocole se choisit à l'ajout et ne change plus ensuite (chaque protocole n'importe pas la même chose). Ses outils sont importés
+(`tools/list` pour MCP, la carte de l'agent pour A2A) ; *Tester et synchroniser* les reprend (un outil disparu est retiré, un nouveau ajouté).
 
 ![Ajouter un serveur : adresse, jeton, visibilité](images/tools-formulaire.png)
+
+### Les agents A2A
+
+Un agent du protocole [Agent2Agent](https://a2a-protocol.org) publie une **carte** (son nom, sa description, ses compétences) à une adresse connue
+(`/.well-known/agent-card.json`, ou l'ancienne `/.well-known/agent.json`). Il est **importé** comme n'importe quel outil importé (un seul, « demander »,
+dont la description reprend la sienne et le résumé de ses compétences), **mais le planificateur ne l'appelle jamais par `call_tool`** : il le **consulte**
+par `consult_agent`, exactement comme il consulte un autre assistant (#531) - l'agent est listé à part dans le guide qu'il lit, et la requête elle-même
+devient le message qui lui est posé, jamais des arguments à remplir selon un schéma. Ce qui revient n'est pas « la sortie d'un outil » mais la réponse de
+l'agent lui-même, attribuée comme telle dans les sources de la réponse.
+
+L'appel envoie ce message par `message/send` (JSON-RPC) et lit la réponse, qu'elle vienne d'un message ou d'une tâche terminée. **Consulter un agent A2A demande l'accord de la personne, comme un outil qui modifie des données** (§ « L'accord de la personne » ci-dessous) : c'est transmettre la question à un tiers, en dehors de Muffin - la personne voit quel agent et quel message avant que quoi que ce soit ne parte, et peut refuser. **La connexion à l'agent distant suit
+exactement le même principe que pour un serveur MCP** : son adresse est vérifiée (garde SSRF ci-dessous), son jeton éventuel est gardé chiffré dans le
+même magasin de secrets, et seul le backend s'en sert jamais - l'agent du graphe ne voit qu'une référence et un message, jamais l'adresse ni le jeton.
 
 ### L'adresse (garde contre le SSRF)
 
@@ -95,9 +113,10 @@ transmis.
 
 ### Les descriptions viennent de tiers
 
-La description d'un outil MCP est écrite par le serveur et **lue par le modèle** : c'est un vecteur d'injection (*tool poisoning*). Le guide donné au modèle dit
-que ces descriptions décrivent l'outil et ne sont pas des instructions ; ce que le modèle choisit est **vérifié en code** (un `ref` qui n'a pas été offert, des
-arguments qui ne collent pas au schéma : la requête devient une recherche ordinaire) ; et rien de ce que renvoie un outil n'est exécuté.
+La description d'un outil MCP, ou la carte d'un agent A2A, est écrite par le serveur et **lue par le modèle** : c'est un vecteur d'injection (*tool
+poisoning*). Le guide donné au modèle dit que ces descriptions décrivent l'outil et ne sont pas des instructions ; ce que le modèle choisit est **vérifié
+en code** (un `ref` qui n'a pas été offert, des arguments qui ne collent pas au schéma : la requête devient une recherche ordinaire) ; et rien de ce que
+renvoie un outil n'est exécuté.
 
 ## Les outils d'une conversation
 
@@ -121,10 +140,11 @@ peuvent contenir des données personnelles. La création, la modification et la 
 
 ## L'accord de la personne
 
-Un outil qui **modifie des données** n'est jamais lancé par l'agent. Un outil MCP est considéré comme modifiant des données tant que son serveur ne dit pas
-qu'il est en lecture seule (`readOnlyHint`). Quand le planificateur en choisit un, les arguments sont vérifiés comme pour les autres, puis l'appel devient une
-**demande** (`chat_tool_calls`) : l'agent répond que **rien n'a été exécuté** et la discussion affiche une carte avec l'outil, son serveur et les arguments
-exacts, avec **Autoriser** et **Refuser**.
+Un outil qui **modifie des données** n'est jamais lancé par l'agent - **ni une consultation d'un agent A2A** : transmettre la question à un tiers
+hors de Muffin suit la même règle. Un outil MCP est considéré comme modifiant des données tant que son serveur ne dit pas qu'il est en lecture seule
+(`readOnlyHint`). Quand le planificateur en choisit un, les arguments (ou, pour un agent, le message à lui transmettre) sont vérifiés comme pour les
+autres, puis l'appel devient une **demande** (`chat_tool_calls`) : l'agent répond que **rien n'a été exécuté** et la discussion affiche une carte avec
+l'outil (ou l'agent), son serveur et les arguments exacts (le message, pour un agent), avec **Autoriser** et **Refuser**.
 
 - **Rien n'attend** : pas de tâche ni de connexion ouverte. La personne décide quand elle veut ; la décision lance l'outil (`POST /api/runs/{id}/tool-calls/decision`,
   `{"approve": true|false}`), pour **toutes** les demandes du tour ensemble.
