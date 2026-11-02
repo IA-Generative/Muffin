@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, Enum, Integer, String, func
+from sqlalchemy import BigInteger, DateTime, Enum, Float, Integer, String, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -14,6 +14,8 @@ class TokenUsageKind(enum.StrEnum):
     EMBEDDING = "embedding"
     # An image made by a provider (#518): costs in images and pixels, not in tokens of text.
     IMAGE = "image"
+    # A transcription or a reading aloud (#517): costs in seconds of audio and in characters, not in tokens of text.
+    AUDIO = "audio"
 
 
 class TokenUsage(UUIDMixin, TimestampMixin, Base):
@@ -40,6 +42,9 @@ class TokenUsage(UUIDMixin, TimestampMixin, Base):
     # What an image generation cost (#518): how many images, and their size in pixels (all of them, added).
     images: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     pixels: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default="0")
+    # What a transcription or a reading aloud cost (#517): the seconds of audio recorded, the characters read.
+    audio_seconds: Mapped[float] = mapped_column(Float, nullable=False, default=0.0, server_default="0")
+    characters: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     document_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     collection_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)

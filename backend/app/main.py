@@ -68,6 +68,7 @@ from app.routers.runs import router as runs_router
 from app.routers.tasks import router as tasks_router
 from app.routers.tools import router as tools_router
 from app.routers.usage import router as usage_router
+from app.routers.voice import router as voice_router
 from app.services.assistant_service import (
     AssistantNotEditableError,
     AssistantNotFoundError,
@@ -269,6 +270,7 @@ app.include_router(tools_router, prefix="/api")
 app.include_router(routines_router, prefix="/api")
 app.include_router(admin_routines_router, prefix="/api")
 app.include_router(images_router, prefix="/api")
+app.include_router(voice_router, prefix="/api")
 app.include_router(image_attachments_router, prefix="/api")
 
 # The MCP server (#467), under /api/mcp, with its own bearer-token check.

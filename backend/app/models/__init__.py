@@ -71,6 +71,7 @@ from app.models.task_log_entry import TaskLogEntry
 from app.models.token_usage import TokenUsage, TokenUsageKind, UserProfile
 from app.models.tool import ChatToolCall, Tool, ToolCallLog, ToolServer
 from app.models.user_memory import MemoryKind, MemoryOrigin, UserMemory, UserMemorySettings
+from app.models.voice import VoiceEngineSettings
 
 __all__ = [
     "ApiKey",
@@ -173,4 +174,5 @@ __all__ = [
     "MemoryOrigin",
     "UserMemory",
     "UserMemorySettings",
+    "VoiceEngineSettings",
 ]
