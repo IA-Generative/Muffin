@@ -146,6 +146,19 @@ const modal = computed(() => {
           </p>
         </div>
 
+        <!-- Agent card: an A2A agent (#a2a) consulted as a question, not called as a tool - its answer is its own,
+             not a tool's raw output. -->
+        <div v-else-if="source.type === 'agent'" class="sources-panel__card sources-panel__card--tool">
+          <span class="sources-panel__card-kind">Agent A2A</span>
+          <span class="sources-panel__title">{{ source.title }}</span>
+          <p v-if="source.query" class="sources-panel__tool-line">
+            <span class="sources-panel__tool-label">Question</span>{{ source.query }}
+          </p>
+          <p v-if="source.content" class="sources-panel__tool-line">
+            <span class="sources-panel__tool-label">Réponse</span>{{ source.content }}
+          </p>
+        </div>
+
         <!-- Web card: the web_search tool - a real external link, opens in a new tab. -->
         <a
           v-else-if="source.type === 'web' && source.url"
