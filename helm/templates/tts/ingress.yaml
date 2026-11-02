@@ -1,0 +1,53 @@
+{{- if and .Values.enabled .Values.tts.enabled }}
+{{- if .Values.tts.ingress.enabled -}}
+{{- $fullNameApp := include "helper.componentFullname" (dict "root" . "componentName" "tts") -}}
+{{- $svcPortApp := .Values.tts.service.port -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "helper.componentFullname" (dict "root" . "componentName" "tts") }}
+  labels: {{- (include "helper.labels" (dict "root" . "componentName" "tts")) | nindent 4 }}
+  {{- if .Values.tts.ingress.labels }}
+    {{- toYaml .Values.tts.ingress.labels | nindent 4 }}
+  {{- end }}
+  {{- if .Values.tts.ingress.annotations }}
+  annotations:
+    {{- tpl (toYaml .Values.tts.ingress.annotations) . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.tts.ingress.className }}
+  ingressClassName: {{ .Values.tts.ingress.className }}
+  {{- end }}
+  {{- if gt (len .Values.tts.ingress.tls) 0 }}
+  tls:
+  {{- range .Values.tts.ingress.tls }}
+  - hosts:
+    {{- range .hosts }}
+    - {{ . | quote }}
+    {{- end }}
+    secretName: {{ .secretName | default (printf "%s-%s" $fullNameApp "tls") | quote }}
+  {{- end }}
+  {{- end }}
+  rules:
+  {{- range .Values.tts.ingress.hosts }}
+  - host: {{ .name | quote }}
+    http:
+      paths:
+      {{- range .paths }}
+      - path: {{ .path | default "/" }}
+        pathType: {{ .pathType | default "Prefix" }}
+        backend:
+          service:
+          {{- if .backend }}
+            name: {{ .backend.serviceName | default $fullNameApp }}
+            port:
+              number: {{ .backend.portNumber | default $svcPortApp }}
+          {{- else }}
+            name: {{ $fullNameApp }}
+            port:
+              number: 80
+          {{- end }}
+      {{- end }}
+  {{- end }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,5 @@
+This Stellon Labs Model is licensed under the Stellon Labs Community License, Copyright © Stellon Labs Inc. All Rights Reserved
+
+The model (Kitten-TTS 2, https://huggingface.co/KittenML/kitten-tts-2) is used here as published, without modification:
+the files of the image are the ones of the pinned revision listed in weights.sha256. The full text of the licence is in
+/models/kitten-tts-2/LICENSE.md. See LICENSES.md for the other components.

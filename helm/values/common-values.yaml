@@ -521,6 +521,29 @@ tabular:
       cpu: "2"
       memory: "2Gi"
 
+# Optional pod - text-to-speech (Kitten-TTS 2, OpenAI-compatible route, #517). Off: enable it with `tts.enabled: true`
+# once the Stellon Labs Community License of the weights (worker/tts/LICENSES.md) is accepted by whoever deploys. The
+# address for Muffin is then http://muffin-tts:8080/v1. No autoscaler: it is an interactive route, and a pod at zero
+# would make the first request wait for the model to load. Probes: the chart's own (GET /health).
+tts:
+  enabled: false
+  image:
+    registry: "harbor.sdid.cpin.numerique-interieur.com"
+    repository: "{{ .Values.global.project }}/muffin-worker-tts"
+    pullPolicy: "Always"
+  serviceAccount:
+    enabled: true
+    create: true
+  env:
+    TTS_TORCH_THREADS: "4"
+  resources:
+    requests:
+      cpu: "2"
+      memory: "6Gi"
+    limits:
+      cpu: "4"
+      memory: "8Gi"
+
 # Celery worker - long I/O jobs: the blue/green index rebuilds (#12) and the ZIP imports (#223), so
 # that neither holds up the ingestion of new documents. Prefork, a couple at a time; no beat.
 index_rebuild:

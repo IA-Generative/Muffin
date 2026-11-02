@@ -44,6 +44,7 @@ jobs:
       worker_ocr_vision: ${{ steps.filter.outputs.worker_ocr_vision }}
       worker_owui_sync: ${{ steps.filter.outputs.worker_owui_sync }}
       worker_tabular: ${{ steps.filter.outputs.worker_tabular }}
+      worker_tts: ${{ steps.filter.outputs.worker_tts }}
       helm: ${{ steps.filter.outputs.helm }}
       ci: ${{ steps.filter.outputs.ci }}
       services: ${{ steps.services.outputs.services }}
@@ -78,6 +79,8 @@ jobs:
               - 'worker/owui_sync/**'
             worker_tabular:
               - 'worker/tabular/**'
+            worker_tts:
+              - 'worker/tts/**'
             helm:
               - 'helm/**'
               - 'ci/configs/ct.yaml'
@@ -188,7 +191,7 @@ jobs:
     uses: ./.github/workflows/lint.yml
     needs:
       - path-filter
-    if: ${{ needs.path-filter.outputs.frontend == 'true' || needs.path-filter.outputs.backend == 'true' || needs.path-filter.outputs.worker_document_process == 'true' || needs.path-filter.outputs.worker_evaluation == 'true' || needs.path-filter.outputs.worker_document_edit == 'true' || needs.path-filter.outputs.worker_ocr_layout == 'true' || needs.path-filter.outputs.worker_ocr == 'true' || needs.path-filter.outputs.worker_ocr_table == 'true' || needs.path-filter.outputs.worker_ocr_vision == 'true' || needs.path-filter.outputs.worker_owui_sync == 'true' || needs.path-filter.outputs.worker_tabular == 'true' || needs.path-filter.outputs.ci == 'true' }}
+    if: ${{ needs.path-filter.outputs.frontend == 'true' || needs.path-filter.outputs.backend == 'true' || needs.path-filter.outputs.worker_document_process == 'true' || needs.path-filter.outputs.worker_evaluation == 'true' || needs.path-filter.outputs.worker_document_edit == 'true' || needs.path-filter.outputs.worker_ocr_layout == 'true' || needs.path-filter.outputs.worker_ocr == 'true' || needs.path-filter.outputs.worker_ocr_table == 'true' || needs.path-filter.outputs.worker_ocr_vision == 'true' || needs.path-filter.outputs.worker_owui_sync == 'true' || needs.path-filter.outputs.worker_tabular == 'true' || needs.path-filter.outputs.worker_tts == 'true' || needs.path-filter.outputs.ci == 'true' }}
     permissions:
       contents: read
 
@@ -196,7 +199,7 @@ jobs:
     uses: ./.github/workflows/unit-tests.yml
     needs:
       - path-filter
-    if: ${{ needs.path-filter.outputs.backend == 'true' || needs.path-filter.outputs.worker_document_process == 'true' || needs.path-filter.outputs.worker_evaluation == 'true' || needs.path-filter.outputs.worker_document_edit == 'true' || needs.path-filter.outputs.worker_ocr_layout == 'true' || needs.path-filter.outputs.worker_ocr == 'true' || needs.path-filter.outputs.worker_ocr_table == 'true' || needs.path-filter.outputs.worker_ocr_vision == 'true' || needs.path-filter.outputs.worker_owui_sync == 'true' || needs.path-filter.outputs.worker_tabular == 'true' || needs.path-filter.outputs.ci == 'true' }}
+    if: ${{ needs.path-filter.outputs.backend == 'true' || needs.path-filter.outputs.worker_document_process == 'true' || needs.path-filter.outputs.worker_evaluation == 'true' || needs.path-filter.outputs.worker_document_edit == 'true' || needs.path-filter.outputs.worker_ocr_layout == 'true' || needs.path-filter.outputs.worker_ocr == 'true' || needs.path-filter.outputs.worker_ocr_table == 'true' || needs.path-filter.outputs.worker_ocr_vision == 'true' || needs.path-filter.outputs.worker_owui_sync == 'true' || needs.path-filter.outputs.worker_tabular == 'true' || needs.path-filter.outputs.worker_tts == 'true' || needs.path-filter.outputs.ci == 'true' }}
     permissions:
       contents: read
 

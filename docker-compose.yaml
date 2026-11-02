@@ -221,6 +221,46 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # Optional pod, NOT started by default: text-to-speech with Kitten-TTS 2 behind an OpenAI-compatible route (#517).
+  # Enable it with its profile:    docker compose --profile tts up -d worker-tts
+  # Then give the backend (admin setting, "speech" base address): http://worker-tts:8080/v1 - model `kitten-tts-2`,
+  # voice `French`, and a key only if TTS_API_KEY is set below. The image holds the weights (about 3 GB) and the model
+  # needs about 6 GB of memory, so the build and the first start are long. The weights are under the Stellon Labs
+  # Community License (limits and attribution): read worker/tts/LICENSES.md before using it.
+  # To call it from the host too, uncomment `ports` (8080 is taken by Keycloak).
+  worker-tts:
+    profiles: [tts]
+    build:
+      context: ./worker/tts
+      dockerfile: Dockerfile
+    environment:
+      TTS_API_KEY: ${TTS_API_KEY:-}
+      TTS_MAX_CONCURRENCY: ${TTS_MAX_CONCURRENCY:-1}
+      TTS_DEFAULT_VOICE: ${TTS_DEFAULT_VOICE:-French}
+    # ports:
+    #   - "8082:8080"
+    mem_limit: 8g
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=5)",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 300s
+    restart: unless-stopped
+
   worker-evaluation:
     build:
       context: ./worker/evaluation

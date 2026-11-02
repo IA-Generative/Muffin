@@ -1,0 +1,43 @@
+[project]
+name = "muffin-worker-tts"
+version = "0.45.0"
+description = "OpenAI-compatible text-to-speech service (Kitten-TTS 2), optional pod"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn>=0.34.0",
+    "numpy>=2.0",
+    "soundfile>=0.13.1",
+    # The Python package of Kitten-TTS (Apache-2.0). The weights are a separate work, under their own licence: see
+    # LICENSES.md.
+    "kittenml==0.9.7",
+    "torch>=2.6.0",
+    "torchaudio>=2.6.0",
+]
+
+[dependency-groups]
+test = [
+    "pytest>=9.1.1",
+    "httpx>=0.28.0",
+    "ruff>=0.15.0",
+]
+dev = [{ include-group = "test" }]
+
+# CPU wheels only: the pod has no GPU, and the CUDA ones weigh gigabytes.
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+torchaudio = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+markers = ["slow: needs the real model in TTS_MODEL_DIR - skipped when it is not there"]

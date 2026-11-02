@@ -1,0 +1,19 @@
+{{- if and .Values.enabled .Values.tts.enabled }}
+{{- /* Gated on `rules` as well, exactly like role.yaml: without it, an empty `rules` list yields a
+RoleBinding whose roleRef points at a Role that was never created. */ -}}
+{{- if and .Values.tts.serviceAccount.enabled .Values.tts.serviceAccount.role.create .Values.tts.serviceAccount.role.rules }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "helper.componentFullname" (dict "root" . "componentName" "tts") }}
+  labels: {{- (include "helper.labels" (dict "root" . "componentName" "tts")) | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "helper.componentFullname" (dict "root" . "componentName" "tts") }}
+subjects:
+- kind: ServiceAccount
+  name: {{ .Values.tts.serviceAccount.name | default (include "helper.componentFullname" (dict "root" . "componentName" "tts")) }}
+  namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- end }}

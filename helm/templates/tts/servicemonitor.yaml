@@ -1,0 +1,52 @@
+{{- if and .Values.enabled .Values.tts.enabled }}
+{{- if and .Values.tts.metrics.enabled .Values.tts.metrics.serviceMonitor.enabled }}
+{{- $metricSvcPort := .Values.tts.metrics.service.portName | default .Values.tts.metrics.service.port -}}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "helper.componentFullname" (dict "root" . "componentName" "tts-metrics") }}
+  labels: {{- (include "helper.labels" (dict "root" . "componentName" "tts")) | nindent 4 }}
+  {{- if .Values.tts.metrics.serviceMonitor.labels }}
+    {{- toYaml .Values.tts.metrics.serviceMonitor.labels | nindent 4 }}
+  {{- end }}
+  {{- if .Values.tts.metrics.serviceMonitor.annotations }}
+  annotations: {{- toYaml .Values.tts.metrics.serviceMonitor.annotations | nindent 4 }}
+  {{- end }}
+spec:
+  endpoints:
+  {{- range .Values.tts.metrics.serviceMonitor.endpoints }}
+  - port: {{ $metricSvcPort }}
+    path: {{ .path }}
+    honorLabels: {{ .honorLabels }}
+    {{- if and .basicAuth .basicAuth.username .basicAuth.password }}
+    basicAuth: {{- toYaml .basicAuth | nindent 6 }}
+    {{- end }}
+    {{- if and .bearerTokenSecret .bearerTokenSecret.name .bearerTokenSecret.key }}
+    bearerTokenSecret: {{- toYaml .bearerTokenSecret | nindent 6 }}
+    {{- end }}
+    {{- if .interval }}
+    interval: {{ .interval }}
+    {{- end }}
+    {{- if .scrapeTimeout }}
+    scrapeTimeout: {{ .scrapeTimeout }}
+    {{- end }}
+    {{- if .relabelings }}
+    relabelings: {{- toYaml .relabelings | nindent 6 }}
+    {{- end }}
+    {{- if .metricRelabelings }}
+    metricRelabelings: {{- toYaml .metricRelabelings | nindent 6 }}
+    {{- end }}
+    {{- if .scheme }}
+    scheme: {{ .scheme }}
+    {{- end }}
+    {{- if .tlsConfig }}
+    tlsConfig: {{- toYaml .tlsConfig | nindent 6 }}
+    {{- end }}
+  {{- end }}
+  namespaceSelector:
+    matchNames:
+    - {{ .Release.Namespace | quote }}
+  selector:
+    matchLabels: {{- include "helper.selectorLabels" (dict "root" . "componentName" "tts-metrics") | nindent 6 }}
+{{- end }}
+{{- end }}
