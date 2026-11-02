@@ -84,6 +84,12 @@ class AssistantUpdate(BaseModel):
     consult_mode: ConsultMode | None = None
     consult_assistant_ids: list[uuid.UUID] | None = Field(default=None, max_length=MAX_CONSULTED)
     suggestions: list[str] | None = Field(default=None, max_length=MAX_SUGGESTIONS)
+    # Reached through `GET /v1/models` as `muffin:assistant:<id>` (#513) - only ever by someone who may already use
+    # this assistant: this does not open it to anyone new, only through that other route too.
+    expose_as_model: bool | None = None
+    # Reached as an A2A agent (#a2a), with a personal API key the same way as above, or the dedicated token made
+    # separately (`POST .../a2a-token`) - turning this off also forgets that token.
+    expose_as_a2a: bool | None = None
 
     @field_validator("name")
     @classmethod
@@ -146,6 +152,10 @@ class AssistantOut(BaseModel):
     can_edit: bool
     # How many people and groups it is shared with - for its author only.
     share_count: int = 0
+    expose_as_model: bool
+    expose_as_a2a: bool
+    # Whether a dedicated A2A token was (re)made for it - never the token itself, which is shown once (#a2a).
+    has_a2a_token: bool
     created_at: datetime
     updated_at: datetime
 
@@ -157,3 +167,11 @@ class AssistantHitOut(AssistantOut):
 
     score: float
     score_kind: Literal["hybrid", "lexical"]
+
+
+class AssistantA2ATokenOut(BaseModel):
+    """The dedicated token of an assistant exposed as an A2A agent (#a2a), for an external agent that is not a Muffin
+    user: shown once, at creation or renewal - never read back after."""
+
+    token_prefix: str
+    token: str

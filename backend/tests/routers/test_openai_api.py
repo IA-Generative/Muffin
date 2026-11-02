@@ -13,6 +13,7 @@ from app.core.security.factory import RequestContext
 from app.db import async_session_factory
 from app.main import app
 from app.models.api_key import ApiKey
+from app.models.assistant import Assistant
 from app.models.collection import Collection
 from app.models.conversation import Conversation
 from app.models.message import MessageRole
@@ -42,6 +43,7 @@ async def client():
         await session.execute(delete(ApiKey))
         await session.execute(delete(Run))
         await session.execute(delete(Conversation))
+        await session.execute(delete(Assistant).where(Assistant.owner_id.in_([ALICE, BOB])))
         await session.execute(delete(Collection).where(Collection.owner_id.in_([ALICE, BOB])))
         await session.commit()
 
@@ -63,6 +65,21 @@ async def _collection(owner_id: str, name: str) -> uuid.UUID:
         db.add(collection)
         await db.commit()
         return collection.id
+
+
+async def _assistant(
+    owner_id: str, name: str, collection_ids: list[uuid.UUID] | None = None, *, expose_as_model: bool = True
+) -> uuid.UUID:
+    async with async_session_factory() as db:
+        assistant = Assistant(
+            owner_id=owner_id,
+            name=name,
+            collection_ids=[str(cid) for cid in (collection_ids or [])],
+            expose_as_model=expose_as_model,
+        )
+        db.add(assistant)
+        await db.commit()
+        return assistant.id
 
 
 def _agent_answers(
@@ -201,6 +218,45 @@ async def test_a_model_that_does_not_exist_or_a_collection_one_cannot_read_is_no
         assert response.status_code == 404, model
         assert response.json()["error"]["code"] == "model_not_found"
         assert (await client.get(f"/v1/models/{model}", headers=_auth(key))).status_code == 404
+
+
+# --- an assistant exposed as a model (#514) ---
+
+
+async def test_an_assistant_exposed_as_a_model_is_listed_and_answers_from_its_own_collections(client, monkeypatch):
+    col = await _collection(ALICE, "RH")
+    assistant_id = await _assistant(ALICE, "RH Bot", [col])
+    key = await _key(ALICE)
+    _agent_answers(monkeypatch, ANSWER, citations=CITATIONS)
+
+    listed = await client.get("/v1/models", headers=_auth(key))
+    assert f"muffin:assistant:{assistant_id}" in [m["id"] for m in listed.json()["data"]]
+
+    response = await _chat(client, key, model=f"muffin:assistant:{assistant_id}")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["choices"][0]["message"]["content"].startswith("Two days a week")
+
+
+async def test_an_assistant_not_exposed_as_a_model_is_not_a_model(client):
+    assistant_id = await _assistant(ALICE, "Privé", expose_as_model=False)
+    key = await _key(ALICE)
+
+    response = await _chat(client, key, model=f"muffin:assistant:{assistant_id}")
+
+    assert response.status_code == 404 and response.json()["error"]["code"] == "model_not_found"
+    assert f"muffin:assistant:{assistant_id}" not in [
+        m["id"] for m in (await client.get("/v1/models", headers=_auth(key))).json()["data"]
+    ]
+
+
+async def test_an_assistant_the_key_owner_cannot_use_is_not_a_model_for_them(client):
+    assistant_id = await _assistant(BOB, "Privé de Bob")
+    key = await _key(ALICE)
+
+    response = await _chat(client, key, model=f"muffin:assistant:{assistant_id}")
+
+    assert response.status_code == 404 and response.json()["error"]["code"] == "model_not_found"
 
 
 # --- a chat completion ---

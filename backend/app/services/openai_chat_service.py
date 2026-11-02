@@ -30,6 +30,7 @@ from app.repositories.run_repository import RunRepository
 from app.schemas.openai_api import ChatCompletionRequest, ChatMessage, ModelList, ModelOut
 from app.schemas.run import RunCreate
 from app.services import run_stream
+from app.services.assistant_service import AssistantNotFoundError, AssistantService
 from app.services.guardrail_service import GuardrailService
 from app.services.mcp_search_service import document_url
 from app.services.run_service import ConversationNotFoundError, RunNotFoundError, RunService
@@ -40,6 +41,8 @@ _run_settings = RunSettings()
 SOURCE = "api"
 DEFAULT_MODEL = "muffin"
 _COLLECTION_MODEL = "muffin:collection:"
+# An assistant exposed as a model (#514, #513): its own instructions and collections, same rule as the chat.
+_ASSISTANT_MODEL = "muffin:assistant:"
 
 # What the request holds that would change what the answer is, and that the agent cannot do: refused rather than
 # ignored without a word. (temperature and max_tokens are accepted and not used: the agent chooses its own.)
@@ -69,6 +72,14 @@ class OpenAiError(Exception):
 
 def invalid_request(message: str, code: str | None = None) -> OpenAiError:
     return OpenAiError(400, message, "invalid_request_error", code)
+
+
+@dataclass(frozen=True)
+class ModelScope:
+    """What a model id resolves to beyond `muffin` itself: a collection, or an assistant (#514) - never both."""
+
+    collection_id: uuid.UUID | None = None
+    assistant_id: uuid.UUID | None = None
 
 
 @dataclass
@@ -212,7 +223,8 @@ class OpenAiChatService:
     # --- models ---
 
     async def list_models(self, user: RequestContext) -> ModelList:
-        """`muffin` (every collection the owner reads) and, besides, each top-level collection they read."""
+        """`muffin` (every collection the owner reads), each top-level collection they read, and each assistant they
+        may use that is exposed as a model (#514)."""
         now = int(time.time())
         data = [ModelOut(id=DEFAULT_MODEL, created=now, name="Muffin")]
         found, _total = await self.collections.list_accessible(
@@ -231,21 +243,42 @@ class OpenAiChatService:
                     name=f"Muffin - {collection.name}",
                 )
             )
+        for assistant in await AssistantService(self.db).exposed_as_model(user):
+            data.append(
+                ModelOut(
+                    id=f"{_ASSISTANT_MODEL}{assistant.id}",
+                    created=int(assistant.created_at.timestamp()),
+                    name=f"Muffin - {assistant.name}",
+                )
+            )
         return ModelList(data=data)
 
     async def get_model(self, user: RequestContext, model: str) -> ModelOut:
         scope = await self.resolve_model(user, model)
         if scope is None:
             return ModelOut(id=DEFAULT_MODEL, created=int(time.time()), name="Muffin")
-        collection = await self.collections.get_by_id(scope)
+        if scope.assistant_id is not None:
+            resolved = await AssistantService(self.db).for_model(user, scope.assistant_id)
+            return ModelOut(id=model, created=int(time.time()), name=f"Muffin - {resolved.name}")
+        collection = await self.collections.get_by_id(scope.collection_id)
         return ModelOut(id=model, created=int(collection.created_at.timestamp()), name=f"Muffin - {collection.name}")
 
-    async def resolve_model(self, user: RequestContext, model: str) -> uuid.UUID | None:
-        """The collection a model is limited to, None for `muffin`. A collection the owner cannot read does not exist
-        for them."""
+    async def resolve_model(self, user: RequestContext, model: str) -> ModelScope | None:
+        """What a model id is limited to: a collection, an assistant (#514), or nothing (`muffin`, every collection
+        the caller reads). A collection or an assistant the caller may not use this way does not exist for them."""
         if model == DEFAULT_MODEL:
             return None
         not_found = OpenAiError(404, f"The model '{model}' does not exist", "invalid_request_error", "model_not_found")
+        if model.startswith(_ASSISTANT_MODEL):
+            try:
+                assistant_id = uuid.UUID(model.removeprefix(_ASSISTANT_MODEL))
+            except ValueError:
+                raise not_found from None
+            try:
+                await AssistantService(self.db).for_model(user, assistant_id)
+            except AssistantNotFoundError:
+                raise not_found from None
+            return ModelScope(assistant_id=assistant_id)
         if not model.startswith(_COLLECTION_MODEL):
             raise not_found
         try:
@@ -254,7 +287,7 @@ class OpenAiChatService:
             raise not_found from None
         if not await self.collections.filter_accessible_ids([collection_id], user.user_id, user.groups):
             raise not_found
-        return collection_id
+        return ModelScope(collection_id=collection_id)
 
     # --- a chat completion ---
 
@@ -325,10 +358,14 @@ class OpenAiChatService:
                 RunCreate(
                     query=question,
                     conversation_id=conversation.id,
-                    collection_ids=[scope] if scope else None,
+                    collection_ids=[scope.collection_id] if scope and scope.collection_id else None,
+                    # An assistant model answers the way a chat with it does (#514): its own collections and
+                    # instructions, resolved by RunService.create_run itself from the id alone.
+                    assistant_id=scope.assistant_id if scope else None,
                     interactive=False,
                 ),
-                # A model of one collection answers from it alone: the planner may not go on to the others.
+                # A model of one collection, or of an assistant, answers from it alone: the planner may not go on to
+                # the others.
                 scope_locked=scope is not None,
             )
         except ConversationNotFoundError:
