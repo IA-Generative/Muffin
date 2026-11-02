@@ -30,20 +30,20 @@ def _checksum(body: str) -> str:
     return _base62(zlib.crc32(body.encode()), _CHECKSUM_LENGTH)
 
 
-def generate_key() -> str:
+def generate_key(prefix: str = PREFIX) -> str:
     body = _base62(int.from_bytes(secrets.token_bytes(32)), _BODY_LENGTH)
-    return f"{PREFIX}{body}{_checksum(body)}"
+    return f"{prefix}{body}{_checksum(body)}"
 
 
-def visible_prefix(key: str) -> str:
-    return key[: len(PREFIX) + VISIBLE_LENGTH]
+def visible_prefix(key: str, prefix: str = PREFIX) -> str:
+    return key[: len(prefix) + VISIBLE_LENGTH]
 
 
-def is_well_formed(token: str) -> bool:
+def is_well_formed(token: str, prefix: str = PREFIX) -> bool:
     """Whether this is a key as `generate_key` makes them - which says nothing of whether it is one that exists."""
-    if not token.startswith(PREFIX):
+    if not token.startswith(prefix):
         return False
-    rest = token[len(PREFIX) :]
+    rest = token[len(prefix) :]
     if len(rest) != _BODY_LENGTH + _CHECKSUM_LENGTH or any(char not in _ALPHABET for char in rest):
         return False
     body, checksum = rest[:_BODY_LENGTH], rest[_BODY_LENGTH:]

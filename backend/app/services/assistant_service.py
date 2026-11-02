@@ -12,14 +12,17 @@ from loguru import logger
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import AssistantSettings
+from app.config import ApiKeySettings, AssistantSettings
+from app.core.api_keys import candidate_hashes, generate_key, hash_key, is_well_formed, visible_prefix
 from app.core.security.factory import RequestContext
 from app.core.sharing import hash_identifier, mask_email, mask_group, normalize_email, normalize_group
 from app.models.assistant import Assistant
 from app.models.collection import CollectionVisibility, ShareSubjectType
 from app.repositories.assistant_repository import AssistantRepository
 from app.repositories.collection_repository import CollectionRepository
+from app.repositories.group_repository import GroupRepository
 from app.schemas.assistant import (
+    AssistantA2ATokenOut,
     AssistantCollectionOut,
     AssistantCreate,
     AssistantHitOut,
@@ -31,6 +34,13 @@ from app.schemas.collection import ShareCreate, ShareOut, ShareUpdate
 from app.services.assistant_search_service import AssistantSearchService, forget
 from app.services.collection_service import AlreadyInvitedError, ShareNotFoundError
 from app.services.group_service import GroupService
+
+# The dedicated token of an assistant exposed as an A2A agent (#a2a): the same scheme as a personal API key
+# (app/core/api_keys.py), a different prefix so the two are never mistaken for one another.
+A2A_TOKEN_PREFIX = "a2a-muffin-"
+
+# Module attribute so that tests change it with monkeypatch.setattr.
+_api_key_settings = ApiKeySettings()
 
 # Module attribute so that tests change it with monkeypatch.setattr.
 _settings = AssistantSettings()
@@ -59,6 +69,10 @@ class TooManyAssistantsError(Exception):
 class NoReadableCollectionError(Exception):
     """The assistant designates collections and the caller may read none of them: searching everything instead would
     answer from sources it was not meant to use."""
+
+
+class ApiKeysDisabledError(Exception):
+    """No pepper is set (`API_KEY_PEPPERS`): a dedicated A2A token cannot be made or checked."""
 
 
 @dataclass(frozen=True)
@@ -109,6 +123,12 @@ class AssistantService:
         return self._present(
             assistant, user, writable, readable, counts.get(assistant.id, 0), await self._known_names(user)
         )
+
+    async def exposed_as_model(self, user: RequestContext) -> list[Assistant]:
+        """The assistants the caller may use that are also exposed as a model of the OpenAI-compatible API (#513),
+        for `GET /v1/models` to list."""
+        rows = await self.assistants.list_accessible(user.user_id, user.groups)
+        return [assistant for assistant, _ in rows if assistant.expose_as_model]
 
     # --- writing ---
 
@@ -173,6 +193,12 @@ class AssistantService:
         if changed:
             for key, value in changed.items():
                 setattr(assistant, key, value)
+            if changed.get("expose_as_a2a") is False:
+                # Turning the agent off forgets its dedicated token too: a token of a disabled agent must not go on
+                # working as though it still were one.
+                assistant.a2a_token_hash = None
+                assistant.a2a_token_prefix = None
+                assistant.a2a_owner_groups = []
             assistant.version += 1
             await self.db.commit()
             await self.db.refresh(assistant)
@@ -316,6 +342,77 @@ class AssistantService:
             disabled_tools=list(assistant.disabled_tools),
             consultable=await self._consultable(user, assistant, question),
         )
+
+    # --- exposed outside the chat (#513 as a model, #a2a as an agent) ---
+
+    async def for_model(self, user: RequestContext, assistant_id: uuid.UUID) -> ResolvedAssistant:
+        """What `GET /v1/models`'s `muffin:assistant:<id>` runs with: the same as the chat (`resolve`), but only when
+        the author turned this on - being able to use the assistant is not enough, it has to be meant for that too.
+        Not on, or not readable: the same `AssistantNotFoundError` as a model that does not exist."""
+        await self._exposed(user, assistant_id, "expose_as_model")
+        return await self.resolve(user, assistant_id)
+
+    async def for_a2a(self, user: RequestContext, assistant_id: uuid.UUID) -> ResolvedAssistant:
+        """What a call to the A2A endpoint runs with, for someone who presented their own personal API key (the other
+        way in is the assistant's own dedicated token, `authenticate_a2a_token`)."""
+        await self._exposed(user, assistant_id, "expose_as_a2a")
+        return await self.resolve(user, assistant_id)
+
+    async def _exposed(self, user: RequestContext, assistant_id: uuid.UUID, flag: str) -> None:
+        assistant, _ = await self._get_readable(assistant_id, user)
+        if not getattr(assistant, flag):
+            raise AssistantNotFoundError(str(assistant_id))
+
+    async def authenticate_a2a_token(self, assistant_id: uuid.UUID, token: str) -> RequestContext | None:
+        """Who an A2A caller is taken to be when they present the assistant's own dedicated token instead of a
+        personal API key: its owner - the only identity that makes sense for an external agent with no Muffin
+        account. None when the token is not well-formed, not this assistant's, or it has none - the caller is then
+        refused exactly as for an unknown one, never told which."""
+        assistant = await self.db.get(Assistant, assistant_id)
+        if (
+            assistant is None
+            or not assistant.expose_as_a2a
+            or assistant.a2a_token_hash is None
+            or not is_well_formed(token, A2A_TOKEN_PREFIX)
+        ):
+            return None
+        peppers = _api_key_settings.peppers
+        if not peppers or assistant.a2a_token_hash not in candidate_hashes(token, peppers):
+            return None
+        groups = list(
+            dict.fromkeys(
+                [*assistant.a2a_owner_groups, *await GroupRepository(self.db).group_ids_of(assistant.owner_id)]
+            )
+        )
+        return RequestContext(user_id=assistant.owner_id, email=None, roles=["user"], is_admin=False, groups=groups)
+
+    async def new_a2a_token(self, assistant_id: uuid.UUID, user: RequestContext) -> AssistantA2ATokenOut:
+        """A new dedicated token for an external agent with no Muffin account of its own: turns the A2A agent on if it
+        was not, and replaces any token there was at once - shown here, this one time, never read back."""
+        assistant = await self._get_owned(assistant_id, user)
+        peppers = _api_key_settings.peppers
+        if not peppers:
+            raise ApiKeysDisabledError
+        token = generate_key(A2A_TOKEN_PREFIX)
+        version, pepper = peppers[0]
+        assistant.expose_as_a2a = True
+        assistant.a2a_token_hash = hash_key(token, version, pepper)
+        assistant.a2a_token_prefix = visible_prefix(token, A2A_TOKEN_PREFIX)
+        assistant.a2a_owner_groups = list(user.groups)
+        await self.db.commit()
+        logger.info(f"Assistant {assistant.id} got a new A2A token, made by {user.user_id}")
+        return AssistantA2ATokenOut(token_prefix=assistant.a2a_token_prefix, token=token)
+
+    async def revoke_a2a_token(self, assistant_id: uuid.UUID, user: RequestContext) -> AssistantOut:
+        """Forgets the dedicated token without turning the agent off altogether: a personal API key still reaches it."""
+        assistant = await self._get_owned(assistant_id, user)
+        if assistant.a2a_token_hash is not None:
+            assistant.a2a_token_hash = None
+            assistant.a2a_token_prefix = None
+            assistant.a2a_owner_groups = []
+            await self.db.commit()
+            logger.info(f"Assistant {assistant.id}'s A2A token revoked by {user.user_id}")
+        return await self.get(assistant_id, user)
 
     # --- searching ---
 
@@ -462,6 +559,9 @@ class AssistantService:
             is_owner=owner,
             can_edit=can_edit,
             share_count=share_count if owner else 0,
+            expose_as_model=assistant.expose_as_model,
+            expose_as_a2a=assistant.expose_as_a2a,
+            has_a2a_token=assistant.a2a_token_hash is not None,
             created_at=assistant.created_at,
             updated_at=assistant.updated_at,
         )
