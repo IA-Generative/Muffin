@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.47.0](https://github.com/IA-Generative/Muffin/compare/v0.46.0...v0.47.0) (2026-11-02)
+
+
+### Features
+
+* **agent:** consulter un agent A2A par consult_agent ([e20ac4e](https://github.com/IA-Generative/Muffin/commit/e20ac4eec77ad0f03b2d89eab3cb3c68dd39c722))
+* **assistants:** exposer un assistant comme modèle OpenAI et comme agent A2A ([f0beb72](https://github.com/IA-Generative/Muffin/commit/f0beb7235c36ee18586b0d93679ffe79e6256a19))
+* **front:** afficher la consultation d'un agent dans le chat et les sources ([b148fe3](https://github.com/IA-Generative/Muffin/commit/b148fe362cbe9ec52d62e47991ba3d4bc1224a18))
+* **front:** choisir MCP ou A2A à l'ajout d'un serveur d'outils ([0c557b3](https://github.com/IA-Generative/Muffin/commit/0c557b3b3cc024df345a6a1026a4ce063f585fad))
+* **outils:** importer un agent A2A comme un serveur d'outils ([02878ed](https://github.com/IA-Generative/Muffin/commit/02878edd58c42f2f45cd4b01573b1905417f86d1))
+
 ## [0.47.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.46.0...v0.47.0-rc) (2026-11-02)
 
 
