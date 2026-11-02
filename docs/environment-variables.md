@@ -424,6 +424,21 @@ Ce que définit l'administrateur (quels garde-fous, leur mode, leur étape, la p
 | `GUARDRAILS_ALLOWED_PRIVATE_HOSTS` | Hôtes (séparés par des virgules) qu'un garde-fou `http` peut appeler bien qu'ils soient sur un réseau privé ; rien d'autre qui ne soit public n'est joint | vide | idem |
 | `GUARDRAILS_RESULTS_RETENTION_DAYS` | Durée de conservation (jours) des verdicts et des comptes — jamais du texte | `180` | idem (purge de la maintenance des routines) |
 
+## backend — voix : dictée et lecture à voix haute (#517)
+
+Ce qu'un administrateur active (le service, son adresse, son modèle, sa voix) est un réglage de l'application (Administration → Voix, voir `docs/voice.md`) ; ces variables sont les bornes qu'aucun réglage ne lève.
+
+| Variable | Définition | Défaut | Utilisée par |
+|---|---|---|---|
+| `VOICE_TRANSCRIPTIONS_PER_USER_PER_MINUTE` | Transcriptions qu'une personne peut lancer par minute, toutes tentatives comptées | `6` | **backend** (`app/config/voice.py`) |
+| `VOICE_SPEECH_PER_USER_PER_MINUTE` | Lectures à voix haute qu'une personne peut demander par minute | `20` | idem |
+| `VOICE_STT_MAX_BYTES_LIMIT` | Poids maximal qu'un réglage peut accorder à un enregistrement (octets) ; c'est aussi ce qui est lu en mémoire au plus | `26214400` (25 Mo) | idem |
+| `VOICE_STT_MAX_SECONDS_LIMIT` | Durée maximale qu'un réglage peut accorder à un enregistrement (secondes) | `600` | idem |
+| `VOICE_TTS_MAX_CHARS_LIMIT` | Caractères maximum qu'un réglage peut accorder à une demande de lecture | `8000` | idem |
+| `VOICE_TTS_MAX_AUDIO_BYTES` | Poids maximal de l'audio qu'on accepte en retour du service de lecture (octets) | `26214400` | idem |
+| `VOICE_STT_MAX_TEXT_CHARS` | Longueur maximale du texte qu'une transcription rend (caractères) | `20000` | idem |
+| `VOICE_REQUEST_TIMEOUT_SECONDS` | Délai donné au service vocal pour répondre (secondes) | `120` | idem |
+
 ## backend — mémoire de l'utilisateur (#282)
 
 Ce que la personne retient ou non est à elle (page « Ma mémoire », voir `docs/memory.md`) ; ces variables sont les bornes de l'application et l'interrupteur de l'administrateur.

@@ -45,7 +45,7 @@ Légende : **➕** Muffin devant · **🟰** équivalent · **🔻** Muffin en r
 | Étapes de la recherche visibles | traces dans l'analytique | étapes en direct dans le chat, panneau de détail | ➕ |
 | Choix du modèle | modèles personnalisés (« model builder ») avec prompt système, connaissances et outils attachés | sélecteur de modèle du hub | 🔻 |
 | Pièces jointes | fichiers, images (vision), pages web, Drive / OneDrive | fichiers (collection temporaire de la conversation) ; **images jointes au message, lues par un modèle de vision** (`docs/image-attachments.md`) | 🔻 |
-| Voix | STT / TTS à moteurs, appel vocal temps réel | dictée et lecture vocale (`useVoiceInput`, `useVoiceOutput`) | 🔻 |
+| Voix | STT / TTS à moteurs, appel vocal temps réel | dictée et lecture vocale par le **navigateur** ; en option (**désactivées par défaut**), par un service compatible OpenAI — le hub ou un autre : dictée par enregistrement transcrit par le serveur, lecture par un moteur de synthèse (pod Kitten TTS 2 fourni, optionnel) avec repli sur le navigateur (`docs/voice.md`) ; pas d'appel vocal en temps réel | 🔻 |
 | Génération d'images | plusieurs moteurs | optionnelle, désactivée par défaut : adresse compatible OpenAI (`docs/image-generation.md`) | 🟰 |
 | Interpréteur de code, terminaux | oui | non ; à la place, SQL + graphiques sur les fichiers tabulaires | ❌ |
 | Mémoire de l'utilisateur | oui | **« Ma mémoire »** : ce que l'assistant retient (voir, corriger, désactiver, exporter), « retiens que… » dans le chat, conversation sans mémoire (`docs/memory.md`) ; **préférences de style apprises des 👍/👎** et **collections habituelles** (a priori du routage, sélecteur), par règles ; reste le reclassement des sources et le cache des réponses | 🔻 |
