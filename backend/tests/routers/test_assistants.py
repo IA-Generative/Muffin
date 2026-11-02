@@ -795,3 +795,107 @@ async def test_a_copy_keeps_the_assistants_it_consults_that_the_copier_may_read(
 
     assert copy["consult_mode"] == "list" and [a["name"] for a in copy["consulted"]] == ["Visible"]
     assert copy["inaccessible_consulted_count"] == 0
+
+
+# --- exposed outside the chat (#513 as a model, #a2a as an agent) ---
+
+
+@pytest.fixture(autouse=True)
+def _a2a_peppers(monkeypatch):
+    from pydantic import SecretStr
+
+    monkeypatch.setattr(assistant_service._api_key_settings, "API_KEY_PEPPERS", SecretStr("v1=test-pepper"))
+
+
+async def test_an_assistant_is_not_exposed_as_a_model_or_an_agent_by_default(client):
+    assistant = await make(client)
+
+    assert assistant["expose_as_model"] is False
+    assert assistant["expose_as_a2a"] is False
+    assert assistant["has_a2a_token"] is False
+
+
+async def test_only_the_owner_turns_on_exposure_as_a_model(client):
+    assistant = await make(client)
+    await share_with(client, assistant, email="bob@example.com")
+    await logs_in(BOB, email="bob@example.com")
+    become(BOB)
+
+    denied = await client.patch(f"/api/assistants/{assistant['id']}", json={"expose_as_model": True})
+    assert denied.status_code == 403
+
+    become(ALICE)
+    allowed = await client.patch(f"/api/assistants/{assistant['id']}", json={"expose_as_model": True})
+    assert allowed.status_code == 200 and allowed.json()["expose_as_model"] is True
+
+
+async def test_a_dedicated_a2a_token_is_shown_once_and_turns_the_agent_on(client):
+    assistant = await make(client)
+
+    response = await client.post(f"/api/assistants/{assistant['id']}/a2a-token")
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["token"].startswith(body["token_prefix"])
+    assert assistant_service.A2A_TOKEN_PREFIX in body["token_prefix"]
+    again = (await client.get(f"/api/assistants/{assistant['id']}")).json()
+    assert again["expose_as_a2a"] is True and again["has_a2a_token"] is True
+
+
+async def test_a_new_token_replaces_the_old_one_at_once(client):
+    assistant = await make(client)
+    first = (await client.post(f"/api/assistants/{assistant['id']}/a2a-token")).json()
+    second = (await client.post(f"/api/assistants/{assistant['id']}/a2a-token")).json()
+
+    assert first["token"] != second["token"]
+    async with async_session_factory() as db:
+        is_first_valid = await assistant_service.AssistantService(db).authenticate_a2a_token(
+            uuid.UUID(assistant["id"]), first["token"]
+        )
+        is_second_valid = await assistant_service.AssistantService(db).authenticate_a2a_token(
+            uuid.UUID(assistant["id"]), second["token"]
+        )
+    assert is_first_valid is None and is_second_valid is not None
+
+
+async def test_revoking_the_token_keeps_the_agent_reachable_with_an_api_key(client):
+    assistant = await make(client)
+    await client.post(f"/api/assistants/{assistant['id']}/a2a-token")
+
+    response = await client.delete(f"/api/assistants/{assistant['id']}/a2a-token")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["has_a2a_token"] is False and body["expose_as_a2a"] is True
+
+
+async def test_turning_the_agent_off_forgets_its_token_too(client):
+    assistant = await make(client)
+    await client.post(f"/api/assistants/{assistant['id']}/a2a-token")
+
+    off = await client.patch(f"/api/assistants/{assistant['id']}", json={"expose_as_a2a": False})
+
+    assert off.status_code == 200
+    body = off.json()
+    assert body["expose_as_a2a"] is False and body["has_a2a_token"] is False
+
+
+async def test_only_the_owner_makes_or_revokes_a_token(client):
+    assistant = await make(client)
+    await share_with(client, assistant, email="bob@example.com")
+    await logs_in(BOB, email="bob@example.com")
+    become(BOB)
+
+    assert (await client.post(f"/api/assistants/{assistant['id']}/a2a-token")).status_code == 403
+    assert (await client.delete(f"/api/assistants/{assistant['id']}/a2a-token")).status_code == 403
+
+
+async def test_without_a_pepper_a_token_cannot_be_made(client, monkeypatch):
+    from pydantic import SecretStr
+
+    monkeypatch.setattr(assistant_service._api_key_settings, "API_KEY_PEPPERS", SecretStr(""))
+    assistant = await make(client)
+
+    response = await client.post(f"/api/assistants/{assistant['id']}/a2a-token")
+
+    assert response.status_code == 503

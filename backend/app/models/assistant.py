@@ -46,6 +46,22 @@ class Assistant(UUIDMixin, TimestampMixin, Base):
         default=CollectionVisibility.PRIVATE,
         server_default="PRIVATE",
     )
+    # Exposed as a "model" of the OpenAI-compatible API (`muffin:assistant:<id>`, #513): still only to someone who may
+    # already use this assistant - this only lets them reach it through that API too, it opens nothing new.
+    expose_as_model: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    # Exposed as an A2A agent (#a2a): its own agent card and endpoint, reached with a personal API key (same rule as
+    # above) or the dedicated token below - for an external agent that is not a Muffin user at all, run with the
+    # rights of this assistant's owner (never anyone else's).
+    expose_as_a2a: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    # `version$HMAC-SHA256(pepper, token)`, the same scheme as a personal API key (app/core/api_keys.py) - only ever
+    # compared against, never read back. None while expose_as_a2a has no dedicated token (API-key callers only).
+    a2a_token_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # The first characters of the token, to recognise it by - never enough to use it.
+    a2a_token_prefix: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # The owner's groups when the token was last (re)made - a call with it has no session to read them from live, the
+    # same tradeoff as ApiKey.owner_groups. Muffin's own groups are not frozen here: looked up live at each call
+    # (GroupRepository), as for a personal API key.
+    a2a_owner_groups: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
 
     shares: Mapped[list["AssistantShare"]] = relationship(back_populates="assistant", cascade="all, delete-orphan")

@@ -8,6 +8,7 @@ from app.core.security.factory import RequestContext, get_current_user
 from app.core.sharing import SharingNotConfiguredError
 from app.db import get_db
 from app.schemas.assistant import (
+    AssistantA2ATokenOut,
     AssistantCreate,
     AssistantHitOut,
     AssistantOut,
@@ -15,7 +16,7 @@ from app.schemas.assistant import (
     AssistantVisibilityUpdate,
 )
 from app.schemas.collection import ShareCreate, ShareOut, ShareUpdate
-from app.services.assistant_service import AssistantService
+from app.services.assistant_service import ApiKeysDisabledError, AssistantService
 from app.services.group_service import GroupNotFoundError
 
 router = APIRouter(tags=["Assistants"])
@@ -115,6 +116,29 @@ async def set_visibility(
     assistant_id: uuid.UUID, body: AssistantVisibilityUpdate, user: UserDep, service: ServiceDep
 ) -> AssistantOut:
     return await service.set_visibility(assistant_id, user, body.visibility)
+
+
+@router.post(
+    "/assistants/{assistant_id}/a2a-token",
+    summary="A new dedicated token for an external A2A agent with no Muffin account (#a2a) - its author only. "
+    "Turns the agent on, and replaces any token there was at once. Shown here, this one time.",
+    status_code=status.HTTP_201_CREATED,
+    response_model=AssistantA2ATokenOut,
+)
+async def new_a2a_token(assistant_id: uuid.UUID, user: UserDep, service: ServiceDep) -> AssistantA2ATokenOut:
+    try:
+        return await service.new_a2a_token(assistant_id, user)
+    except ApiKeysDisabledError as error:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "API keys are not enabled") from error
+
+
+@router.delete(
+    "/assistants/{assistant_id}/a2a-token",
+    summary="Forgets the dedicated A2A token without turning the agent off - a personal API key still reaches it",
+    response_model=AssistantOut,
+)
+async def revoke_a2a_token(assistant_id: uuid.UUID, user: UserDep, service: ServiceDep) -> AssistantOut:
+    return await service.revoke_a2a_token(assistant_id, user)
 
 
 @router.post(

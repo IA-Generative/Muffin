@@ -10,6 +10,7 @@ from app.config import KeycloakSettings, SecretsSettings
 from app.core.secret_store import check_configuration as check_secrets_configuration
 from app.mcp_server import mcp_app, mcp_lifespan
 from app.openai_app import openai_app
+from app.routers.a2a_server import router as a2a_server_router
 from app.routers.admin_cgu import router as admin_cgu_router
 from app.routers.admin_guardrails import router as admin_guardrails_router
 from app.routers.admin_owui_sync import router as admin_owui_sync_router
@@ -216,6 +217,7 @@ app.add_middleware(
 app.include_router(auth_router, prefix="/api/auth")
 app.include_router(api_keys_router, prefix="/api")
 app.include_router(assistants_router, prefix="/api")
+app.include_router(a2a_server_router, prefix="/api")
 app.include_router(health_router, prefix="/api")
 app.include_router(models_router, prefix="/api")
 app.include_router(notifications_router, prefix="/api")
