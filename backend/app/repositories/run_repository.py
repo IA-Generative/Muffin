@@ -34,6 +34,7 @@ class RunRepository:
         consultable_assistants: list[dict] | None = None,
         scope_locked: bool = False,
         memory_mode: str = "on",
+        requested_model: str | None = None,
     ) -> Run:
         run = Run(
             user_id=user_id,
@@ -57,6 +58,7 @@ class RunRepository:
             consultable_assistants=consultable_assistants or None,
             scope_locked=scope_locked,
             memory_mode=memory_mode,
+            requested_model=requested_model,
         )
         self.db.add(run)
         await self.db.flush()
@@ -113,7 +115,10 @@ class RunRepository:
         pending_human_action: dict[str, Any] | None,
         plan_version: int | None,
         replan_count: int | None,
+        routing: dict[str, Any] | None = None,
     ) -> None:
+        if routing is not None:
+            run.routing = routing
         if research_plan is not None:
             run.research_plan = {**(run.research_plan or {}), **research_plan}
         if budget is not None:

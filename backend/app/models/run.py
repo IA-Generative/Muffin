@@ -81,6 +81,11 @@ class Run(UUIDMixin, TimestampMixin, Base):
     # Whether the search stays within the collections the run was given instead of going on to the others the person
     # may read (an assistant's, or a model of the OpenAI-compatible API). The planner can then narrow, never widen.
     scope_locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    # The model the person picked for this message: None or "auto" lets the agent choose (see `routing`), anything else
+    # is used as it is.
+    requested_model: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # How the agent chose in auto mode: {"model", "level", "complexity", "intent", "reason"}. None when it did not.
+    routing: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     # What the guardrails on the input did to this run (#516): `blocked`, `redacted`, `warned`, or None. The text of the
     # request is not here: what the model saw instead of it is `Message.redacted_content`, and the words shown to the
     # person (a refusal, a warning) are `guardrail_notice`.

@@ -17,3 +17,6 @@ class AppSettings(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
     embedding_model: Mapped[str | None] = mapped_column(String, nullable=True)
+    # The model that classifies a request in auto mode (its level, complexity and intent). None: the model with the
+    # lowest score among those the automatic choice may pick - the cheapest, since it is called on every request.
+    classifier_model: Mapped[str | None] = mapped_column(String(200), nullable=True)

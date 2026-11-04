@@ -15,6 +15,7 @@ import app.agent.graph.nodes.guardrails as guardrails_module
 import app.agent.graph.nodes.memory_command as memory_command_module
 import app.agent.graph.nodes.prepare as prepare_module
 import app.agent.graph.nodes.research_task as research_task_module
+import app.agent.graph.nodes.route_model as route_model_module
 import app.agent.graph.services.events as events_module
 import app.agent.graph.services.llm as llm_module
 import app.agent.graph.services.prompts as prompts_module
@@ -256,6 +257,10 @@ class FakeBackend:
     async def get_default_chat_model(self) -> str | None:
         return "test-model"
 
+    async def get_auto_candidates(self) -> dict[str, Any]:
+        # No model rated by default: auto mode then leaves the default model, as before it existed.
+        return getattr(self, "auto_offer", {"candidates": [], "classifier_model": None})
+
     async def get_vision_models(self) -> list[str]:
         # None by default: a run with images then says it cannot read them (#512), unless a test seeds some.
         return getattr(self, "vision_models", [])
@@ -333,6 +338,7 @@ _PATCHED_MODULES = (
     llm_module,
     prepare_module,
     guardrails_module,
+    route_model_module,
     memory_command_module,
     edit_module,
     create_module,

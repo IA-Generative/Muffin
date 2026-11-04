@@ -19,6 +19,7 @@ from app.repositories.message_image_repository import MessageImageRepository
 from app.repositories.run_repository import RunRepository
 from app.repositories.source_repository import SourceRepository
 from app.schemas.feedback import FeedbackCreate, FeedbackOut
+from app.schemas.model_profiles import AUTO_MODEL
 from app.schemas.question import validate_answers
 from app.schemas.run import RunCreate, RunEventOut, RunOut
 from app.services.assistant_service import AssistantService
@@ -159,6 +160,7 @@ class RunService:
                 if assistant is not None or automated or scope_locked
                 else ("on" if body.use_memory else "temporary")
             ),
+            requested_model=None if body.model in (None, "", AUTO_MODEL) else body.model,
         )
         await self.db.commit()
         # Started after the first commit: the agent's very first read of this run (its idempotency check) must never
@@ -363,6 +365,9 @@ class RunService:
             query=run.query,
             status=run.status,
             cancel_requested=run.cancel_requested,
+            requested_model=run.requested_model,
+            routing=run.routing,
+            model=run.requested_model or (run.routing or {}).get("model"),
             current_node=run.current_node,
             current_activity=run.current_activity,
             plan_version=run.plan_version,

@@ -68,3 +68,5 @@ class MessageOut(BaseModel):
     guardrail_notice: str | None = None
     # How many items of the person's memory shaped this answer (#283): the chat says so, with a link to the page.
     memory_used: int = 0
+    # The model that wrote this answer (the one picked, or the one auto mode chose), None when it is not known.
+    model: str | None = None
