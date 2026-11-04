@@ -31,7 +31,7 @@ function pick(id: string) {
       :disabled="isLoading"
       @click="showMenu = !showMenu"
     >
-      <span>{{ isLoading ? 'Chargement…' : isAuto ? 'Auto' : selectedModelId }}</span>
+      <span>{{ isLoading ? 'Chargement…' : (error ?? (isAuto ? 'Auto' : selectedModelId)) }}</span>
       <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
         <path fill="currentColor" d="M7 10l5 5 5-5H7z" />
       </svg>
