@@ -130,6 +130,8 @@ export interface ChatMessage {
   guardrailNotice?: string
   // Combien d'éléments de la mémoire de la personne ont servi à cette réponse (#283) : le chat le dit, sans dire lesquels.
   memoryUsed?: number
+  // Le modèle qui a écrit cette réponse : celui choisi à la main, ou celui qu'Auto a retenu.
+  model?: string
   // The questions this message asks instead of answering (#344) - shown as a card to answer. Once the
   // user answered, `questionsAnswer` holds the answer (the card stays in the thread with it); if they
   // wrote something else instead, the questions are `questionsAbandoned`.

@@ -26,6 +26,7 @@ import { type AnswerDelta, applyDelta, isEndingStatus } from '../utils/runStream
 import type { StagedImage } from './useImageAttachments'
 import { useImageGeneration } from './useImageGeneration'
 import { useMemory } from './useMemory'
+import { useModels } from './useModels'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
 
@@ -101,6 +102,7 @@ interface MessageOut {
   guardrail_outcome?: string | null
   guardrail_notice?: string | null
   memory_used?: number
+  model?: string | null
 }
 
 // Backend shape (snake_case) of an image of the chat: made by a model (#518) or attached by the person (#512).
@@ -264,6 +266,7 @@ interface RunOut {
   guardrail_outcome?: string | null
   guardrail_notice?: string | null
   memory_used?: number
+  model?: string | null
   error: string | null
 }
 
@@ -505,6 +508,7 @@ async function ensureMessagesLoaded(conversationId: string) {
         images: toImages(conversationId, item.images),
         ...toGuardrail(item.guardrail_outcome, item.guardrail_notice),
         memoryUsed: item.memory_used || undefined,
+        model: item.model ?? undefined,
         assistantName: item.assistant_name ?? undefined,
       }
     })
@@ -933,6 +937,7 @@ async function createRun(
   // its instructions. An assistant that was removed since is answered with a 404 and the choice is dropped.
   const { selectedAssistantId } = useAssistants()
   const { memoryInChat } = useMemory()
+  const { selectedModelId, isAuto } = useModels()
   const response = await fetch(`${API_BASE_URL}/api/runs`, {
     method: 'POST',
     credentials: 'include',
@@ -949,6 +954,8 @@ async function createRun(
       answers_run_id: options.answers?.runId,
       answers: options.answers ? toRequestAnswers(options.answers.answers) : undefined,
       image_ids: options.imageIds?.length ? options.imageIds : undefined,
+      // Auto : rien n'est envoyé, l'agent choisit.
+      model: isAuto.value ? undefined : selectedModelId.value,
     }),
   })
   if (!response.ok) {
@@ -1167,6 +1174,7 @@ function assistantMessageFor(id: string, run: RunOut): ChatMessage {
       images: run.conversation_id ? toImages(run.conversation_id, run.images) : undefined,
       ...toGuardrail(run.guardrail_outcome, run.guardrail_notice),
       memoryUsed: run.memory_used || undefined,
+      model: run.model ?? undefined,
       assistantName: run.assistant_name ?? undefined,
     }
   }
