@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useModels } from '../composables/useModels'
+import { AUTO_MODEL_ID } from '../types/model'
 
-const { models, selectedModel, isLoading, error, selectModel } = useModels()
+const { models, selectedModelId, isAuto, isLoading, error, selectModel } = useModels()
 
 const showMenu = ref(false)
 const wrapper = ref<HTMLElement>()
@@ -27,21 +28,33 @@ function pick(id: string) {
     <button
       type="button"
       class="model-selector__trigger"
-      :disabled="isLoading || (!error && models.length === 0)"
+      :disabled="isLoading"
       @click="showMenu = !showMenu"
     >
-      <span>{{ isLoading ? 'Chargement…' : (error ?? selectedModel?.id ?? 'Aucun modèle') }}</span>
+      <span>{{ isLoading ? 'Chargement…' : isAuto ? 'Auto' : selectedModelId }}</span>
       <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
         <path fill="currentColor" d="M7 10l5 5 5-5H7z" />
       </svg>
     </button>
 
     <ul v-if="showMenu" class="model-selector__menu" role="menu">
+      <li>
+        <button
+          type="button"
+          class="model-selector__item"
+          :class="{ 'model-selector__item--active': isAuto }"
+          role="menuitem"
+          title="L'agent choisit le modèle selon la difficulté de la demande"
+          @click="pick(AUTO_MODEL_ID)"
+        >
+          Auto
+        </button>
+      </li>
       <li v-for="model in models" :key="model.id">
         <button
           type="button"
           class="model-selector__item"
-          :class="{ 'model-selector__item--active': model.id === selectedModel?.id }"
+          :class="{ 'model-selector__item--active': model.id === selectedModelId }"
           role="menuitem"
           @click="pick(model.id)"
         >

@@ -27,6 +27,7 @@ export const router = createRouter({
     { path: '/memory', name: 'memory', component: () => import('../components/MemoryView.vue') },
     { path: '/admin', name: 'admin', component: () => import('../components/AdminIndexView.vue') },
     { path: '/admin/settings', name: 'admin-settings', component: () => import('../components/AdminSettingsView.vue') },
+    { path: '/admin/models', name: 'admin-models', component: () => import('../components/AdminModelsView.vue') },
     { path: '/admin/images', name: 'admin-images', component: () => import('../components/AdminImagesView.vue') },
     { path: '/admin/voice', name: 'admin-voice', component: () => import('../components/AdminVoiceView.vue') },
     {

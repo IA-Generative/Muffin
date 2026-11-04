@@ -14,6 +14,12 @@ const items: AdminItem[] = [
     path: '/admin/settings',
   },
   {
+    key: 'models',
+    label: 'Modèles et mode Auto',
+    description: "Score de 0 à 100 et description de chaque modèle, capacités détectées, modèle de classification : le mode Auto choisit le modèle selon la demande.",
+    path: '/admin/models',
+  },
+  {
     key: 'images',
     label: 'Génération d\'images',
     description: 'Facultative, désactivée par défaut : adresse compatible OpenAI, modèle, quotas, groupes autorisés et test.',
