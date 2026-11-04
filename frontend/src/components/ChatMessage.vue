@@ -300,6 +300,9 @@ onBeforeUnmount(() => {
       <p v-if="message.role === 'assistant' && message.assistantName && !message.pending" class="chat-message__assistant">
         Assistant : {{ message.assistantName }}
       </p>
+      <p v-if="message.role === 'assistant' && message.model && !message.pending" class="chat-message__assistant">
+        Modèle : {{ message.model }}
+      </p>
       <p v-if="message.role === 'assistant' && message.memoryUsed && !message.pending" class="chat-message__assistant">
         Adaptée à votre mémoire ·
         <router-link to="/memory">voir ou modifier</router-link>

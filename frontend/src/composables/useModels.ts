@@ -1,14 +1,16 @@
 import { computed, ref } from 'vue'
-import type { ChatModel } from '../types/model'
+import { AUTO_MODEL_ID, type ChatModel } from '../types/model'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
 const SELECTED_MODEL_STORAGE_KEY = 'muffin.selectedModelId'
 
 const models = ref<ChatModel[]>([])
-const selectedModelId = ref<string | null>(localStorage.getItem(SELECTED_MODEL_STORAGE_KEY))
+// « Auto » par défaut : l'agent choisit le modèle selon la difficulté de la demande.
+const selectedModelId = ref<string>(localStorage.getItem(SELECTED_MODEL_STORAGE_KEY) ?? AUTO_MODEL_ID)
 const isLoading = ref(true)
 const error = ref<string | null>(null)
 
+const isAuto = computed(() => selectedModelId.value === AUTO_MODEL_ID)
 const selectedModel = computed(() => models.value.find((model) => model.id === selectedModelId.value) ?? null)
 
 async function fetchModels() {
@@ -20,8 +22,9 @@ async function fetchModels() {
     const body: { models: ChatModel[] } = await response.json()
     models.value = body.models
 
-    if (!selectedModelId.value || !models.value.some((model) => model.id === selectedModelId.value)) {
-      selectModel(models.value[0]?.id ?? null)
+    // Un modèle choisi à la main qui n'existe plus : retour à Auto.
+    if (!isAuto.value && !models.value.some((model) => model.id === selectedModelId.value)) {
+      selectModel(AUTO_MODEL_ID)
     }
   } catch {
     error.value = "Impossible de récupérer la liste des modèles."
@@ -30,14 +33,13 @@ async function fetchModels() {
   }
 }
 
-function selectModel(id: string | null) {
+function selectModel(id: string) {
   selectedModelId.value = id
-  if (id) localStorage.setItem(SELECTED_MODEL_STORAGE_KEY, id)
-  else localStorage.removeItem(SELECTED_MODEL_STORAGE_KEY)
+  localStorage.setItem(SELECTED_MODEL_STORAGE_KEY, id)
 }
 
 fetchModels()
 
 export function useModels() {
-  return { models, selectedModelId, selectedModel, isLoading, error, selectModel, refresh: fetchModels }
+  return { models, selectedModelId, selectedModel, isAuto, isLoading, error, selectModel, refresh: fetchModels }
 }
