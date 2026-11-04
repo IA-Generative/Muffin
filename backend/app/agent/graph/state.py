@@ -128,6 +128,10 @@ class AgentState(TypedDict):
 
     # Resolved once by AgentService.run() and threaded through every node from here on.
     chat_model: str | None
+    # The model the person picked for this message; None is auto mode, where `route_model` chooses `chat_model`.
+    requested_model: NotRequired[str | None]
+    # How the model was chosen (see Run.routing).
+    routing: NotRequired[dict[str, Any]]
 
     # The images the answer is written from (#512): {id, content_type, current} - the bytes are fetched only by the
     # model

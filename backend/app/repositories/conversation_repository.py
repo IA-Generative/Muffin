@@ -116,7 +116,17 @@ class ConversationRepository:
     async def list_messages(
         self, conversation_id: uuid.UUID
     ) -> Sequence[
-        tuple[Message, list[dict] | None, dict | None, list[str] | None, str | None, str | None, str | None, int | None]
+        tuple[
+            Message,
+            list[dict] | None,
+            dict | None,
+            list[str] | None,
+            str | None,
+            str | None,
+            str | None,
+            int | None,
+            str | None,
+        ]
     ]:
         """Joined to Run rather than storing citations on Message too - Run is already the
         source of truth for them (§ conversation persistence), and a message never outlives the
@@ -133,6 +143,8 @@ class ConversationRepository:
                 Run.guardrail_outcome,
                 Run.guardrail_notice,
                 Run.memory_used,
+                # The model that wrote the answer: the one the person picked, else the one auto mode chose.
+                func.coalesce(Run.requested_model, Run.routing["model"].astext),
             )
             .outerjoin(Run, Message.run_id == Run.id)
             .where(Message.conversation_id == conversation_id)

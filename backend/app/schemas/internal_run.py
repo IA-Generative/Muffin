@@ -56,6 +56,8 @@ class InternalRunOut(BaseModel):
     resume_from_collection_ids: list[str] | None = None
     # See Run.interactive (#344).
     interactive: bool = True
+    # Run.requested_model: None means auto mode.
+    requested_model: str | None = None
     # The instructions of the assistant the chat was started with (#514), added to the rules of the answer, and whether
     # the search stays within the collections the run was given (Run.scope_locked).
     assistant_instructions: str | None = None
@@ -90,6 +92,8 @@ class RunStateUpdate(BaseModel):
     pending_human_action: dict[str, Any] | None = None
     plan_version: int | None = None
     replan_count: int | None = None
+    # How the model was chosen in auto mode (Run.routing).
+    routing: dict[str, Any] | None = None
 
 
 class RunResultUpdate(BaseModel):
