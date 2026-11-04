@@ -1,7 +1,7 @@
 """model auto routing
 
 Revision ID: c4f9b2d6e758
-Revises: b3e8a1c5d647
+Revises: b3e8a1c5d647, d5a8b1e724fa
 Create Date: 2026-11-04 15:00:00.000000
 
 """
@@ -14,7 +14,8 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision: str = "c4f9b2d6e758"
-down_revision: str | Sequence[str] | None = "b3e8a1c5d647"
+# Also merges the two heads dev had (voice, and the A2A exposure of the assistants).
+down_revision: str | Sequence[str] | None = ("b3e8a1c5d647", "d5a8b1e724fa")
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
