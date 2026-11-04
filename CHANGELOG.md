@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.48.0-rc](https://github.com/IA-Generative/Muffin/compare/v0.47.0...v0.48.0-rc) (2026-11-04)
+
+
+### Features
+
+* **agent:** choisir le modèle selon la difficulté de la demande en mode Auto ([71cb96e](https://github.com/IA-Generative/Muffin/commit/71cb96e19ea335088452335c1ce81daa9295b303))
+* **front:** page admin des modèles et choix Auto dans le sélecteur du chat ([310a6a1](https://github.com/IA-Generative/Muffin/commit/310a6a1a2e81cb605eadbefb83bf874784feaf90))
+
+
+### Bug Fixes
+
+* **front:** afficher l'erreur de chargement dans le sélecteur de modèle ([fc1c919](https://github.com/IA-Generative/Muffin/commit/fc1c9193e3fb6cd8b7c6f23e24f7979cd02d89c4))
+* **migrations:** fusionner les deux têtes de dev dans la migration du mode Auto ([68c90ba](https://github.com/IA-Generative/Muffin/commit/68c90ba096d3703937a77d1417767fe1a6a844f4))
+
 ## [0.47.0](https://github.com/IA-Generative/Muffin/compare/v0.46.0...v0.47.0) (2026-11-02)
 
 
