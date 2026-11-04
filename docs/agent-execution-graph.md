@@ -17,6 +17,7 @@ flowchart TD
     guardrails[guardrails]
     prepare_request[prepare_request]
     blocked[blocked]
+    route_model[route_model]
     plan[plan]
     answer_help[answer_help]
     memory_command[memory_command]
@@ -41,7 +42,8 @@ flowchart TD
     __start__ --> guardrails
     prepare --> prepare_request
     guardrails --> prepare_request
-    prepare_request -.-> plan
+    prepare_request -.-> route_model
+    route_model -.-> plan
     prepare_request -.-> blocked
     blocked --> __end__
     answer_help -.-> __end__
@@ -84,8 +86,9 @@ Relevé dans le code. « HTTP » compte les appels au backend (`GET` d'annulatio
 |---|---|---|---|---|
 | `prepare` | début → `prepare_request` | Charge les collections accessibles (la barrière de permission) et **lit la mémoire de la personne** (`docs/memory.md`, une requête, vide si elle n'est pas utilisée pour ce run). **Ne lit aucun texte** : il part en même temps que `guardrails`. | 0 | Backend : collections, mémoire |
 | `guardrails` | début → `prepare_request` | **Garde-fous d'entrée (#516).** Demande au backend ce que les garde-fous décident de la demande (`docs/guardrails.md`) : continuer, continuer masquée, continuer avec un avertissement, ou bloquer. Quand la demande est masquée, `original_query`, `contextualized_query` et le dernier message deviennent le texte masqué. Les événements ne portent que des comptes. Sans garde-fou actif, une seule requête sans appel de modèle. Un contrôle qui ne peut pas être fait fait échouer le run (il n'est pas « passé »). | 0 (1 par garde-fou de type modèle, en parallèle) | Backend : garde-fous ; hub : juges ; services externes |
-| `prepare_request` | `prepare` + `guardrails` → `plan` / `blocked` | Attend les deux, puis lit la demande **telle que les garde-fous l'ont laissée** : charge ce que l'utilisateur peut modifier / où il peut créer si elle contient un tel verbe, les outils qu'il peut utiliser, et réduit le catalogue du plan par le pré-filtre vectoriel au-delà de 20 collections (les collections **habituelles** de la personne en tête et un peu favorisées : un a priori, jamais un filtre, `docs/memory.md`). Si la demande est bloquée, il ne fait rien : ni plongement du texte, ni appel d'outils. | 0 | Backend : documents modifiables, collections de création, outils ; Qdrant : pré-filtre |
+| `prepare_request` | `prepare` + `guardrails` → `route_model` / `blocked` | Attend les deux, puis lit la demande **telle que les garde-fous l'ont laissée** : charge ce que l'utilisateur peut modifier / où il peut créer si elle contient un tel verbe, les outils qu'il peut utiliser, et réduit le catalogue du plan par le pré-filtre vectoriel au-delà de 20 collections (les collections **habituelles** de la personne en tête et un peu favorisées : un a priori, jamais un filtre, `docs/memory.md`). Si la demande est bloquée, il ne fait rien : ni plongement du texte, ni appel d'outils. | 0 | Backend : documents modifiables, collections de création, outils ; Qdrant : pré-filtre |
 | `blocked` | `prepare_request` → fin | La demande a été arrêtée : la réponse est le refus des garde-fous (jamais la règle), sans source. Le run est **terminé**, pas en échec. Aucun modèle, aucune recherche, aucun appel au web. | 0 | — |
+| `route_model` | `prepare_request` → `plan` | **Mode Auto** (`docs/model-auto.md`). Quand la personne n'a pas choisi de modèle, un appel court note la demande (niveau 0-100, complexité, intention) et le modèle dont le score la couvre devient `chat_model` pour **tout le run**. Un modèle choisi à la main est pris tel quel, sans appel. Sans modèle noté, avec un seul candidat, ou si le classifieur échoue : le modèle par défaut, comme avant. Ne fait jamais échouer un run. | 1 (0 si modèle choisi ou candidat unique) | Backend : candidats et scores ; hub : classifieur |
 | `plan` | `prepare` → fin / `answer_help` / `memory_command` / `edit` / `create` / `research_task` | **L'appel n°1.** Lit le message, les 6 derniers tours et le catalogue ; rend un JSON : `mode` (`direct`, `clarify`, `help`, `edit`, `create`, `memory`, `search`) et, pour `search`, la question autonome, 1 à 4 requêtes avec leur outil, les collections et la complexité. `direct` et `clarify` portent la réponse : le run s'arrête là. `memory` n'est proposé que si la mémoire n'est pas suspendue par l'administrateur. Valide tout contre les listes du backend. | **1** | `get_prompt` |
 | `memory_command` | `plan` → fin | Ce que la personne demande de sa mémoire dans le chat (« retiens que… », « oublie que… », « que sais-tu de moi ? ») : le backend l'exécute sous les règles de la page « Ma mémoire », et **la réponse est écrite par le code** à partir de ce qui a vraiment été fait. Les événements disent l'action et l'issue, jamais le texte. | 0 | Backend : mémoire |
 | `answer_help` | `plan` → fin | Répond à « comment faire dans Muffin » avec le guide intégré. | 1 | `get_prompt` |
