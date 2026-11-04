@@ -13,6 +13,7 @@ from app.openai_app import openai_app
 from app.routers.a2a_server import router as a2a_server_router
 from app.routers.admin_cgu import router as admin_cgu_router
 from app.routers.admin_guardrails import router as admin_guardrails_router
+from app.routers.admin_models import router as admin_models_router
 from app.routers.admin_owui_sync import router as admin_owui_sync_router
 from app.routers.admin_prompts import router as admin_prompts_router
 from app.routers.admin_reports import router as admin_reports_router
@@ -239,6 +240,7 @@ app.include_router(filing_router, prefix="/api")
 app.include_router(tasks_router, prefix="/api")
 app.include_router(runs_router, prefix="/api")
 app.include_router(admin_settings_router, prefix="/api")
+app.include_router(admin_models_router, prefix="/api")
 app.include_router(admin_prompts_router, prefix="/api")
 app.include_router(admin_owui_sync_router, prefix="/api")
 app.include_router(admin_cgu_router, prefix="/api")

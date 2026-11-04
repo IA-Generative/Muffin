@@ -92,6 +92,7 @@ class BackendClient:
         pending_human_action: dict[str, Any] | None = None,
         plan_version: int | None = None,
         replan_count: int | None = None,
+        routing: dict[str, Any] | None = None,
     ) -> None:
         response = await self._client.patch(
             f"/api/internal/runs/{run_id}/state",
@@ -101,6 +102,7 @@ class BackendClient:
                 "pending_human_action": pending_human_action,
                 "plan_version": plan_version,
                 "replan_count": replan_count,
+                "routing": routing,
             },
         )
         response.raise_for_status()
@@ -335,6 +337,13 @@ class BackendClient:
             ).raise_for_status()
         except httpx.HTTPError:
             pass
+
+    async def get_auto_candidates(self) -> dict[str, Any]:
+        """The chat models auto mode may pick from, cheapest first: [{model, score, description, vision}], and the model
+        an administrator chose to classify the requests (None: the first)."""
+        response = await self._client.get("/api/internal/llm/auto-candidates")
+        response.raise_for_status()
+        return response.json()
 
     async def get_default_chat_model(self) -> str | None:
         response = await self._client.get("/api/internal/llm/default-chat-model")

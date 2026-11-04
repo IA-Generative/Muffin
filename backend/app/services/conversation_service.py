@@ -110,6 +110,7 @@ class ConversationService:
                 guardrail_outcome=guardrail_outcome,
                 guardrail_notice=guardrail_notice,
                 memory_used=(memory_used or 0) if message.role == "assistant" else 0,
+                model=model if message.role == "assistant" else None,
             )
             for (
                 message,
@@ -120,6 +121,7 @@ class ConversationService:
                 guardrail_outcome,
                 guardrail_notice,
                 memory_used,
+                model,
             ) in rows
         ]
 

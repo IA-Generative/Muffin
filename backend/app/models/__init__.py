@@ -57,6 +57,7 @@ from app.models.import_document import ImportDocument
 from app.models.index_rebuild import IndexRebuild, IndexRebuildStatus
 from app.models.message import Message, MessageRole
 from app.models.message_image import MessageImage
+from app.models.model_profile import ModelProfile
 from app.models.notification import Notification, NotificationPreference
 from app.models.owui_sync_run import OwuiSyncRun
 from app.models.prompt import PromptVersion, RunPromptUsage
@@ -140,6 +141,7 @@ __all__ = [
     "GuardrailResult",
     "MemberStatus",
     "Message",
+    "ModelProfile",
     "OwuiSyncRun",
     "MessageRole",
     "MessageSource",

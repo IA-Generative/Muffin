@@ -14,6 +14,7 @@ from app.agent.graph.nodes.merge_evidence import merge_evidence
 from app.agent.graph.nodes.plan import plan
 from app.agent.graph.nodes.prepare import prepare, prepare_request
 from app.agent.graph.nodes.research_task import research_task
+from app.agent.graph.nodes.route_model import route_model
 from app.agent.graph.routing.conditions import (
     after_gate,
     after_plan,
@@ -32,8 +33,8 @@ def _cancellable_edge(graph: StateGraph, source: str, target: str) -> None:
 def build_graph(checkpointer: BaseCheckpointSaver | None = None):
     """The agent: one model call decides (`plan`), the research that follows is code, one model call writes the answer.
 
-    (prepare || guardrails) -> prepare_request -> { blocked | plan -> { answer now | ask | help | edit | create |
-        research -> gate -> (widen) -> answer } }
+    (prepare || guardrails) -> prepare_request -> { blocked | route_model -> plan -> { answer now | ask | help | edit |
+        create | research -> gate -> (widen) -> answer } }
 
     The guardrails on the input (#516) run beside `prepare` and are waited for before the request is read by anything:
     a request they stop ends at `blocked`, with a refusal for an answer and no model reached.
@@ -45,6 +46,7 @@ def build_graph(checkpointer: BaseCheckpointSaver | None = None):
     graph.add_node("guardrails", measured("guardrails", guardrails))
     graph.add_node("prepare_request", measured("prepare_request", prepare_request))
     graph.add_node("blocked", measured("blocked", blocked))
+    graph.add_node("route_model", measured("route_model", route_model))
     graph.add_node("plan", measured("plan", plan))
     graph.add_node("answer_help", measured("answer_help", answer_help))
     graph.add_node("memory_command", measured("memory_command", memory_command))
@@ -67,8 +69,12 @@ def build_graph(checkpointer: BaseCheckpointSaver | None = None):
     # left it.
     graph.add_edge(["prepare", "guardrails"], "prepare_request")
     graph.add_conditional_edges(
-        "prepare_request", after_prepare, {"plan": "plan", "blocked": "blocked", "cancelled": "cancelled"}
+        "prepare_request",
+        after_prepare,
+        {"route_model": "route_model", "blocked": "blocked", "cancelled": "cancelled"},
     )
+    # Auto mode: the model of the run is chosen from the difficulty of the request, before anything is sent to it.
+    _cancellable_edge(graph, "route_model", "plan")
     graph.add_edge("blocked", END)
     # The plan decides. Answering and asking end the run (the plan wrote the answer); a search fans out, one branch per
     # query, all at once.

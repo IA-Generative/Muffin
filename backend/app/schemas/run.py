@@ -43,6 +43,9 @@ class RunCreate(BaseModel):
     # The images attached to this message for the model to read (#512): chosen in the composer beforehand
     # (`POST /api/images/attachments`), theirs, and sent with this one message only.
     image_ids: list[uuid.UUID] = Field(default_factory=list, max_length=20)
+    # The model that writes this message's answer. None or "auto": the agent chooses by the difficulty of the request
+    # (see ModelProfile); anything else is used as it is.
+    model: str | None = Field(default=None, max_length=200)
 
 
 class RunResumeRequest(BaseModel):
@@ -63,6 +66,11 @@ class RunOut(BaseModel):
     query: str
     status: str
     cancel_requested: bool
+    # What the person asked for (None: auto) and, in auto mode, what the agent chose and why.
+    requested_model: str | None = None
+    routing: dict[str, Any] | None = None
+    # The model that wrote the answer, known once the choice is made.
+    model: str | None = None
     current_node: str | None
     current_activity: str | None
     plan_version: int

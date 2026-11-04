@@ -30,10 +30,10 @@ def _ready_tasks(state: AgentState, prefix: str | None = None) -> list:
 
 def after_prepare(state: AgentState) -> str:
     """Where the run goes once the collections are known and the guardrails on the input have spoken (#516): to the
-    refusal when they stopped the request, else to the plan."""
+    refusal when they stopped the request, else to the choice of the model, then the plan."""
     if state.get("cancelled"):
         return "cancelled"
-    return "blocked" if (state.get("guardrail") or {}).get("outcome") == "block" else "plan"
+    return "blocked" if (state.get("guardrail") or {}).get("outcome") == "block" else "route_model"
 
 
 def after_plan(state: AgentState) -> str | list[Send]:

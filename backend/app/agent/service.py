@@ -111,7 +111,8 @@ class AgentService:
                 # Fetched once here rather than by every node that needs it (see AgentState.chat_model) -
                 # backend_client.get_default_chat_model() is already Redis-cached backend-side, so this
                 # is the only worker<->backend round trip for it in the entire run.
-                "chat_model": (await backend_client.get_default_chat_model()),
+                "chat_model": run.get("requested_model") or (await backend_client.get_default_chat_model()),
+                "requested_model": run.get("requested_model"),
                 # The images of this message (#512): read only by the model that writes the answer.
                 "images": [
                     {"id": str(image["id"]), "content_type": image["content_type"], "current": image["current"]}

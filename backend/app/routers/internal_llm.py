@@ -22,6 +22,8 @@ from app.schemas.internal_pipeline import (
     LlmEmbedRequest,
     LlmEmbedResponse,
 )
+from app.schemas.model_profiles import AutoCandidatesOut
+from app.services.model_catalog_service import ModelCatalogService
 from app.services.usage_service import UsageService
 
 # Not user-facing: the worker's only path to the LLM hub, so it never needs
@@ -209,6 +211,15 @@ async def chat_stream(request: LlmChatRequest) -> StreamingResponse:
 )
 async def default_chat_model() -> dict[str, str | None]:
     return {"model": await _default_chat_model()}
+
+
+@router.get(
+    "/llm/auto-candidates",
+    summary="The chat models auto mode may pick from, with the score an administrator gave them",
+    response_model=AutoCandidatesOut,
+)
+async def auto_candidates(db: Annotated[AsyncSession, Depends(get_db)]) -> AutoCandidatesOut:
+    return await ModelCatalogService(db).auto_candidates()
 
 
 @router.get(
