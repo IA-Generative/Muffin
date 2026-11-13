@@ -16,17 +16,17 @@
     "@gouvfr/dsfr": "^1.15.4",
     "@gouvminint/vue-dsfr": "^8.21.0",
     "dompurify": "^3.4.17",
-    "marked": "^18.1.2",
-    "vue": "^3.5.44",
-    "vue-router": "^5.4.0"
+    "marked": "^18.2.0",
+    "vue": "^3.5.45",
+    "vue-router": "^5.5.0"
   },
   "devDependencies": {
-    "@playwright/test": "^1.64.1",
-    "@types/node": "^26.6.5",
+    "@playwright/test": "^1.65.0",
+    "@types/node": "^26.6.6",
     "@vitejs/plugin-vue": "^6.0.10",
     "@vue/tsconfig": "^0.9.1",
     "typescript": "~6.0.2",
-    "vite": "^8.3.5",
-    "vue-tsc": "^3.3.13"
+    "vite": "^8.3.7",
+    "vue-tsc": "^3.3.14"
   }
 }
