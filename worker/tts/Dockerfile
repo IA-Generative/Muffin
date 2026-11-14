@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM python:3.12-slim AS builder
+FROM python:3.15-slim AS builder
 WORKDIR /app
 ENV UV_LINK_MODE=copy
 COPY --from=ghcr.io/astral-sh/uv:0.11.7 /uv /usr/local/bin/uv
@@ -37,7 +37,7 @@ RUN /app/.venv/bin/python scripts/fetch_weights.py "${S3GEN_REPO}" "${S3GEN_REVI
     && (cd /models/hf/models--ResembleAI--chatterbox-turbo/snapshots/${S3GEN_REVISION} \
         && sha256sum --check --quiet --strict /app/s3gen.sha256)
 
-FROM python:3.12-slim AS runtime
+FROM python:3.15-slim AS runtime
 # pip is a build tool: the runtime image never installs anything, and the pip bundled with the base
 # image carries known CVEs. Removed rather than upgraded, so there is nothing left to keep patched.
 RUN python -m pip uninstall -y pip
