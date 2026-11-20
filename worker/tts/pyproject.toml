@@ -10,7 +10,7 @@ dependencies = [
     "soundfile>=0.13.1",
     # The Python package of Kitten-TTS (Apache-2.0). The weights are a separate work, under their own licence: see
     # LICENSES.md.
-    "kittenml==0.9.7",
+    "kittenml==0.9.8",
     "torch>=2.6.0",
     "torchaudio>=2.6.0",
 ]
