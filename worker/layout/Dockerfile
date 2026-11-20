@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM python:3.12-slim AS builder
+FROM python:3.15-slim AS builder
 WORKDIR /app
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 COPY pyproject.toml uv.lock* ./
@@ -21,7 +21,7 @@ local_dir='/models/PP-DocLayoutV3_onnx', allow_patterns=['inference.onnx', 'infe
     && echo "${LAYOUT_MODEL_SHA256}  /models/PP-DocLayoutV3_onnx/inference.onnx" | sha256sum -c - \
     && rm -rf /models/PP-DocLayoutV3_onnx/.cache
 
-FROM python:3.12-slim AS runtime
+FROM python:3.15-slim AS runtime
 # pip is a build tool: the runtime image never installs anything, and the pip bundled with the base
 # image carries known CVEs. Removed rather than upgraded, so there is nothing left to keep patched.
 RUN python -m pip uninstall -y pip
